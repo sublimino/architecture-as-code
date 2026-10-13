@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -124,8 +125,19 @@ type SubjectPortabilityResponse struct {
 
 // handleExportSubject implements cross-plane per-subject export for Article 15 Access and Article 20 Portability.
 func (h *Handlers) handleExportSubject(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}

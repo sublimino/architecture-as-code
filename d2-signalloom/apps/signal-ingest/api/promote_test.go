@@ -175,15 +175,15 @@ func TestPromoteActor_MethodNotAllowedAndHEADBodySuppression(t *testing.T) {
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handlePromoteActor got %d, want 405", method, w.Code)
 		}
-		if allow := w.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("%s Allow header = %q, want 'POST'", method, allow)
+		if allow := w.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("%s Allow header = %q, want 'POST, OPTIONS'", method, allow)
 		}
 		if w.Body.Len() == 0 {
 			t.Errorf("%s expected error body, got empty", method)
 		}
 	}
 
-	// Direct unwrapped HEAD request must return 405 with Allow: POST and 0-byte body per RFC 9110 Section 6.4.1
+	// Direct unwrapped HEAD request must return 405 with Allow: POST, OPTIONS and 0-byte body per RFC 9110 Section 6.4.1
 	headReq := httptest.NewRequest(http.MethodHead, "/api/v1/actors/some-actor/promote", nil)
 	headRec := httptest.NewRecorder()
 	h.handlePromoteActor(headRec, headReq)
@@ -191,8 +191,8 @@ func TestPromoteActor_MethodNotAllowedAndHEADBodySuppression(t *testing.T) {
 	if headRec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("HEAD handlePromoteActor got %d, want 405", headRec.Code)
 	}
-	if allow := headRec.Header().Get("Allow"); allow != "POST" {
-		t.Errorf("HEAD Allow header = %q, want 'POST'", allow)
+	if allow := headRec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("HEAD Allow header = %q, want 'POST, OPTIONS'", allow)
 	}
 	if headRec.Body.Len() != 0 {
 		t.Errorf("HEAD response body not suppressed: got %d bytes %q", headRec.Body.Len(), headRec.Body.String())

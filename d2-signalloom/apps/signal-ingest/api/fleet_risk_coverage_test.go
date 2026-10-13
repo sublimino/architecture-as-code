@@ -142,15 +142,15 @@ func TestFleetRisk_MethodGatesAndHEAD(t *testing.T) {
 	src := partialFleetSource{ids: []string{"agent-a"}}
 	h := &Handlers{FairService: fair.NewService(src)}
 
-	// handleGetFleetRisk: POST returns 405 with Allow: GET, HEAD
+	// handleGetFleetRisk: POST returns 405 with Allow: GET, HEAD, OPTIONS
 	reqPost := httptest.NewRequest(http.MethodPost, "/api/v1/risk/fleet", nil)
 	wPost := httptest.NewRecorder()
 	h.handleGetFleetRisk(wPost, reqPost)
 	if wPost.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST handleGetFleetRisk: want 405, got %d", wPost.Code)
 	}
-	if allow := wPost.Header().Get("Allow"); allow != "GET, HEAD" {
-		t.Errorf("POST handleGetFleetRisk: want Allow 'GET, HEAD', got %q", allow)
+	if allow := wPost.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Errorf("POST handleGetFleetRisk: want Allow 'GET, HEAD, OPTIONS', got %q", allow)
 	}
 
 	// handleGetFleetRisk: HEAD returns 200 with 0 body bytes
@@ -172,15 +172,15 @@ func TestFleetRisk_MethodGatesAndHEAD(t *testing.T) {
 		t.Errorf("HEAD handleGetFleetRisk: want Content-Type 'application/json', got %q", ct)
 	}
 
-	// handleGetAgentRisk: POST returns 405 with Allow: GET, HEAD
+	// handleGetAgentRisk: POST returns 405 with Allow: GET, HEAD, OPTIONS
 	reqAgentPost := httptest.NewRequest(http.MethodPost, "/api/v1/risk/agents/agent-a", nil)
 	wAgentPost := httptest.NewRecorder()
 	h.handleGetAgentRisk(wAgentPost, reqAgentPost)
 	if wAgentPost.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST handleGetAgentRisk: want 405, got %d", wAgentPost.Code)
 	}
-	if allow := wAgentPost.Header().Get("Allow"); allow != "GET, HEAD" {
-		t.Errorf("POST handleGetAgentRisk: want Allow 'GET, HEAD', got %q", allow)
+	if allow := wAgentPost.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Errorf("POST handleGetAgentRisk: want Allow 'GET, HEAD, OPTIONS', got %q", allow)
 	}
 
 	// handleGetAgentRisk: HEAD returns 200 with 0 body bytes

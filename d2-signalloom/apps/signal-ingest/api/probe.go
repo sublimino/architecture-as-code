@@ -15,7 +15,9 @@ func NewProbeHandler(h *Handlers) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("HEAD /healthz", handleHealthz)
+	mux.HandleFunc("OPTIONS /healthz", handleHealthz)
 	mux.HandleFunc("GET /readyz", h.handleReadyz)
 	mux.HandleFunc("HEAD /readyz", h.handleReadyz)
+	mux.HandleFunc("OPTIONS /readyz", h.handleReadyz)
 	return headBodySuppressingMiddleware(mux)
 }

@@ -40,8 +40,19 @@ func (h *Handlers) getCodingAgentStore() codingagent.TelemetryStore {
 // 3. Monotonic deduplication (session_id + sequence) preventing duplicate metric accumulation.
 // 4. Server-side clock skew calculation alongside untouched original timestamp.
 func (h *Handlers) handleCodingAgentTelemetry(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		if r.Method == http.MethodHead {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -105,8 +116,19 @@ func (h *Handlers) handleCodingAgentTelemetry(w http.ResponseWriter, r *http.Req
 
 // handleQueryCodingAgentTelemetry retrieves stored telemetry records for the authenticated tenant.
 func (h *Handlers) handleQueryCodingAgentTelemetry(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -137,8 +159,19 @@ func (h *Handlers) handleQueryCodingAgentTelemetry(w http.ResponseWriter, r *htt
 // handleAggregateCodingAgentTelemetry returns summary metrics for the authenticated tenant,
 // strictly enforcing the k-anonymity minimum group size (k=5) to prevent re-identification.
 func (h *Handlers) handleAggregateCodingAgentTelemetry(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodPost {
-		w.Header().Set("Allow", "GET, HEAD, POST")
+		w.Header().Set("Allow", "GET, HEAD, POST, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -173,8 +206,19 @@ func (h *Handlers) handleAggregateCodingAgentTelemetry(w http.ResponseWriter, r 
 
 // handleCodingAgentOrdering evaluates causal ordering between two records with clock-skew uncertainty bounds.
 func (h *Handlers) handleCodingAgentOrdering(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		if r.Method == http.MethodHead {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)

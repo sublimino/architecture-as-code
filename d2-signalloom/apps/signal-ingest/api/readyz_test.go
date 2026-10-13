@@ -350,15 +350,29 @@ func TestReadyz_AuditWebhookRouteMounted(t *testing.T) {
 func TestReadyz_MethodGatesAndHEAD(t *testing.T) {
 	h := &Handlers{}
 
-	// POST returns 405 with Allow: GET, HEAD
+	// POST returns 405 with Allow: GET, HEAD, OPTIONS
 	reqPost := httptest.NewRequest(http.MethodPost, "/readyz", nil)
 	wPost := httptest.NewRecorder()
 	h.handleReadyz(wPost, reqPost)
 	if wPost.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST handleReadyz: want 405, got %d", wPost.Code)
 	}
-	if allow := wPost.Header().Get("Allow"); allow != "GET, HEAD" {
-		t.Errorf("POST handleReadyz: want Allow 'GET, HEAD', got %q", allow)
+	if allow := wPost.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Errorf("POST handleReadyz: want Allow 'GET, HEAD, OPTIONS', got %q", allow)
+	}
+
+	// OPTIONS returns 204 with Allow: GET, HEAD, OPTIONS
+	reqOptions := httptest.NewRequest(http.MethodOptions, "/readyz", nil)
+	wOptions := httptest.NewRecorder()
+	h.handleReadyz(wOptions, reqOptions)
+	if wOptions.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS handleReadyz: want 204, got %d", wOptions.Code)
+	}
+	if allow := wOptions.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Errorf("OPTIONS handleReadyz: want Allow 'GET, HEAD, OPTIONS', got %q", allow)
+	}
+	if wOptions.Body.Len() != 0 {
+		t.Errorf("OPTIONS handleReadyz: want 0 body bytes, got %d", wOptions.Body.Len())
 	}
 
 	// HEAD returns 200 with 0 body bytes

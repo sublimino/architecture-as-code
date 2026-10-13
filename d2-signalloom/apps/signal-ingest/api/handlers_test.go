@@ -519,9 +519,18 @@ func TestMethodGatesAllowHeaders(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleNonoAudit got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("%s handleNonoAudit got Allow %q, want POST", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("%s handleNonoAudit got Allow %q, want POST, OPTIONS", method, allow)
 		}
+	}
+	optReq := httptest.NewRequest(http.MethodOptions, "/api/v1/audit/nono", nil)
+	optRec := httptest.NewRecorder()
+	h.handleNonoAudit(optRec, optReq)
+	if optRec.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS handleNonoAudit got status %d, want 204", optRec.Code)
+	}
+	if allow := optRec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("OPTIONS handleNonoAudit got Allow %q, want POST, OPTIONS", allow)
 	}
 
 	// handleCreateDelegation: POST only
@@ -532,9 +541,15 @@ func TestMethodGatesAllowHeaders(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleCreateDelegation got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("%s handleCreateDelegation got Allow %q, want POST", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("%s handleCreateDelegation got Allow %q, want POST, OPTIONS", method, allow)
 		}
+	}
+	optReq = httptest.NewRequest(http.MethodOptions, "/api/v1/delegations", nil)
+	optRec = httptest.NewRecorder()
+	h.handleCreateDelegation(optRec, optReq)
+	if optRec.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS handleCreateDelegation got status %d, want 204", optRec.Code)
 	}
 
 	// handleClampDelegation: POST, DELETE
@@ -545,9 +560,15 @@ func TestMethodGatesAllowHeaders(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleClampDelegation got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "POST, DELETE" {
-			t.Errorf("%s handleClampDelegation got Allow %q, want POST, DELETE", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "POST, DELETE, OPTIONS" {
+			t.Errorf("%s handleClampDelegation got Allow %q, want POST, DELETE, OPTIONS", method, allow)
 		}
+	}
+	optReq = httptest.NewRequest(http.MethodOptions, "/api/v1/delegations/clamp", nil)
+	optRec = httptest.NewRecorder()
+	h.handleClampDelegation(optRec, optReq)
+	if optRec.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS handleClampDelegation got status %d, want 204", optRec.Code)
 	}
 
 	// handleRevokeDelegations: POST only
@@ -558,9 +579,15 @@ func TestMethodGatesAllowHeaders(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleRevokeDelegations got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("%s handleRevokeDelegations got Allow %q, want POST", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("%s handleRevokeDelegations got Allow %q, want POST, OPTIONS", method, allow)
 		}
+	}
+	optReq = httptest.NewRequest(http.MethodOptions, "/api/v1/delegations/revoke", nil)
+	optRec = httptest.NewRecorder()
+	h.handleRevokeDelegations(optRec, optReq)
+	if optRec.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS handleRevokeDelegations got status %d, want 204", optRec.Code)
 	}
 
 	// handleHealth: GET, HEAD
@@ -571,9 +598,15 @@ func TestMethodGatesAllowHeaders(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleHealth got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Errorf("%s handleHealth got Allow %q, want GET, HEAD", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("%s handleHealth got Allow %q, want GET, HEAD, OPTIONS", method, allow)
 		}
+	}
+	optReq = httptest.NewRequest(http.MethodOptions, "/health", nil)
+	optRec = httptest.NewRecorder()
+	h.handleHealth(optRec, optReq)
+	if optRec.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS handleHealth got status %d, want 204", optRec.Code)
 	}
 
 	// handleHealthz: GET, HEAD
@@ -584,9 +617,15 @@ func TestMethodGatesAllowHeaders(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleHealthz got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Errorf("%s handleHealthz got Allow %q, want GET, HEAD", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("%s handleHealthz got Allow %q, want GET, HEAD, OPTIONS", method, allow)
 		}
+	}
+	optReq = httptest.NewRequest(http.MethodOptions, "/healthz", nil)
+	optRec = httptest.NewRecorder()
+	handleHealthz(optRec, optReq)
+	if optRec.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS handleHealthz got status %d, want 204", optRec.Code)
 	}
 
 	// handleCoverage: GET, HEAD
@@ -597,9 +636,15 @@ func TestMethodGatesAllowHeaders(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleCoverage got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Errorf("%s handleCoverage got Allow %q, want GET, HEAD", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("%s handleCoverage got Allow %q, want GET, HEAD, OPTIONS", method, allow)
 		}
+	}
+	optReq = httptest.NewRequest(http.MethodOptions, "/api/v1/coverage", nil)
+	optRec = httptest.NewRecorder()
+	handleCoverage(optRec, optReq)
+	if optRec.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS handleCoverage got status %d, want 204", optRec.Code)
 	}
 
 	// handleIngestObservations: POST only
@@ -610,9 +655,15 @@ func TestMethodGatesAllowHeaders(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleIngestObservations got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("%s handleIngestObservations got Allow %q, want POST", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("%s handleIngestObservations got Allow %q, want POST, OPTIONS", method, allow)
 		}
+	}
+	optReq = httptest.NewRequest(http.MethodOptions, "/api/v1/observations", nil)
+	optRec = httptest.NewRecorder()
+	h.handleIngestObservations(optRec, optReq)
+	if optRec.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS handleIngestObservations got status %d, want 204", optRec.Code)
 	}
 
 	// handleCorrelate: POST only
@@ -623,9 +674,15 @@ func TestMethodGatesAllowHeaders(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleCorrelate got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("%s handleCorrelate got Allow %q, want POST", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("%s handleCorrelate got Allow %q, want POST, OPTIONS", method, allow)
 		}
+	}
+	optReq = httptest.NewRequest(http.MethodOptions, "/api/v1/correlate", nil)
+	optRec = httptest.NewRecorder()
+	h.handleCorrelate(optRec, optReq)
+	if optRec.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS handleCorrelate got status %d, want 204", optRec.Code)
 	}
 
 	// handleSeed: POST only
@@ -636,9 +693,15 @@ func TestMethodGatesAllowHeaders(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleSeed got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("%s handleSeed got Allow %q, want POST", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("%s handleSeed got Allow %q, want POST, OPTIONS", method, allow)
 		}
+	}
+	optReq = httptest.NewRequest(http.MethodOptions, "/api/v1/collectors/seed", nil)
+	optRec = httptest.NewRecorder()
+	h.handleSeed(optRec, optReq)
+	if optRec.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS handleSeed got status %d, want 204", optRec.Code)
 	}
 
 	// handleStream: GET, HEAD
@@ -649,9 +712,15 @@ func TestMethodGatesAllowHeaders(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleStream got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Errorf("%s handleStream got Allow %q, want GET, HEAD", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("%s handleStream got Allow %q, want GET, HEAD, OPTIONS", method, allow)
 		}
+	}
+	optReq = httptest.NewRequest(http.MethodOptions, "/api/v1/stream", nil)
+	optRec = httptest.NewRecorder()
+	h.handleStream(optRec, optReq)
+	if optRec.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS handleStream got status %d, want 204", optRec.Code)
 	}
 }
 

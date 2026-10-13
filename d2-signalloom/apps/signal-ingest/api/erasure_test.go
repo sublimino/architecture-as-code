@@ -478,23 +478,23 @@ func TestErasureRouteMethodNotAllowed(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleEraseSubject got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("%s handleEraseSubject got Allow %q, want POST", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("%s handleEraseSubject got Allow %q, want POST, OPTIONS", method, allow)
 		}
 		if rec.Body.Len() == 0 {
 			t.Errorf("%s handleEraseSubject expected non-empty error body", method)
 		}
 	}
 
-	// HEAD request must return 405 with Allow: POST and 0-byte body per RFC 9110 Section 6.4.1
+	// HEAD request must return 405 with Allow: POST, OPTIONS and 0-byte body per RFC 9110 Section 6.4.1
 	headReq := httptest.NewRequest(http.MethodHead, "/api/v1/privacy/erasure/actor-1", nil)
 	headRec := httptest.NewRecorder()
 	h.handleEraseSubject(headRec, headReq)
 	if headRec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("HEAD handleEraseSubject got status %d, want 405", headRec.Code)
 	}
-	if allow := headRec.Header().Get("Allow"); allow != "POST" {
-		t.Errorf("HEAD handleEraseSubject got Allow %q, want POST", allow)
+	if allow := headRec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("HEAD handleEraseSubject got Allow %q, want POST, OPTIONS", allow)
 	}
 	if headRec.Body.Len() != 0 {
 		t.Errorf("HEAD handleEraseSubject body length = %d, want 0", headRec.Body.Len())

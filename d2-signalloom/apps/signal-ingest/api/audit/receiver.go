@@ -214,8 +214,19 @@ func (r *WebhookReceiver) IngestK8sEventList(eventList *K8sEventList) (accepted 
 
 // HandleAuditWebhook handles incoming HTTP POST requests from Kubernetes APIServer.
 func (r *WebhookReceiver) HandleAuditWebhook(w http.ResponseWriter, req *http.Request) {
+	if req.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(req.Body, 4096))
+			_ = req.Body.Close()
+		}()
+	}
+	if req.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if req.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		if req.Method != http.MethodHead {
@@ -233,7 +244,6 @@ func (r *WebhookReceiver) HandleAuditWebhook(w http.ResponseWriter, req *http.Re
 		}
 		return
 	}
-	defer req.Body.Close()
 
 	var eventList K8sEventList
 	if err := json.Unmarshal(body, &eventList); err != nil {

@@ -1164,8 +1164,8 @@ func TestPolicyRoutes_MethodGatesAndHEADBodySuppression(t *testing.T) {
 				if rec.Code != http.StatusMethodNotAllowed {
 					t.Errorf("%s %s got status %d, want 405", method, rt.path, rec.Code)
 				}
-				if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
-					t.Errorf("%s %s Allow header = %q, want 'GET, HEAD'", method, rt.path, allow)
+				if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+					t.Errorf("%s %s Allow header = %q, want 'GET, HEAD, OPTIONS'", method, rt.path, allow)
 				}
 				if rec.Body.Len() == 0 {
 					t.Errorf("%s %s expected error body, got empty", method, rt.path)
@@ -1218,8 +1218,8 @@ func TestPolicyRoutes_MethodGatesAndHEADBodySuppression(t *testing.T) {
 			if rec.Code != http.StatusMethodNotAllowed {
 				t.Errorf("%s handlePolicyReview got status %d, want 405", method, rec.Code)
 			}
-			if allow := rec.Header().Get("Allow"); allow != "POST" {
-				t.Errorf("%s handlePolicyReview Allow header = %q, want 'POST'", method, allow)
+			if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+				t.Errorf("%s handlePolicyReview Allow header = %q, want 'POST, OPTIONS'", method, allow)
 			}
 			if rec.Body.Len() == 0 {
 				t.Errorf("%s handlePolicyReview expected error body, got empty", method)
@@ -1235,8 +1235,8 @@ func TestPolicyRoutes_MethodGatesAndHEADBodySuppression(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("HEAD handlePolicyReview got status %d, want 405", rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("HEAD handlePolicyReview Allow header = %q, want 'POST'", allow)
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("HEAD handlePolicyReview Allow header = %q, want 'POST, OPTIONS'", allow)
 		}
 		if rec.Body.Len() != 0 {
 			t.Errorf("HEAD handlePolicyReview body length = %d, want 0", rec.Body.Len())
@@ -1252,8 +1252,8 @@ func TestPolicyRoutes_MethodGatesAndHEADBodySuppression(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("HEAD handlePolicyReview got status %d, want 405", rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("HEAD handlePolicyReview Allow header = %q, want 'POST'", allow)
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("HEAD handlePolicyReview Allow header = %q, want 'POST, OPTIONS'", allow)
 		}
 		if rec.Body.Len() != 0 {
 			t.Errorf("HEAD handlePolicyReview body length = %d, want 0", rec.Body.Len())

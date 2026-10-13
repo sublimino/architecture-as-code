@@ -138,8 +138,8 @@ func TestStoreStats_MethodGatesAndHEAD(t *testing.T) {
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleStoreStats: want 405, got %d", m, w.Code)
 		}
-		if allow := w.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Errorf("%s handleStoreStats: want Allow 'GET, HEAD', got %q", m, allow)
+		if allow := w.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("%s handleStoreStats: want Allow 'GET, HEAD, OPTIONS', got %q", m, allow)
 		}
 	}
 

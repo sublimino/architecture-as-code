@@ -310,23 +310,23 @@ func TestRevokeDelegations_MethodGatesAndHEADBodySuppression(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s /api/v1/delegations/revoke status = %d, want 405", m, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("%s /api/v1/delegations/revoke Allow = %q, want POST", m, allow)
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("%s /api/v1/delegations/revoke Allow = %q, want POST, OPTIONS", m, allow)
 		}
 		if rec.Body.Len() == 0 {
 			t.Errorf("%s /api/v1/delegations/revoke expected non-empty error body", m)
 		}
 	}
 
-	// 2. Direct unwrapped HEAD on handleRevokeDelegations returns 405 with Allow: POST and 0-byte body
+	// 2. Direct unwrapped HEAD on handleRevokeDelegations returns 405 with Allow: POST, OPTIONS and 0-byte body
 	headReq := httptest.NewRequest(http.MethodHead, "/api/v1/delegations/revoke", nil)
 	headRec := httptest.NewRecorder()
 	h.handleRevokeDelegations(headRec, headReq)
 	if headRec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("HEAD /api/v1/delegations/revoke status = %d, want 405", headRec.Code)
 	}
-	if allow := headRec.Header().Get("Allow"); allow != "POST" {
-		t.Errorf("HEAD /api/v1/delegations/revoke Allow = %q, want POST", allow)
+	if allow := headRec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("HEAD /api/v1/delegations/revoke Allow = %q, want POST, OPTIONS", allow)
 	}
 	if headRec.Body.Len() != 0 {
 		t.Errorf("HEAD /api/v1/delegations/revoke expected 0 body bytes, got %d", headRec.Body.Len())

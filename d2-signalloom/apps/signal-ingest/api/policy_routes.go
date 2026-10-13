@@ -255,8 +255,19 @@ type rateBucketView struct {
 
 // handlePolicyFindings answers GET /api/v1/policy/findings.
 func (h *Handlers) handlePolicyFindings(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -300,8 +311,19 @@ func (h *Handlers) handlePolicyFindings(w http.ResponseWriter, r *http.Request) 
 // handlePolicyDecisions answers GET /api/v1/policy/decisions, joining each decision to the latest
 // verdict recorded against it.
 func (h *Handlers) handlePolicyDecisions(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -410,8 +432,19 @@ type reviewRequestBody struct {
 
 // handlePolicyReview answers POST /api/v1/policy/decisions/{id}/review.
 func (h *Handlers) handlePolicyReview(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		if r.Method == http.MethodHead {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -540,8 +573,19 @@ func (h *Handlers) handlePolicyReview(w http.ResponseWriter, r *http.Request) {
 // working — raw signal in, findings out, decisions out — so filtering to policy sources here
 // would remove the denominator that makes the other two series mean anything.
 func (h *Handlers) handlePolicyRates(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}

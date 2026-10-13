@@ -541,8 +541,8 @@ func TestAuditWebhookReceiver_MalformedPayload(t *testing.T) {
 	if wGet.Result().StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 Method Not Allowed, got %d", wGet.Result().StatusCode)
 	}
-	if allow := wGet.Header().Get("Allow"); allow != "POST" {
-		t.Errorf("expected Allow: POST, got %q", allow)
+	if allow := wGet.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("expected Allow: POST, OPTIONS, got %q", allow)
 	}
 
 	// Test GKE GET method rejected
@@ -552,8 +552,8 @@ func TestAuditWebhookReceiver_MalformedPayload(t *testing.T) {
 	if wGetGKE.Result().StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 Method Not Allowed, got %d", wGetGKE.Result().StatusCode)
 	}
-	if allow := wGetGKE.Header().Get("Allow"); allow != "POST" {
-		t.Errorf("expected Allow: POST, got %q", allow)
+	if allow := wGetGKE.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("expected Allow: POST, OPTIONS, got %q", allow)
 	}
 
 	// Test invalid JSON
@@ -571,8 +571,8 @@ func TestAuditWebhookReceiver_MalformedPayload(t *testing.T) {
 	if wHead.Result().StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 Method Not Allowed for HEAD, got %d", wHead.Result().StatusCode)
 	}
-	if allow := wHead.Header().Get("Allow"); allow != "POST" {
-		t.Errorf("expected Allow: POST for HEAD, got %q", allow)
+	if allow := wHead.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("expected Allow: POST, OPTIONS for HEAD, got %q", allow)
 	}
 	if wHead.Body.Len() != 0 {
 		t.Errorf("expected 0 bytes body on HEAD, got %d: %q", wHead.Body.Len(), wHead.Body.String())
@@ -585,8 +585,8 @@ func TestAuditWebhookReceiver_MalformedPayload(t *testing.T) {
 	if wHeadGKE.Result().StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 Method Not Allowed for GKE HEAD, got %d", wHeadGKE.Result().StatusCode)
 	}
-	if allow := wHeadGKE.Header().Get("Allow"); allow != "POST" {
-		t.Errorf("expected Allow: POST for GKE HEAD, got %q", allow)
+	if allow := wHeadGKE.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("expected Allow: POST, OPTIONS for GKE HEAD, got %q", allow)
 	}
 	if wHeadGKE.Body.Len() != 0 {
 		t.Errorf("expected 0 bytes body on GKE HEAD, got %d: %q", wHeadGKE.Body.Len(), wHeadGKE.Body.String())

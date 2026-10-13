@@ -75,8 +75,8 @@ func TestExportSubject_MethodGatesAndHEAD(t *testing.T) {
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleExportSubject got %d, want 405", m, w.Code)
 		}
-		if allow := w.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Errorf("%s handleExportSubject got Allow %q, want 'GET, HEAD'", m, allow)
+		if allow := w.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("%s handleExportSubject got Allow %q, want 'GET, HEAD, OPTIONS'", m, allow)
 		}
 		if w.Body.Len() == 0 {
 			t.Errorf("%s handleExportSubject expected non-empty error body", m)

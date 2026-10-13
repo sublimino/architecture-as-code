@@ -294,8 +294,8 @@ func TestAuthorization_MethodGatesAndHEAD(t *testing.T) {
 	if wPost.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST handleGetActorAuthorization: want 405, got %d", wPost.Code)
 	}
-	if allow := wPost.Header().Get("Allow"); allow != "GET, HEAD" {
-		t.Errorf("POST handleGetActorAuthorization: want Allow 'GET, HEAD', got %q", allow)
+	if allow := wPost.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Errorf("POST handleGetActorAuthorization: want Allow 'GET, HEAD, OPTIONS', got %q", allow)
 	}
 
 	// handleGetActorAuthorization: HEAD returns 200 with 0 body bytes and Content-Type: application/json
@@ -313,15 +313,15 @@ func TestAuthorization_MethodGatesAndHEAD(t *testing.T) {
 		t.Errorf("HEAD handleGetActorAuthorization: want Content-Type 'application/json', got %q", ct)
 	}
 
-	// handleQueryAuthorization: POST rejected with 405 and Allow: GET, HEAD
+	// handleQueryAuthorization: POST rejected with 405 and Allow: GET, HEAD, OPTIONS
 	reqQueryPost := httptest.NewRequest(http.MethodPost, "/api/v1/authorization", nil).WithContext(testCtx)
 	wQueryPost := httptest.NewRecorder()
 	h.handleQueryAuthorization(wQueryPost, reqQueryPost)
 	if wQueryPost.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST handleQueryAuthorization: want 405, got %d", wQueryPost.Code)
 	}
-	if allow := wQueryPost.Header().Get("Allow"); allow != "GET, HEAD" {
-		t.Errorf("POST handleQueryAuthorization: want Allow 'GET, HEAD', got %q", allow)
+	if allow := wQueryPost.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Errorf("POST handleQueryAuthorization: want Allow 'GET, HEAD, OPTIONS', got %q", allow)
 	}
 
 	// handleQueryAuthorization: HEAD returns 200 with 0 body bytes

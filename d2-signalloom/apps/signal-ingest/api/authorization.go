@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -50,8 +51,19 @@ type AuthorizationQueryResponse struct {
 
 // handleGetActorAuthorization serves GET /api/v1/actors/{id}/authorization.
 func (h *Handlers) handleGetActorAuthorization(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -176,8 +188,19 @@ func (h *Handlers) handleGetActorAuthorization(w http.ResponseWriter, r *http.Re
 
 // handleQueryAuthorization serves GET /api/v1/authorization.
 func (h *Handlers) handleQueryAuthorization(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -34,8 +35,19 @@ type ErasureResponse struct {
 
 // handleEraseSubject serves POST /api/v1/privacy/erasure/{id}.
 func (h *Handlers) handleEraseSubject(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		if r.Method == http.MethodHead {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)

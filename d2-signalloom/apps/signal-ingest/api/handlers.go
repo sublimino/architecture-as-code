@@ -129,17 +129,27 @@ func (h *Handlers) handleAuditWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleNonoAudit(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "failed to read request body")
 		return
 	}
-	defer r.Body.Close()
 
 	if len(body) == 0 {
 		writeError(w, http.StatusBadRequest, "empty request body")
@@ -291,8 +301,19 @@ type HealthResponse struct {
 // handleHealth answers health queries with full visibility into the effective protective controls posture.
 // Operators can inspect this endpoint to verify encryption and audit enforcement directly.
 func (h *Handlers) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -325,8 +346,19 @@ func (h *Handlers) handleHealth(w http.ResponseWriter, r *http.Request) {
 // dependency in here would turn a Postgres outage into a CrashLoopBackOff,
 // which is the failure this whole change exists to remove.
 func handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -367,8 +399,19 @@ func (h *Handlers) vocabLogDue() bool {
 // including recording an audit trail and connecting to live collector sources.
 // Readiness failure means "send me no traffic".
 func (h *Handlers) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -444,8 +487,19 @@ func (h *Handlers) handleReadyz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleIngestObservations(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r != nil && r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -626,8 +680,19 @@ func (h *Handlers) handleIngestObservations(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -712,8 +777,19 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handlers) handleListActors(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -738,8 +814,19 @@ func (h *Handlers) handleListActors(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleGetActor(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -766,8 +853,19 @@ func (h *Handlers) handleGetActor(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleCorrelate(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r != nil && r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -855,8 +953,19 @@ func projectSeedLabels(s store.SignalStore, obs []model.Observation) {
 }
 
 func (h *Handlers) handleSeed(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r != nil && r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -903,8 +1012,19 @@ type StoreStatsResponse struct {
 }
 
 func (h *Handlers) handleStoreStats(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -979,8 +1099,19 @@ type BlindSpot struct {
 }
 
 func handleCoverage(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -1026,8 +1157,19 @@ func handleCoverage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleStream(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -1090,8 +1232,19 @@ func (h *Handlers) handleStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleGetAgentRisk(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -1190,8 +1343,19 @@ func (h *Handlers) handleGetAgentRisk(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleGetFleetRisk(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
+	if r != nil && r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}

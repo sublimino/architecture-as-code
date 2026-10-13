@@ -444,23 +444,23 @@ func TestCodingAgentTelemetryMethodGates(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleCodingAgentTelemetry got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("%s handleCodingAgentTelemetry got Allow %q, want POST", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("%s handleCodingAgentTelemetry got Allow %q, want POST, OPTIONS", method, allow)
 		}
 		if rec.Body.Len() == 0 {
 			t.Errorf("%s handleCodingAgentTelemetry expected non-empty error body", method)
 		}
 	}
 
-	// Direct unwrapped HEAD on handleCodingAgentTelemetry: 405 with Allow: POST and 0-byte body
+	// Direct unwrapped HEAD on handleCodingAgentTelemetry: 405 with Allow: POST, OPTIONS and 0-byte body
 	headIngestReq := httptest.NewRequest(http.MethodHead, "/api/v1/telemetry/coding-agents", nil)
 	headIngestRec := httptest.NewRecorder()
 	h.handleCodingAgentTelemetry(headIngestRec, headIngestReq)
 	if headIngestRec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("HEAD handleCodingAgentTelemetry status = %d, want 405", headIngestRec.Code)
 	}
-	if allow := headIngestRec.Header().Get("Allow"); allow != "POST" {
-		t.Errorf("HEAD handleCodingAgentTelemetry Allow = %q, want POST", allow)
+	if allow := headIngestRec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("HEAD handleCodingAgentTelemetry Allow = %q, want POST, OPTIONS", allow)
 	}
 	if headIngestRec.Body.Len() != 0 {
 		t.Errorf("HEAD handleCodingAgentTelemetry body length = %d, want 0", headIngestRec.Body.Len())
@@ -474,23 +474,23 @@ func TestCodingAgentTelemetryMethodGates(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleCodingAgentOrdering got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("%s handleCodingAgentOrdering got Allow %q, want POST", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("%s handleCodingAgentOrdering got Allow %q, want POST, OPTIONS", method, allow)
 		}
 		if rec.Body.Len() == 0 {
 			t.Errorf("%s handleCodingAgentOrdering expected non-empty error body", method)
 		}
 	}
 
-	// Direct unwrapped HEAD on handleCodingAgentOrdering: 405 with Allow: POST and 0-byte body
+	// Direct unwrapped HEAD on handleCodingAgentOrdering: 405 with Allow: POST, OPTIONS and 0-byte body
 	headOrderReq := httptest.NewRequest(http.MethodHead, "/api/v1/telemetry/coding-agents/ordering", nil)
 	headOrderRec := httptest.NewRecorder()
 	h.handleCodingAgentOrdering(headOrderRec, headOrderReq)
 	if headOrderRec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("HEAD handleCodingAgentOrdering status = %d, want 405", headOrderRec.Code)
 	}
-	if allow := headOrderRec.Header().Get("Allow"); allow != "POST" {
-		t.Errorf("HEAD handleCodingAgentOrdering Allow = %q, want POST", allow)
+	if allow := headOrderRec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("HEAD handleCodingAgentOrdering Allow = %q, want POST, OPTIONS", allow)
 	}
 	if headOrderRec.Body.Len() != 0 {
 		t.Errorf("HEAD handleCodingAgentOrdering body length = %d, want 0", headOrderRec.Body.Len())
@@ -504,8 +504,8 @@ func TestCodingAgentTelemetryMethodGates(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleQueryCodingAgentTelemetry got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Errorf("%s handleQueryCodingAgentTelemetry got Allow %q, want GET, HEAD", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("%s handleQueryCodingAgentTelemetry got Allow %q, want GET, HEAD, OPTIONS", method, allow)
 		}
 		if rec.Body.Len() == 0 {
 			t.Errorf("%s handleQueryCodingAgentTelemetry expected non-empty error body", method)
@@ -520,8 +520,8 @@ func TestCodingAgentTelemetryMethodGates(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleAggregateCodingAgentTelemetry got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, POST" {
-			t.Errorf("%s handleAggregateCodingAgentTelemetry got Allow %q, want GET, HEAD, POST", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, POST, OPTIONS" {
+			t.Errorf("%s handleAggregateCodingAgentTelemetry got Allow %q, want GET, HEAD, POST, OPTIONS", method, allow)
 		}
 		if rec.Body.Len() == 0 {
 			t.Errorf("%s handleAggregateCodingAgentTelemetry expected non-empty error body", method)

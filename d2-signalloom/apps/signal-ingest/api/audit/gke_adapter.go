@@ -314,8 +314,19 @@ func (r *WebhookReceiver) IngestGKEJSONBytes(ctx context.Context, raw []byte) er
 
 // HandleGKECloudLogging handles incoming HTTP POST requests containing GKE Cloud Logging audit records.
 func (r *WebhookReceiver) HandleGKECloudLogging(w http.ResponseWriter, req *http.Request) {
+	if req.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(req.Body, 4096))
+			_ = req.Body.Close()
+		}()
+	}
+	if req.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if req.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		if req.Method != http.MethodHead {
@@ -333,7 +344,6 @@ func (r *WebhookReceiver) HandleGKECloudLogging(w http.ResponseWriter, req *http
 		}
 		return
 	}
-	defer req.Body.Close()
 
 	if err := r.IngestGKEJSONBytes(req.Context(), body); err != nil {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")

@@ -1098,7 +1098,7 @@ I am stopping. The commit stays `d79c34cd`. The card closes green with no P1-4 c
 **Created:** 2026-10-13 02:15:00+01:00
 **Last Updated:** 2026-10-13 02:15:00+01:00
 **Status:** Completed
-**Commit:** `b8e721a9` on `integration/slsi-v0.1.0`.
+**Commit:** `bb39b2c5` on `integration/slsi-v0.1.0`.
 
 ##### Validation Runbook & Acceptance Journey Parity
 - **Validation Runbook Delivered**: Authored canonical design partner validation runbook `docs/Validation Runbook — SLSI Signal Loom Design Partner Appliance Self-Initialisation Pipeline (2026-Q4).md` adhering strictly to cp-project-proposal standard and verified clean against `make docs-lint` (0 findings).

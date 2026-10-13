@@ -103,6 +103,7 @@ Start locally. The local workflow needs Docker.
 | [`../d2-signalloom/apps/agentmaxxing-host-sensor/README.md`](../d2-signalloom/apps/agentmaxxing-host-sensor/README.md) | AgentMaxxing host sensor and Linux confinement architecture |
 | [`../d2-signalloom/apps/dashboard-signalloom/src/components/demos/BRIDGE-CONTRACT.md`](../d2-signalloom/apps/dashboard-signalloom/src/components/demos/BRIDGE-CONTRACT.md) | AgentMaxxing demo console and telemetry bridge contract |
 | [`signalloom/runbooks/slaws-live-lab.md`](signalloom/runbooks/slaws-live-lab.md) | SLAWS live collector lab: AWS Terraform provisioning, S3/SQS seeding, and live validation |
+| [`signalloom/scheduled-skills.md`](signalloom/scheduled-skills.md) | Scheduled-run skills architecture, catalog, and execution contracts for Signal Loom |
 
 The Kusari pilot has its own pages. They are written for a Kusari engineer
 who onboards from zero on the pilot's secondary cluster.

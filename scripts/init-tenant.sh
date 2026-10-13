@@ -937,6 +937,10 @@ EOF
   echo "=== [SLSI-P2-4] Dual-trust supply chain configuration complete ==="
   return 0
 }
+
+stage_p2_4_trust() {
+  stage_p2_4_dualtrust
+}
 # <<< SLSI-P2-4 >>>
 
 # >>> SLSI-P3-1: multi-mode ingress rendering <<<

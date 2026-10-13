@@ -228,9 +228,13 @@ class ControllerHandler(BaseHTTPRequestHandler):
         if headers:
             for k, v in headers.items():
                 self.send_header(k, v)
-        if status in (HTTPStatus.NO_CONTENT, HTTPStatus.RESET_CONTENT, HTTPStatus.NOT_MODIFIED) or payload is None:
+        if getattr(self, "close_connection", False):
+            self.send_header("Connection", "close")
+        if status in (HTTPStatus.NO_CONTENT, HTTPStatus.RESET_CONTENT, HTTPStatus.NOT_MODIFIED):
             self.end_headers()
             return
+        if payload is None:
+            payload = {}
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(encoded)))
@@ -240,11 +244,22 @@ class ControllerHandler(BaseHTTPRequestHandler):
 
     def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
         if code == 501:
-            self._json(
-                HTTPStatus.METHOD_NOT_ALLOWED,
-                {"error": "method not allowed"},
-                {"Allow": "GET, HEAD, POST, DELETE, OPTIONS"},
-            )
+            path = urlparse(getattr(self, "path", "/")).path
+            if path in ("/health", "/healthz", "/readyz", "/livez"):
+                self._json(
+                    HTTPStatus.METHOD_NOT_ALLOWED,
+                    {"error": "method not allowed"},
+                    {"Allow": "GET, HEAD, OPTIONS"},
+                )
+                return
+            if path == "/scan":
+                self._json(
+                    HTTPStatus.METHOD_NOT_ALLOWED,
+                    {"error": "method not allowed"},
+                    {"Allow": "POST, DELETE, OPTIONS"},
+                )
+                return
+            self._json(HTTPStatus.NOT_FOUND, {"error": "unknown route"})
             return
         try:
             phrase = HTTPStatus(code).phrase
@@ -254,6 +269,42 @@ class ControllerHandler(BaseHTTPRequestHandler):
         self._json(code, {"error": msg})
 
     def _drain_body(self) -> None:
+        if not hasattr(self, "headers") or not self.headers:
+            return
+        te = self.headers.get("Transfer-Encoding", "").lower()
+        if "chunked" in te:
+            try:
+                total = 0
+                while total <= 1048576:
+                    line = self.rfile.readline(128)
+                    if not line:
+                        break
+                    chunk_len_str = line.split(b";")[0].strip()
+                    if not chunk_len_str:
+                        break
+                    chunk_len = int(chunk_len_str, 16)
+                    if chunk_len == 0:
+                        while True:
+                            trailer = self.rfile.readline(1024)
+                            if not trailer or trailer in (b"\r\n", b"\n", b""):
+                                break
+                        break
+                    total += chunk_len
+                    if total > 1048576:
+                        self.close_connection = True
+                        break
+                    rem = chunk_len
+                    while rem > 0:
+                        b = self.rfile.read(min(rem, 65536))
+                        if not b:
+                            self.close_connection = True
+                            return
+                        rem -= len(b)
+                    self.rfile.readline(4)
+            except Exception:
+                self.close_connection = True
+            return
+
         try:
             raw_len = self.headers.get("Content-Length", "0")
             length = int(raw_len.strip()) if raw_len else 0
@@ -261,14 +312,17 @@ class ControllerHandler(BaseHTTPRequestHandler):
             length = 0
         if 0 < length <= 1048576:
             try:
-                self.rfile.read(length)
+                rem = length
+                while rem > 0:
+                    b = self.rfile.read(min(rem, 65536))
+                    if not b:
+                        self.close_connection = True
+                        break
+                    rem -= len(b)
             except (OSError, ValueError):
                 pass
         elif length > 1048576:
-            try:
-                self.rfile.read(1048576)
-            except (OSError, ValueError):
-                pass
+            self.close_connection = True
 
     def _handle_scan(self) -> None:
         """POST /scan — (re)create the fixed netassert-run Job.

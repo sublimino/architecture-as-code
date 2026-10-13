@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import socket
 import tempfile
 import threading
 import unittest
@@ -118,6 +119,39 @@ class SpaServerContractTest(unittest.TestCase):
                 self.assertIsNone(resp.headers.get("Content-Type"))
                 self.assertIsNone(resp.headers.get("Content-Length"))
                 self.assertEqual(resp.read(), b"")
+
+    def test_chunked_body_drains_safely_on_options(self):
+        s = socket.create_connection(("127.0.0.1", self.port))
+        raw_req = (
+            b"OPTIONS / HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n"
+            b"5\r\nhello\r\n0\r\n\r\n"
+        )
+        s.sendall(raw_req)
+        s.settimeout(2.0)
+        data = b""
+        while True:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+            if b"\r\n\r\n" in data:
+                break
+        s.close()
+        self.assertTrue(data.startswith(b"HTTP/1.0 204 No Content") or data.startswith(b"HTTP/1.1 204 No Content"))
+        self.assertIn(b"Allow: GET, HEAD, OPTIONS", data)
+        self.assertNotIn(b"Content-Length", data)
+
+    def test_oversized_body_closes_connection(self):
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/",
+            headers={"Content-Length": "2000000"},
+            method="OPTIONS",
+        )
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 204)
+            self.assertEqual(resp.headers.get("Connection"), "close")
 
     def test_send_error_head_suppression_and_501_mapping(self):
         # Test unit invocation of send_error directly on mock/simulated handler

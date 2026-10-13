@@ -1,5 +1,7 @@
 import http.client
+import io
 import json
+import socket
 import threading
 import unittest
 from types import SimpleNamespace
@@ -128,16 +130,85 @@ class HealthTest(ControllerServerTestCase):
             self.assertEqual(b"", response.read())
             connection.close()
 
-    def test_unsupported_method_returns_405_and_suppresses_body_on_head(self):
+    def test_unsupported_method_returns_405_and_route_specific_allow_header(self):
+        # 1. /health should only advertise GET, HEAD, OPTIONS
         connection = http.client.HTTPConnection("127.0.0.1", self.port)
         connection.request("NONSTANDARD", "/health")
         response = connection.getresponse()
         self.assertEqual(405, response.status)
-        self.assertEqual("GET, HEAD, POST, DELETE, OPTIONS", response.getheader("Allow"))
+        self.assertEqual("GET, HEAD, OPTIONS", response.getheader("Allow"))
         self.assertEqual("application/json", response.getheader("Content-Type"))
         body = json.loads(response.read())
         self.assertEqual({"error": "method not allowed"}, body)
         connection.close()
+
+        # 2. /scan should only advertise POST, DELETE, OPTIONS
+        connection = http.client.HTTPConnection("127.0.0.1", self.port)
+        connection.request("NONSTANDARD", "/scan")
+        response = connection.getresponse()
+        self.assertEqual(405, response.status)
+        self.assertEqual("POST, DELETE, OPTIONS", response.getheader("Allow"))
+        self.assertEqual("application/json", response.getheader("Content-Type"))
+        body = json.loads(response.read())
+        self.assertEqual({"error": "method not allowed"}, body)
+        connection.close()
+
+        # 3. Nonexistent route returns 404
+        connection = http.client.HTTPConnection("127.0.0.1", self.port)
+        connection.request("NONSTANDARD", "/nope")
+        response = connection.getresponse()
+        self.assertEqual(404, response.status)
+        self.assertEqual("application/json", response.getheader("Content-Type"))
+        body = json.loads(response.read())
+        self.assertEqual({"error": "unknown route"}, body)
+        connection.close()
+
+    def test_chunked_body_drains_safely_on_options(self):
+        s = socket.create_connection(("127.0.0.1", self.port))
+        raw_req = (
+            b"OPTIONS /health HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n"
+            b"5\r\nhello\r\n0\r\n\r\n"
+        )
+        s.sendall(raw_req)
+        s.settimeout(2.0)
+        data = b""
+        while True:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+            if b"\r\n\r\n" in data:
+                break
+        s.close()
+        self.assertTrue(data.startswith(b"HTTP/1.0 204 No Content") or data.startswith(b"HTTP/1.1 204 No Content"))
+        self.assertIn(b"Allow: GET, HEAD, OPTIONS", data)
+        self.assertNotIn(b"Content-Length", data)
+
+    def test_oversized_body_closes_connection(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port)
+        connection.request("OPTIONS", "/health", headers={"Content-Length": "2000000"})
+        response = connection.getresponse()
+        self.assertEqual(204, response.status)
+        self.assertEqual("close", response.getheader("Connection"))
+        connection.close()
+
+    def test_json_none_payload_on_200_emits_content_length(self):
+        class DummyHandler:
+            command = "GET"
+            def send_response(self, code): self.code = code
+            def send_header(self, k, v): self.headers[k] = v
+            def end_headers(self): pass
+            def __init__(self):
+                self.headers = {}
+                self.wfile = io.BytesIO()
+        h = DummyHandler()
+        server.ControllerHandler._json(h, 200, None)
+        self.assertEqual(200, h.code)
+        self.assertEqual("application/json", h.headers.get("Content-Type"))
+        self.assertEqual("2", h.headers.get("Content-Length"))
+        self.assertEqual(b"{}", h.wfile.getvalue())
 
     def test_threading_http_server_sets_allow_reuse_address(self):
         self.assertTrue(ThreadingHTTPServer.allow_reuse_address)

@@ -454,3 +454,47 @@ async def test_api_policies_evaluate_hostile_agent_vectors():
         resp_v2 = await client.post("/api/v1/policies/evaluate", json=payload_v2, headers=eap_bearer(EAP_ALICE))
         assert resp_v2.status_code == 200
         assert resp_v2.json()["compliant"] is False
+
+
+@pytest.mark.asyncio
+async def test_api_policies_cross_tenant_rejection():
+    """Verify policies endpoints reject foreign tenant queries or body parameters."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = eap_bearer(EAP_ALICE)  # Alice belongs to EAP_TENANT_A
+
+        # 1. Evaluate with cross-tenant query param
+        resp = await client.post(
+            "/api/v1/policies/evaluate?tenant_id=foreign-tenant",
+            json={"expression": "true"},
+            headers=headers,
+        )
+        assert resp.status_code == 403
+        assert resp.json()["error"]["code"] == "cross_tenant_forbidden"
+
+        # 2. Evaluate with cross-tenant body param
+        resp = await client.post(
+            "/api/v1/policies/evaluate",
+            json={"tenant_id": "foreign-tenant", "expression": "true"},
+            headers=headers,
+        )
+        assert resp.status_code == 403
+        assert resp.json()["error"]["code"] == "cross_tenant_forbidden"
+
+        # 3. Register bundle with cross-tenant body
+        resp = await client.post(
+            "/api/v1/policies/bundles",
+            json={"tenant_id": "foreign-tenant", "rules": [{"cel_expression": "true"}]},
+            headers=headers,
+        )
+        assert resp.status_code == 403
+        assert resp.json()["error"]["code"] == "cross_tenant_forbidden"
+
+        # 4. Rollback with cross-tenant body
+        resp = await client.post(
+            "/api/v1/policies/rollback",
+            json={"tenant_id": "foreign-tenant", "framework_id": "f1", "target_version": "v1"},
+            headers=headers,
+        )
+        assert resp.status_code == 403
+        assert resp.json()["error"]["code"] == "cross_tenant_forbidden"

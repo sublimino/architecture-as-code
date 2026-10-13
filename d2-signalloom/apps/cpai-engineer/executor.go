@@ -137,7 +137,13 @@ func (e *Executor) ensureRepo(ctx context.Context, dir, repo, branch string) err
 		if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 			return fmt.Errorf("mkdir: %w", err)
 		}
-		cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", repo, dir)
+		var cloneArgs []string
+		if branch != "" {
+			cloneArgs = []string{"clone", "--depth=1", "--branch", branch, repo, dir}
+		} else {
+			cloneArgs = []string{"clone", "--depth=1", repo, dir}
+		}
+		cmd := exec.CommandContext(ctx, "git", cloneArgs...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -150,14 +156,13 @@ func (e *Executor) ensureRepo(ctx context.Context, dir, repo, branch string) err
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("git fetch: %w", err)
 		}
-	}
-
-	if branch != "" {
-		cmd := exec.CommandContext(ctx, "git", "-C", dir, "checkout", branch)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("git checkout %s: %w", branch, err)
+		if branch != "" {
+			cmd := exec.CommandContext(ctx, "git", "-C", dir, "checkout", branch)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				return fmt.Errorf("git checkout %s: %w", branch, err)
+			}
 		}
 	}
 

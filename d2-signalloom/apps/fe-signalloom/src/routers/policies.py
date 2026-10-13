@@ -83,13 +83,24 @@ async def evaluate_policies(
     except Exception as exc:
         return _error_response(400, "invalid_json", f"Malformed JSON request body: {exc}")
 
-    body_tenant = body.get("tenant_id")
-    if body_tenant and body_tenant != tenant_id:
-        return _error_response(
-            403,
-            "cross_tenant_forbidden",
-            f"Cannot evaluate policies for foreign tenant {body_tenant}",
-        )
+    for param_key in ("tenant_id", "tenant"):
+        for q_val in request.query_params.getlist(param_key):
+            q_clean = q_val.strip()
+            if q_clean and q_clean != tenant_id:
+                return _error_response(
+                    403,
+                    "cross_tenant_forbidden",
+                    f"Cannot evaluate policies for foreign tenant {q_clean}",
+                )
+    if isinstance(body, dict):
+        for body_key in ("tenant_id", "tenant"):
+            body_tenant = body.get(body_key)
+            if body_tenant and body_tenant != tenant_id:
+                return _error_response(
+                    403,
+                    "cross_tenant_forbidden",
+                    f"Cannot evaluate policies for foreign tenant {body_tenant}",
+                )
 
     # If single expression provided directly in request
     single_expr = body.get("expression") or body.get("cel_expression")
@@ -192,14 +203,27 @@ async def register_bundle(
         body = await request.json()
     except Exception as exc:
         return _error_response(400, "invalid_json", f"Malformed JSON request body: {exc}")
+    if not isinstance(body, dict):
+        return _error_response(400, "invalid_json", "Request body must be a JSON object")
 
-    body_tenant = body.get("tenant_id")
-    if body_tenant and body_tenant != principal.tenant:
-        return _error_response(
-            403,
-            "cross_tenant_forbidden",
-            f"Cannot register bundle for foreign tenant {body_tenant}",
-        )
+    for param_key in ("tenant_id", "tenant"):
+        for q_val in request.query_params.getlist(param_key):
+            q_clean = q_val.strip()
+            if q_clean and q_clean != principal.tenant:
+                return _error_response(
+                    403,
+                    "cross_tenant_forbidden",
+                    f"Cannot register bundle for foreign tenant {q_clean}",
+                )
+
+    for body_key in ("tenant_id", "tenant"):
+        body_tenant = body.get(body_key)
+        if body_tenant and body_tenant != principal.tenant:
+            return _error_response(
+                403,
+                "cross_tenant_forbidden",
+                f"Cannot register bundle for foreign tenant {body_tenant}",
+            )
 
     rules = body.get("rules", [])
     if not rules:
@@ -258,13 +282,24 @@ async def rollback_bundle(
     if not isinstance(body, dict):
         return _error_response(400, "invalid_json", "Request body must be a JSON object")
 
-    body_tenant = body.get("tenant_id")
-    if body_tenant and body_tenant != principal.tenant:
-        return _error_response(
-            403,
-            "cross_tenant_forbidden",
-            f"Cannot rollback bundle for foreign tenant {body_tenant}",
-        )
+    for param_key in ("tenant_id", "tenant"):
+        for q_val in request.query_params.getlist(param_key):
+            q_clean = q_val.strip()
+            if q_clean and q_clean != principal.tenant:
+                return _error_response(
+                    403,
+                    "cross_tenant_forbidden",
+                    f"Cannot rollback bundle for foreign tenant {q_clean}",
+                )
+
+    for body_key in ("tenant_id", "tenant"):
+        body_tenant = body.get(body_key)
+        if body_tenant and body_tenant != principal.tenant:
+            return _error_response(
+                403,
+                "cross_tenant_forbidden",
+                f"Cannot rollback bundle for foreign tenant {body_tenant}",
+            )
     # The policy-engine requires both (handlers.go HandleRollback); checking
     # here keeps a request it would reject out of the audit trail.
     for field in ("framework_id", "target_version"):

@@ -241,6 +241,14 @@ def test_create_delete_test_connector(monkeypatch):
         del_data = del_resp.json()
         assert del_data["status"] == "disconnected"
 
+        # Testing a disconnected connector must report invalid
+        test_disc_resp = client.post(f"/api/v1/connectors/{conn_id}/test", headers=headers)
+        assert test_disc_resp.status_code == 200
+        disc_test_data = test_disc_resp.json()
+        assert disc_test_data["valid"] is False
+        assert disc_test_data["scopes_ok"] is False
+        assert "disconnected" in (disc_test_data["error_msg"] or "")
+
 
 def test_frameworks_patch_all_six_frameworks(monkeypatch):
     with client_for(monkeypatch) as client:

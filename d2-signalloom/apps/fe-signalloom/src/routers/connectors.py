@@ -575,13 +575,40 @@ async def test_connector(
             raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
 
         match["last_tested_at"] = _now_iso()
+        status = match.get("status", "connected")
+        expires_at_str = match.get("credential_expires_at")
+
+        valid = True
+        scopes_ok = True
+        error_msg = None
+        needs_rotation = False
+
+        if status == "disconnected":
+            valid = False
+            scopes_ok = False
+            error_msg = "Connector is disconnected"
+        elif status == "error":
+            valid = False
+            scopes_ok = False
+            error_msg = "Connector is in error state"
+        elif expires_at_str:
+            try:
+                exp_dt = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
+                now_dt = datetime.now(timezone.utc)
+                if exp_dt <= now_dt:
+                    valid = False
+                    needs_rotation = True
+                    error_msg = "Credential has expired"
+            except Exception:
+                pass
+
         return ConnectorTestResult(
             connector_id=match["connector_id"],
-            valid=True,
-            scopes_ok=True,
-            error_msg=None,
-            credential_expires_at=match.get("credential_expires_at"),
-            needs_rotation=False,
+            valid=valid,
+            scopes_ok=scopes_ok,
+            error_msg=error_msg,
+            credential_expires_at=expires_at_str,
+            needs_rotation=needs_rotation,
         )
 
 

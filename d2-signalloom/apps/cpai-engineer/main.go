@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 )
@@ -99,10 +98,6 @@ func main() {
 func newServer(executor *Executor, store *SessionStore) http.Handler {
 	mux := http.NewServeMux()
 
-	// In-flight task tracking for GET /tasks/{id} before DB persistence.
-	var mu sync.RWMutex
-	inflight := make(map[string]*TaskResponse)
-
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
@@ -125,10 +120,6 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 
 		task := executor.Submit(req)
 
-		mu.Lock()
-		inflight[task.TaskID] = task
-		mu.Unlock()
-
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
 		json.NewEncoder(w).Encode(task)
@@ -141,18 +132,10 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 			return
 		}
 
-		// Check in-flight first, then DB.
-		mu.RLock()
-		task, ok := inflight[id]
-		mu.RUnlock()
-
-		if !ok {
-			dbTask, err := store.Get(id)
-			if err != nil {
-				writeError(w, http.StatusNotFound, "task not found: "+id)
-				return
-			}
-			task = dbTask
+		task, err := store.Get(id)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "task not found: "+id)
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")

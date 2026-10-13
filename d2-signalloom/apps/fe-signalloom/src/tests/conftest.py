@@ -366,10 +366,15 @@ def _signal_ingest_gateway_key(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("SIGNAL_INGEST_KEY_FILE", str(path))
 
 
-def pytest_collection_modifyitems(items):
+def pytest_collection_modifyitems(config, items):
     import inspect
+    has_asyncio = config.pluginmanager.has_plugin("asyncio")
     for item in items:
-        if item.get_closest_marker("asyncio") or (hasattr(item, "obj") and inspect.iscoroutinefunction(item.obj)):
-            if not item.get_closest_marker("anyio"):
-                item.add_marker(pytest.mark.anyio)
+        if (hasattr(item, "obj") and inspect.iscoroutinefunction(item.obj)) or item.get_closest_marker("asyncio"):
+            if has_asyncio:
+                if not item.get_closest_marker("asyncio"):
+                    item.add_marker(pytest.mark.asyncio)
+            else:
+                if not item.get_closest_marker("anyio"):
+                    item.add_marker(pytest.mark.anyio)
 

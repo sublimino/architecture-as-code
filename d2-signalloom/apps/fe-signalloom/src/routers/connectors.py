@@ -96,6 +96,7 @@ class ConnectorCreateRequest(BaseModel):
     display_name: str | None = None
     credentials: dict[str, str] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    credential_expires_at: str | None = None
 
 
 class ConnectorCreateResponse(BaseModel):
@@ -485,6 +486,8 @@ async def create_connector(
             match["status"] = "connected"
             match["display_name"] = body.display_name or match.get("display_name")
             match["metadata"] = {**match.get("metadata", {}), **body.metadata}
+            if body.credential_expires_at is not None:
+                match["credential_expires_at"] = body.credential_expires_at
             match["last_tested_at"] = now
             conn_id = match["connector_id"]
         else:
@@ -494,7 +497,7 @@ async def create_connector(
                 "provider_id": body.provider_id,
                 "display_name": body.display_name or body.provider_id,
                 "status": "connected",
-                "credential_expires_at": "2027-01-01T00:00:00Z",
+                "credential_expires_at": body.credential_expires_at or "2027-01-01T00:00:00Z",
                 "last_tested_at": now,
                 "last_scan_at": now,
                 "metadata": body.metadata,
@@ -540,7 +543,7 @@ async def delete_connector(
             raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
 
         match["status"] = "disconnected"
-        _AUDIT_LOG_EVENTS.append({
+        audit_entry = {
             "eventType": "CONNECTOR_STATUS_CHANGED",
             "action": "tenant.connector_disconnected",
             "tenant_id": tenant_id,
@@ -550,9 +553,27 @@ async def delete_connector(
             "previous_status": "connected",
             "new_status": "disconnected",
             "timestamp": _now_iso(),
-        })
+        }
+        _AUDIT_LOG_EVENTS.append(audit_entry)
         _sync_tenant_connectors_map(tenant_id)
         cid = match["connector_id"]
+
+    pool = await _get_pool()
+    if pool is not None:
+        try:
+            async with _write(pool) as conn:
+                await conn.execute(
+                    """INSERT INTO audit_events (tenant_id, action, actor, target_type, target_id, details, created_at)
+                       VALUES ($1, $2, $3, $4, $5, $6, NOW())""",
+                    tenant_id,
+                    "CONNECTOR_STATUS_CHANGED",
+                    principal.actor,
+                    "connector",
+                    cid,
+                    json.dumps(audit_entry),
+                )
+        except Exception as exc:
+            logger.warning("Failed to persist connector delete audit log to DB: %s", exc)
 
     return ConnectorDeleteResponse(connector_id=cid, status="disconnected")
 
@@ -597,10 +618,14 @@ async def test_connector(
                 now_dt = datetime.now(timezone.utc)
                 if exp_dt <= now_dt:
                     valid = False
+                    scopes_ok = False
                     needs_rotation = True
                     error_msg = "Credential has expired"
             except Exception:
-                pass
+                valid = False
+                scopes_ok = False
+                needs_rotation = True
+                error_msg = f"Invalid credential expiration timestamp: {expires_at_str}"
 
         return ConnectorTestResult(
             connector_id=match["connector_id"],

@@ -367,3 +367,65 @@ func TestDefaultWorkspaceDir(t *testing.T) {
 		t.Errorf("expected /custom/workspace, got %s", val)
 	}
 }
+
+func TestExecutor_SubmitStoreFailure(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewSessionStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("NewSessionStore: %v", err)
+	}
+	// Close store prematurely to induce DB failure on Insert.
+	store.Close()
+
+	nono := NewNonoWrapper("strict")
+	executor := NewExecutor(dir, nono, store)
+
+	_, err = executor.Submit(TaskRequest{
+		Repo:        "https://github.com/test/repo",
+		Instruction: "do something",
+	})
+	if err == nil {
+		t.Fatal("expected Submit to fail when database is closed, got nil")
+	}
+}
+
+func TestExecutor_WorkspaceIsolation(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewSessionStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("NewSessionStore: %v", err)
+	}
+	defer store.Close()
+
+	nono := NewNonoWrapper("strict")
+	executor := NewExecutor(dir, nono, store)
+
+	task1, err := executor.Submit(TaskRequest{
+		Repo:        "https://github.com/test/repo",
+		Branch:      "branch-a",
+		Instruction: "task 1",
+	})
+	if err != nil {
+		t.Fatalf("task1 submit failed: %v", err)
+	}
+
+	task2, err := executor.Submit(TaskRequest{
+		Repo:        "https://github.com/test/repo",
+		Branch:      "branch-b",
+		Instruction: "task 2",
+	})
+	if err != nil {
+		t.Fatalf("task2 submit failed: %v", err)
+	}
+
+	if task1.TaskID == task2.TaskID {
+		t.Fatalf("tasks must have distinct IDs")
+	}
+
+	ws1 := filepath.Join(dir, "workspaces", task1.TaskID, sanitisePath("https://github.com/test/repo"))
+	ws2 := filepath.Join(dir, "workspaces", task2.TaskID, sanitisePath("https://github.com/test/repo"))
+	if ws1 == ws2 {
+		t.Fatalf("workspace directories must be distinct: %s vs %s", ws1, ws2)
+	}
+}
+

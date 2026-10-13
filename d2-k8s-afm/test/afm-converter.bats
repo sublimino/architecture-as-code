@@ -111,6 +111,33 @@ print(f'OK: {len(seen)} unique subjects, no duplicates')
   [[ "$output" == *"OK"* ]]
 }
 
+@test "converter handles raw list, single resource dict, and None inputs without error" {
+  run python3 -c "
+import importlib.util
+spec = importlib.util.spec_from_file_location('c', '$converter')
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+
+# 1. Raw list of items
+d1 = m.convert([{'kind': 'Role', 'metadata': {'name': 'r1', 'namespace': 'default'}, 'rules': [{'verbs': ['get'], 'resources': ['pods']}]}])
+assert len(d1['rbac']['roles']) == 1
+assert d1['rbac']['roles'][0]['name'] == 'r1'
+
+# 2. Single object dict
+d2 = m.convert({'kind': 'ClusterRole', 'metadata': {'name': 'cr1'}, 'rules': []})
+assert len(d2['rbac']['roles']) == 1
+assert d2['rbac']['roles'][0]['name'] == 'cr1'
+
+# 3. None input
+d3 = m.convert(None)
+assert d3['rbac']['roles'] == []
+assert d3['rbac']['subjects'] == []
+assert d3['rbac']['bindings'] == []
+print('OK')
+"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"OK"* ]]
+}
+
 # -- AFM fixture shape validation ----------------------------------------------
 
 @test "AFM fixture has the same contract shape as converter output" {

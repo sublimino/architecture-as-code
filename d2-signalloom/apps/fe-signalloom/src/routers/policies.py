@@ -95,12 +95,14 @@ async def evaluate_policies(
     if isinstance(body, dict):
         for body_key in ("tenant_id", "tenant"):
             body_tenant = body.get(body_key)
-            if body_tenant and body_tenant != tenant_id:
-                return _error_response(
-                    403,
-                    "cross_tenant_forbidden",
-                    f"Cannot evaluate policies for foreign tenant {body_tenant}",
-                )
+            if body_tenant is not None:
+                body_clean = str(body_tenant).strip()
+                if body_clean and body_clean != tenant_id:
+                    return _error_response(
+                        403,
+                        "cross_tenant_forbidden",
+                        f"Cannot evaluate policies for foreign tenant {body_clean}",
+                    )
 
     # If single expression provided directly in request
     single_expr = body.get("expression") or body.get("cel_expression")
@@ -218,12 +220,14 @@ async def register_bundle(
 
     for body_key in ("tenant_id", "tenant"):
         body_tenant = body.get(body_key)
-        if body_tenant and body_tenant != principal.tenant:
-            return _error_response(
-                403,
-                "cross_tenant_forbidden",
-                f"Cannot register bundle for foreign tenant {body_tenant}",
-            )
+        if body_tenant is not None:
+            body_clean = str(body_tenant).strip()
+            if body_clean and body_clean != principal.tenant:
+                return _error_response(
+                    403,
+                    "cross_tenant_forbidden",
+                    f"Cannot register bundle for foreign tenant {body_clean}",
+                )
 
     rules = body.get("rules", [])
     if not rules:
@@ -294,12 +298,14 @@ async def rollback_bundle(
 
     for body_key in ("tenant_id", "tenant"):
         body_tenant = body.get(body_key)
-        if body_tenant and body_tenant != principal.tenant:
-            return _error_response(
-                403,
-                "cross_tenant_forbidden",
-                f"Cannot rollback bundle for foreign tenant {body_tenant}",
-            )
+        if body_tenant is not None:
+            body_clean = str(body_tenant).strip()
+            if body_clean and body_clean != principal.tenant:
+                return _error_response(
+                    403,
+                    "cross_tenant_forbidden",
+                    f"Cannot rollback bundle for foreign tenant {body_clean}",
+                )
     # The policy-engine requires both (handlers.go HandleRollback); checking
     # here keeps a request it would reject out of the audit trail.
     for field in ("framework_id", "target_version"):

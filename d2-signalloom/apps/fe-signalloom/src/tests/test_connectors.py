@@ -249,6 +249,48 @@ def test_create_delete_test_connector(monkeypatch):
         assert disc_test_data["scopes_ok"] is False
         assert "disconnected" in (disc_test_data["error_msg"] or "")
 
+        # Test connector with expired credentials
+        create_exp_resp = client.post(
+            "/api/v1/connectors",
+            json={
+                "provider_id": "azure",
+                "name": "Expired Azure Connector",
+                "credential_expires_at": "2020-01-01T00:00:00Z",
+            },
+            headers=headers,
+        )
+        assert create_exp_resp.status_code == 200
+        exp_id = create_exp_resp.json()["connector_id"]
+
+        test_exp_resp = client.post(f"/api/v1/connectors/{exp_id}/test", headers=headers)
+        assert test_exp_resp.status_code == 200
+        exp_test_data = test_exp_resp.json()
+        assert exp_test_data["valid"] is False
+        assert exp_test_data["scopes_ok"] is False
+        assert exp_test_data["needs_rotation"] is True
+        assert "expired" in (exp_test_data["error_msg"] or "").lower()
+
+        # Test connector with malformed credential timestamp
+        create_mal_resp = client.post(
+            "/api/v1/connectors",
+            json={
+                "provider_id": "okta",
+                "name": "Malformed Okta Connector",
+                "credential_expires_at": "not-a-valid-timestamp",
+            },
+            headers=headers,
+        )
+        assert create_mal_resp.status_code == 200
+        mal_id = create_mal_resp.json()["connector_id"]
+
+        test_mal_resp = client.post(f"/api/v1/connectors/{mal_id}/test", headers=headers)
+        assert test_mal_resp.status_code == 200
+        mal_test_data = test_mal_resp.json()
+        assert mal_test_data["valid"] is False
+        assert mal_test_data["scopes_ok"] is False
+        assert mal_test_data["needs_rotation"] is True
+        assert "invalid" in (mal_test_data["error_msg"] or "").lower()
+
 
 def test_frameworks_patch_all_six_frameworks(monkeypatch):
     with client_for(monkeypatch) as client:

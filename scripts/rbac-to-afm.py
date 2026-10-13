@@ -12,8 +12,19 @@ import json
 import sys
 
 
-def convert(k8s_list: dict, cluster_id: str = "local", cluster_name: str = "Local Cluster") -> dict:
-    items = k8s_list.get("items") or []
+def convert(k8s_input: dict | list | None, cluster_id: str = "local", cluster_name: str = "Local Cluster") -> dict:
+    if isinstance(k8s_input, list):
+        items = k8s_input
+    elif isinstance(k8s_input, dict):
+        if "items" in k8s_input:
+            items = k8s_input.get("items") or []
+        elif "kind" in k8s_input:
+            items = [k8s_input]
+        else:
+            items = []
+    else:
+        items = []
+
     subjects_seen: dict[str, dict] = {}
     roles: list[dict] = []
     bindings: list[dict] = []

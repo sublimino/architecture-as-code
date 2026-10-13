@@ -118,7 +118,11 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 			req.TokenBudget = 50000
 		}
 
-		task := executor.Submit(req)
+		task, err := executor.Submit(req)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to submit task: "+err.Error())
+			return
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)

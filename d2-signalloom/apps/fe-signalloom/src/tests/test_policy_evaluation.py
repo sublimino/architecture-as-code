@@ -11,7 +11,7 @@ Tests:
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from conftest import EAP_ALICE, eap_bearer
+from conftest import EAP_ALICE, EAP_TENANT_A, eap_bearer
 from main import app
 from policy_evaluation import (
     calculate_posture_score,
@@ -498,3 +498,12 @@ async def test_api_policies_cross_tenant_rejection():
         )
         assert resp.status_code == 403
         assert resp.json()["error"]["code"] == "cross_tenant_forbidden"
+
+        # 5. Matching tenant with surrounding whitespace should be normalized and accepted
+        resp = await client.post(
+            "/api/v1/policies/evaluate",
+            json={"tenant_id": f"  {EAP_TENANT_A}  ", "expression": "true"},
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["compliant"] is True

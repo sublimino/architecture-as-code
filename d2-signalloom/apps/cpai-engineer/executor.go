@@ -58,7 +58,7 @@ func NewExecutor(workspaceDir string, nono *NonoWrapper, store *SessionStore) *E
 }
 
 // Submit creates a task record and starts async execution.
-func (e *Executor) Submit(req TaskRequest) *TaskResponse {
+func (e *Executor) Submit(req TaskRequest) (*TaskResponse, error) {
 	now := nowISO()
 	task := &TaskResponse{
 		TaskID:    uuid.New().String(),
@@ -70,10 +70,14 @@ func (e *Executor) Submit(req TaskRequest) *TaskResponse {
 
 	if err := e.store.Insert(task, req.Repo, req.Branch, req.Instruction); err != nil {
 		slog.Error("failed to persist task", "task_id", task.TaskID, "error", err)
+		return nil, fmt.Errorf("failed to persist task: %w", err)
 	}
 
+	snapshot := *task
+	snapshot.Commits = append([]string(nil), task.Commits...)
+
 	go e.execute(task, req)
-	return task
+	return &snapshot, nil
 }
 
 // execute runs the full clone-execute-collect pipeline.
@@ -91,7 +95,7 @@ func (e *Executor) execute(task *TaskResponse, req TaskRequest) {
 		"branch", req.Branch,
 	)
 
-	repoDir := filepath.Join(e.workspaceDir, "repos", sanitisePath(req.Repo))
+	repoDir := filepath.Join(e.workspaceDir, "workspaces", task.TaskID, sanitisePath(req.Repo))
 
 	// Clone or fetch.
 	if err := e.ensureRepo(ctx, repoDir, req.Repo, req.Branch); err != nil {
@@ -134,6 +138,7 @@ func (e *Executor) execute(task *TaskResponse, req TaskRequest) {
 // branch.
 func (e *Executor) ensureRepo(ctx context.Context, dir, repo, branch string) error {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); os.IsNotExist(err) {
+		_ = os.RemoveAll(dir)
 		if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 			return fmt.Errorf("mkdir: %w", err)
 		}

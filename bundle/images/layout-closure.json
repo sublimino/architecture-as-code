@@ -1,9 +1,9 @@
 {
   "layoutPath": "bundle/images/oci",
-  "totalReachableDescriptors": 926,
-  "totalBlobsOnDisk": 926,
+  "totalReachableDescriptors": 969,
+  "totalBlobsOnDisk": 969,
   "danglingDescriptors": [],
   "orphanBlobs": [],
   "closureVerified": true,
-  "verifiedAt": "2026-10-13T00:24:59Z"
+  "verifiedAt": "2026-10-13T03:15:53Z"
 }

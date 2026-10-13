@@ -3,7 +3,7 @@
   "imagesSchemaVersion": "slsi-bundle-images/v1",
   "generatedAtUtc": "2026-10-13T00:24:59Z",
   "baseSha": "797beffa2447375f7eb9e0c3220a2da1a635d323",
-  "count": 30,
+  "count": 33,
   "sourceLists": [
     {
       "path": "scripts/foundation-images.txt",
@@ -823,6 +823,69 @@
         "upstreamSlsa": null,
         "claim": "bundle-build attestation only"
       }
+    },
+    {
+      "ref": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom@sha256:a024ff8a68c1229e8266e38cbe8ca239fa7ce0264787a85208b0d64b82a6b9fb",
+      "resolvedRef": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom@sha256:a024ff8a68c1229e8266e38cbe8ca239fa7ce0264787a85208b0d64b82a6b9fb",
+      "logicalName": "dashboard-signalloom",
+      "sourceRef": "localhost:5001/acme/images/signalloom/apps/dashboard-signalloom:latest",
+      "digest": "sha256:a024ff8a68c1229e8266e38cbe8ca239fa7ce0264787a85208b0d64b82a6b9fb",
+      "party": "first-party",
+      "role": "application",
+      "digestKind": "manifest",
+      "sourceId": "b7f04711fce33aa96a32244a6302578f1788f0394a24a8b830e48af184c8758b",
+      "sourceIdTag": "src-b7f04711fce3",
+      "platforms": [
+        "linux/amd64"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 3030,
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "first-party: built from this source tree, identity is sourceId"
+      }
+    },
+    {
+      "ref": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/docs-signalloom@sha256:dd06c2cf78699e788716d6a89392d1141cfdb2e3bc8896ca6bfc829823b692ff",
+      "resolvedRef": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/docs-signalloom@sha256:dd06c2cf78699e788716d6a89392d1141cfdb2e3bc8896ca6bfc829823b692ff",
+      "logicalName": "docs-signalloom",
+      "sourceRef": "localhost:5001/acme/images/signalloom/apps/docs-signalloom:latest",
+      "digest": "sha256:dd06c2cf78699e788716d6a89392d1141cfdb2e3bc8896ca6bfc829823b692ff",
+      "party": "first-party",
+      "role": "application",
+      "digestKind": "manifest",
+      "sourceId": "f7dc966e0a5ed70f234ca2f63006f0da6824f3820aa3079607391a1dee1838f1",
+      "sourceIdTag": "src-f7dc966e0a5e",
+      "platforms": [
+        "linux/amd64"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 3669,
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "first-party: built from this source tree, identity is sourceId"
+      }
+    },
+    {
+      "ref": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom@sha256:260c71e576106d9c690f55be8cdac9e10ae6631e37d5e04d7774d56e932c6023",
+      "resolvedRef": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom@sha256:260c71e576106d9c690f55be8cdac9e10ae6631e37d5e04d7774d56e932c6023",
+      "logicalName": "fe-signalloom",
+      "sourceRef": "localhost:5001/acme/images/signalloom/apps/fe-signalloom:latest",
+      "digest": "sha256:260c71e576106d9c690f55be8cdac9e10ae6631e37d5e04d7774d56e932c6023",
+      "party": "first-party",
+      "role": "application",
+      "digestKind": "manifest",
+      "sourceId": "a4da0bfb38f048b2a41bbd8b41258b0886fbc5d9385ea14956b3c84c64d7a94f",
+      "sourceIdTag": "src-a4da0bfb38f0",
+      "platforms": [
+        "linux/amd64"
+      ],
+      "ociLayoutPath": "bundle/images/oci",
+      "sizeBytes": 2054,
+      "provenance": {
+        "upstreamSlsa": null,
+        "claim": "first-party: built from this source tree, identity is sourceId"
+      }
     }
   ],
   "releaseKey": {
@@ -941,5 +1004,17 @@
     "rule": "jq '.images = $imgs.images'",
     "landedOutOfOrder": false
   },
-  "contractDivergence": []
+  "contractDivergence": [],
+  "firstPartyExport": {
+    "decision": "OSD-1",
+    "workloads": [
+      "dashboard-signalloom",
+      "docs-signalloom",
+      "fe-signalloom"
+    ],
+    "sourceRegistry": "localhost:5001",
+    "namespace": "acme/images",
+    "identity": "sourceId (scripts/lib/source-id.sh), not the mutable tag the deployment resolves to",
+    "exportedAtUtc": "2026-10-13T03:15:53Z"
+  }
 }

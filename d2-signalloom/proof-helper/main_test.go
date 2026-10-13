@@ -632,7 +632,7 @@ func TestMethodNotAllowedDirect(t *testing.T) {
 		t.Fatalf("RFC 9110 violation: expected 0 body bytes on HEAD 405, got %d: %q", recHead.Body.Len(), recHead.Body.String())
 	}
 
-	// Nil request -> 405 without panic
+	// Nil request -> 405 with body and Allow header without panic
 	recNil := httptest.NewRecorder()
 	methodNotAllowed(recNil, nil, "GET, HEAD")
 	if recNil.Code != http.StatusMethodNotAllowed {
@@ -641,8 +641,11 @@ func TestMethodNotAllowedDirect(t *testing.T) {
 	if allow := recNil.Header().Get("Allow"); allow != "GET, HEAD" {
 		t.Fatalf("expected Allow: GET, HEAD, got %q", allow)
 	}
-	if recNil.Body.Len() != 0 {
-		t.Fatalf("expected 0 body bytes on nil req, got %d", recNil.Body.Len())
+	if nosniff := recNil.Header().Get("X-Content-Type-Options"); nosniff != "nosniff" {
+		t.Fatalf("expected X-Content-Type-Options: nosniff, got %q", nosniff)
+	}
+	if recNil.Body.String() != "method not allowed\n" {
+		t.Fatalf("expected 'method not allowed\\n' on nil req, got %q", recNil.Body.String())
 	}
 }
 

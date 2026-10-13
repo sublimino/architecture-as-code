@@ -347,8 +347,9 @@ func newA2AHandler(client *http.Client, address, role, expectedSubject string, p
 func methodNotAllowed(response http.ResponseWriter, r *http.Request, allow string) {
 	response.Header().Set("Allow", allow)
 	response.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	response.Header().Set("X-Content-Type-Options", "nosniff")
 	response.WriteHeader(http.StatusMethodNotAllowed)
-	if r != nil && r.Method != http.MethodHead {
+	if r == nil || r.Method != http.MethodHead {
 		_, _ = response.Write([]byte("method not allowed\n"))
 	}
 }

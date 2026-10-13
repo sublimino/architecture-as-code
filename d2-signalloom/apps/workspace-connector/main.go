@@ -161,11 +161,13 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost && r.Method != http.MethodHead {
+	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		if r == nil || r.Method != http.MethodHead {
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		}
 		return
 	}
 
@@ -174,9 +176,6 @@ func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		if r.Method == http.MethodHead {
-			return
-		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
@@ -186,10 +185,6 @@ func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
-	if r.Method == http.MethodHead {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"polled_and_ingested": count,
 		"last_polled":         lastPolled,
@@ -197,11 +192,13 @@ func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStun(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost && r.Method != http.MethodHead {
+	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		if r == nil || r.Method != http.MethodHead {
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		}
 		return
 	}
 
@@ -210,9 +207,6 @@ func (s *Server) handleStun(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		if r.Method == http.MethodHead {
-			return
-		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request: " + err.Error()})
 		return
 	}
@@ -221,18 +215,11 @@ func (s *Server) handleStun(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		if r.Method == http.MethodHead {
-			return
-		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if r.Method == http.MethodHead {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
 	_ = json.NewEncoder(w).Encode(res)
 }
 

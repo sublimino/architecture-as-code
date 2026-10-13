@@ -228,48 +228,38 @@ func TestHeadErrorBodySuppression(t *testing.T) {
 		}
 	}
 
-	// 2. Direct handler invocation with HEAD on invalid JSON body for handleStun
+	// 2. Direct handler invocation with HEAD on handleStun returns 405 with Allow: POST and 0 body bytes
 	badReq := httptest.NewRequest(http.MethodHead, "/api/v1/workspace/stun", bytes.NewBufferString(`{bad-json`))
 	w := httptest.NewRecorder()
 	srv.handleStun(w, badReq)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("handleStun HEAD bad json: want 400, got %d", w.Code)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("handleStun HEAD: want 405, got %d", w.Code)
+	}
+	if allow := w.Header().Get("Allow"); allow != "POST" {
+		t.Errorf("handleStun HEAD Allow: want 'POST', got %q", allow)
 	}
 	if w.Body.Len() != 0 {
-		t.Errorf("handleStun HEAD bad json: expected 0 body bytes, got %d: %q", w.Body.Len(), w.Body.String())
+		t.Errorf("handleStun HEAD: expected 0 body bytes, got %d: %q", w.Body.Len(), w.Body.String())
 	}
 	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("handleStun HEAD: want Content-Type application/json, got %q", ct)
 	}
 
-	// 3. Direct handler invocation with HEAD when handlePoll fails (simulated by 500 ingest)
-	fakeIngest := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-	})))
-	defer fakeIngest.Close()
-
-	errSrv := &Server{
-		client:    client.NewMockReportsClient(),
-		stunner:   stun.NewMemoryStunExecutor(),
-		ingestURL: fakeIngest.URL,
-	}
+	// 3. Direct handler invocation with HEAD on handlePoll returns 405 with Allow: POST and 0 body bytes
 	pollReq := httptest.NewRequest(http.MethodHead, "/api/v1/workspace/poll", nil)
 	pollW := httptest.NewRecorder()
-	errSrv.handlePoll(pollW, pollReq)
-	if pollW.Code != http.StatusInternalServerError {
-		t.Errorf("handlePoll HEAD error: want 500, got %d", pollW.Code)
+	srv.handlePoll(pollW, pollReq)
+	if pollW.Code != http.StatusMethodNotAllowed {
+		t.Errorf("handlePoll HEAD: want 405, got %d", pollW.Code)
+	}
+	if allow := pollW.Header().Get("Allow"); allow != "POST" {
+		t.Errorf("handlePoll HEAD Allow: want 'POST', got %q", allow)
 	}
 	if pollW.Body.Len() != 0 {
-		t.Errorf("handlePoll HEAD error: expected 0 body bytes, got %d: %q", pollW.Body.Len(), pollW.Body.String())
+		t.Errorf("handlePoll HEAD: expected 0 body bytes, got %d: %q", pollW.Body.Len(), pollW.Body.String())
 	}
 	if ct := pollW.Header().Get("Content-Type"); ct != "application/json" {
-		t.Errorf("handlePoll HEAD error: want Content-Type application/json, got %q", ct)
+		t.Errorf("handlePoll HEAD: want Content-Type application/json, got %q", ct)
 	}
 }
 
@@ -350,19 +340,15 @@ func TestDirectHandlerMethodRejectionAndHead(t *testing.T) {
 		}
 	}
 
-	// Direct handlePoll with HEAD returns 200 with 0 body bytes
-	fakeIngest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer fakeIngest.Close()
-	srv.ingestURL = fakeIngest.URL
-
+	// Direct handlePoll with HEAD returns 405 with 0 body bytes and Allow: POST
 	headPollReq := httptest.NewRequest(http.MethodHead, "/api/v1/workspace/poll", nil)
 	headPollW := httptest.NewRecorder()
 	srv.handlePoll(headPollW, headPollReq)
-	if headPollW.Code != http.StatusOK {
-		t.Errorf("direct handlePoll HEAD: want 200, got %d", headPollW.Code)
+	if headPollW.Code != http.StatusMethodNotAllowed {
+		t.Errorf("direct handlePoll HEAD: want 405, got %d", headPollW.Code)
+	}
+	if allow := headPollW.Header().Get("Allow"); allow != "POST" {
+		t.Errorf("direct handlePoll HEAD Allow: want 'POST', got %q", allow)
 	}
 	if headPollW.Body.Len() != 0 {
 		t.Errorf("direct handlePoll HEAD: expected 0 body bytes, got %d", headPollW.Body.Len())
@@ -384,18 +370,15 @@ func TestDirectHandlerMethodRejectionAndHead(t *testing.T) {
 		}
 	}
 
-	// Direct handleStun with HEAD and valid payload returns 200 with 0 body bytes
-	stunPayload, _ := json.Marshal(stun.StunRequest{
-		AgentID:             "spiffe://osramp.local/ns/agents/sa/rogue-agent",
-		ServiceAccountEmail: "agent-rogue@corp.internal",
-		Reason:              "External OAuth token grant detected",
-		RequestedAt:         time.Now().UTC(),
-	})
-	headStunReq := httptest.NewRequest(http.MethodHead, "/api/v1/workspace/stun", bytes.NewReader(stunPayload))
+	// Direct handleStun with HEAD returns 405 with 0 body bytes and Allow: POST
+	headStunReq := httptest.NewRequest(http.MethodHead, "/api/v1/workspace/stun", nil)
 	headStunW := httptest.NewRecorder()
 	srv.handleStun(headStunW, headStunReq)
-	if headStunW.Code != http.StatusOK {
-		t.Errorf("direct handleStun HEAD: want 200, got %d", headStunW.Code)
+	if headStunW.Code != http.StatusMethodNotAllowed {
+		t.Errorf("direct handleStun HEAD: want 405, got %d", headStunW.Code)
+	}
+	if allow := headStunW.Header().Get("Allow"); allow != "POST" {
+		t.Errorf("direct handleStun HEAD Allow: want 'POST', got %q", allow)
 	}
 	if headStunW.Body.Len() != 0 {
 		t.Errorf("direct handleStun HEAD: expected 0 body bytes, got %d", headStunW.Body.Len())

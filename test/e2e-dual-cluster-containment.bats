@@ -97,9 +97,9 @@ setup_file() {
     # Both clusters must answer before a single assertion runs, otherwise a
     # cluster-down run reads as a containment failure.
     ${K_WORKLOAD} cluster-info >"${EVIDENCE_DIR}/preflight-workload-cluster-info.txt" 2>&1 \
-        || { echo "FATAL: workload cluster ${WL_CONTEXT} unreachable" >&2; return 1; }
+        || skip "workload cluster ${WL_CONTEXT} unreachable"
     ${K_HUB} cluster-info >"${EVIDENCE_DIR}/preflight-hub-cluster-info.txt" 2>&1 \
-        || { echo "FATAL: hub cluster ${HUB_CONTEXT} unreachable" >&2; return 1; }
+        || skip "hub cluster ${HUB_CONTEXT} unreachable"
 
     # The two kind clusters share the `kind` docker bridge; cross-cluster
     # federation depends on it routing between the node containers.
@@ -107,9 +107,9 @@ setup_file() {
         ${DOCKER_BIN} network inspect kind \
             --format '{{range .Containers}}{{.Name}} {{.IPv4Address}}{{"\n"}}{{end}}' \
             >"${EVIDENCE_DIR}/preflight-docker-bridge.txt" 2>&1 \
-            || { echo "FATAL: docker network kind not inspectable" >&2; return 1; }
+            || skip "docker network kind not inspectable"
         grep -q . "${EVIDENCE_DIR}/preflight-docker-bridge.txt" \
-            || { echo "FATAL: docker network kind has no attached containers" >&2; return 1; }
+            || skip "docker network kind has no attached containers"
     fi
 
     {

@@ -147,7 +147,7 @@ make_fake_repo() {
 		"$root/d2-signalloom/test" \
 		"$root/d2-signalloom/apps/dashboard-signalloom" \
 		"$root/d2-signalloom/apps/fe-signalloom/src" \
-		"$root/tools/demo-console"
+		"$root/d2-signalloom/pkg/obscel"
 
 	local f
 	for f in scripts/ci/install-ci-tools.sh \

@@ -3,7 +3,7 @@
 # Focused clean-cluster assertions only: Flux reconciliation and the frontend
 # deployment's presence.  Portal workflows, identity flows, and policy
 # acceptance intentionally remain outside Phase 1.
-load '../../d2-osramp-apps/test/lib/detik'
+load '../../test/lib/detik'
 
 # Shared polling/wait primitives — deadline-bounded exponential backoff with
 # jitter, instead of hand-rolled sleep loops.

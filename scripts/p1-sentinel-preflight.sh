@@ -9,7 +9,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-AUDIT_JSON="${P1_PREFLIGHT_OUT:-${REPO_ROOT}/ci-evidence/p1-preflight-audit.json}"
+AUDIT_JSON="${P1_PREFLIGHT_OUT:-${REPO_ROOT}/docs/records/ci-evidence/p1-preflight-audit.json}"
 BTF_PATH="${BTF_PATH:-/sys/kernel/btf/vmlinux}"
 CGROUP_PATH="${CGROUP_PATH:-/sys/fs/cgroup}"
 

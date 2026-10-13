@@ -33,8 +33,8 @@ run_stage "deterministic fake integrations" \
   env PYTHONPATH=d2-signalloom/apps/fake-integration-proxy \
     python3 -m unittest discover \
     -s d2-signalloom/apps/fake-integration-proxy/test -p 'test_proxy.py'
-run_stage "dashboard API ownership contract" \
-  bash -c 'cd tools/demo-console && go test ./...'
+run_stage "Signal Loom CEL policy contracts" \
+  bash -c 'cd d2-signalloom/pkg/obscel && go test ./...'
 run_stage "TEST-1 harness contract" \
   bats test/signalloom-test-1-harness.bats
 run_stage "Flux and workload convergence" \

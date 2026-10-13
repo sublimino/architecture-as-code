@@ -16,7 +16,7 @@ setup() {
 	mkdir -p \
 		"$platform_root/services/discovery-portal" \
 		"$platform_root/infrastructure/terraform" \
-		"$demo_root/d2-osramp-apps" \
+		"$demo_root/d2-signalloom" \
 		"$demo_root/d2-osramp-fleet" \
 		"$demo_root/d2-infra" \
 		"$d2_bao_root/d2-bao-infra"

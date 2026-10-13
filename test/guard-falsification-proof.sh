@@ -1079,7 +1079,7 @@ orc_rbac_dangling_sa() {
 		# It was caught by the baseline gate demanding 0 on a clean tree and then
 		# >=1 after the mutation, which is the whole argument for having the gate.
 		declared = set()
-		for root in ("d2-osramp-fleet", "d2-signalloom", "d2-osramp-apps", "olly-replica"):
+		for root in ("d2-osramp-fleet", "d2-signalloom"):
 		    rp = pathlib.Path(root)
 		    if not rp.is_dir():
 		        continue

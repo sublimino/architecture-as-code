@@ -92,19 +92,6 @@ Evidence or notes:
 
 ```
 
-### Olly customer portal
-
-- [ ] Confirm that `customer-portal` is defined in [`olly-replica/components/configs/base/tenant-apps.yaml`](olly-replica/components/configs/base/tenant-apps.yaml) before you mark this area passed.
-- [ ] Open `http://127.0.0.1:18080`.
-- [ ] The portal responds without a server error.
-- [ ] The page renders non-empty content.
-
-Evidence or notes:
-
-```text
-
-```
-
 ## Failure evidence
 
 For every failed check, record the test name, file and line, root error, and artifact path.

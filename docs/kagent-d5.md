@@ -461,15 +461,13 @@ so it is never checked out into a linked worktree. A `$PWD`-relative read
 from a worktree finds nothing, reports "no key configured", and exits 0 while
 the operator's key sits in the main checkout. `scripts/lib/env-file.sh` resolves
 it through `git rev-parse --git-common-dir`. `SIGNALLOOM_ENV_FILE` overrides,
-for CI and the GCP lanes where there may be no git repo. All four `.env` readers
-in this repo (`kagent-credentials`, `olly-llm-secret`, `olly-pdi-secret`,
-`security-sandbox`) now share that resolver.
+for CI and the GCP lanes where there may be no git repo.
 
 **Two different behaviours, deliberately.** `make demo-kagent-credentials`
-**no-ops with guidance** when no key is configured, matching
-`scripts/olly-llm-secret.sh`: a missing optional credential must not break
-`make up`. `make demo-kagent-invoke` **fails loudly**, because there the key is
-required and quietly doing nothing is the fake-success mode being removed.
+**no-ops with guidance** when no key is configured: a missing optional
+credential must not break `make up`. `make demo-kagent-invoke` **fails loudly**,
+because there the key is required and quietly doing nothing is the fake-success
+mode being removed.
 
 This replaces a committed Secret containing a 33-byte placeholder. No agent
 could complete a model call with it, and every presence check reported it as

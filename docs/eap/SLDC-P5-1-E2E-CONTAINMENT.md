@@ -12,7 +12,7 @@ Deploy → Claim → Provoke → In-Sentinel Detect → Freeze, across `kind-osr
 | Unit tests | [`d2-signalloom/apps/kusari-agent/main_test.go`](../../d2-signalloom/apps/kusari-agent/main_test.go) |
 | Claim path | [`scripts/demo-agent-autoclaim.sh`](../../scripts/demo-agent-autoclaim.sh) `--workload kusari-agent` |
 | Standalone workload | [`deploy/kusari-agent-workload.yaml`](../../deploy/kusari-agent-workload.yaml) |
-| Execution trace | [`ci-evidence/sample-e2e-run.log`](../../ci-evidence/sample-e2e-run.log) |
+| Execution trace | [`docs/records/ci-evidence/sample-e2e-run.log`](../records/ci-evidence/sample-e2e-run.log) |
 
 ## Running it
 

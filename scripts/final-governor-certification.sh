@@ -35,7 +35,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNS=3
-OUT_DIR="${REPO_ROOT}/ci-evidence"
+OUT_DIR="${REPO_ROOT}/docs/records/ci-evidence"
 SIGNOFF=""
 APPROVERS="${SLDC_APPROVERS:-Andrew Martin,John Kjell,Francesco Beltramini,Wendy Overton}"
 

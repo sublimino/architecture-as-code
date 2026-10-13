@@ -22,7 +22,7 @@ It must also have **cluster admin** rights to all clusters in the fleet. Those r
 
 - Bootstrap Flux Operator with multi-tenancy restrictions on the fleet of clusters.
 - Configure the delivery of platform components (defined in [d2-infra](../d2-infra)).
-- Configure the delivery of applications (defined in [d2-osramp-apps](../d2-osramp-apps)).
+- Configure the delivery of applications (defined in [d2-signalloom](../d2-signalloom)).
 
 ## OCI Artifacts
 

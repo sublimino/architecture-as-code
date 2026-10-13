@@ -26,7 +26,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-OUT_FILE="${1:-${REPO_ROOT}/ci-evidence/slaat-p3-1-replay-results.json}"
+OUT_FILE="${1:-${REPO_ROOT}/docs/records/ci-evidence/slaat-p3-1-replay-results.json}"
 
 cd "${REPO_ROOT}"
 

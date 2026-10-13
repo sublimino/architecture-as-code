@@ -41,7 +41,6 @@ setup() {
   grep -q "normalize_allow" "$ROOT/d2-agent-trust/a2a/service.py"
   grep -q "_normalize_allow" "$ROOT/d2-signalloom/apps/fake-integration-proxy/server.py"
   grep -q "_normalize_allow" "$ROOT/d2-signalloom/apps/netassert-controller/server.py"
-  grep -q "normalize_allow" "$ROOT/olly-replica/apps/authz/authz/httputil.py"
 
   run pytest -q "$ROOT/d2-agent-trust/test"
   [ "$status" -eq 0 ]
@@ -50,9 +49,6 @@ setup() {
   [ "$status" -eq 0 ]
 
   PYTHONPATH="$ROOT/d2-signalloom/apps/netassert-controller" run pytest -q "$ROOT/d2-signalloom/apps/netassert-controller/test"
-  [ "$status" -eq 0 ]
-
-  PYTHONPATH="$ROOT/olly-replica/apps/authz" run pytest -q "$ROOT/olly-replica/apps/authz/tests"
   [ "$status" -eq 0 ]
 }
 

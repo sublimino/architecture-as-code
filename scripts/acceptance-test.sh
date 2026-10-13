@@ -150,9 +150,7 @@ if [[ " $* " == *" signalloom-test-1.spec.ts "* ]]; then
   start_port_forward inf-signalloom dex 15556 5556
 else
   start_port_forward monitoring kube-prometheus-stack-grafana 13000 80
-  start_port_forward backend osramp-archivista 18082 8082
   start_port_forward fe-signalloom fe-signalloom 18000 8000
-  start_port_forward olly-replica customer-portal 18080 8080
   start_port_forward inf-signalloom dex 15556 5556
 fi
 

@@ -4,14 +4,14 @@
 # SLDC-P0 Baseline Verification Script
 # Validates developer environment readiness, toolchain versions, git repository
 # posture, kernel & cgroup prerequisites, and executes offline test suites.
-# Generates ci-evidence/sldc-p0-preflight-manifest.json and logs.
+# Generates docs/records/ci-evidence/sldc-p0-preflight-manifest.json and logs.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-EVIDENCE_DIR="$REPO_ROOT/ci-evidence"
+EVIDENCE_DIR="$REPO_ROOT/docs/records/ci-evidence"
 MANIFEST_FILE="$EVIDENCE_DIR/sldc-p0-preflight-manifest.json"
 BASELINE_LOG="$EVIDENCE_DIR/sldc-p0-baseline.txt"
 

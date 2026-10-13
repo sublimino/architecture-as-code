@@ -53,12 +53,10 @@ flowchart TB
   source for the Signal Loom Flux reconciliation. See
   [`../d2-signalloom/README.md`](../d2-signalloom/README.md#ownership).
 - The tenant files in [`tenants/base/`](tenants/base/) set the identity of each
-  tenant. The `infra` and `olly` tenants get `cluster-admin`. The `apps` tenant
-  gets only the namespace `admin` role. The `agent-trust` and `agent-swarm`
-  tenants get their own ClusterRoles.
+  tenant. The `infra` tenant gets `cluster-admin`. The `agent-trust` and
+  `agent-swarm` tenants get their own ClusterRoles.
 - The local fleet, [`tenants/local/kustomization.yaml`](tenants/local/kustomization.yaml),
-  applies policies, infra, agent-trust, agent-swarm and signalloom. It excludes
-  apps and olly. `make demo-osramp-up` and `make demo-olly-up` add those two.
+  applies policies, infra, agent-trust, agent-swarm, and signalloom.
 
 ## Lifecycle
 
@@ -80,8 +78,6 @@ It stores the key in the Secret `cosign-pub` in `flux-system`.
 |---|---|---|
 | `infra` | `cert-manager`, `ingress`, `monitoring`, `trivy-system` | [`tenants/base/infra.yaml`](tenants/base/infra.yaml) |
 | `policies` | `flux-system` | [`tenants/base/policies.yaml`](tenants/base/policies.yaml) |
-| `apps` | Set at run time by [`../scripts/osramp-up.sh`](../scripts/osramp-up.sh). The base file has empty inputs. | [`tenants/base/apps.yaml`](tenants/base/apps.yaml) |
-| `olly` | Set at run time by [`../scripts/olly-up.sh`](../scripts/olly-up.sh). The base file has empty inputs. | [`tenants/base/olly.yaml`](tenants/base/olly.yaml) |
 | `agent-trust` | `agent-trust-platform` and five tenant and project namespaces | [`tenants/base/agent-trust.yaml`](tenants/base/agent-trust.yaml) |
 | `agent-swarm` | `fe-signalloom-agents` | [`tenants/base/agent-swarm.yaml`](tenants/base/agent-swarm.yaml) |
 | `signalloom-infra`, `signalloom-apps` | `inf-bao`, `inf-signalloom`, `fe-signalloom` | [`tenants/local/signalloom.yaml`](tenants/local/signalloom.yaml) |

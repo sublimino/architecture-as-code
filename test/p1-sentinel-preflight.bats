@@ -43,7 +43,7 @@ manifest_with() {
   [[ "$output" == *"Preflight Audit Summary: 8 passed, 0 failed (status=pass)"* ]]
   [ "$(report .summary.status)" = pass ]
   [ "$(report .daemonset_security.manifest_inspected)" = "$BASE_DS" ]
-  git -C "$REPO_ROOT" diff --quiet -- ci-evidence/p1-preflight-audit.json
+  git -C "$REPO_ROOT" diff --quiet -- docs/records/ci-evidence/p1-preflight-audit.json
 }
 
 @test "p1 preflight: missing BTF fails with the path named and btf.available=false" {

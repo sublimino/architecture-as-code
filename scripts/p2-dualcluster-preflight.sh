@@ -39,7 +39,7 @@
 set -o pipefail
 
 REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-AUDIT_JSON="${AUDIT_JSON:-${REPO_ROOT}/ci-evidence/p2-preflight-audit.json}"
+AUDIT_JSON="${AUDIT_JSON:-${REPO_ROOT}/docs/records/ci-evidence/p2-preflight-audit.json}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 KIND_BIN="${KIND_BIN:-kind}"
 KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
@@ -72,7 +72,7 @@ usage() {
   cat <<'EOF'
 Usage: scripts/p2-dualcluster-preflight.sh [--l3-probe] [--quiet] [--help]
 
-Read-only SLDC Phase 2 dual-cluster pre-flight. Writes ci-evidence/p2-preflight-audit.json
+Read-only SLDC Phase 2 dual-cluster pre-flight. Writes docs/records/ci-evidence/p2-preflight-audit.json
 (override with AUDIT_JSON=path). Exit 0 = no blockers, 1 = blockers found, 2 = usage/docker error.
 
   --l3-probe  also create a disposable bridge on a free 172.x/16 with two containers at

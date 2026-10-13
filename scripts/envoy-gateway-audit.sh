@@ -182,7 +182,7 @@ echo "[envoy-gateway-audit] === recent access log sample (evidence for the log-v
 kubectl --context "${SLAAT_KUBE_CONTEXT}" -n "${SLAAT_GW_NAMESPACE}" logs \
   -l "${GW_PODS_SELECTOR}" -c envoy --since-time="${AUDIT_START_UTC}" 2>/dev/null \
   > "${WORKDIR}/access-log-sample.jsonl" || true
-cp "${WORKDIR}/access-log-sample.jsonl" "${REPO_ROOT}/ci-evidence/slaat-p1-1-gateway-access-log-sample.jsonl" 2>/dev/null || true
+cp "${WORKDIR}/access-log-sample.jsonl" "${REPO_ROOT}/docs/records/ci-evidence/slaat-p1-1-gateway-access-log-sample.jsonl" 2>/dev/null || true
 
 python3 - "${RECORDS_JSONL}" "${AUDIT_START_UTC}" <<'PY' > "${WORKDIR}/final.json"
 import json, sys, subprocess

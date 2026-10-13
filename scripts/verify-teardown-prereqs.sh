@@ -42,7 +42,7 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-[ -z "$OUT_FILE" ] && OUT_FILE="$REPO_ROOT/.evidence/phase6-preflight-readiness.json"
+[ -z "$OUT_FILE" ] && OUT_FILE="$REPO_ROOT/docs/records/eap-evidence/phase6-preflight-readiness.json"
 
 FAILED_CHECKS=0
 TOTAL_CHECKS=0
@@ -111,10 +111,10 @@ if command -v df >/dev/null 2>&1; then
 fi
 
 # 6. Phase 5 forensic evidence bundle
-EAP_TAR="$REPO_ROOT/.evidence/eap-kusari-containment.tar.gz"
-EAP_SIG="$REPO_ROOT/.evidence/audit-signature.sha256"
+EAP_TAR="$REPO_ROOT/docs/records/eap-evidence/eap-kusari-containment.tar.gz"
+EAP_SIG="$REPO_ROOT/docs/records/eap-evidence/audit-signature.sha256"
 if [ ! -f "$EAP_TAR" ] || [ ! -f "$EAP_SIG" ]; then
-  check_fail "Phase 5 forensic evidence bundle preserved" "bundle or signature missing in .evidence/"
+  check_fail "Phase 5 forensic evidence bundle preserved" "bundle or signature missing in docs/records/eap-evidence/"
 elif ! bash "$SCRIPT_DIR/verify-eap-evidence.sh" --quiet "$EAP_TAR" >/dev/null 2>&1; then
   # Present is not preserved: a bundle that no longer verifies is lost evidence.
   check_fail "Phase 5 forensic evidence bundle preserved" "$(basename "$EAP_TAR") fails verify-eap-evidence.sh"
@@ -147,7 +147,7 @@ VERDICT="PASS"
 [ "$FAILED_CHECKS" -gt 0 ] && VERDICT="FAIL"
 
 mkdir -p "$(dirname "$OUT_FILE")"
-mkdir -p "$REPO_ROOT/ci-evidence"
+mkdir -p "$REPO_ROOT/docs/records/ci-evidence"
 
 GIT_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo "unknown")"
 TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
@@ -173,8 +173,8 @@ cat <<EOF >"$OUT_FILE"
 }
 EOF
 
-# Duplicate to ci-evidence as well for permanent audit retention
-cp "$OUT_FILE" "$REPO_ROOT/ci-evidence/phase6-preflight-readiness.json"
+# Duplicate to docs/records/ci-evidence as well for permanent audit retention
+cp "$OUT_FILE" "$REPO_ROOT/docs/records/ci-evidence/phase6-preflight-readiness.json"
 
 echo "─────────────────────────────────────────────────────────────"
 echo "VERDICT: $VERDICT ($((TOTAL_CHECKS - FAILED_CHECKS))/$TOTAL_CHECKS passed)"

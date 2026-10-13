@@ -216,6 +216,7 @@ certifications of each mission. The file prefix is the mission shortcode.
 
 | Document | What it records |
 | :--- | :--- |
+| [`records/README.md`](records/README.md) | Consolidated CI evidence (`records/ci-evidence/`), EAP pilot containment bundles (`records/eap-evidence/`), preflight JSON proofs (`records/preflight-proofs/`), and wave governor proofs (`records/signalloom-proofs/`) |
 | [Signal Loom CEO Delivery Report, week of 2026-09-08](Signal%20Loom%20—%20CEO%20Delivery%20Report%20—%20Week%20of%202026-09-08.md) | Delivery status for one week |
 | [`amxd-p0-baseline.md`](amxd-p0-baseline.md) | AMXD mission baseline, with machine baselines in [`amxd-p0-baseline/`](amxd-p0-baseline/) |
 | [`slsi-p0-baseline.md`](slsi-p0-baseline.md) | SLSI mission baseline, establishing acceptance baseline at 504405b9 with machine baselines in [`slsi-p0-baseline/`](slsi-p0-baseline/) |

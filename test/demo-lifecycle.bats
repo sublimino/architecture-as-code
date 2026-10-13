@@ -76,7 +76,7 @@ SCRIPT
   # The underlying hazard is in the Makefile, not here: a recipe that recurses
   # cannot be reviewed by dry run, which matters most for destructive targets.
   # Prefer a direct invocation over $(MAKE) where reviewability counts.
-  run make -n MAKE=true cluster-up cluster-down flux-bootstrap flux-test demo-bao-up demo-bao-test-config demo-bao-test demo-bao-down demo-signalloom-up demo-signalloom-test-config demo-signalloom-test demo-signalloom-down demo-osramp-up demo-osramp-test-config demo-osramp-test demo-osramp-down demo-olly-up demo-olly-test-config demo-olly-test demo-olly-down demo-signalloom-stack-up demo-signalloom-stack-down demo-signalloom-stack-purge
+  run make -n MAKE=true cluster-up cluster-down flux-bootstrap flux-test demo-bao-up demo-bao-test-config demo-bao-test demo-bao-down demo-signalloom-up demo-signalloom-test-config demo-signalloom-test demo-signalloom-down demo-signalloom-stack-up demo-signalloom-stack-down demo-signalloom-stack-purge
   [ "$status" -eq 0 ]
   [[ "$output" != *"No rule to make target"* ]]
   [[ "$output" == *"demo-lifecycle.sh bao-up"* ]]
@@ -92,68 +92,8 @@ SCRIPT
   [[ "$output" == *"healthcheck"* ]]
   [[ "$output" == *"demo-help"* ]]
   [[ "$output" != *"make images"* ]]
-  [[ "$output" != *"workload-key"* ]]
   [[ "$output" != *"signalloom-local.sh up"* ]]
-  [[ "$output" != *"olly-up.sh"* ]]
-  [[ "$output" != *"osramp-up.sh"* ]]
   [[ "$output" != *"demo-lifecycle.sh bao-up"* ]]
-}
-
-@test "OSRAMP lifecycle includes its disabled ResourceSet prerequisite" {
-  command -v yq >/dev/null || skip "yq is required"
-
-  run yq -e '.resources[] | select(. == "../base/apps.yaml")' \
-    "$root/d2-osramp-fleet/tenants/local/kustomization.yaml"
-
-  [ "$status" -eq 0 ]
-  [ "$output" = "../base/apps.yaml" ]
-}
-
-@test "local tenant render contains an inactive OSRAMP ResourceSet" {
-  command -v kubectl >/dev/null || skip "kubectl is required"
-  command -v yq >/dev/null || skip "yq is required"
-  local rendered="$BATS_TEST_TMPDIR/local-tenants.yaml"
-
-  kubectl kustomize --load-restrictor LoadRestrictionsNone \
-    "$root/d2-osramp-fleet/tenants/local" >"$rendered"
-
-  run yq eval-all -e '[select(.kind == "ResourceSet" and .metadata.name == "apps") |
-    select(.metadata.annotations."fluxcd.controlplane.io/reconcile" == "disabled") |
-    select((.spec.inputs | length) == 0)] | length' "$rendered"
-  [ "$status" -eq 0 ]
-  [ "$output" = "1" ]
-}
-
-@test "local OSRAMP render verifies OCI artifacts with cosign-pub" {
-  command -v kubectl >/dev/null || skip "kubectl is required"
-  command -v yq >/dev/null || skip "yq is required"
-  local rendered="$BATS_TEST_TMPDIR/local-tenants.yaml"
-
-  kubectl kustomize --load-restrictor LoadRestrictionsNone \
-    "$root/d2-osramp-fleet/tenants/local" >"$rendered"
-
-  run yq eval-all -e '[select(.kind == "ResourceSet" and .metadata.name == "apps") |
-    .spec.resources[] | select(.kind == "OCIRepository" and .metadata.name == "apps") |
-    select(.spec.verify.provider == "cosign") |
-    select(.spec.verify.secretRef.name == "cosign-pub") |
-    select(.spec.verify.matchOIDCIdentity == null)] | length' "$rendered"
-  [ "$status" -eq 0 ]
-  [ "$output" = "1" ]
-}
-
-@test "local OSRAMP render copies its cosign verification key" {
-  command -v kubectl >/dev/null || skip "kubectl is required"
-  command -v yq >/dev/null || skip "yq is required"
-  local rendered="$BATS_TEST_TMPDIR/local-tenants.yaml"
-
-  kubectl kustomize --load-restrictor LoadRestrictionsNone \
-    "$root/d2-osramp-fleet/tenants/local" >"$rendered"
-
-  run yq eval-all -e '[select(.kind == "ResourceSet" and .metadata.name == "apps") |
-    .spec.resources[] | select(.kind == "Secret" and .metadata.name == "cosign-pub") |
-    select(.metadata.annotations."fluxcd.controlplane.io/copyFrom" == "flux-system/cosign-pub")] | length' "$rendered"
-  [ "$status" -eq 0 ]
-  [ "$output" = "1" ]
 }
 
 @test "local render preserves existing ResourceSet cosign verification" {
@@ -174,7 +114,7 @@ SCRIPT
   done
 }
 
-@test "nonlocal OSRAMP render retains GitHub keyless identity verification" {
+@test "nonlocal render retains GitHub keyless identity verification" {
   command -v kubectl >/dev/null || skip "kubectl is required"
   command -v yq >/dev/null || skip "yq is required"
   local rendered="$BATS_TEST_TMPDIR/ghcr-tenants.yaml" lane
@@ -182,8 +122,8 @@ SCRIPT
   kubectl kustomize --load-restrictor LoadRestrictionsNone \
     "$root/d2-osramp-fleet/tenants/ghcr" >"$rendered"
 
-  run yq eval-all -e '[select(.kind == "ResourceSet" and .metadata.name == "apps") |
-    .spec.resources[] | select(.kind == "OCIRepository" and .metadata.name == "apps") |
+  run yq eval-all -e '[select(.kind == "ResourceSet" and .metadata.name == "infra") |
+    .spec.resources[] | select(.kind == "OCIRepository" and .metadata.name == "infra") |
     select(.spec.verify.provider == "cosign") |
     select(.spec.verify.secretRef == null) |
     select(.spec.verify.matchOIDCIdentity[0].issuer == "^https://token\\.actions\\.githubusercontent\\.com$")] | length' "$rendered"
@@ -198,20 +138,6 @@ SCRIPT
   done
 }
 
-@test "OSRAMP activation enables only frontend and backend inputs" {
-  local assignment
-  assignment="$(grep '^DEFAULT_INPUTS=' "$root/scripts/osramp-up.sh")"
-  eval "$assignment"
-
-  run jq -r 'map(.tenant) | sort | join(",")' <<<"$DEFAULT_INPUTS"
-  [ "$status" -eq 0 ]
-  [ "$output" = "backend,frontend" ]
-
-  enable_line="$(grep -n 'fluxcd.controlplane.io/reconcile-' "$root/scripts/osramp-up.sh" | cut -d: -f1)"
-  patch_line="$(grep -n 'kubectl patch resourceset' "$root/scripts/osramp-up.sh" | cut -d: -f1)"
-  [ "$enable_line" -lt "$patch_line" ]
-}
-
 @test "demo help states that no demos run and lists opt-in commands" {
   run make -n demo-help
 
@@ -219,20 +145,7 @@ SCRIPT
   [[ "$output" == *"No demos are running"* ]]
   [[ "$output" == *"Next: choose one demo to start"* ]]
   [[ "$output" == *"demo-signalloom-up"* ]]
-  [[ "$output" == *"demo-osramp-up"* ]]
-  [[ "$output" == *"demo-olly-up"* ]]
   [[ "$output" == *"demo-bao-up"* ]]
-}
-
-@test "control panel describes make up as foundation-only startup" {
-  run jq -e '
-    ([.lanes[] | select(.id == "control") | .title | contains("foundation")] | any) and
-    ([.lanes[] | select(.id == "control") | .steps[] | select(.id == "lifecycle") |
-      (.description | contains("shared foundation")) and
-      (.actions[] | select(.id == "up") | .label | contains("foundation"))] | any)
-  ' "$root/ui/steps.json"
-
-  [ "$status" -eq 0 ]
 }
 
 @test "Signal Loom startup checks foundation health before activation" {
@@ -275,30 +188,7 @@ SCRIPT
   ! printf '%s\n' "$output" | grep -v '^[[:space:]]*#' | grep -q 'make up'
 }
 
-# Was "demo ResourceSets default to inactive inputs", asserting `inputs: []` in
-# all three files and exactly twice in signalloom.yaml. That encoded the defect
-# as the requirement: `inputs: []` is not an inactive ResourceSet. flux-operator
-# renders spec.resources with `Option("missingkey=error")` and BuildResourceSet
-# treats an empty input list as "render ONCE against a nil map" rather than
-# "render nothing", so each of those objects shipped terminally Stalled with
-# `map has no entry for key "tenant"` and waited for a script to repair it.
-#
-# The two demos that really are opt-in now say so with the annotation the
-# controller actually honours (obj.IsDisabled(), checked before the build).
-# Signal Loom is not opt-in on this branch -- tenants/local/kustomization.yaml
-# includes it deliberately -- so it carries declarative inputs and Flux brings
-# it up unaided. Completeness of those inputs is swept in
-# test/resourceset-inputs-declarative.bats.
-@test "opt-in demo ResourceSets ship disabled, not merely input-less" {
-  local f
-  for f in apps olly; do
-    run grep -F 'fluxcd.controlplane.io/reconcile: disabled' \
-      "$root/d2-osramp-fleet/tenants/base/$f.yaml"
-    [ "$status" -eq 0 ]
-  done
-
-  # Signal Loom's two ResourceSets must NOT be input-less: an empty input list
-  # there is the cold-start deadlock this branch exists to remove.
+@test "Signal Loom ResourceSets carry declarative inputs rather than empty input lists" {
   #
   # Asserted structurally rather than with `grep -Fc 'inputs: []'`, which is a
   # guard that matches its own documentation: the header of signalloom.yaml

@@ -141,8 +141,7 @@
 # vm-pipeline.sh: suite registrations from the SLDC/SLTM run (a7bb26af live-gated lanes, sldc-ingest-keys and
 # fleet-manager-keys bring-up, flux-annotation-values, rendered-env-unique, the SLTM suites) and b9177c3f
 # (mint every bring-up key before the images). Each change registers or orders work; none removes a guard.
-# vm-pipeline.sh re-recorded at cb70806b (lost-code recovery, pre-accepted by the CI owner 2026-10-06): the
-# recovered netassert hardening registers test/osramp-up-lifecycle.bats (9c3f0c4e) and restores stage 7a, the
-# live Netassert run (a40d5e61). Both add coverage; neither removes a guard.
-8f72bbf9b02a515b40ad3924d4daa289bc7bef83748064d8dc7f7f201d84ff8f  scripts/ci/vm-pipeline.sh
+# vm-pipeline.sh re-recorded 2026-10-13 (Andy): removed retired legacy slices (d2-osramp-apps, tools/demo-console)
+# by dropping test/osramp-up-lifecycle.bats and pointing stage4-dashboard.json at d2-signalloom/pkg/obscel.
+7f6bfb0cc1b1b1f14e73214bf2a800b35af0057413756935a47d220fa0d09cf9  scripts/ci/vm-pipeline.sh
 ab2e818c2d1f54da05aacdb42e27320f063eba2d50bb9428197ce7c0add39582  scripts/ci/ci-lock.sh

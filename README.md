@@ -60,7 +60,7 @@ The diagram shows how signed artifacts go from CI to the cluster, and how the
 ingestion pipeline records its evidence. Both publish workflows start only by
 manual dispatch. The [CI](#ci) section lists the workflows. The cluster part of
 the diagram shows GHCR mode. Local mode checks the signatures with the cosign
-key from `make signing-keys`, and starts without the `apps` and `olly` tenants
+key from `make signing-keys`
 (see [`d2-osramp-fleet/tenants/local/kustomization.yaml`](d2-osramp-fleet/tenants/local/kustomization.yaml)).
 
 ```mermaid
@@ -226,31 +226,27 @@ Local mode keeps this model without GitHub:
 | --- | --- |
 | [`d2-signalloom/`](d2-signalloom/) | Signal Loom agent governance slice: dashboard, FastAPI backend, Fleet Manager, host sensors, the identity plane (`d2-signalloom/infra/inf-bao`), and Kagent (`d2-signalloom/infra/kagent`). Guide: [`d2-signalloom/AGENTS.md`](d2-signalloom/AGENTS.md). |
 | [`d2-signalloom/apps/docs-signalloom/`](d2-signalloom/apps/docs-signalloom/) | The user documentation site (Astro Starlight), served at `/docs` from its own container |
-| [`d2-osramp-apps/`](d2-osramp-apps/) | OSRAMP application slice: Go services (`apps/`), manifests (`components/`), BATS tests (`test/`). Guide: [`d2-osramp-apps/AGENTS.md`](d2-osramp-apps/AGENTS.md). |
 | [`d2-k8s-afm/`](d2-k8s-afm/) | KubeSec-AFM slice: formal-methods RBAC privilege-escalation analysis. Guide: [`d2-k8s-afm/AGENTS.md`](d2-k8s-afm/AGENTS.md). |
 | [`d2-osramp-fleet/`](d2-osramp-fleet/) | Cluster definitions (`clusters/`), tenant ResourceSets (`tenants/`), and Terraform bootstrap (`terraform/`). Guide: [`d2-osramp-fleet/AGENTS.md`](d2-osramp-fleet/AGENTS.md). |
 | [`d2-infra/`](d2-infra/) | Cluster add-ons: cert-manager, Envoy Gateway, monitoring, Trivy. Guide: [`d2-infra/AGENTS.md`](d2-infra/AGENTS.md). |
 | [`d2-agent-trust/`](d2-agent-trust/) | SPIFFE agent trust: A2A identity, OpenBao JWT roles, NetworkPolicies. Guide: [`d2-agent-trust/AGENTS.md`](d2-agent-trust/AGENTS.md). |
 | [`d2-cpai/`](d2-cpai/) | CPAI runtime proxy: an OpenAI-compatible server that runs OpenCode against Vertex AI. The caller selects the model. Guide: [`d2-cpai/AGENTS.md`](d2-cpai/AGENTS.md). |
-| [`olly-replica/`](olly-replica/) | Olly Sentinel replica tenant: manifests, contracts, seed data, and eval harness. Guide: [`olly-replica/README.md`](olly-replica/README.md). |
-| [`ui/`](ui/) + [`tools/demo-console/`](tools/demo-console/) | The Estate 95 console (`make console`, port 8675): an architecture map in plain HTML, CSS, and JavaScript, and the Go service that runs its commands and streams the output |
 | [`tools/audit-gen/`](tools/audit-gen/) | Generator of synthetic multi-plane containment audit logs |
 | [`tools/harness-dash/`](tools/harness-dash/) | Dashboard for coding-agent harness telemetry |
 | [`tools/riskctl/`](tools/riskctl/) | The FAIR quantitative risk CLI that `make riskctl` builds. `d2-signalloom/cmd/riskctl/` is a small bridge to it. |
 | [`risk/`](risk/) | FAIR risk packs, posture data, and FX rates. Guide: [`risk/README.md`](risk/README.md). |
-| [`scripts/`](scripts/) | The scripts behind the make targets: `setup.sh`, local publish and sign, the VEX, promotion, admission, and revocation demos, attested tests, and CI ([`scripts/ci/README.md`](scripts/ci/README.md)) |
+| [`scripts/`](scripts/) | The scripts behind the make targets: `setup.sh`, local publish and sign, the promotion, admission, and revocation demos, attested tests, and CI ([`scripts/ci/README.md`](scripts/ci/README.md)) |
 | [`test/`](test/) | Repository-level BATS suites and the Playwright acceptance suite ([`test/acceptance/`](test/acceptance/)). See [`TESTING.md`](TESTING.md). |
 | [`bin/`](bin/) | Helper executables: `agent-git`, `node-capability-guard`, `policy-compiler` |
 | [`policy/`](policy/) | The Witness promotion policy, the CEL image-trust admission policies in [`policy/cel/`](policy/cel/), and [compliance frameworks](policy/frameworks/README.md) |
 | [`config/`](config/) | `security-invariants.yaml` |
 | [`nono/`](nono/) | The `nono` sandbox profile for worktree agents |
-| [`agent/`](agent/) | The phase 4 remediation harness and its [guardrails](agent/GUARDRAILS.md) |
 | [`terraform/`](terraform/) | The GCP estate: three Terraform roots (bootstrap, platform, environments). See [`terraform/README.md`](terraform/README.md) and [`terraform/CONTRACT.md`](terraform/CONTRACT.md). |
 | [`deploy/gcp/`](deploy/gcp/) | Project inputs and lane hand-off files. Most of its contents are gitignored. See [`deploy/gcp/README.md`](deploy/gcp/README.md). |
 | [`infra/kind/`](infra/kind/) | Kind cluster manifests: local `osramp` cluster, secondary hub cluster, and node probes |
 | [`schemas/`](schemas/) | Core JSON schemas: EAP evidence bundle contract |
 | [`docs/`](docs/) | All other documentation, indexed by [`docs/README.md`](docs/README.md) |
-| [`ci-evidence/`](ci-evidence/) | Evidence bundles from named CI runs (decision records) |
+| [`docs/records/`](docs/records/README.md) | CI evidence bundles, EAP compliance reports, preflight audit proofs, and Signal Loom phase proofs (decision records) |
 | [`MEMORY/`](MEMORY/), [`Plans/`](Plans/) | Session records of earlier work (decision records) |
 | `vex/out/` | VEX demo output: SBOMs, scans, statements. Not committed. |
 
@@ -283,7 +279,7 @@ Install these yourself. `setup.sh` does not install them:
 | openssl | Making the witness key |
 | bun | The Playwright acceptance suite (`make acceptance-test`) and the dashboard build |
 | python3 | Test helpers and several make targets |
-| nono + claude CLI (optional, Linux) | The phase 4 agent demo only |
+| nono + claude CLI (optional, Linux) | Sandboxed coding-agent worktrees |
 
 On Windows, run all commands from WSL2 or Git Bash. The Makefiles need a POSIX shell.
 
@@ -293,17 +289,11 @@ The setup script installs the missing tools. It then makes the shared GitOps
 foundation: a Kind cluster, an in-cluster Zot registry, cosign-signed foundation
 artifacts, and Flux reconciliation.
 
-CAUTION: On the local fleet the `apps` tenant is disabled in
-[`d2-osramp-fleet/tenants/local/kustomization.yaml`](d2-osramp-fleet/tenants/local/kustomization.yaml).
-Re-enable it before you run `make demo-osramp-up`. The script patches the
-`apps` ResourceSet, which that file does not include. Not verified: what the
-target does on a fresh local cluster with the tenant disabled.
-
 ```bash
-./scripts/setup.sh    # Install the tools and make a healthy cluster
-make demo-osramp-up   # Deploy the OSRAMP workload
-make test             # Run the OSRAMP BATS suite
-make acceptance-test  # Run the Playwright browser suite
+./scripts/setup.sh         # Install the tools and make a healthy cluster
+make demo-signalloom-up    # Deploy the Signal Loom workload
+make test                  # Run the end-to-end BATS suite
+make acceptance-test       # Run the Playwright browser suite
 ```
 
 - To install the tools without a build, run `./scripts/setup.sh --tools-only`.
@@ -316,14 +306,8 @@ For normal development, keep the cluster running. `make up` makes the
 foundation, checks its health, and prints the optional targets:
 
 - `make demo-signalloom-up`
-- `make demo-osramp-up`
-- `make demo-olly-up`
 - `make demo-bao-up`
 - `make demo-cpai-up`
-
-CAUTION: On the local fleet the `apps` and `olly` tenants are disabled in
-[`d2-osramp-fleet/tenants/local/kustomization.yaml`](d2-osramp-fleet/tenants/local/kustomization.yaml).
-Re-enable the tenant before you run `make demo-osramp-up` or `make demo-olly-up`.
 
 The Zot cache in `.cache/zot` stays after `make down`. See
 [the Zot cache pitfall](AGENTS.md#the-zot-cache-stays-after-make-down).
@@ -344,42 +328,6 @@ To turn it on, run:
 ENABLE_OBSERVABILITY=true make up
 ```
 
-To test the ingestion flow manually:
-
-```bash
-./scripts/publish-purl.sh pkg:npm/lodash@4.17.21
-kubectl logs -n frontend -l app=osramp-multipurpose -c processor -f
-make -C d2-osramp-apps postgres-shell
-# In the postgres shell: SELECT * FROM task_results;
-```
-
-### The Estate 95 console
-
-```bash
-make console    # Open http://localhost:8675
-```
-
-The console shows the architecture map in three lanes: Deliver, Operate, and
-Assure. Each card is one step. Select a card to see its details and its run
-buttons. Each button runs the CLI command and streams the output.
-
-### The VEX triage demo (phase 1)
-
-```bash
-make vex-demo
-```
-
-The demo does these steps:
-
-1. Publishes the service images to the local registry.
-2. Makes syft SBOMs.
-3. Scans the registry images with Grype.
-4. Triages the findings into OpenVEX statements.
-5. Merges the statements with `vexctl`.
-6. If Archivista, `witness`, and `.keys/witness.pem` are available, signs the merged file under
-   `witness run` and stores it in Archivista. If not, it skips this step.
-7. Scans the images again to show the suppressed findings.
-
 ### Governance demos (phase 3)
 
 ```bash
@@ -391,20 +339,6 @@ make revocation-demo   # Revoke artifact trust and show that Flux blocks the dep
 The promotion gate checks artifacts against a signed Witness policy. The
 admission demo shows that a CEL ValidatingAdmissionPolicy stops an untrusted image. The revocation demo
 pushes an unsigned artifact and shows that Flux blocks it.
-
-### Remediation agent demo (phase 4)
-
-```bash
-make agent-demo                            # Analyse a CVE and make a proposal
-agent/harness.sh CVE-2022-32149 --approve  # Apply the recommendation to a PR branch
-```
-
-The harness collects the evidence bundle. It runs Claude inside the `nono`
-sandbox, which limits network and filesystem access at the kernel level. The
-agent gives a structured recommendation: a dependency update or a VEX proposal.
-
-A change needs human approval. Witness attests each action into Archivista.
-[`agent/GUARDRAILS.md`](agent/GUARDRAILS.md) describes the safety boundaries.
 
 ### The AgentMaxxing containment demo
 
@@ -436,22 +370,6 @@ The architecture and contracts are in
 and
 [`d2-signalloom/apps/dashboard-signalloom/src/components/demos/BRIDGE-CONTRACT.md`](d2-signalloom/apps/dashboard-signalloom/src/components/demos/BRIDGE-CONTRACT.md).
 
-### The Olly Sentinel replica (`olly-replica` tenant)
-
-The repository holds an internal replica of an AI SRE pipeline, Olly Sentinel.
-Flux reconciles the `olly-replica` tenant from its own signed OCI artifact
-(`olly/olly-replica`). The tenant contains:
-
-- A single-broker Redpanda event bus.
-- An ECK-managed Elasticsearch cluster with synthetic logs.
-- Three tenant applications: `inventory-service`, `payments-api`, and `customer-portal`.
-- An agent on Google ADK that communicates through A2A.
-- A Grafana instance for observability.
-
-The design is in
-[`olly-replica/agentic-sre-design-doc.md`](olly-replica/agentic-sre-design-doc.md).
-The component guide is [`olly-replica/README.md`](olly-replica/README.md).
-
 ### Running on GCP (four lanes)
 
 The stack runs on Google Cloud in four independent lanes: `demo-1`, `demo-2`,
@@ -470,7 +388,7 @@ The fleet definitions also run against artifacts in GHCR:
 - The `push-artifacts` and `push-images` workflows publish signed artifacts under `ghcr.io/<owner>/<repo>`.
 - The fleet expects `ghcr.io/acme-co/osramp`. To publish from a different repository, change
   `REGISTRY_BASE` in [`runtime-info.yaml`](d2-osramp-fleet/clusters/staging/flux-system/runtime-info.yaml)
-  and the OIDC subject in [`apps.yaml`](d2-osramp-fleet/tenants/base/apps.yaml).
+  and the OIDC subject in [`infra.yaml`](d2-osramp-fleet/tenants/base/infra.yaml).
 - Staging clusters check the keyless OIDC identity of the publishing workflow.
 - Production clusters follow the `latest-stable` tag.
 
@@ -480,8 +398,8 @@ The workflows are in [`.github/workflows/`](.github/workflows/).
 
 | Workflow | Trigger | Description |
 | --- | --- | --- |
-| `e2e-local` | Manual (`workflow_dispatch`) | Foundation setup, attested tests, the VEX demo, the Olly tests, and the promotion, admission, and revocation demos in a CI Kind cluster |
-| `push-artifacts` | Manual (`workflow_dispatch`) | Packs the fleet, infra, apps, Signal Loom, agent trust, and Olly manifests as cosign-signed OCI artifacts |
+| `e2e-local` | Manual (`workflow_dispatch`) | Foundation setup, attested tests, and the promotion, admission, and revocation demos in a CI Kind cluster |
+| `push-artifacts` | Manual (`workflow_dispatch`) | Packs the fleet, infra, Signal Loom, and agent trust manifests as cosign-signed OCI artifacts |
 | `push-images` | Manual (`workflow_dispatch`) | Builds multi-arch container images with SBOMs and provenance |
 | `release-artifacts` | Manual (`workflow_dispatch`) | Publishes versioned artifacts and moves the `latest-stable` pointer |
 | `reusable-witness-step` | `workflow_call` | Runs commands under `witness run` to record signed evidence |
@@ -493,12 +411,8 @@ The workflows are in [`.github/workflows/`](.github/workflows/).
 Available now:
 
 - A fully local, signed GitOps loop with Kind, Zot, and Flux.
-- The ingestion pipeline from purl to syft SBOM, Archivista, and PostgreSQL.
-- The phase 1 VEX workflow with `vexctl` triage.
 - Phase 2 evidence: attested tests and VEX retrieval.
-- The Estate 95 console with live command runs and streamed output.
 - The phase 3 governance demos: admission policy and trust revocation.
-- The phase 4 remediation agent in the `nono` sandbox.
 - Signal Loom Enforcement and Response (SLER): containment on five planes (network, admission, OpenBao, SPIRE, host freeze).
 - The AgentMaxxing console: browser scenarios with a proof ledger and automated checks.
 - Coding Agent Detective Telemetry (SLCD): host sensor, inference CIDR attribution, and no customer payload.

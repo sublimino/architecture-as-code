@@ -74,11 +74,11 @@ SLDC-P0 delivers four artifacts to record preflight readiness:
 
 1. **Verification script**: [`scripts/verify-sldc-p0-baseline.sh`](../../scripts/verify-sldc-p0-baseline.sh)
    automates git state checks, toolchain assertions, and manifest generation.
-2. **Machine-readable manifest**: [`ci-evidence/sldc-p0-preflight-manifest.json`](../../ci-evidence/sldc-p0-preflight-manifest.json)
+2. **Machine-readable manifest**: [`docs/records/ci-evidence/sldc-p0-preflight-manifest.json`](../records/ci-evidence/sldc-p0-preflight-manifest.json)
    records toolchain versions and host parameters in structured JSON.
 3. **Smoke test harness**: [`test/unit/sldc-p0-harness.bats`](../../test/unit/sldc-p0-harness.bats)
    provides 5 automated BATS assertions for environment prerequisites.
-4. **Baseline execution log**: [`ci-evidence/sldc-p0-baseline.txt`](../../ci-evidence/sldc-p0-baseline.txt)
+4. **Baseline execution log**: [`docs/records/ci-evidence/sldc-p0-baseline.txt`](../records/ci-evidence/sldc-p0-baseline.txt)
    captures the output of preflight test executions.
 
 ## Mutation testing assurance

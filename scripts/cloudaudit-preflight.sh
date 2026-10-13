@@ -43,8 +43,10 @@ echo "✓ signal-ingest Go packages pass static vetting"
 # 4. Generate preflight proof JSON
 TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
+PROOF_OUT="${CLOUDAUDIT_P1_PROOF_OUT:-$REPO_ROOT/docs/records/preflight-proofs/.cloudaudit-p1-preflight.json}"
+mkdir -p "$(dirname "$PROOF_OUT")"
 
-cat << PROOFOUT > "$REPO_ROOT/.cloudaudit-p1-preflight.json"
+cat << PROOFOUT > "$PROOF_OUT"
 {
   "shortcode": "CLOUDAUDIT",
   "card": "P1-PRE",
@@ -58,5 +60,5 @@ cat << PROOFOUT > "$REPO_ROOT/.cloudaudit-p1-preflight.json"
 }
 PROOFOUT
 
-echo "✓ Preflight proof written to .cloudaudit-p1-preflight.json"
+echo "✓ Preflight proof written to docs/records/preflight-proofs/.cloudaudit-p1-preflight.json"
 echo "=== Phase 1 Preflight Complete (PASS) ==="

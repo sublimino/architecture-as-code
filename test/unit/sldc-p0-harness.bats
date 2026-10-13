@@ -63,7 +63,7 @@ setup_sandbox() {
 }
 fake() { printf '#!/bin/bash\n%s\n' "$2" >"$BIN/$1"; chmod +x "$BIN/$1"; }
 run_preflight() { run "$@" env -i HOME="$BATS_TEST_TMPDIR" PATH="$BIN" bash "$SB/scripts/verify-sldc-p0-baseline.sh"; }
-manifest() { jq -r "$1" "$SB/ci-evidence/sldc-p0-preflight-manifest.json"; }
+manifest() { jq -r "$1" "$SB/docs/records/ci-evidence/sldc-p0-preflight-manifest.json"; }
 
 @test "preflight: passing toolchain on a clean tree writes a passed manifest into its own repo" {
     setup_sandbox
@@ -87,7 +87,7 @@ manifest() { jq -r "$1" "$SB/ci-evidence/sldc-p0-preflight-manifest.json"; }
     run_preflight -127
     [ "$status" -eq 127 ]
     [[ "$output" == *"FATAL: 'flux' binary not found on PATH."* ]]
-    [ ! -e "$SB/ci-evidence/sldc-p0-preflight-manifest.json" ]
+    [ ! -e "$SB/docs/records/ci-evidence/sldc-p0-preflight-manifest.json" ]
 }
 
 @test "preflight: kind below v0.24.0 exits 1 and writes no manifest" {
@@ -96,7 +96,7 @@ manifest() { jq -r "$1" "$SB/ci-evidence/sldc-p0-preflight-manifest.json"; }
     run_preflight
     [ "$status" -eq 1 ]
     [[ "$output" == *"FATAL: Kind version v0.23.9 is below required v0.24.0"* ]]
-    [ ! -e "$SB/ci-evidence/sldc-p0-preflight-manifest.json" ]
+    [ ! -e "$SB/docs/records/ci-evidence/sldc-p0-preflight-manifest.json" ]
 }
 
 @test "preflight: go 1.9 is below go1.24 (version sort, not lexical)" {
@@ -113,5 +113,5 @@ manifest() { jq -r "$1" "$SB/ci-evidence/sldc-p0-preflight-manifest.json"; }
     run_preflight
     [ "$status" -eq 1 ]
     [[ "$output" == *"FATAL: Docker daemon unreachable or permission denied."* ]]
-    [ ! -e "$SB/ci-evidence/sldc-p0-preflight-manifest.json" ]
+    [ ! -e "$SB/docs/records/ci-evidence/sldc-p0-preflight-manifest.json" ]
 }

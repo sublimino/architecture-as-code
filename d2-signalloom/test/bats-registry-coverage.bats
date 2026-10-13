@@ -747,8 +747,10 @@ demo-mission-honesty.bats
 flux-workload-coverage.bats
 money-golden-guard.bats
 slaws-live-lab.bats
-ui-policy-posture-honesty.bats
-verify-cel.bats"
+verify-cel.bats
+http-guard-dedup-contracts.bats
+sl-drift-sweep.bats
+worktree-hygiene.bats"
 
 	for f in "$repo_root"/test/*.bats; do
 		[ -e "$f" ] || continue

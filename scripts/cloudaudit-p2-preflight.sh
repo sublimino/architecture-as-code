@@ -25,8 +25,10 @@ echo "✓ Dashboard React package manifest verified"
 # 3. Generate preflight proof JSON
 TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
+PROOF_OUT="${CLOUDAUDIT_P2_PROOF_OUT:-$REPO_ROOT/docs/records/preflight-proofs/.cloudaudit-p2-preflight.json}"
+mkdir -p "$(dirname "$PROOF_OUT")"
 
-cat << PROOFOUT > "$REPO_ROOT/.cloudaudit-p2-preflight.json"
+cat << PROOFOUT > "$PROOF_OUT"
 {
   "shortcode": "CLOUDAUDIT",
   "card": "P2-PRE",
@@ -39,5 +41,5 @@ cat << PROOFOUT > "$REPO_ROOT/.cloudaudit-p2-preflight.json"
 }
 PROOFOUT
 
-echo "✓ Phase 2 Preflight proof written to .cloudaudit-p2-preflight.json"
+echo "✓ Phase 2 Preflight proof written to docs/records/preflight-proofs/.cloudaudit-p2-preflight.json"
 echo "=== Phase 2 Preflight Complete (PASS) ==="

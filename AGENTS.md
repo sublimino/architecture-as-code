@@ -32,13 +32,11 @@ flowchart TB
 
   subgraph SLICES["D2 delivery slices"]
     SL["d2-signalloom/<br/>Agent governance platform"]
-    OA["d2-osramp-apps/<br/>OSRAMP ingestion services"]
     AFM["d2-k8s-afm/<br/>KubeSec-AFM RBAC analysis"]
     FLT["d2-osramp-fleet/<br/>Flux fleet definitions"]
     INF["d2-infra/<br/>Cluster add-ons"]
     AGT["d2-agent-trust/<br/>SPIFFE agent trust"]
     CPAI["d2-cpai/<br/>CPAI runtime proxy"]
-    OLLY["olly-replica/<br/>Olly Sentinel replica"]
     KAG["d2-signalloom/infra/kagent/<br/>Kagent agents (D5)"]
   end
 
@@ -47,7 +45,7 @@ flowchart TB
   classDef found fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20;
   classDef slice fill:#e3f2fd,stroke:#1565c0,color:#0d47a1;
   class KIND,FLUX,INGRESS,ZOT,CERT,MON,SIGN found;
-  class SL,OA,AFM,FLT,INF,AGT,CPAI,OLLY,KAG slice;
+  class SL,AFM,FLT,INF,AGT,CPAI,KAG slice;
 ```
 
 ## Shared foundation
@@ -70,13 +68,11 @@ Each slice owns its namespaces, images, tests, and lifecycle.
 | Slice | Purpose | Deploy | Guide |
 |-------|---------|--------|-------|
 | `d2-signalloom/` | Signal Loom agent governance: dashboard, API, Fleet Manager, docs, identity | `make demo-signalloom-up` | [`d2-signalloom/AGENTS.md`](d2-signalloom/AGENTS.md) |
-| `d2-osramp-apps/` | OSRAMP ingestion services: listener, processor, archiver | `make demo-osramp-up` | [`d2-osramp-apps/AGENTS.md`](d2-osramp-apps/AGENTS.md) |
 | `d2-k8s-afm/` | KubeSec-AFM formal-methods RBAC analysis | `make demo-k8s-afm-up` | [`d2-k8s-afm/AGENTS.md`](d2-k8s-afm/AGENTS.md) |
 | `d2-osramp-fleet/` | Flux fleet definitions: clusters, tenants, ResourceSets | `make up` (foundation) | [`d2-osramp-fleet/AGENTS.md`](d2-osramp-fleet/AGENTS.md) |
 | `d2-infra/` | Cluster add-ons: cert-manager, ingress, monitoring, Trivy | `make up` (foundation) | [`d2-infra/AGENTS.md`](d2-infra/AGENTS.md) |
 | `d2-agent-trust/` | SPIFFE agent trust: A2A identity, OpenBao JWT roles, NetworkPolicies | `make demo-agent-trust-up` | [`d2-agent-trust/AGENTS.md`](d2-agent-trust/AGENTS.md) |
 | `d2-cpai/` | CPAI runtime proxy: OpenAI-compatible proxy to Vertex AI | `make demo-cpai-up` | [`d2-cpai/AGENTS.md`](d2-cpai/AGENTS.md) |
-| `olly-replica/` | Olly Sentinel AI SRE replica | `make demo-olly-up` | [`olly-replica/README.md`](olly-replica/README.md) |
 | `d2-signalloom/infra/inf-bao/` | OpenBao and SPIRE only | `make demo-bao-up` | [`d2-signalloom/AGENTS.md`](d2-signalloom/AGENTS.md) |
 | `d2-signalloom/infra/kagent/` (D5) | Kagent AI agent framework: CRDs, declarative agents, SPIFFE and OpenBao | `make swarm-kagent-up`, then `make demo-kagent-up` | [`docs/kagent-d5.md`](docs/kagent-d5.md) |
 
@@ -126,9 +122,7 @@ make up
 
 # 2. Start one or more slices
 make demo-signalloom-up     # Signal Loom (includes the AgentMaxxing console)
-make demo-osramp-up         # OSRAMP apps
 make demo-k8s-afm-up        # KubeSec-AFM
-make demo-olly-up           # Olly Sentinel
 make demo-bao-up            # OpenBao and SPIRE only
 make demo-agent-trust-up    # SPIFFE agent trust (needs inf-bao first)
 make demo-cpai-up           # CPAI runtime proxy
@@ -186,7 +180,7 @@ give false answers.
 
 | Command | Scope |
 |---------|-------|
-| `make test` | End-to-end BATS tests of `d2-osramp-apps` on a running cluster |
+| `make test` | End-to-end BATS tests of Signal Loom on a running cluster |
 | `make acceptance-test` | Playwright tests of each project that is not gated. A spec marked `unwired` never runs. |
 | `make demo-signalloom-api-test` | FastAPI contract tests. For integration tests, set `TIER=integration` and `DATABASE_URL`. |
 | `make demo-agentmaxxing-acceptance-test` | AgentMaxxing acceptance test journey |
@@ -195,7 +189,7 @@ give false answers.
 | `make demo-agentmaxxing-ui-test` | AgentMaxxing timeline vitest and acceptance suite |
 | `make test-dashboard-weave` | Weave, Signal Fusion, and weaveApi vitest suites |
 | `make demo-signalloom-coding-agent-topology` | A Playwright test of the coding-agent topology view. It needs no cluster. |
-| `make attested-test` | The OSRAMP BATS suite under `witness run`. It needs a cluster. `ATTESTED_TEST_SOURCE=segments` runs the FrostDB proof. |
+| `make attested-test` | The Signal Loom BATS suite under `witness run`. It needs a cluster. `ATTESTED_TEST_SOURCE=segments` runs the FrostDB proof. |
 | `make docs-lint` | Documentation links, paths, make targets, diagrams, index, and style rules. No cluster. |
 | `make docs-render-check` | Documentation portal build, link audit, and Playwright Chromium render tests. No cluster. |
 | `make docs-lint-test` | The three BATS suites behind the documentation checks. No cluster. |
@@ -274,6 +268,23 @@ The VMs suspend between runs to save cost. The full guide is
 
 WARNING: Do not run `gcp-ci.sh destroy` against `signalloom-ci`. The command
 deletes the VPC and NAT network. The second CI VM also uses that network.
+
+## CI reports, audits, and proofs
+
+All CI reports, preflight audits, compliance bundles, and verification proofs
+live in [`docs/records/`](docs/records/README.md). Do not write new report or
+proof files to the repository root, `.evidence/`, or `ci-evidence/`.
+
+| Directory | Contents |
+|-----------|----------|
+| [`docs/records/ci-evidence/`](docs/records/ci-evidence/) | SLDC phase verification reports, adversarial test transcripts, and governor certifications |
+| [`docs/records/eap-evidence/`](docs/records/eap-evidence/) | EAP compliance bundles, open-box evaluation reports, and supply-chain verification records |
+| [`docs/records/preflight-proofs/`](docs/records/preflight-proofs/) | Preflight audit JSON proofs (`.baoaudit-*.json`, `.cloudaudit-*.json`, `.netebpf-*.json`) |
+| [`docs/records/signalloom-proofs/`](docs/records/signalloom-proofs/) | Historical Signal Loom verification and phase completion proofs |
+
+Keep `MEMORY/` and `Plans/` at the repository root. Active harness state files
+such as `.kanban-review-ledger.json`, `.kagent-preflight-proof.json`, and
+`.kpai-harness-verified.json` also stay at the repository root.
 
 ## Repository layout
 

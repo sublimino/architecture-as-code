@@ -776,7 +776,7 @@ run_stage \
      test/bao-spire-proof.bats test/ci-lock.bats \
      test/ci-path-anchoring.bats test/ci-state-locality.bats \
      test/cosign-signing-consistency.bats test/demo-lifecycle.bats \
-     test/osramp-up-lifecycle.bats test/supercred-spire-preflight.bats test/wait-deadline.bats \
+     test/supercred-spire-preflight.bats test/wait-deadline.bats \
      test/flux-dynamic-labels.bats \
      test/flux-substitution.bats test/gcp-ci-ssh-diagnosis.bats \
      test/gcp-ci-vm-status.bats test/healthcheck.bats \
@@ -989,7 +989,7 @@ run_stage \
 run_stage \
   "Dashboard API ownership contract" \
   "stage4-dashboard.json" \
-  "cd ${WORK_DIR}/tools/demo-console && go test -json ./..."
+  "cd ${WORK_DIR}/d2-signalloom/pkg/obscel && go test -json ./..."
 
 run_stage \
   "TEST-1 harness contract" \

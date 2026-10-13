@@ -37,7 +37,7 @@ REPO_ROOT="$(cd -- "$(dirname -- "${BATS_TEST_FILENAME}")/.." && pwd)"
 CLUSTER_CONTEXT="${SLAAT_KUBE_CONTEXT:-kind-osramp}"
 GW_AUDIT_JSON="${BATS_FILE_TMPDIR:-/tmp}/slaat-gw-audit.json"
 NETISO_JSON="${BATS_FILE_TMPDIR:-/tmp}/slaat-netiso.json"
-FINDINGS_JSON="${REPO_ROOT}/ci-evidence/slaat-p1-1-network-findings.json"
+FINDINGS_JSON="${REPO_ROOT}/docs/records/ci-evidence/slaat-p1-1-network-findings.json"
 GW_HARNESS_LOG="${BATS_FILE_TMPDIR:-/tmp}/slaat-gw-audit.log"
 NETISO_HARNESS_LOG="${BATS_FILE_TMPDIR:-/tmp}/slaat-netiso.log"
 

@@ -42,7 +42,7 @@ check() {
 
 	check_path discovery-portal "${platform_root}/services/discovery-portal"
 	check_path platform-terraform "${platform_root}/infrastructure/terraform"
-	check_path demo-apps "${demo_root}/d2-osramp-apps"
+	check_path demo-signalloom "${demo_root}/d2-signalloom"
 	check_path demo-fleet "${demo_root}/d2-osramp-fleet"
 	check_path demo-infra "${demo_root}/d2-infra"
 	check_path d2-bao-infra "${d2_bao_root}/d2-bao-infra"

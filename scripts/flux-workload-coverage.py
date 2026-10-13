@@ -85,9 +85,6 @@ ARTIFACT_DIR = {
     'signalloom/infra/inf-signalloom': 'd2-signalloom/infra/inf-signalloom',
     'signalloom/apps/fe-signalloom': 'd2-signalloom/apps',
     'signalloom/agent-swarm': 'd2-signalloom/infra/agent-swarm',
-    'apps/frontend': 'd2-osramp-apps/components/frontend',
-    'apps/backend': 'd2-osramp-apps/components/backend',
-    'olly/olly-replica': 'olly-replica/components',
     'infra/cert-manager': 'd2-infra/components/cert-manager',
     'infra/ingress': 'd2-infra/components/ingress',
     'infra/monitoring': 'd2-infra/components/monitoring',
@@ -97,8 +94,8 @@ ARTIFACT_DIR = {
 # Trees that deliver to a cluster through Flux. Anything outside these is not
 # claiming to be GitOps-delivered and is not this gate's business.
 DELIVERY_ROOTS = (
-    'd2-agent-trust', 'd2-cpai', 'd2-infra', 'd2-k8s-afm', 'd2-osramp-apps',
-    'd2-osramp-fleet', 'd2-signalloom', 'olly-replica', 'deploy', 'infra',
+    'd2-agent-trust', 'd2-cpai', 'd2-infra', 'd2-k8s-afm',
+    'd2-osramp-fleet', 'd2-signalloom', 'deploy', 'infra',
 )
 
 WORKLOAD_KINDS = {

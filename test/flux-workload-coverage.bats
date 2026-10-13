@@ -220,5 +220,5 @@ teardown() {
 	# Not an upper bound on quality -- an explicit number, so closing a gap or
 	# admitting a new one is a visible diff rather than a silent reclassification.
 	run "$PYTHON" -c "import json,subprocess,sys; d=json.loads(subprocess.run([sys.executable,'$GATE','--json'],capture_output=True,text=True).stdout); print(len(d['declared_gaps']))"
-	[ "$output" = "11" ]
+	[ "$output" = "10" ]
 }

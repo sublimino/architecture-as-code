@@ -19,7 +19,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-OUT_FILE="${1:-${REPO_ROOT}/ci-evidence/slaat-p3-1-openbao-hardening-verification.json}"
+OUT_FILE="${1:-${REPO_ROOT}/docs/records/ci-evidence/slaat-p3-1-openbao-hardening-verification.json}"
 
 cd "${REPO_ROOT}"
 

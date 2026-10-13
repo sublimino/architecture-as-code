@@ -2,31 +2,20 @@
 .keys/
 
 # Build output
-tools/demo-console/demo-console
-tools/demo-console/demo-console.exe
 vex/out/
 
 # Vendored scanner binaries (installed by scripts/setup.sh, not committed)
 grype.zip
 grypebin/
 
-# Local secrets: ServiceNow PDI credentials and anything else per-machine.
-# scripts/olly-pdi-secret.sh reads these to create the in-cluster secret;
-# the values never get committed. Copy .env.example to .env to fill in.
+# Local secrets and per-machine configuration (never committed).
+# Copy .env.example to .env to fill in.
 .env
 .env.local
 
-# Google ADK local dev artefacts: the eval venv and the generated run history
-# (eval_history/*.evalset_result.json + session.db) the web UI / adk eval write
-# under the agent folder. Kept out of the repo; the GUI's Eval Lab summarizes
-# them at runtime rather than committing them.
-olly-replica/apps/sentinel/.venv/
-olly-replica/apps/sentinel/olly_sentinel/.adk/
+# Google ADK local dev artefacts
 demo/*/.venv/
 demo/**/.adk/session.db
-
-# Estate 95 console: scoped read-only kubeconfig (holds a cluster token)
-.estate95/
 
 # In-cluster zot registry cache mirrored to the host during push-local.
 # Files under .cache/zot/ are written by the zot container as UID 65532 and
@@ -52,24 +41,11 @@ test/acceptance/.auth/
 
 # Same override, same reason: ~/.gitignore_global carries a bare `lib` pattern
 # (a Python packaging leftover) which silently swallows ANY directory named lib
-# at any depth. test/lib/fake-image-cli.bash is the shared docker/crictl model
-# for the three suites that exercise scripts/lib/image-identity.sh — without
-# this negation it is never committed, and those suites pass locally and then
-# fail in CI with "FAKE_IMAGE_CLI: No such file or directory".
+# at any depth. test/lib/ holds detik.bash, linter.bash, utils.bash, and
+# fake-image-cli.bash — without this negation new helpers there are never
+# committed.
 !test/lib/
 !test/lib/**
-
-# Third instance of the same bare-`lib` trap, negated pre-emptively rather than
-# after it bites. d2-osramp-apps/test/lib/ already holds detik.bash, linter.bash
-# and utils.bash — they survive only because git ignores UNTRACKED files, so
-# nothing is broken today and nothing looks wrong. But `git check-ignore -v
-# d2-osramp-apps/test/lib/anything-new.bash` resolves to ~/.gitignore_global:93,
-# so the next helper added there is dropped silently: `git status` stays clean,
-# the suite passes locally against a file that was never committed, and CI fails
-# on a missing file. That is exactly how the test/lib/ negation above came to be
-# written, caught only by a `git status --untracked-files=all` before commit.
-!d2-osramp-apps/test/lib/
-!d2-osramp-apps/test/lib/**
 
 # Embedded BPF bytecode objects: override ~/.gitignore_global `*.o` rule so
 # bpf_embed.go has its object present in fresh worktrees without rebuilding.

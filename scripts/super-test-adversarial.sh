@@ -43,7 +43,7 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-[ -z "$OUT_FILE" ] && OUT_FILE="$REPO_ROOT/.evidence/coldstart-supertest-results.json"
+[ -z "$OUT_FILE" ] && OUT_FILE="$REPO_ROOT/docs/records/eap-evidence/coldstart-supertest-results.json"
 mkdir -p "$(dirname "$OUT_FILE")"
 
 FAILED_PROBES=0

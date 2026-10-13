@@ -34,7 +34,7 @@ witness run --step test-evidence \
   -o vex/out/test-evidence.attestation.json \
   -k .keys/witness.pem \
   --enable-archivista --archivista-server=http://localhost:8082 \
-  -- bash -c "cd d2-osramp-apps/test && bats osramp.bats"
+  -- bash -c "bats d2-signalloom/test/runtime.bats"
 
 echo "querying Archivista for stored envelopes"
 stored=$(curl -fsS -X POST http://localhost:8082/query \

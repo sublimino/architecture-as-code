@@ -45,7 +45,7 @@ const targets = argv.filter(
 );
 const scanTargets = targets.length
   ? targets
-  : ["d2-signalloom", "d2-osramp-apps", "scripts", "test"];
+  : ["d2-signalloom", "scripts", "test"];
 
 const config = process.env.SEMGREP_CONFIG || "p/default";
 

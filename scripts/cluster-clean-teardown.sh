@@ -21,7 +21,7 @@ source "$SCRIPT_DIR/lib/cluster-reset-helpers.sh"
 
 # Per-user runtime dir, not a fixed /tmp name another local user could
 # pre-plant: standup starts every container named in this file.
-SAVED_CONTAINERS_FILE="${SLDC_SAVED_CONTAINERS_FILE:-${XDG_RUNTIME_DIR:-$REPO_ROOT/.evidence}/sldc-saved-containers.txt}"
+SAVED_CONTAINERS_FILE="${SLDC_SAVED_CONTAINERS_FILE:-${XDG_RUNTIME_DIR:-$REPO_ROOT/docs/records/eap-evidence}/sldc-saved-containers.txt}"
 rm -f "$SAVED_CONTAINERS_FILE"
 FAILURES=0
 

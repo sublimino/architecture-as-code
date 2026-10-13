@@ -304,15 +304,11 @@ push-local-foundation: ## Push only the fleet and shared infrastructure artifact
 push-local-signalloom: ## Push Signal Loom artifacts for the explicit demo lifecycle.
 	./scripts/push-local.sh signalloom
 
-.PHONY: push-local-fleet push-local-agent-trust push-local-osramp push-local-olly
+.PHONY: push-local-fleet push-local-agent-trust
 push-local-fleet: ## Push only the signed fleet artifact to the local registry.
 	./scripts/push-local.sh fleet
 push-local-agent-trust: ## Push only signed Agent Trust manifests to the local registry.
 	./scripts/push-local.sh agent-trust
-push-local-osramp: ## Push signed OSRAMP frontend and backend artifacts to the local registry.
-	./scripts/push-local.sh osramp
-push-local-olly: ## Push signed Olly Sentinel replica artifacts to the local registry.
-	./scripts/push-local.sh olly
 
 .PHONY: bootstrap-local
 bootstrap-local: ## Bootstrap Flux syncing from the in-cluster registry.
@@ -342,16 +338,8 @@ flux-test: ## Verify Flux readiness, including the Signalloom ResourceSets.
 # `images` is how a cluster ends up running stale code while every test passes.
 
 .PHONY: images
-images: images-osramp images-olly images-signalloom images-afm images-supercred ## Build ALL images across every slice.
-	@echo "images: all slices built (osramp, olly, signalloom, afm, supercred)"
-
-.PHONY: images-osramp
-images-osramp: ## Build the d2-osramp-apps workload images and persist them in Zot.
-	$(MAKE) -C d2-osramp-apps build
-
-.PHONY: images-olly
-images-olly: ## Build the olly-replica images and persist them in Zot.
-	$(MAKE) -C olly-replica build
+images: images-signalloom images-afm images-supercred ## Build ALL images across every slice.
+	@echo "images: all slices built (signalloom, afm, supercred)"
 
 .PHONY: images-signalloom
 images-signalloom: signalloom-images ## Build the Signal Loom workload images (portal, dashboard, proxy, netassert-controller).
@@ -473,11 +461,6 @@ cpai-images: ## Build CPAI runtime image from cpai-cli, push to Zot, and cosign 
 		--allow-insecure-registry \
 		"localhost:5001/acme/images/cpai/apps/cpai-runtime@$${DIGEST}"
 
-.PHONY: workload-key
-workload-key: ## Generate the ed25519 key the processor signs attestations with.
-	@bash -c 'source ./scripts/lib/wait.sh && wait_k8s_exists namespace frontend 300'
-	$(MAKE) -C d2-osramp-apps signing-key
-
 .PHONY: wait
 wait: ## Wait for shared infrastructure reconciliation to converge.
 	ENABLE_OBSERVABILITY="$(ENABLE_OBSERVABILITY)" ./scripts/wait-reconciled.sh
@@ -488,36 +471,13 @@ healthcheck: ## Verify the shared cluster foundation is ready for demos.
 
 .PHONY: demo-help
 demo-help: ## Show demos available after the shared cluster becomes healthy.
-	@printf '\nCluster foundation is ready. No demos are running.\n\nNext: choose one demo to start:\n  make demo-signalloom-up\n  make demo-osramp-up\n  make demo-olly-up\n  make demo-bao-up\n  make demo-cpai-up\n\n'
-
-.PHONY: olly-pdi-secret
-olly-pdi-secret: ## Create the ServiceNow PDI secret from .env (no-op without one).
-	./scripts/olly-pdi-secret.sh
-
-.PHONY: olly-llm-secret
-olly-llm-secret: ## Create the Olly LLM secret from .env (no-op without one).
-	./scripts/olly-llm-secret.sh
-
-.PHONY: security-sandbox
-security-sandbox: ## Apply the Security Sandbox toggle from .env (SECURITY_SANDBOX_ENABLED; off by default).
-	./scripts/security-sandbox.sh
-
-.PHONY: orbit-approval-configmap
-orbit-approval-configmap: signing-keys ## Publish the PUBLIC orbit approval key into the cluster (private half stays local).
-	@kubectl -n olly-replica create configmap orbit-approval-pub \
-		--from-file=orbit-approval-pub.pem=$(KEYS_DIR)/orbit-approval-pub.pem \
-		--dry-run=client -o yaml | kubectl apply -f -
-	@echo "orbit approval PUBLIC key published; the private half never leaves $(KEYS_DIR)"
+	@printf '\nCluster foundation is ready. No demos are running.\n\nNext: choose one demo to start:\n  make demo-signalloom-up\n  make demo-bao-up\n  make demo-cpai-up\n\n'
 
 ##@ Demos and tests
 
 .PHONY: test
 test: ## Run the end-to-end bats suite against the running cluster.
-	# Wrapped, because on 2026-08-18 this target exited 0 with 8 tests and 8
-	# skips ("namespace/frontend not deployed") while six live-data failures
-	# were in front of a user. Every line was `ok`, so it read as a pass. The
-	# wrapper fails a run in which nothing actually executed.
-	./scripts/assert-bats-ran-something.sh $(MAKE) -C d2-osramp-apps test
+	./scripts/assert-bats-ran-something.sh bats d2-signalloom/test/runtime.bats
 
 .PHONY: test-all test-all-estate test-all-offline test-all-cluster test-all-browser test-eap-offline
 .PHONY: offline-deps offline-count-contract test-offline-install-boundary
@@ -604,8 +564,6 @@ test-all-offline: offline-deps ## Run all offline test suites (Go unit, Vitest, 
 	cd d2-signalloom/apps/fe-signalloom/src && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with respx --with-requirements requirements.txt python -m pytest tests -q --disable-warnings
 	UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} bash d2-signalloom/test/audit-guard-reintroduction-proof.sh
 	$(MAKE) -C d2-agent-trust test
-	$(MAKE) -C olly-replica authz-test
-	cd olly-replica/apps/sentinel && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with-requirements requirements.txt python -m pytest tests -q
 	$(MAKE) -C d2-signalloom/apps/netassert-controller test
 	cd d2-signalloom/apps/fake-integration-proxy && python3 -m unittest discover -s test
 	@echo "=== [Offline 4/5] KPAI Probe & Contract Tests (76 tests) ==="
@@ -614,7 +572,7 @@ test-all-offline: offline-deps ## Run all offline test suites (Go unit, Vitest, 
 	bats test/acceptance-spec-coverage.bats
 	bats test/acceptance-demo-mode-honesty.bats
 	bats d2-signalloom/test/bats-registry-coverage.bats
-	# THESE FOUR WERE DEFINED AND INVOKED BY NOTHING, which is the same defect
+	# THESE WERE DEFINED AND INVOKED BY NOTHING, which is the same defect
 	# their own comments were written to describe -- one level up.
 	#
 	# Each has a target, each passes, and an audit found that no aggregate
@@ -630,7 +588,6 @@ test-all-offline: offline-deps ## Run all offline test suites (Go unit, Vitest, 
 	# anything run it?" -- reported separately rather than papered over here.
 	$(MAKE) flux-coverage-test
 	$(MAKE) demo-mission-honesty-test
-	$(MAKE) ui-policy-posture-honesty-test
 	$(MAKE) test-cpai-engineer-acceptance
 	$(MAKE) test-sler-multiplane-acceptance
 	bats test/sler-p6-3-multiplane-acceptance.bats
@@ -639,8 +596,6 @@ test-all-offline: offline-deps ## Run all offline test suites (Go unit, Vitest, 
 	$(MAKE) demo-cpai-test-config
 	$(MAKE) demo-bao-test-config
 	$(MAKE) demo-agent-trust-test-config
-	$(MAKE) demo-osramp-test-config
-	$(MAKE) demo-olly-test-config
 	$(MAKE) test-zot-cache
 	$(MAKE) test-postgres-persistence
 	$(MAKE) test-demo-lifecycle
@@ -666,7 +621,6 @@ test-all-offline: offline-deps ## Run all offline test suites (Go unit, Vitest, 
 	$(MAKE) test-signalfusion-bats
 	$(MAKE) test-tetragon-bats
 	$(MAKE) test-tetragon-stream
-	bats d2-signalloom/test/olly-secret-argv.bats
 	./scripts/signalloom-api-test.sh contract
 	./scripts/signalloom-api-test.sh integration
 	bats test/test-count-floor.bats
@@ -724,7 +678,6 @@ test-all-cluster: ## Run all live Kind cluster tests across all slices.
 	$(MAKE) demo-agent-trust-network-test
 	$(MAKE) demo-bao-test
 	$(MAKE) demo-kagent-test
-	$(MAKE) demo-olly-test
 	$(MAKE) test-tetragon-stream
 	@echo "=== [Cluster] All cluster test suites passed successfully! ==="
 
@@ -1019,6 +972,7 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	# A backend that was never deployed passes all of them and fails only in a
 	# browser.
 	$(MAKE) check-backends
+	$(MAKE) check-deployed-staleness
 
 # ─── Why this target became fail-closed ──────────────────────────────────────
 #
@@ -1072,6 +1026,7 @@ demo-signalloom-test-config: ## Render and validate Signalloom configuration wit
 demo-signalloom-test: demo-signalloom-test-config ## Verify focused Signal Loom Flux readiness.
 	./scripts/signalloom-local.sh verify
 demo-signalloom-runtime-test: demo-signalloom-test ## Run focused BATS/DETIK assertions against the local Signal Loom slice.
+	$(MAKE) check-deployed-staleness
 	bats d2-signalloom/test/runtime.bats
 	$(MAKE) -C d2-signalloom test-netassert
 demo-signalloom-test-1: ## Run the complete TEST-1 Playwright, BATS, and pytest integration gate.
@@ -1152,28 +1107,6 @@ flux-coverage-test: ## Run the BATS gate for Flux workload management: undeclare
 .PHONY: demo-mission-honesty-test
 demo-mission-honesty-test: riskctl ## Gate the operator demo: it may print only figures it measured. No cluster.
 	bats test/demo-mission-honesty.bats
-
-# THE THIRD INSTANCE OF THIS DEFECT IN ONE WAVE, so the pattern is worth naming
-# here rather than in a commit message nobody re-reads.
-#
-# test/ui-policy-posture-honesty.bats was written, is correct, and ran in NO
-# path: a close-out audit grepped all ten Makefiles plus the whole tree for its
-# name and found zero references. It carries the guard asserting that
-# DEMO_FRAMEWORKS and the nine hardcoded posture figures are absent from
-# ui/windows/policy-posture.js -- so the fabrication is gone today, and the gate
-# was green by luck rather than by enforcement. It would not have caught a
-# regression.
-#
-# The two earlier instances this wave: test/flux-workload-coverage.bats (no
-# target AND a non-executable script), and cpai-engineer's browser tests (behind
-# //go:build acceptance, a tag nothing passed). Three different mechanisms, one
-# failure: an artefact called a gate needs the line that INVOKES it, or the name
-# is a claim about CI that CI has never heard. This repo registers bats suites
-# explicitly -- there is no test/*.bats glob -- so a new suite is invisible by
-# default.
-.PHONY: ui-policy-posture-honesty-test
-ui-policy-posture-honesty-test: ## Gate the Estate95 policy-posture window: it may show no figure it was not given. No cluster.
-	bats test/ui-policy-posture-honesty.bats
 
 .PHONY: bench-cgroup-freezer bench-tc-drop bench-redteam-stress
 bench-cgroup-freezer: ## Run cgroup freezer latency benchmark.
@@ -1457,7 +1390,6 @@ SLDC_OFFLINE_BATS = test/dual-cluster-networking.bats test/e2e-scratch-coldstart
 	test/agent-identity-binding-vap.bats \
 	test/tenant-kustomizations-no-cluster-scoped-kinds.bats \
 	test/dockerfile-copy-sources.bats \
-	test/osramp-up-lifecycle.bats \
 	d2-signalloom/test/netassert-gitops.bats \
 	d2-signalloom/test/netassert-policy-contract.bats \
 	d2-signalloom/test/severance-probe-contract.bats \
@@ -1632,41 +1564,6 @@ demo-signalloom-supercred-evidence-json: ## Same evidence as JSON — what the d
 .PHONY: demo-signalloom-supercred-evidence-test
 demo-signalloom-supercred-evidence-test: ## Unit-test what the evidence probes CONCLUDE, against a stub kubectl (no cluster required).
 	bats d2-signalloom/test/supercred-evidence-probe.bats
-
-.PHONY: demo-osramp-up demo-osramp-test-config demo-osramp-test demo-osramp-down
-demo-osramp-up: push-local-fleet push-local-osramp ## Restore OSRAMP frontend+backend (durable: restores ResourceSet inputs).
-	./scripts/osramp-up.sh
-demo-osramp-test-config: ## Validate existing OSRAMP manifests without a running slice.
-	@# components/ holds no kustomization.yaml of its own -- the overlays live one
-	@# level down under backend/ and frontend/. Rendering the parent silently
-	@# validated nothing; it just errored. Render every overlay instead.
-	@# The empty-list guard is load-bearing: a for-loop over nothing exits 0, which
-	@# is how the previous broken path could have gone unnoticed indefinitely.
-	@set -e; dirs=$$(find d2-osramp-apps/components -name kustomization.yaml -printf '%h\n' | sort); \
-	[ -n "$$dirs" ] || { echo "no kustomization.yaml under d2-osramp-apps/components" >&2; exit 1; }; \
-	for d in $$dirs; do printf '  rendering %s\n' "$$d"; kubectl kustomize "$$d" >/dev/null; done
-	@# backend-config.bats adds real yq assertions (postgres grant, redis pin,
-	@# minio ports) that a bare render cannot make. It already existed and was
-	@# simply never called from here.
-	$(MAKE) -C d2-osramp-apps test-config
-demo-osramp-test: demo-osramp-test-config ## Run existing OSRAMP acceptance tests.
-	$(MAKE) test
-demo-osramp-down: ## Remove OSRAMP frontend+backend via shared ResourceSet cleanup.
-	./scripts/osramp-down.sh
-
-.PHONY: demo-olly-up demo-olly-test-config demo-olly-test demo-olly-down
-demo-olly-up: ## Restore Olly Sentinel replica (durable: restores ResourceSet inputs).
-	./scripts/olly-up.sh
-demo-olly-test-config: ## Render the Olly component configuration without a running slice.
-	@# Same shape as demo-osramp-test-config: the overlays live under configs/
-	@# and controllers/, not at components/ itself.
-	@set -e; dirs=$$(find olly-replica/components -name kustomization.yaml -printf '%h\n' | sort); \
-	[ -n "$$dirs" ] || { echo "no kustomization.yaml under olly-replica/components" >&2; exit 1; }; \
-	for d in $$dirs; do printf '  rendering %s\n' "$$d"; kubectl kustomize "$$d" >/dev/null; done
-demo-olly-test: demo-olly-test-config ## Run existing Olly acceptance tests.
-	$(MAKE) olly-test
-demo-olly-down: ## Remove Olly Sentinel replica via shared ResourceSet cleanup.
-	./scripts/olly-down.sh
 
 ##@ KubeSec-AFM (D2 — standalone RBAC analysis platform)
 
@@ -1916,26 +1813,6 @@ audit-anchor-test: ## Run the audit-anchor unit tests (no cluster required).
 test-impl-agent-log: ## Run the impl-agent-log multi-agent shared log BATS test suite.
 	bats test/impl-agent-log.bats
 
-.PHONY: olly-test
-olly-test: ## Run the olly-replica bats suite (enrichment loop end to end).
-	$(MAKE) -C olly-replica test
-
-.PHONY: a2a-demo
-a2a-demo: ## Fire one Olly -> Orbit A2A hand-off for the dashboard demo (APP=payments-api).
-	$(MAKE) -C olly-replica a2a-demo APP="$(APP)"
-
-.PHONY: olly-eval
-olly-eval: ## Run the sentinel ADK eval offline (signal-check gate + rca_readiness).
-	./scripts/olly-eval.sh
-
-.PHONY: olly-adk-web
-olly-adk-web: ## Launch `adk web` for the sentinel (ADK Studio: Trace + Eval tabs).
-	./scripts/olly-adk-web.sh
-
-.PHONY: vex-demo
-vex-demo: ## Run the Phase 1 VEX triage demo (scan, triage, rescan green).
-	./scripts/vex-demo.sh
-
 .PHONY: witness-policy
 witness-policy: ## Generate and sign the witness promotion policy.
 	./scripts/gen-witness-policy.sh
@@ -1951,19 +1828,6 @@ admission-demo: ## Kyverno admission: signed image admitted, unsigned denied.
 .PHONY: revocation-demo
 revocation-demo: ## Revoke trust in an artifact, watch Flux block it, restore.
 	./scripts/revocation-demo.sh
-
-.PHONY: agent-demo
-agent-demo: ## Sandboxed agent analyzes a CVE and recommends (human gate stops it).
-	./agent/harness.sh
-
-.PHONY: console
-console: ## Serve the Estate 95 win95 console (whole demo) at http://localhost:8675.
-	@KCFG=$$(./scripts/olly-readonly-kubeconfig.sh 2>/dev/null || true); \
-	 cd tools/demo-console && CONSOLE_READONLY_KUBECONFIG="$$KCFG" go run .
-
-.PHONY: readonly-kubeconfig
-readonly-kubeconfig: ## Create the scoped read-only kubeconfig the terminal uses.
-	./scripts/olly-readonly-kubeconfig.sh
 
 .PHONY: doctor
 doctor: cluster-debug ## Alias for the comprehensive cluster diagnostic report.
@@ -2036,22 +1900,6 @@ doctor-node-all: ## Run the node doctor against EVERY lane with a handoff file; 
 	 grep '^NODE-DOCTOR ' /tmp/doctor-node-all.$$$$.log || echo "  (no lane emitted a verdict line — the sweep did not complete)"; \
 	 rm -f /tmp/doctor-node-all.$$$$.log; \
 	 exit $$rc
-
-.PHONY: olly-down
-olly-down: ## Remove Olly Sentinel replica via shared ResourceSet cleanup.
-	./scripts/olly-down.sh
-
-.PHONY: olly-up
-olly-up: ## Restore Olly Sentinel replica to the cluster.
-	./scripts/olly-up.sh
-
-.PHONY: osramp-down
-osramp-down: ## Remove OSRAMP apps via shared ResourceSet cleanup.
-	./scripts/osramp-down.sh
-
-.PHONY: osramp-up
-osramp-up: ## Restore OSRAMP apps (frontend + backend) to the cluster.
-	./scripts/osramp-up.sh
 
 .PHONY: signalloom-down
 signalloom-down: ## Remove Signal Loom frontend via shared ResourceSet cleanup.
@@ -3769,7 +3617,7 @@ scan-sast-baseline: ## Regenerate .semgrep-baseline.json. Review the diff — ev
 scan-sast-all: ## Full SAST report at every severity. Advisory, does not gate.
 	@mkdir -p "$(SEMGREP_HOME)"
 	@HOME="$(SEMGREP_HOME)" semgrep --config=$(SEMGREP_CONFIG) --metrics=off \
-		d2-signalloom d2-osramp-apps scripts test || true
+		d2-signalloom scripts test || true
 
 scan-lint: ## Shell and Dockerfile lint. Advisory until the existing findings are cleared.
 	@command -v shellcheck >/dev/null && \

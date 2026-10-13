@@ -136,11 +136,6 @@ exceptions:
       it directly would be wrong; it is input to a controller, not a deliverable.
     applied_by: hosted-daytona-coder (in-cluster)
 
-  - path: olly-replica/test/fixtures/reseed-job.yaml
-    class: test-fixture
-    reason: Olly reseed fixture; the suite that uses it owns setup and teardown.
-    applied_by: olly-replica test suite
-
   # ---- gap: SHOULD be Flux-reconciled and is not. Open decisions. ----------
   - path: d2-k8s-afm/apps/afm-platform/base/deployment.yaml
     class: gap
@@ -215,15 +210,6 @@ exceptions:
     reason: >-
       Sits in the agent-swarm artifact root but agent-swarm/kustomization.yaml
       does not list it, so the agent-swarm-base Kustomization (path `.`) skips it.
-    applied_by: nothing
-
-  - path: d2-osramp-apps/components/backend/base/minio-operator.yaml
-    class: gap
-    reason: >-
-      backend/base/kustomization.yaml lists memcached, nats and redis but not
-      minio-operator. The OSRAMP `apps` ResourceSet ships
-      `fluxcd.controlplane.io/reconcile: disabled` and is activated by
-      `make demo-osramp-up`, so the blast radius is the OSRAMP demo only.
     applied_by: nothing
 
   - path: d2-signalloom/infra/agent-swarm/agent-nono-kusari/deployment.yaml

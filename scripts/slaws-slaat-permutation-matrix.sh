@@ -5,7 +5,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OUT_DIR="${REPO_ROOT}/ci-evidence"
+OUT_DIR="${REPO_ROOT}/docs/records/ci-evidence"
 DRY_RUN=false
 TARGET_SUITE="all"
 
@@ -92,7 +92,7 @@ run_suite1() {
     record_result "Suite1" "GW-SPOOF-01" "FAIL" "Missing ClientTrafficPolicy manifest"
   fi
 
-  if [[ -f "${REPO_ROOT}/d2-osramp-apps/components/backend/base/networkpolicy.yaml" ]] &&      bats "${REPO_ROOT}/d2-signalloom/test/eap-ingress-reconcile.bats" >/dev/null 2>&1; then
+  if [[ -f "${REPO_ROOT}/d2-signalloom/apps/fe-signalloom/base/networkpolicy.yaml" ]] &&      bats "${REPO_ROOT}/d2-signalloom/test/eap-ingress-reconcile.bats" >/dev/null 2>&1; then
     record_result "Suite1" "NET-ISO-01" "PASS" "Default-deny NetworkPolicy and ingress reconciliation verified"
   else
     record_result "Suite1" "NET-ISO-01" "FAIL" "Backend NetworkPolicy or ingress reconciliation failed"

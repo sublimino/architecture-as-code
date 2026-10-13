@@ -6,8 +6,8 @@ alignment) must change, and the evidence behind each claim. It is a read-only
 audit: no application code, manifest, or OpenBao value was changed.
 
 - Scanned commit: `1d84ff381b34b4463fd017d462fdc0632db2fa6e` (tip of `integration/sldc-v0.1.0`)
-- Machine-readable report: [`ci-evidence/p3-preflight-audit.json`](../../ci-evidence/p3-preflight-audit.json)
-- Regenerate: `scripts/p3-tenant-preflight.sh audit --out ci-evidence/p3-preflight-audit.json`
+- Machine-readable report: [`docs/records/ci-evidence/p3-preflight-audit.json`](../records/ci-evidence/p3-preflight-audit.json)
+- Regenerate: `scripts/p3-tenant-preflight.sh audit --out docs/records/ci-evidence/p3-preflight-audit.json`
 - Tests: `bats test/p3-tenant-preflight.bats` (14 tests; 5 deliberate mutants all killed)
 
 ## 1. The derivation rule, as implemented

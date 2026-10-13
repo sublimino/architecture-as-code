@@ -17,7 +17,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-OUT_DIR="${P1_GOV_OUT:-${REPO_ROOT}/ci-evidence}"
+OUT_DIR="${P1_GOV_OUT:-${REPO_ROOT}/docs/records/ci-evidence}"
 CERT_FILE="${OUT_DIR}/phase1-governance-certification.json"
 
 usage() { echo "usage: $0 [--log SENTINEL_LOG]" >&2; exit 2; }

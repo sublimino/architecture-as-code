@@ -8,7 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-OUT_DIR="${REPO_ROOT}/ci-evidence"
+OUT_DIR="${REPO_ROOT}/docs/records/ci-evidence"
 mkdir -p "${OUT_DIR}"
 
 EVIDENCE_FILE="${OUT_DIR}/slaat-p3-2-platform-acceptance.json"

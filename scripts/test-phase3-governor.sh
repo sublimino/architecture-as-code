@@ -23,8 +23,8 @@ PILOT_SALT="signalloom-eap-salt-2026-q3"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MUTATION_PROOF="${PHASE3_MUTATION_PROOF:-$REPO_ROOT/test/eap-tenant-routing-mutation-proof.sh}"
-OUTPUT_JSON="${REPO_ROOT}/ci-evidence/phase3-governance-certification.json"
-TRACE_OUTPUT="${REPO_ROOT}/ci-evidence/phase3-routing-audit.txt"
+OUTPUT_JSON="${REPO_ROOT}/docs/records/ci-evidence/phase3-governance-certification.json"
+TRACE_OUTPUT="${REPO_ROOT}/docs/records/ci-evidence/phase3-routing-audit.txt"
 HERMETIC=false
 VERBOSE=false
 

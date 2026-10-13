@@ -11,11 +11,6 @@ spec:
       kind: CustomResourceDefinition
       name: imageupdateautomations.image.toolkit.fluxcd.io
   inputs:
-    - namespace: "apps"
-      repository: "https://github.com/acme-co/osramp.git"
-      pushBranch: "image-updates"
-      updatePoliciesPath: "./d2-osramp-apps/update-policies"
-      componentsPath: "./d2-osramp-apps/components"
     - namespace: "infra"
       repository: "https://github.com/acme-co/osramp.git"
       pushBranch: "image-updates"

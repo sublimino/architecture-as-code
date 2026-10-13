@@ -49,6 +49,7 @@ BAO_NAMESPACE="${P3_BAO_NAMESPACE:-inf-bao}"
 SELF_EXCLUDES=(
   ":!scripts/p3-tenant-preflight.sh"
   ":!test/p3-tenant-preflight.bats"
+  ":!docs/records/ci-evidence/p3-preflight-audit.json"
   ":!ci-evidence/p3-preflight-audit.json"
   ":!docs/eap/SLDC-P3-TENANT-INVENTORY.md"
 )

@@ -32,7 +32,7 @@ setup() {
 
 	# Synthetic repo: catalog whose manifests exist, keys, a verified bundle.
 	repo="$t/repo"
-	mkdir -p "$repo/test/fixtures" "$repo/.evidence" "$repo/manifests"
+	mkdir -p "$repo/test/fixtures" "$repo/docs/records/eap-evidence" "$repo/manifests"
 	printf 'component\tkind\tmanifest_path\timage\trequired\n' >"$repo/test/fixtures/cold-start-manifests.tsv"
 	for c in zot kusari; do
 		echo "kind: Deployment" >"$repo/manifests/$c.yaml"
@@ -45,8 +45,8 @@ setup() {
 	touch "$KEYS_DIR/cosign.key" "$KEYS_DIR/cosign.pub"
 	mkdir -p "$t/ev" && cp "$root"/test/fixtures/eap-evidence/* "$t/ev/"
 	EAP_SIGNING_KEY="$KEYS_DIR/witness.pem" EAP_OPERATOR=bats EAP_CONTAINER_RUNTIME=x SOURCE_DATE_EPOCH=1790726400 \
-		bash "$root/scripts/package-eap-evidence.sh" --quiet --out "$repo/.evidence" "$t/ev" >/dev/null 2>&1
-	cp "$t/ev/audit-signature.sha256" "$repo/.evidence/"
+		bash "$root/scripts/package-eap-evidence.sh" --quiet --out "$repo/docs/records/eap-evidence" "$t/ev" >/dev/null 2>&1
+	cp "$t/ev/audit-signature.sha256" "$repo/docs/records/eap-evidence/"
 
 	export CGROUP_ROOT="$t/cgroup"
 	mkdir -p "$CGROUP_ROOT" && echo "cpu memory" >"$CGROUP_ROOT/cgroup.controllers"
@@ -87,7 +87,7 @@ fails_only() { # CHECK-NAME: exit 1, exactly one failed check, and it is this on
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"VERDICT: PASS (8/8 passed)"* ]]
 	[ "$(jq -r '"\(.verdict) \(.total_checks) \(.failed_checks) \(.dry_run)"' "$report")" = "PASS 8 0 true" ]
-	[ -s "$repo/ci-evidence/phase6-preflight-readiness.json" ]
+	[ -s "$repo/docs/records/ci-evidence/phase6-preflight-readiness.json" ]
 	[ "$(git -C "$root" status --porcelain)" = "$before" ]
 }
 
@@ -117,12 +117,12 @@ fails_only() { # CHECK-NAME: exit 1, exactly one failed check, and it is this on
 }
 
 @test "a missing Phase 5 bundle fails only the bundle check" {
-	rm "$repo/.evidence/eap-kusari-containment.tar.gz"
+	rm "$repo/docs/records/eap-evidence/eap-kusari-containment.tar.gz"
 	fails_only "Phase 5 forensic evidence bundle preserved"
 }
 
 @test "a tampered Phase 5 bundle is not 'preserved'" {
-	echo junk >>"$repo/.evidence/eap-kusari-containment.tar.gz"
+	echo junk >>"$repo/docs/records/eap-evidence/eap-kusari-containment.tar.gz"
 	fails_only "Phase 5 forensic evidence bundle preserved"
 }
 

@@ -282,16 +282,6 @@ push_signalloom() {
     "signalloom/agent-swarm|d2-signalloom/infra/agent-swarm"
 }
 
-push_osramp() {
-  run_parallel_push osramp \
-    "apps/frontend|d2-osramp-apps/components/frontend" \
-    "apps/backend|d2-osramp-apps/components/backend"
-}
-
-push_olly() {
-  push_and_sign "olly/olly-replica" "olly-replica/components"
-}
-
 assert_signing_key_is_trusted
 
 case "${mode}" in
@@ -299,17 +289,13 @@ case "${mode}" in
   agent-trust) push_agent_trust ;;
   foundation) push_foundation ;;
   signalloom) push_signalloom ;;
-  osramp) push_osramp ;;
-  olly) push_olly ;;
   all)
     push_foundation
     push_signalloom
     push_agent_trust
-    push_osramp
-    push_olly
     ;;
   *)
-    echo "usage: $0 [all|foundation|fleet|signalloom|agent-trust|osramp|olly]" >&2
+    echo "usage: $0 [all|foundation|fleet|signalloom|agent-trust]" >&2
     exit 64
     ;;
 esac

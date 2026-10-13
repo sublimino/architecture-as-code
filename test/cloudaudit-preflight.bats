@@ -36,8 +36,10 @@ setup() {
 }
 
 @test "cloudaudit preflight: scripts/cloudaudit-preflight.sh executes successfully" {
-  run "$REPO_ROOT/scripts/cloudaudit-preflight.sh"
+  local tmp_proof="$BATS_TEST_TMPDIR/.cloudaudit-p1-preflight.json"
+  CLOUDAUDIT_P1_PROOF_OUT="$tmp_proof" run "$REPO_ROOT/scripts/cloudaudit-preflight.sh"
   [ "$status" -eq 0 ]
   [[ "$output" =~ "Phase 1 Preflight Complete (PASS)" ]]
-  [ -f "$REPO_ROOT/.cloudaudit-p1-preflight.json" ]
+  [ -f "$tmp_proof" ]
+  [ -f "$REPO_ROOT/docs/records/preflight-proofs/.cloudaudit-p1-preflight.json" ]
 }

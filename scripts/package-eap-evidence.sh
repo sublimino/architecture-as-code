@@ -66,7 +66,7 @@ die() {
 }
 
 evidence_dir=""
-out_dir="${EAP_OUT_DIR:-$repo/ci-evidence}"
+out_dir="${EAP_OUT_DIR:-$repo/docs/records/ci-evidence}"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --out | --output-dir) [ "$#" -ge 2 ] || usage; out_dir="$2"; shift 2 ;;

@@ -62,7 +62,7 @@ source "$SCRIPT_DIR/lib/dual-cluster.sh"
 BOOTSTRAP="$SCRIPT_DIR/bootstrap-spire-federation.sh"
 FIXTURE_DIR="$REPO_ROOT/test/fixtures/phase2-governor"
 ROLE_MANIFEST="$REPO_ROOT/d2-signalloom/infra/inf-bao/configs/base/openbao-supercred-bootstrap.yaml"
-EVIDENCE_DIR="${P2GOV_EVIDENCE_DIR:-$REPO_ROOT/ci-evidence}"
+EVIDENCE_DIR="${P2GOV_EVIDENCE_DIR:-$REPO_ROOT/docs/records/ci-evidence}"
 CERT_JSON="$EVIDENCE_DIR/phase2-governance-certification.json"
 AUDIT_TXT="$EVIDENCE_DIR/phase2-token-exchange-audit.txt"
 

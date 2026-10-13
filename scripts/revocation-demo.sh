@@ -35,8 +35,8 @@ KEYS_DIR="$(keys_dir)"
 COSIGN_KEY="${COSIGN_KEY:-${KEYS_DIR}/cosign.key}"
 COSIGN_PUB="${COSIGN_PUB:-${COSIGN_KEY%.key}.pub}"
 SIGNING_CONFIG="${SIGNING_CONFIG:-${COSIGN_KEY%/*}/signing-config.json}"
-FRONTEND_PATH="d2-osramp-apps/components/frontend"
-REPO="apps/frontend"
+FRONTEND_PATH="d2-signalloom/apps"
+REPO="signalloom/apps/fe-signalloom"
 ARTIFACT="oci://${REGISTRY}/${REPO}:latest"
 
 REVOKED=0
@@ -58,12 +58,12 @@ preflight() {
   [ -d "${FRONTEND_PATH}" ] || die "artifact source path missing: ${FRONTEND_PATH}"
 
   # The demo exists to watch Flux refuse the unsigned artifact. Without the
-  # OSRAMP frontend slice there is nothing to observe and nothing to restore
+  # Signal Loom apps slice there is nothing to observe and nothing to restore
   # into -- so refuse rather than poisoning a registry other slices share.
-  kubectl -n frontend get ocirepository apps >/dev/null 2>&1 || die \
-"OSRAMP frontend slice not deployed (no ocirepository/apps in namespace frontend).
+  kubectl -n fe-signalloom get ocirepository apps >/dev/null 2>&1 || die \
+"Signal Loom apps slice not deployed (no ocirepository/apps in namespace fe-signalloom).
 Refusing to push a revoked artifact into the shared registry.
-Deploy the slice first:  make demo-osramp-up"
+Deploy the slice first:  make demo-signalloom-up"
 
   # Key-only signing config (cosign v3), same idiom as scripts/push-local.sh.
   [ -f "${SIGNING_CONFIG}" ] || cosign signing-config create \
@@ -139,22 +139,22 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 reconcile_frontend() {
-  kubectl annotate --overwrite -n frontend ocirepository/apps \
+  kubectl annotate --overwrite -n fe-signalloom ocirepository/apps \
     reconcile.fluxcd.io/requestedAt="$(date +%s)" >/dev/null
   # Injectable so the fake-binary harness in test/revocation-demo.bats does not
   # spend ~90s asleep proving control flow that has nothing to do with timing.
   # Poll for OCIRepository status with deadline
   local settle="${RECONCILE_SETTLE_SECONDS:-10}"
   if [ "$settle" -gt 0 ]; then
-    _wait_retry "$settle" "reconcile ocirepository apps" "kubectl -n frontend get ocirepository apps -o jsonpath='{.status.observedGeneration}' >/dev/null 2>&1" || true
+    _wait_retry "$settle" "reconcile ocirepository apps" "kubectl -n fe-signalloom get ocirepository apps -o jsonpath='{.status.observedGeneration}' >/dev/null 2>&1" || true
   fi
-  kubectl -n frontend get ocirepository apps \
+  kubectl -n fe-signalloom get ocirepository apps \
     -o jsonpath='{range .status.conditions[?(@.type=="Ready")]}{.status}{" "}{.message}{end}'
   echo
 }
 
 frontend_ready_status() {
-  kubectl -n frontend get ocirepository apps \
+  kubectl -n fe-signalloom get ocirepository apps \
     -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null
 }
 
@@ -194,7 +194,7 @@ reconcile_frontend
 if grep -q True <<<"$(frontend_ready_status)"; then
   echo "RESTORED: signed artifact verified and reconciled to the cluster"
 else
-  die "artifact still not verified; inspect: kubectl -n frontend describe ocirepository apps"
+  die "artifact still not verified; inspect: kubectl -n fe-signalloom describe ocirepository apps"
 fi
 
 echo

@@ -36,7 +36,7 @@ REPO_ROOT="$(cd -- "$(dirname -- "${BATS_TEST_FILENAME}")/.." && pwd)"
 CLUSTER_CONTEXT="${SLAAT_KUBE_CONTEXT:-kind-osramp}"
 SPIFFE_JSON="${BATS_FILE_TMPDIR:-/tmp}/slaat-spiffe.json"
 IDENT_JSON="${BATS_FILE_TMPDIR:-/tmp}/slaat-identity.json"
-FINDINGS_JSON="${REPO_ROOT}/ci-evidence/slaat-p1-3-live-probe-records.json"
+FINDINGS_JSON="${REPO_ROOT}/docs/records/ci-evidence/slaat-p1-3-live-probe-records.json"
 SPIFFE_LOG="${BATS_FILE_TMPDIR:-/tmp}/slaat-spiffe.log"
 IDENT_LOG="${BATS_FILE_TMPDIR:-/tmp}/slaat-identity.log"
 

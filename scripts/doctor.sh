@@ -179,61 +179,6 @@ if kubectl get namespace "fe-signalloom" &>/dev/null; then
   fi
 fi
 
-# ─── Olly Sentinel ───
-header "OLLY SENTINEL"
-check_namespace "olly-replica" "Olly" && check_pods "olly-replica" "Olly"
-check_kustomizations "olly-replica" "Olly"
-
-# Check key Olly services
-if kubectl get namespace "olly-replica" &>/dev/null; then
-  if grep -q Running <<<"$(kubectl get pods -n olly-replica -l app=olly-sentinel --no-headers 2>/dev/null)"; then
-    ok "olly-sentinel: running"
-  else
-    warn "olly-sentinel: not running"
-  fi
-  if grep -q Running <<<"$(kubectl get pods -n olly-replica -l app.kubernetes.io/name=redpanda --no-headers 2>/dev/null)"; then
-    ok "redpanda: running"
-  else
-    warn "redpanda: not running"
-  fi
-  if grep -q Running <<<"$(kubectl get pods -n olly-replica -l common.k8s.elastic.co/type=elasticsearch --no-headers 2>/dev/null)"; then
-    ok "elasticsearch: running"
-  else
-    warn "elasticsearch: not running"
-  fi
-fi
-
-# ─── OSRAMP Apps ───
-header "OSRAMP APPS"
-check_namespace "frontend" "Frontend" && check_pods "frontend" "Frontend"
-check_namespace "backend" "Backend" && check_pods "backend" "Backend"
-check_kustomizations "frontend" "Frontend"
-check_kustomizations "backend" "Backend"
-
-# Check key OSRAMP services
-if kubectl get namespace "backend" &>/dev/null; then
-  for svc in postgres nats minio osramp-archivista; do
-    if grep -q Running <<<"$(kubectl get pods -n backend -l app="${svc}" --no-headers 2>/dev/null)"; then
-      ok "backend/${svc}: running"
-    elif grep -q "${svc}.*Running" <<<"$(kubectl get pods -n backend --no-headers 2>/dev/null)"; then
-      ok "backend/${svc}: running"
-    else
-      warn "backend/${svc}: not running"
-    fi
-  done
-fi
-
-if kubectl get namespace "frontend" &>/dev/null; then
-  for deploy in osramp-purl osramp-archiver osramp-multipurpose; do
-    READY=$(kubectl get deploy "${deploy}" -n frontend -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
-    if [ "${READY:-0}" -gt 0 ]; then
-      ok "frontend/${deploy}: ${READY} replica(s)"
-    else
-      warn "frontend/${deploy}: 0 replicas ready"
-    fi
-  done
-fi
-
 # ─── Summary ───
 header "SUMMARY"
 # ── Are the backends the dashboard proxies to actually deployed? ────────────

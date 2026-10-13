@@ -5,9 +5,7 @@
 # test/network-microsegmentation-hardening.bats : SLAAT-P2-1 remediation suite
 #
 # @id      slaat-p2-1-network-microsegmentation-hardening
-# @target  d2-osramp-apps/components/backend/base/networkpolicy.yaml,
-#          d2-osramp-apps/components/frontend/base/networkpolicy.yaml,
-#          d2-infra/components/ingress/configs/base/networkpolicy.yaml,
+# @target  d2-infra/components/ingress/configs/base/networkpolicy.yaml,
 #          d2-infra/components/ingress/configs/base/clienttrafficpolicy.yaml,
 #          d2-signalloom/infra/kagent/base/networkpolicy.yaml
 # @doc     docs/slaat/p2-1/network-microsegmentation-hardening-report.md
@@ -27,12 +25,10 @@
 # self-deleting (--rm) with a non-blocking safety-net delete in teardown.
 
 export PATH="/usr/bin:/home/linuxbrew/.linuxbrew/bin:$PATH"
-DECLARED_TESTS=14
+DECLARED_TESTS=11
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BATS_TEST_FILENAME}")/.." && pwd)"
 CLUSTER_CONTEXT="${SLAAT_KUBE_CONTEXT:-kind-osramp}"
-BACKEND_NETPOL="${REPO_ROOT}/d2-osramp-apps/components/backend/base/networkpolicy.yaml"
-FRONTEND_NETPOL="${REPO_ROOT}/d2-osramp-apps/components/frontend/base/networkpolicy.yaml"
 INGRESS_NETPOL="${REPO_ROOT}/d2-infra/components/ingress/configs/base/networkpolicy.yaml"
 CTP="${REPO_ROOT}/d2-infra/components/ingress/configs/base/clienttrafficpolicy.yaml"
 KAGENT_NETPOL="${REPO_ROOT}/d2-signalloom/infra/kagent/base/networkpolicy.yaml"
@@ -69,11 +65,7 @@ teardown_file() {
 # Tier 1: hermetic manifest shape
 # ─────────────────────────────────────────────────────────────────────────────
 
-@test "kustomize build: all four touched trees build cleanly" {
-  run kubectl kustomize "${REPO_ROOT}/d2-osramp-apps/components/backend/base"
-  [ "$status" -eq 0 ]
-  run kubectl kustomize "${REPO_ROOT}/d2-osramp-apps/components/frontend/base"
-  [ "$status" -eq 0 ]
+@test "kustomize build: all touched trees build cleanly" {
   run kubectl kustomize "${REPO_ROOT}/d2-infra/components/ingress/configs/base"
   [ "$status" -eq 0 ]
   run kubectl kustomize "${REPO_ROOT}/d2-signalloom/infra/kagent/base"
@@ -98,30 +90,6 @@ docs_json() {
   tmp="$(mktemp "${BATS_TEST_TMPDIR:-/tmp}/netpol-docs.XXXXXX.json")"
   yq -o=json ea '[.]' "$1" >"${tmp}"
   echo "${tmp}"
-}
-
-@test "backend networkpolicy.yaml declares a blanket podSelector:{} default-deny for Ingress and Egress" {
-  local docs; docs="$(docs_json "${BACKEND_NETPOL}")"
-  run python3 -c "
-import json
-docs = json.load(open('${docs}'))
-d = next(x for x in docs if x['metadata']['name'] == 'default-deny')
-assert d['spec']['podSelector'] == {}
-assert set(d['spec']['policyTypes']) == {'Ingress', 'Egress'}
-"
-  [ "$status" -eq 0 ]
-}
-
-@test "frontend networkpolicy.yaml declares a blanket podSelector:{} default-deny for Ingress and Egress" {
-  local docs; docs="$(docs_json "${FRONTEND_NETPOL}")"
-  run python3 -c "
-import json
-docs = json.load(open('${docs}'))
-d = next(x for x in docs if x['metadata']['name'] == 'default-deny')
-assert d['spec']['podSelector'] == {}
-assert set(d['spec']['policyTypes']) == {'Ingress', 'Egress'}
-"
-  [ "$status" -eq 0 ]
 }
 
 @test "ingress networkpolicy.yaml is deliberately NOT a blanket default-deny (scoped to the control-plane pods and Ingress only)" {
@@ -200,16 +168,6 @@ assert all(d['spec']['policyTypes'] == ['Ingress'] for d in matched)
 # ─────────────────────────────────────────────────────────────────────────────
 # Tier 2: live precision probes
 # ─────────────────────────────────────────────────────────────────────────────
-
-@test "live: an unlabelled frontend pod cannot reach backend/postgres, but a pod labelled osramp-archiver can" {
-  have_cluster || skip "no cluster '${CLUSTER_CONTEXT}'"
-  PG_IP="$(KC -n backend get svc postgres -o jsonpath='{.spec.clusterIP}')"
-  [ -n "${PG_IP}" ]
-  run probe_tcp frontend generic-worker "${PG_IP}" 5432
-  [ "$output" = "blocked" ]
-  run probe_tcp frontend osramp-archiver "${PG_IP}" 5432
-  [ "$output" = "reachable" ]
-}
 
 @test "live: the Gateway control-plane metrics port (19001) is blocked from an unprivileged pod, same-namespace stays open" {
   have_cluster || skip "no cluster '${CLUSTER_CONTEXT}'"

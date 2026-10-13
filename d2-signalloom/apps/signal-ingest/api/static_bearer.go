@@ -360,7 +360,7 @@ func (a *StaticBearerAuthenticator) match(r *http.Request) (staticKey, bool) {
 // unscoped read), and 403 cross_tenant_read_required for "*" from a key without cross-read. Every
 // other request passes untouched; for keys without tenant:act-for the header is ignored.
 func (a *StaticBearerAuthenticator) ActingTenantGate(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		k, ok := a.match(r)
 		if !ok || !k.grants(PermissionActForTenant) || !a.now().Before(k.expiresAt) {
 			next.ServeHTTP(w, r)
@@ -378,7 +378,7 @@ func (a *StaticBearerAuthenticator) ActingTenantGate(next http.Handler) http.Han
 			return
 		}
 		next.ServeHTTP(w, r)
-	})
+	}))
 }
 
 func (k staticKey) grants(p Permission) bool {

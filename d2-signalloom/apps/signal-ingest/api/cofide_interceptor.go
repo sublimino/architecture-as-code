@@ -72,7 +72,7 @@ func NewCofideInterceptor(cfg CofideConfig) (*CofideInterceptor, error) {
 
 // Wrap wraps a standard http.Handler with Cofide SVID attestation validation.
 func (ci *CofideInterceptor) Wrap(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, status, err := ci.ValidateRequest(r)
 		if err != nil {
 			ci.deny(w, r, claims, status, err.Error())
@@ -87,7 +87,7 @@ func (ci *CofideInterceptor) Wrap(next http.Handler) http.Handler {
 			})
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+	}))
 }
 
 // HandlerFunc wraps a standard http.HandlerFunc with Cofide SVID attestation validation.
@@ -472,6 +472,9 @@ func (ci *CofideInterceptor) deny(w http.ResponseWriter, r *http.Request, claims
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	if r != nil && r.Method == http.MethodHead {
+		return
+	}
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error":  reason,
 		"status": status,

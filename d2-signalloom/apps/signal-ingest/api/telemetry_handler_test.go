@@ -462,7 +462,7 @@ func TestCodingAgentTelemetryMethodGates(t *testing.T) {
 		}
 	}
 
-	// handleQueryCodingAgentTelemetry: GET only
+	// handleQueryCodingAgentTelemetry: GET, HEAD
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
 		req := httptest.NewRequest(method, "/api/v1/telemetry/coding-agents/query", nil)
 		rec := httptest.NewRecorder()
@@ -470,12 +470,12 @@ func TestCodingAgentTelemetryMethodGates(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleQueryCodingAgentTelemetry got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "GET" {
-			t.Errorf("%s handleQueryCodingAgentTelemetry got Allow %q, want GET", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
+			t.Errorf("%s handleQueryCodingAgentTelemetry got Allow %q, want GET, HEAD", method, allow)
 		}
 	}
 
-	// handleAggregateCodingAgentTelemetry: GET, POST
+	// handleAggregateCodingAgentTelemetry: GET, HEAD, POST
 	for _, method := range []string{http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		req := httptest.NewRequest(method, "/api/v1/telemetry/coding-agents/aggregate", nil)
 		rec := httptest.NewRecorder()
@@ -483,9 +483,25 @@ func TestCodingAgentTelemetryMethodGates(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s handleAggregateCodingAgentTelemetry got status %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "GET, POST" {
-			t.Errorf("%s handleAggregateCodingAgentTelemetry got Allow %q, want GET, POST", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, POST" {
+			t.Errorf("%s handleAggregateCodingAgentTelemetry got Allow %q, want GET, HEAD, POST", method, allow)
 		}
+	}
+
+	// HEAD body suppression verification with tenant context
+	ctx := WithTenantContext(context.Background(), TenantContext{
+		TenantID:  "tenant-head-test",
+		Principal: "spiffe://cluster.local/ns/agents/sa/tester",
+	})
+	headQueryReq := httptest.NewRequest(http.MethodHead, "/api/v1/telemetry/coding-agents/query", nil).WithContext(ctx)
+	headQueryRec := httptest.NewRecorder()
+	headQueryRecWrapped := &headResponseWriter{ResponseWriter: headQueryRec}
+	h.handleQueryCodingAgentTelemetry(headQueryRecWrapped, headQueryReq)
+	if headQueryRec.Code != http.StatusOK {
+		t.Errorf("HEAD query got status %d, want 200", headQueryRec.Code)
+	}
+	if headQueryRec.Body.Len() != 0 {
+		t.Errorf("HEAD query body length = %d, want 0", headQueryRec.Body.Len())
 	}
 }
 

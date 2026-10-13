@@ -660,3 +660,108 @@ func TestStaticBearerIngestsTheSentinelsRealPayloads(t *testing.T) {
 		})
 	}
 }
+
+func TestActingTenantGate_HEADBodySuppressionAndRefusals(t *testing.T) {
+	delegate, _, _ := testJWTDelegate(t)
+	now := time.Now().UTC()
+	auth, err := NewStaticKeyAuthenticator([]StaticBearerConfig{{
+		Name:        "test-gateway",
+		Token:       testSentinelToken,
+		Subject:     "static-key/test-gateway",
+		TenantID:    "system",
+		Permissions: []Permission{PermissionObservationRead, PermissionActForTenant},
+		ExpiresAt:   now.Add(24 * time.Hour),
+	}}, delegate)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	nextReached := false
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextReached = true
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+
+	gated := auth.ActingTenantGate(nextHandler)
+
+	// 1. Missing acting tenant header: 400 Bad Request
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		nextReached = false
+		r := httptest.NewRequest(method, "/api/v1/observations", nil)
+		r.Header.Set("Authorization", "Bearer "+testSentinelToken)
+		w := httptest.NewRecorder()
+		gated.ServeHTTP(w, r)
+		if w.Code != http.StatusBadRequest || nextReached {
+			t.Errorf("%s missing acting tenant: code=%d, nextReached=%v, want 400", method, w.Code, nextReached)
+		}
+		if w.Body.Len() == 0 {
+			t.Errorf("%s missing acting tenant: expected JSON body, got empty", method)
+		}
+	}
+
+	// 1b. Missing acting tenant header on HEAD: 400 Bad Request with 0 body bytes
+	{
+		nextReached = false
+		r := httptest.NewRequest(http.MethodHead, "/api/v1/observations", nil)
+		r.Header.Set("Authorization", "Bearer "+testSentinelToken)
+		w := httptest.NewRecorder()
+		gated.ServeHTTP(w, r)
+		if w.Code != http.StatusBadRequest || nextReached {
+			t.Errorf("HEAD missing acting tenant: code=%d, nextReached=%v, want 400", w.Code, nextReached)
+		}
+		if w.Body.Len() != 0 {
+			t.Errorf("HEAD missing acting tenant: want 0 body bytes, got %d (%q)", w.Body.Len(), w.Body.String())
+		}
+	}
+
+	// 2. Cross-tenant wildcard (*) without PermissionCrossTenantRead: 403 Forbidden
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		nextReached = false
+		r := httptest.NewRequest(method, "/api/v1/observations", nil)
+		r.Header.Set("Authorization", "Bearer "+testSentinelToken)
+		r.Header.Set(ActingTenantHeader, "*")
+		w := httptest.NewRecorder()
+		gated.ServeHTTP(w, r)
+		if w.Code != http.StatusForbidden || nextReached {
+			t.Errorf("%s wildcard acting tenant: code=%d, nextReached=%v, want 403", method, w.Code, nextReached)
+		}
+		if w.Body.Len() == 0 {
+			t.Errorf("%s wildcard acting tenant: expected JSON body, got empty", method)
+		}
+	}
+
+	// 2b. Cross-tenant wildcard (*) on HEAD: 403 Forbidden with 0 body bytes
+	{
+		nextReached = false
+		r := httptest.NewRequest(http.MethodHead, "/api/v1/observations", nil)
+		r.Header.Set("Authorization", "Bearer "+testSentinelToken)
+		r.Header.Set(ActingTenantHeader, "*")
+		w := httptest.NewRecorder()
+		gated.ServeHTTP(w, r)
+		if w.Code != http.StatusForbidden || nextReached {
+			t.Errorf("HEAD wildcard acting tenant: code=%d, nextReached=%v, want 403", w.Code, nextReached)
+		}
+		if w.Body.Len() != 0 {
+			t.Errorf("HEAD wildcard acting tenant: want 0 body bytes, got %d (%q)", w.Body.Len(), w.Body.String())
+		}
+	}
+
+	// 3. Valid acting tenant: passes through to nextHandler
+	{
+		nextReached = false
+		r := httptest.NewRequest(http.MethodHead, "/api/v1/observations", nil)
+		r.Header.Set("Authorization", "Bearer "+testSentinelToken)
+		r.Header.Set(ActingTenantHeader, "tenant-valid")
+		w := httptest.NewRecorder()
+		gated.ServeHTTP(w, r)
+		if w.Code != http.StatusOK || !nextReached {
+			t.Errorf("HEAD valid acting tenant: code=%d, nextReached=%v, want 200/true", w.Code, nextReached)
+		}
+		if w.Body.Len() != 0 {
+			t.Errorf("HEAD valid acting tenant: want 0 body bytes, got %d (%q)", w.Body.Len(), w.Body.String())
+		}
+	}
+}
+

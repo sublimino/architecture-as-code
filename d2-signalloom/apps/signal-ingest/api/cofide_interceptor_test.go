@@ -321,3 +321,73 @@ func TestCofideInterceptor_PublicKeyValidation(t *testing.T) {
 		t.Errorf("unexpected SPIFFE ID: %s", claims.SpiffeID)
 	}
 }
+
+func TestCofideInterceptor_HEADBodySuppression(t *testing.T) {
+	caKey, caCert := generateCA(t, "Signalloom Root CA")
+	trustPool := x509.NewCertPool()
+	trustPool.AddCert(caCert)
+	_, validCert, _ := generateSVID(t, caKey, caCert, "spiffe://signalloom.demo/ns/default/sa/test-sa", time.Now().Add(-10*time.Minute), time.Now().Add(1*time.Hour))
+	untrustedCAKey, untrustedCACert := generateCA(t, "Untrusted CA")
+	_, forgedCert, _ := generateSVID(t, untrustedCAKey, untrustedCACert, "spiffe://signalloom.demo/ns/default/sa/forged", time.Now().Add(-10*time.Minute), time.Now().Add(1*time.Hour))
+
+	interceptor, err := NewCofideInterceptor(CofideConfig{
+		TrustDomain: "signalloom.demo",
+		TrustBundle: trustPool,
+	})
+	if err != nil {
+		t.Fatalf("failed to init interceptor: %v", err)
+	}
+
+	reached := false
+	handler := interceptor.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+
+	// 1. Missing credentials on HEAD -> 401 with 0 body bytes
+	{
+		reached = false
+		req := httptest.NewRequest(http.MethodHead, "/api/v1/federation/summary", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized || reached {
+			t.Errorf("HEAD missing SVID: code=%d, reached=%v, want 401", rec.Code, reached)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("HEAD missing SVID: want 0 body bytes, got %d (%q)", rec.Body.Len(), rec.Body.String())
+		}
+	}
+
+	// 2. Forged credentials on HEAD -> 401 with 0 body bytes
+	{
+		reached = false
+		req := httptest.NewRequest(http.MethodHead, "/api/v1/federation/summary", nil)
+		req.Header.Set("X-SPIFFE-SVID", base64.StdEncoding.EncodeToString(forgedCert.Raw))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized || reached {
+			t.Errorf("HEAD forged SVID: code=%d, reached=%v, want 401", rec.Code, reached)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("HEAD forged SVID: want 0 body bytes, got %d (%q)", rec.Body.Len(), rec.Body.String())
+		}
+	}
+
+	// 3. Valid credentials on HEAD -> 200 with 0 body bytes
+	{
+		reached = false
+		req := httptest.NewRequest(http.MethodHead, "/api/v1/federation/summary", nil)
+		req.Header.Set("X-SPIFFE-SVID", base64.StdEncoding.EncodeToString(validCert.Raw))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !reached {
+			t.Errorf("HEAD valid SVID: code=%d, reached=%v, want 200", rec.Code, reached)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("HEAD valid SVID: want 0 body bytes, got %d (%q)", rec.Body.Len(), rec.Body.String())
+		}
+	}
+}
+

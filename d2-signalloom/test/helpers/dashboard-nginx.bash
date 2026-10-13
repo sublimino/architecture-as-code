@@ -46,8 +46,19 @@ class H(http.server.BaseHTTPRequestHandler):
             c = {"Bearer operator-token": 204, "Bearer viewer-token": 403}.get(auth[0] if len(auth) == 1 else "", 401)
         self.send_response(c); self.send_header("Content-Length", "0"); self.end_headers()
     do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_OPTIONS = _any
+    def send_error(self, code, message=None, explain=None):
+        self.send_response(code, message)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Connection", "close")
+        body = b"{}" if self.command != "HEAD" else b""
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
     def log_message(self, *a): pass
-http.server.HTTPServer(("0.0.0.0", port), H).serve_forever()
+class Server(http.server.HTTPServer):
+    allow_reuse_address = True
+Server(("0.0.0.0", port), H).serve_forever()
 PY
   docker network create "${NET}" >/dev/null
   local spec name rest fqdn port code

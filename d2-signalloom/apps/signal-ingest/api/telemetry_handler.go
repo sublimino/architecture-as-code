@@ -95,15 +95,13 @@ func (h *Handlers) handleCodingAgentTelemetry(w http.ResponseWriter, r *http.Req
 		statusCode = http.StatusOK
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(result)
+	writeJSON(w, statusCode, result)
 }
 
 // handleQueryCodingAgentTelemetry retrieves stored telemetry records for the authenticated tenant.
 func (h *Handlers) handleQueryCodingAgentTelemetry(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", "GET")
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -122,16 +120,14 @@ func (h *Handlers) handleQueryCodingAgentTelemetry(w http.ResponseWriter, r *htt
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(records)
+	writeJSON(w, http.StatusOK, records)
 }
 
 // handleAggregateCodingAgentTelemetry returns summary metrics for the authenticated tenant,
 // strictly enforcing the k-anonymity minimum group size (k=5) to prevent re-identification.
 func (h *Handlers) handleAggregateCodingAgentTelemetry(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodPost {
-		w.Header().Set("Allow", "GET, POST")
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodPost {
+		w.Header().Set("Allow", "GET, HEAD, POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -155,9 +151,7 @@ func (h *Handlers) handleAggregateCodingAgentTelemetry(w http.ResponseWriter, r 
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(result)
+	writeJSON(w, http.StatusOK, result)
 }
 
 // handleCodingAgentOrdering evaluates causal ordering between two records with clock-skew uncertainty bounds.
@@ -215,9 +209,7 @@ func (h *Handlers) handleCodingAgentOrdering(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(ordering)
+	writeJSON(w, http.StatusOK, ordering)
 }
 
 func parseAggregateFilter(r *http.Request) codingagent.AggregateFilter {

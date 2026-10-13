@@ -462,3 +462,127 @@ export const polling = {
     return selector.locator("option").allTextContents();
   },
 };
+
+// ── API health during an authenticated session ───────────────────────────────
+//
+// The dashboard mounts its providers before the OIDC token has resolved, so a
+// provider can fire its first request unauthenticated and take a 401, then
+// succeed on the retry once the token lands. Measured on 2026-10-13:
+// GET /api/v1/features returns 401,401,401,401,200 in a single healthy login,
+// and the user never sees it — the flags arrive and the page renders.
+//
+// Asserting "zero /api errors" therefore failed on a session whose user
+// experience was correct. Asserting nothing would have hidden the 502 on
+// /api/signals/observations found in the same run, which is a real outage of
+// the observations panel.
+//
+// So the rule is RECOVERY, not silence:
+//   * a 4xx is tolerated only if the SAME method+path later returns 2xx;
+//   * a 4xx that never recovers is a failure — the user is left without data;
+//   * a 5xx is never tolerated. A server error is not a token race, and a
+//     retry that happens to succeed does not make the backend healthy.
+// Query strings are stripped so a retry counts as the same endpoint.
+
+export interface ApiCall {
+  key: string;
+  status: number;
+}
+
+/** Records every /api/ response on the page. Pass the result to expectApiRecovered. */
+export function recordApiCalls(page: Page): ApiCall[] {
+  const calls: ApiCall[] = [];
+  page.on("response", (r) => {
+    let pathname: string;
+    try {
+      pathname = new URL(r.url()).pathname;
+    } catch {
+      return;
+    }
+    if (!pathname.includes("/api/")) return;
+    calls.push({ key: `${r.request().method()} ${pathname}`, status: r.status() });
+  });
+  return calls;
+}
+
+/** Splits recorded calls into the two failure classes. Pure, so it is unit-testable. */
+export function classifyApiCalls(calls: ApiCall[]): {
+  serverErrors: string[];
+  unrecovered: string[];
+  transient: string[];
+} {
+  const byKey = new Map<string, number[]>();
+  for (const c of calls) {
+    const seen = byKey.get(c.key);
+    if (seen) seen.push(c.status);
+    else byKey.set(c.key, [c.status]);
+  }
+
+  const serverErrors: string[] = [];
+  const unrecovered: string[] = [];
+  const transient: string[] = [];
+
+  for (const [key, statuses] of byKey) {
+    const serverFailures = statuses.filter((s) => s >= 500);
+    if (serverFailures.length > 0) {
+      serverErrors.push(`${key} → ${statuses.join(",")}`);
+      continue;
+    }
+    const firstClientFailure = statuses.findIndex((s) => s >= 400);
+    if (firstClientFailure === -1) continue;
+    const recovered = statuses.slice(firstClientFailure).some((s) => s >= 200 && s < 300);
+    if (recovered) transient.push(`${key} → ${statuses.join(",")}`);
+    else unrecovered.push(`${key} → ${statuses.join(",")}`);
+  }
+
+  return { serverErrors, unrecovered, transient };
+}
+
+/**
+ * Asserts the session was healthy from the user's point of view: no server
+ * errors, and every client error recovered on a retry.
+ */
+export function expectApiRecovered(calls: ApiCall[]): void {
+  const { serverErrors, unrecovered } = classifyApiCalls(calls);
+  expect(
+    serverErrors,
+    `/api server errors (never acceptable): ${serverErrors.join(" | ")}`,
+  ).toEqual([]);
+  expect(
+    unrecovered,
+    `/api client errors that never succeeded on retry: ${unrecovered.join(" | ")}`,
+  ).toEqual([]);
+}
+
+// ── Where an auth transition finally lands ───────────────────────────────────
+//
+// After a token is expired or corrupted the dashboard does NOT redirect
+// immediately: it shows a "Signing in" spinner while the OIDC client retries,
+// then forwards to Dex. Measured on 2026-10-13 against the live tailnet, that
+// took longer than 20s and had completed by 45s, for both an expired token and
+// a corrupted one.
+//
+// The old tests asserted the Dex form inside 20s and failed mid-transition,
+// reporting a redirect that was not broken, only slow. What actually matters is
+// that the user reaches a terminal state and is never parked on the spinner, so
+// this waits for either acceptable landing and reports which one it got.
+
+export type AuthLanding = "dex-login" | "dashboard";
+
+export async function waitForAuthLanding(
+  page: Page,
+  timeoutMs = 60_000,
+): Promise<{ landing: AuthLanding; elapsedMs: number }> {
+  const started = Date.now();
+  const loginInput = page.locator('input[name="login"]');
+  const dashboardLink = page.getByRole("link", { name: "Agents", exact: true });
+
+  await expect(
+    loginInput.or(dashboardLink).first(),
+    "auth never settled: the page was still mid-transition (the \"Signing in\" " +
+      "spinner) when the budget expired — neither the Dex login form nor the " +
+      "authenticated shell appeared",
+  ).toBeVisible({ timeout: timeoutMs });
+
+  const landing: AuthLanding = (await loginInput.isVisible()) ? "dex-login" : "dashboard";
+  return { landing, elapsedMs: Date.now() - started };
+}

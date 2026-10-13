@@ -643,3 +643,46 @@ func TestHandler_SSENonFlusherReturnsStructuredJSONAndHEADSuppression(t *testing
 		t.Fatalf("expected 0 bytes body on HEAD, got %d: %q", headRec.body.Len(), headRec.body.String())
 	}
 }
+
+func TestHandler_OPTIONSSupportAndPreflightBypass(t *testing.T) {
+	// Collector is never scraped - GET would return 503, but OPTIONS must return 204
+	c, _ := newTestCollector()
+	mux := newTestServerMux(c)
+
+	paths := []string{
+		"/api/telemetry/agents",
+		"/api/v1/telemetry/agents",
+		"/api/telemetry/agents/" + testPod,
+		"/api/v1/telemetry/agents/" + testPod,
+		"/api/telemetry/agents/" + testPod + "?stream=true",
+	}
+
+	for _, path := range paths {
+		t.Run("OPTIONS "+path, func(t *testing.T) {
+			bodyReader := strings.NewReader("some-request-body")
+			req := httptest.NewRequest(http.MethodOptions, path, bodyReader)
+			rr := httptest.NewRecorder()
+			mux.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusNoContent {
+				t.Fatalf("expected 204 No Content, got %d", rr.Code)
+			}
+			if allow := rr.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+				t.Fatalf("expected Allow 'GET, HEAD, OPTIONS', got %q", allow)
+			}
+			if origin := rr.Header().Get("Access-Control-Allow-Origin"); origin != "*" {
+				t.Fatalf("expected Access-Control-Allow-Origin '*', got %q", origin)
+			}
+			if methods := rr.Header().Get("Access-Control-Allow-Methods"); methods != "GET, HEAD, OPTIONS" {
+				t.Fatalf("expected Access-Control-Allow-Methods 'GET, HEAD, OPTIONS', got %q", methods)
+			}
+			if headers := rr.Header().Get("Access-Control-Allow-Headers"); headers != "Content-Type, Accept, Authorization" {
+				t.Fatalf("expected Access-Control-Allow-Headers 'Content-Type, Accept, Authorization', got %q", headers)
+			}
+			if rr.Body.Len() != 0 {
+				t.Fatalf("expected empty body on OPTIONS, got %d bytes: %q", rr.Body.Len(), rr.Body.String())
+			}
+		})
+	}
+}
+

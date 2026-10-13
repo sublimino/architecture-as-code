@@ -3,6 +3,7 @@ package telemetry
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 )
@@ -61,7 +62,23 @@ func (h *TelemetryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // admit rejects anything but GET and HEAD (405) and any request while the collector
 // has no recent successful scrape (503): old numbers are not current numbers.
+// Per RFC 9110 Section 9.3.7, OPTIONS requests are answered with 204 No Content
+// and CORS preflight headers without requiring recent collector scrapes.
 func (h *TelemetryHandler) admit(w http.ResponseWriter, r *http.Request) bool {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.CopyN(io.Discard, r.Body, 4096)
+			_ = r.Body.Close()
+		}()
+	}
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization")
+		w.WriteHeader(http.StatusNoContent)
+		return false
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		writeError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "Method is not allowed")

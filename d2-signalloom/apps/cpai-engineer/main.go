@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -40,6 +41,37 @@ type TaskResponse struct {
 // ErrorResponse is a standard error envelope.
 type ErrorResponse struct {
 	Error string `json:"error"`
+}
+
+func validateRepo(repo string) error {
+	repo = strings.TrimSpace(repo)
+	if repo == "" {
+		return errors.New("repo is required")
+	}
+	if strings.HasPrefix(repo, "-") {
+		return errors.New("repo cannot start with a dash")
+	}
+	if len(repo) > 1024 {
+		return errors.New("repo URL must be 1024 characters or fewer")
+	}
+	return nil
+}
+
+func validateBranch(branch string) error {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return nil
+	}
+	if strings.HasPrefix(branch, "-") {
+		return errors.New("branch cannot start with a dash")
+	}
+	if strings.Contains(branch, "..") || strings.Contains(branch, "@{") || strings.Contains(branch, "//") {
+		return errors.New("branch cannot contain path traversal or reflog syntax")
+	}
+	if len(branch) > 255 {
+		return errors.New("branch name must be 255 characters or fewer")
+	}
+	return nil
 }
 
 func main() {
@@ -127,6 +159,14 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 
 		if req.Repo == "" || req.Instruction == "" {
 			writeError(w, http.StatusBadRequest, "repo and instruction are required")
+			return
+		}
+		if err := validateRepo(req.Repo); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := validateBranch(req.Branch); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		if req.TokenBudget <= 0 {

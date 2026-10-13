@@ -144,9 +144,9 @@ func (e *Executor) ensureRepo(ctx context.Context, dir, repo, branch string) err
 		}
 		var cloneArgs []string
 		if branch != "" {
-			cloneArgs = []string{"clone", "--depth=1", "--branch", branch, repo, dir}
+			cloneArgs = []string{"clone", "--depth=1", "--branch", branch, "--", repo, dir}
 		} else {
-			cloneArgs = []string{"clone", "--depth=1", repo, dir}
+			cloneArgs = []string{"clone", "--depth=1", "--", repo, dir}
 		}
 		cmd := exec.CommandContext(ctx, "git", cloneArgs...)
 		cmd.Stdout = os.Stdout
@@ -162,7 +162,7 @@ func (e *Executor) ensureRepo(ctx context.Context, dir, repo, branch string) err
 			return fmt.Errorf("git fetch: %w", err)
 		}
 		if branch != "" {
-			cmd := exec.CommandContext(ctx, "git", "-C", dir, "checkout", branch)
+			cmd := exec.CommandContext(ctx, "git", "-C", dir, "checkout", "--", branch)
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			if err := cmd.Run(); err != nil {

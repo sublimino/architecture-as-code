@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// Every read-only route answers a non-GET with 405, a JSON error body and an
-// Allow header naming the one method it accepts (RFC 9110 §15.5.6).
+// Every read-only route answers a non-GET/HEAD with 405, a JSON error body and an
+// Allow header naming the methods it accepts (RFC 9110 §15.5.6).
 func TestReadOnlyRoutesRejectWritesWithAllowHeader(t *testing.T) {
 	a, _ := testAgent(t, "http://127.0.0.1:1", 5)
 	for _, path := range []string{"/quote", "/", "/stats", "/health", "/healthz", "/readyz"} {
@@ -17,14 +17,25 @@ func TestReadOnlyRoutesRejectWritesWithAllowHeader(t *testing.T) {
 			a.routes().ServeHTTP(rec, httptest.NewRequest(method, path, nil))
 			var body map[string]string
 			_ = json.Unmarshal(rec.Body.Bytes(), &body)
-			if rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Allow") != http.MethodGet || body["error"] == "" {
-				t.Errorf("%s %s = %d Allow=%q body=%q, want 405 Allow=GET with a JSON error",
+			if rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Allow") != "GET, HEAD" || body["error"] == "" {
+				t.Errorf("%s %s = %d Allow=%q body=%q, want 405 Allow=GET, HEAD with a JSON error",
 					method, path, rec.Code, rec.Header().Get("Allow"), rec.Body.String())
 			}
 		}
 	}
 	if a.requests.Load() != 0 {
 		t.Fatal("rejected writes counted towards the hostile cadence")
+	}
+}
+
+func TestReadOnlyRoutesAcceptHEAD(t *testing.T) {
+	a, _ := testAgent(t, "http://127.0.0.1:1", 5)
+	for _, path := range []string{"/health", "/healthz", "/readyz"} {
+		rec := httptest.NewRecorder()
+		a.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodHead, path, nil))
+		if rec.Code != http.StatusOK {
+			t.Errorf("HEAD %s = %d, want 200", path, rec.Code)
+		}
 	}
 }
 

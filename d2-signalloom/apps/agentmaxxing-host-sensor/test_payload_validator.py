@@ -34,6 +34,7 @@ try:
         RootKeyTooShortError,
         TenantRequiredError,
         ValueRequiredError,
+        derive_info,
         is_pseudonym,
     )
 except (ImportError, ValueError):
@@ -55,6 +56,7 @@ except (ImportError, ValueError):
         RootKeyTooShortError,
         TenantRequiredError,
         ValueRequiredError,
+        derive_info,
         is_pseudonym,
     )
 
@@ -101,10 +103,12 @@ class PseudonymPrimitiveTests(unittest.TestCase):
         self.assertNotEqual(p1, p2)
 
     def test_keyring_rejects_invalid_epochs(self) -> None:
-        """Reject non-positive, zero, overflow, or non-integer epochs."""
-        for bad_epoch in [0, -1, -999, 0x100000000, 2**33, "not-int"]:
+        """Reject non-positive, zero, overflow, float, bool, or non-integer epochs."""
+        for bad_epoch in [0, -1, -999, 0x100000000, 2**33, "not-int", float("inf"), float("-inf"), float("nan"), 1.5, True, False]:
             with self.assertRaises(InvalidEpochError):
                 KeyRing(self.root_key, epoch=bad_epoch)
+            with self.assertRaises(InvalidEpochError):
+                derive_info(bad_epoch, "test-tenant")
 
     def test_is_pseudonym_safe_on_non_strings(self) -> None:
         """Verify is_pseudonym returns False without raising on non-string or malformed inputs."""

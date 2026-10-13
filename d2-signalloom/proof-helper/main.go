@@ -347,11 +347,27 @@ func newA2AHandler(client *http.Client, address, role, expectedSubject string, p
 func newA2AHandlerWithInstance(client *http.Client, address, role, expectedSubject string, publicKey ed25519.PublicKey, instanceNonce string) http.Handler {
 	mux := http.NewServeMux()
 	replay := newReplayCache(10000)
-	mux.HandleFunc("/health", func(response http.ResponseWriter, _ *http.Request) { response.WriteHeader(http.StatusOK) })
-	mux.HandleFunc("/healthz", func(response http.ResponseWriter, _ *http.Request) { response.WriteHeader(http.StatusOK) })
-	mux.HandleFunc("/readyz", func(response http.ResponseWriter, _ *http.Request) { response.WriteHeader(http.StatusOK) })
-	mux.HandleFunc("/challenge", func(response http.ResponseWriter, _ *http.Request) {
+	healthHandler := func(response http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			response.Header().Set("Allow", "GET, HEAD")
+			http.Error(response, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		response.WriteHeader(http.StatusOK)
+	}
+	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/healthz", healthHandler)
+	mux.HandleFunc("/readyz", healthHandler)
+	mux.HandleFunc("/challenge", func(response http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			response.Header().Set("Allow", "GET, HEAD")
+			http.Error(response, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		response.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodHead {
+			return
+		}
 		_ = json.NewEncoder(response).Encode(map[string]string{"instanceNonce": instanceNonce})
 	})
 	mux.HandleFunc("/a2a", func(response http.ResponseWriter, request *http.Request) {

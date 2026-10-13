@@ -97,11 +97,14 @@ func validateBranch(branch string) error {
 	if strings.HasPrefix(branch, "-") {
 		return errors.New("branch cannot start with a dash")
 	}
-	if strings.Contains(branch, "..") || strings.Contains(branch, "@{") || strings.Contains(branch, "//") {
-		return errors.New("branch cannot contain path traversal or reflog syntax")
+	if branch == "HEAD" {
+		return errors.New("branch cannot be HEAD")
 	}
-	if strings.HasSuffix(branch, "/") || strings.HasSuffix(branch, ".lock") {
-		return errors.New("branch cannot end with slash or .lock")
+	if strings.Contains(branch, "..") || strings.Contains(branch, "@{") || strings.Contains(branch, "//") || strings.Contains(branch, "/.") || strings.Contains(branch, ".lock/") {
+		return errors.New("branch cannot contain path traversal, reflog syntax, hidden components, or .lock components")
+	}
+	if strings.HasSuffix(branch, "/") || strings.HasSuffix(branch, ".lock") || strings.HasSuffix(branch, ".") {
+		return errors.New("branch cannot end with slash, dot, or .lock")
 	}
 	if !branchRegex.MatchString(branch) {
 		return errors.New("branch contains invalid characters")

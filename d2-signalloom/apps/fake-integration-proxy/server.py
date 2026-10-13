@@ -1467,11 +1467,14 @@ class ProxyHandler(BaseHTTPRequestHandler):
         # Request bodies and headers must never reach stdout/stderr logs.
         return
 
-    def _json(self, status: int, payload: object) -> None:
+    def _json(self, status: int, payload: object, extra_headers: dict | None = None) -> None:
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(encoded)))
+        if extra_headers:
+            for k, v in extra_headers.items():
+                self.send_header(k, v)
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(encoded)
@@ -1876,8 +1879,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
     def _dispatch(self) -> None:
         path = urlparse(self.path).path
-        if path in ("/health", "/healthz", "/readyz") and self.command in ("GET", "HEAD"):
-            self._json(HTTPStatus.OK, {"status": "ok"})
+        if path in ("/health", "/healthz", "/readyz"):
+            if self.command in ("GET", "HEAD"):
+                self._json(HTTPStatus.OK, {"status": "ok"})
+            else:
+                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD"})
         elif path == "/agents" and self.command == "GET":
             self._handle_agents()
         elif path == "/crypto-proofs" and self.command == "GET":

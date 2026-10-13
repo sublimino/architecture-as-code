@@ -55,6 +55,9 @@ func TestHealthAndMetricsMethodNotAllowed(t *testing.T) {
 			if rec.Code != http.StatusMethodNotAllowed {
 				t.Fatalf("%s %s expected 405 Method Not Allowed, got %d", method, path, rec.Code)
 			}
+			if rec.Header().Get("Allow") != "GET, HEAD" {
+				t.Fatalf("%s %s expected Allow: GET, HEAD, got %q", method, path, rec.Header().Get("Allow"))
+			}
 		}
 
 		// HEAD should succeed
@@ -64,6 +67,9 @@ func TestHealthAndMetricsMethodNotAllowed(t *testing.T) {
 
 		if recHead.Code != http.StatusOK {
 			t.Fatalf("HEAD %s expected 200 OK, got %d", path, recHead.Code)
+		}
+		if recHead.Body.Len() != 0 {
+			t.Fatalf("HEAD %s expected empty body, got %q", path, recHead.Body.String())
 		}
 	}
 }

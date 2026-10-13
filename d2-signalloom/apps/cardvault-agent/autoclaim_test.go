@@ -163,3 +163,32 @@ func TestAutoClaimUsesMockClock(t *testing.T) {
 		t.Errorf("claimed_at: got %q, want %q", claimedAt, expected)
 	}
 }
+
+func TestAutoClaimValidatesParameters(t *testing.T) {
+	app := &agent{
+		claimURL: "http://should-not-be-called.invalid",
+		client:   http.DefaultClient,
+	}
+
+	tests := []struct {
+		name     string
+		spiffeID string
+		baoToken string
+	}{
+		{"empty-spiffe", "", "valid-token"},
+		{"blank-spiffe", "   \t\n", "valid-token"},
+		{"empty-token", "spiffe://test", ""},
+		{"blank-token", "spiffe://test", "   \n\t"},
+		{"both-empty", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := app.autoClaim(tt.spiffeID, tt.baoToken)
+			if err == nil {
+				t.Fatalf("expected validation error for %s", tt.name)
+			}
+		})
+	}
+}
+

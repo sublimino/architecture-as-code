@@ -83,15 +83,7 @@ func main() {
 		model = "gemini-2.5-flash"
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", makeSummarizeHandler(llmEndpoint, model))
-	healthHandler := func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "ok")
-	}
-	mux.HandleFunc("/health", healthHandler)
-	mux.HandleFunc("/healthz", healthHandler)
-	mux.HandleFunc("/readyz", healthHandler)
+	mux := newRouter(llmEndpoint, model)
 
 	srv := &http.Server{
 		Addr:              ":" + port,
@@ -116,10 +108,35 @@ func main() {
 	_ = srv.Shutdown(ctx)
 }
 
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	if r.Method != http.MethodHead {
+		fmt.Fprintln(w, "ok")
+	}
+}
+
+func newRouter(llmEndpoint, model string) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", makeSummarizeHandler(llmEndpoint, model))
+	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/healthz", healthHandler)
+	mux.HandleFunc("/readyz", healthHandler)
+	return mux
+}
+
 func makeSummarizeHandler(llmEndpoint, model string) http.HandlerFunc {
 	client := &http.Client{Timeout: 30 * time.Second}
 
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return

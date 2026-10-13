@@ -448,11 +448,11 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// getOnly refuses every method but GET with 405 and an Allow header.
+// getOnly refuses every method but GET and HEAD with 405 and an Allow header.
 func getOnly(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", http.MethodGet)
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET only"})
 			return
 		}

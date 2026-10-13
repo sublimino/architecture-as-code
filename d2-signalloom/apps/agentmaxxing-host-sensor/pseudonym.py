@@ -46,7 +46,7 @@ class ValueRequiredError(PseudonymError):
     pass
 
 
-class InvalidEpochError(PseudonymError):
+class InvalidEpochError(PseudonymError, ValueError):
     """Raised when epoch is non-positive or exceeds uint32 max."""
     pass
 
@@ -60,11 +60,24 @@ def derive_info(epoch: int, tenant_id: str) -> bytes:
       - 4-byte big-endian uint32 tenant_id length
       - tenant_id UTF-8 bytes
     """
+    if isinstance(epoch, (bool, float)):
+        raise InvalidEpochError(f"identity: pseudonym epoch must be an integer, got {epoch!r}")
+    if not isinstance(epoch, int):
+        try:
+            ep = int(epoch)
+        except (ValueError, TypeError, OverflowError) as exc:
+            raise InvalidEpochError(f"identity: pseudonym epoch must be an integer, got {epoch!r}") from exc
+    else:
+        ep = epoch
+    if ep <= 0 or ep > 0xFFFFFFFF:
+        raise InvalidEpochError(
+            f"identity: pseudonym epoch must be a positive 32-bit unsigned integer (1 <= epoch <= 4294967295), got {epoch}"
+        )
     tenant_bytes = tenant_id.encode("utf-8")
     return (
         struct.pack(">I", len(DOMAIN))
         + DOMAIN
-        + struct.pack(">I", epoch)
+        + struct.pack(">I", ep)
         + struct.pack(">I", len(tenant_bytes))
         + tenant_bytes
     )
@@ -94,10 +107,15 @@ class KeyRing:
             raise RootKeyTooShortError(
                 f"identity: pseudonym root key must be at least {MIN_ROOT_KEY_BYTES} bytes"
             )
-        try:
-            ep = int(epoch)
-        except (ValueError, TypeError) as exc:
-            raise InvalidEpochError(f"identity: pseudonym epoch must be an integer, got {epoch!r}") from exc
+        if isinstance(epoch, (bool, float)):
+            raise InvalidEpochError(f"identity: pseudonym epoch must be an integer, got {epoch!r}")
+        if not isinstance(epoch, int):
+            try:
+                ep = int(epoch)
+            except (ValueError, TypeError, OverflowError) as exc:
+                raise InvalidEpochError(f"identity: pseudonym epoch must be an integer, got {epoch!r}") from exc
+        else:
+            ep = epoch
         if ep <= 0 or ep > 0xFFFFFFFF:
             raise InvalidEpochError(
                 f"identity: pseudonym epoch must be a positive 32-bit unsigned integer (1 <= epoch <= 4294967295), got {epoch}"

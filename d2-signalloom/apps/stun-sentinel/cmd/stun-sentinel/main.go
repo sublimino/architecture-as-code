@@ -521,8 +521,17 @@ func (s *server) handlePruneSnapshots(w http.ResponseWriter, r *http.Request) {
 // read-only hostPath mount passes every other check and fails only here,
 // which is exactly the misconfiguration this endpoint exists to surface --
 // before an incident rather than during one.
-func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
 	if err := s.freezer.HealthCheck(); err != nil {
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"status":       "unhealthy",
 			"cgroup_root":  s.freezer.Root(),
@@ -534,6 +543,10 @@ func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	keyCount := 0
 	if s.keyRegistry != nil {
 		keyCount = len(s.keyRegistry.AllKeys())
+	}
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":                 "ok",
@@ -552,7 +565,15 @@ func requireBearer(validate cgroup.CredentialValidator, next http.HandlerFunc) h
 			return
 		}
 		// The credential travels in a header, never in the URL.
-		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+		var token string
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			token = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		} else if strings.HasPrefix(authHeader, "bearer ") {
+			token = strings.TrimSpace(strings.TrimPrefix(authHeader, "bearer "))
+		} else {
+			token = strings.TrimSpace(authHeader)
+		}
 		if !validate(token) {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "governance credential required"})
 			return

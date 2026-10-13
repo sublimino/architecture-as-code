@@ -75,6 +75,18 @@ class ProxyTest(ProxyServerTestCase):
             self.assertEqual(b"", resp.read())
             connection.close()
 
+            # Test method not allowed for non-GET/HEAD verbs
+            for verb in ("POST", "PUT", "DELETE"):
+                conn = http.client.HTTPConnection("127.0.0.1", self.port)
+                conn.request(verb, path)
+                bad_resp = conn.getresponse()
+                self.assertEqual(405, bad_resp.status)
+                self.assertEqual("GET, HEAD", bad_resp.getheader("Allow"))
+                self.assertEqual("application/json", bad_resp.getheader("Content-Type"))
+                body_data = json.loads(bad_resp.read().decode())
+                self.assertEqual({"error": "method not allowed"}, body_data)
+                conn.close()
+
     def test_malformed_content_length_handled_safely(self):
         connection = http.client.HTTPConnection("127.0.0.1", self.port)
         connection.request("POST", "/llm/assistants", "not-read", {"Content-Length": "invalid-len"})

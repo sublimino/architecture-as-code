@@ -359,6 +359,11 @@ func TestValidateBranch(t *testing.T) {
 		"branch.lock",
 		"branch with spaces",
 		"branch;rm -rf",
+		"feat.",
+		"feat/.hidden",
+		"feat/sub/.",
+		"feat.lock/branch",
+		"HEAD",
 		strings.Repeat("a", 256),
 	}
 	for _, b := range invalidBranches {

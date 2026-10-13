@@ -122,12 +122,72 @@ func TestServer_HealthEndpoints(t *testing.T) {
 	srv.registerRoutes(mux)
 
 	for _, path := range []string{"/health", "/healthz", "/readyz"} {
+		// GET
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
-			t.Errorf("probe %s: want 200, got %d", path, w.Code)
+			t.Errorf("GET probe %s: want 200, got %d", path, w.Code)
 		}
+
+		// HEAD
+		req = httptest.NewRequest(http.MethodHead, path, nil)
+		w = httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("HEAD probe %s: want 200, got %d", path, w.Code)
+		}
+		if w.Body.Len() != 0 {
+			t.Errorf("HEAD probe %s: want empty body, got %d bytes", path, w.Body.Len())
+		}
+
+		// POST rejected
+		req = httptest.NewRequest(http.MethodPost, path, nil)
+		w = httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("POST probe %s: want 405, got %d", path, w.Code)
+		}
+	}
+}
+
+func TestServer_GetGateHeadMethod(t *testing.T) {
+	secret := []byte("secret-key-32-bytes-long-here!!")
+	srv := NewServer(secret, "", 10*time.Minute)
+	mux := http.NewServeMux()
+	srv.registerRoutes(mux)
+
+	// Create gate request
+	reqBody, _ := json.Marshal(GateRequest{
+		Description: "Deploy v2",
+		Requester:   "ops@test.local",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/gate/request", bytes.NewReader(reqBody))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("request gate: want 202, got %d", w.Code)
+	}
+	var gateResp GateResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &gateResp)
+
+	// HEAD on gate
+	req = httptest.NewRequest(http.MethodHead, "/gate/"+gateResp.RequestID, nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("HEAD /gate/%s: want 200, got %d", gateResp.RequestID, w.Code)
+	}
+	if w.Body.Len() != 0 {
+		t.Errorf("HEAD /gate/%s: want empty body, got %d bytes", gateResp.RequestID, w.Body.Len())
+	}
+
+	// POST rejected on /gate/{id}
+	req = httptest.NewRequest(http.MethodPost, "/gate/"+gateResp.RequestID, nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST /gate/%s: want 405, got %d", gateResp.RequestID, w.Code)
 	}
 }
 

@@ -332,3 +332,70 @@ func TestProbeOpenBaoWritesMetadataWithoutClientToken(t *testing.T) {
 		t.Fatalf("OpenBao probe leaked token: %s", evidence)
 	}
 }
+
+func TestA2AHandlerHealthAndChallengeMethods(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := newA2AHandlerWithInstance(http.DefaultClient, "http://127.0.0.1:8200", "role", "sub", pub, "test-nonce")
+
+	for _, path := range []string{"/health", "/healthz", "/readyz"} {
+		// GET
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("GET %s returned %d, want 200", path, rec.Code)
+		}
+
+		// HEAD
+		req = httptest.NewRequest(http.MethodHead, path, nil)
+		rec = httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("HEAD %s returned %d, want 200", path, rec.Code)
+		}
+
+		// POST rejected
+		req = httptest.NewRequest(http.MethodPost, path, nil)
+		rec = httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("POST %s returned %d, want 405", path, rec.Code)
+		}
+	}
+
+	// Challenge GET
+	req := httptest.NewRequest(http.MethodGet, "/challenge", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET /challenge returned %d, want 200", rec.Code)
+	}
+	var challenge struct {
+		InstanceNonce string `json:"instanceNonce"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &challenge); err != nil || challenge.InstanceNonce != "test-nonce" {
+		t.Errorf("GET /challenge invalid response: %v, %+v", err, challenge)
+	}
+
+	// Challenge HEAD
+	req = httptest.NewRequest(http.MethodHead, "/challenge", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("HEAD /challenge returned %d, want 200", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("HEAD /challenge body length = %d, want 0", rec.Body.Len())
+	}
+
+	// Challenge POST rejected
+	req = httptest.NewRequest(http.MethodPost, "/challenge", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST /challenge returned %d, want 405", rec.Code)
+	}
+}

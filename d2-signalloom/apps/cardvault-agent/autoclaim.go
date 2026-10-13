@@ -22,6 +22,15 @@ type claimRequest struct {
 // OpenBao authentication. It sends the SPIFFE ID, agent type, and the OpenBao
 // token as proof of identity.
 func (a *agent) autoClaim(spiffeID, baoToken string) error {
+	spiffeID = strings.TrimSpace(spiffeID)
+	if spiffeID == "" {
+		return fmt.Errorf("spiffe ID must not be empty")
+	}
+	baoToken = strings.TrimSpace(baoToken)
+	if baoToken == "" {
+		return fmt.Errorf("openbao token must not be empty")
+	}
+
 	payload, err := json.Marshal(claimRequest{
 		SpiffeID:  spiffeID,
 		AgentType: "cardvault",

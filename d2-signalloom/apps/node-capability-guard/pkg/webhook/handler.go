@@ -429,6 +429,7 @@ func HandleValidate(w http.ResponseWriter, r *http.Request) {
 // HandleMetrics outputs Prometheus metrics including legacy and fine-grained counters.
 func HandleMetrics(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -473,13 +474,17 @@ func HandleMetrics(w http.ResponseWriter, r *http.Request) {
 // HandleHealthz responds with health status and checks store connectivity.
 func HandleHealthz(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	store := GetDefaultStore()
 	if store != nil {
 		if err := store.Health(r.Context()); err != nil {
-			http.Error(w, fmt.Sprintf("degraded: identity store unhealthy: %v", err), http.StatusServiceUnavailable)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(fmt.Sprintf("degraded: identity store unhealthy: %v\n", err)))
+			}
 			return
 		}
 	}

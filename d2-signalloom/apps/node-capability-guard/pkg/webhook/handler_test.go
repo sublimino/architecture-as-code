@@ -671,6 +671,9 @@ func TestHealthz_Endpoint(t *testing.T) {
 	if recHead.Code != http.StatusOK {
 		t.Fatalf("expected healthz HEAD 200 OK, got %d", recHead.Code)
 	}
+	if recHead.Body.Len() != 0 {
+		t.Fatalf("expected healthz HEAD empty body, got %q", recHead.Body.String())
+	}
 }
 
 func TestMethodNotAllowed_ProbesAndMetrics(t *testing.T) {
@@ -682,6 +685,9 @@ func TestMethodNotAllowed_ProbesAndMetrics(t *testing.T) {
 		if recH.Code != http.StatusMethodNotAllowed {
 			t.Errorf("HandleHealthz %s expected 405 Method Not Allowed, got %d", method, recH.Code)
 		}
+		if recH.Header().Get("Allow") != "GET, HEAD" {
+			t.Errorf("HandleHealthz %s expected Allow: GET, HEAD, got %q", method, recH.Header().Get("Allow"))
+		}
 
 		// Metrics
 		reqM := httptest.NewRequest(method, "/metrics", nil)
@@ -689,6 +695,9 @@ func TestMethodNotAllowed_ProbesAndMetrics(t *testing.T) {
 		webhook.HandleMetrics(recM, reqM)
 		if recM.Code != http.StatusMethodNotAllowed {
 			t.Errorf("HandleMetrics %s expected 405 Method Not Allowed, got %d", method, recM.Code)
+		}
+		if recM.Header().Get("Allow") != "GET, HEAD" {
+			t.Errorf("HandleMetrics %s expected Allow: GET, HEAD, got %q", method, recM.Header().Get("Allow"))
 		}
 	}
 }

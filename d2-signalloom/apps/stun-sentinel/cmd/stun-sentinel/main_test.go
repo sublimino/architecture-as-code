@@ -916,3 +916,65 @@ func TestResumeReplayWithDifferentKeyRejected(t *testing.T) {
 		t.Fatalf("replay call status = %d, want 401 Unauthorized: %s", rec2.Code, rec2.Body)
 	}
 }
+
+func TestHealthMethodRejectionAndHead(t *testing.T) {
+	srv, _ := newTestServer(t, t.TempDir(), "freeze-tok", "resume-tok")
+	routes := srv.routes()
+
+	for _, path := range []string{"/health", "/healthz", "/readyz"} {
+		// GET
+		rec := httptest.NewRecorder()
+		routes.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK {
+			t.Errorf("GET %s status = %d, want 200", path, rec.Code)
+		}
+
+		// HEAD
+		rec = httptest.NewRecorder()
+		routes.ServeHTTP(rec, httptest.NewRequest(http.MethodHead, path, nil))
+		if rec.Code != http.StatusOK {
+			t.Errorf("HEAD %s status = %d, want 200", path, rec.Code)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("HEAD %s body length = %d, want 0", path, rec.Body.Len())
+		}
+
+		// POST rejected
+		rec = httptest.NewRecorder()
+		routes.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, nil))
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("POST %s status = %d, want 405", path, rec.Code)
+		}
+		if !strings.Contains(rec.Header().Get("Allow"), "GET") {
+			t.Errorf("POST %s missing Allow header: %s", path, rec.Header().Get("Allow"))
+		}
+	}
+}
+
+func TestRequireBearerWhitespaceTrimming(t *testing.T) {
+	called := false
+	handler := requireBearer(constantTimeTokenValidator("secret-token"), func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	for _, authHeader := range []string{
+		"Bearer secret-token",
+		"Bearer   secret-token  ",
+		"  Bearer secret-token \n",
+		"bearer secret-token",
+		"secret-token",
+		"  secret-token  ",
+	} {
+		called = false
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/test", nil)
+		req.Header.Set("Authorization", authHeader)
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK || !called {
+			t.Errorf("authHeader %q failed: status=%d, called=%v", authHeader, rec.Code, called)
+		}
+	}
+}
+

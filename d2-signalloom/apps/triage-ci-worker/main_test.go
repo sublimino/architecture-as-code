@@ -32,6 +32,9 @@ func TestHealthAndProbeEndpoints(t *testing.T) {
 		if recHead.Code != http.StatusOK {
 			t.Fatalf("HEAD %s expected 200, got %d", endpoint, recHead.Code)
 		}
+		if recHead.Body.Len() != 0 {
+			t.Fatalf("HEAD %s expected empty body, got %q", endpoint, recHead.Body.String())
+		}
 
 		// POST -> 405
 		reqPost := httptest.NewRequest(http.MethodPost, endpoint, nil)
@@ -40,6 +43,9 @@ func TestHealthAndProbeEndpoints(t *testing.T) {
 
 		if recPost.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("POST %s expected 405 Method Not Allowed, got %d", endpoint, recPost.Code)
+		}
+		if recPost.Header().Get("Allow") != "GET, HEAD" {
+			t.Fatalf("POST %s expected Allow: GET, HEAD, got %q", endpoint, recPost.Header().Get("Allow"))
 		}
 	}
 }
@@ -85,6 +91,9 @@ func TestRootMethodNotAllowed(t *testing.T) {
 
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("%s / expected 405 Method Not Allowed, got %d", m, rec.Code)
+		}
+		if rec.Header().Get("Allow") != "POST" {
+			t.Fatalf("%s / expected Allow: POST, got %q", m, rec.Header().Get("Allow"))
 		}
 	}
 }

@@ -11,16 +11,10 @@ import (
 )
 
 func TestHealth(t *testing.T) {
-	mux := http.NewServeMux()
-	healthHandler := func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok\n"))
-	}
-	mux.HandleFunc("/health", healthHandler)
-	mux.HandleFunc("/healthz", healthHandler)
-	mux.HandleFunc("/readyz", healthHandler)
+	mux := newRouter("http://mock-llm", "test-model")
 
 	for _, endpoint := range []string{"/health", "/healthz", "/readyz"} {
+		// GET
 		req := httptest.NewRequest("GET", endpoint, nil)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
@@ -30,6 +24,41 @@ func TestHealth(t *testing.T) {
 		}
 		if !strings.Contains(rec.Body.String(), "ok") {
 			t.Fatalf("expected body to contain ok, got %s", rec.Body.String())
+		}
+
+		// HEAD
+		req = httptest.NewRequest("HEAD", endpoint, nil)
+		rec = httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status 200 for HEAD %s, got %d", endpoint, rec.Code)
+		}
+		if rec.Body.Len() != 0 {
+			t.Fatalf("expected empty body for HEAD %s, got %d bytes", endpoint, rec.Body.Len())
+		}
+
+		// POST rejected
+		req = httptest.NewRequest("POST", endpoint, nil)
+		rec = httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected status 405 for POST %s, got %d", endpoint, rec.Code)
+		}
+	}
+}
+
+func TestSummarizeHandlerPathIsolation(t *testing.T) {
+	handler := makeSummarizeHandler("http://mock-llm", "test-model")
+
+	for _, path := range []string{"/api/summarize", "/unknown", "/test"} {
+		req := httptest.NewRequest("POST", path, bytes.NewReader([]byte(`{"diff":"test"}`)))
+		rec := httptest.NewRecorder()
+		handler(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected status 404 for path %s, got %d", path, rec.Code)
 		}
 	}
 }

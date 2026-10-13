@@ -153,3 +153,74 @@ class TestRiskAuthentication:
             assert resp_alias.status_code == 401
         finally:
             app.dependency_overrides[authenticated_principal] = lambda: Principal(tenant="tenant-demo", subject="test-user", email=None)
+
+
+class TestRiskEmptyBodyAndHeaderPropagation:
+    """Risk proxy safely handles 204 No Content, empty body, HEAD requests, and propagates headers."""
+
+    def test_risk_proxy_handles_204_no_content(self, client: TestClient):
+        mock_resp = httpx.Response(
+            204,
+            content=b"",
+            headers={"X-Tenant-ID": "tenant-demo"},
+            request=httpx.Request("GET", "http://signal-ingest:8082/api/v1/risk/agents/agent-1"),
+        )
+        with patch("httpx.AsyncClient.request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = mock_resp
+            resp = client.get("/api/v1/risk/agents/agent-1")
+            assert resp.status_code == 204
+            assert resp.content == b""
+            assert resp.headers.get("x-tenant-id") == "tenant-demo"
+
+    def test_risk_proxy_handles_empty_body_and_head(self, client: TestClient):
+        mock_resp = httpx.Response(
+            200,
+            content=b"",
+            headers={"ETag": '"risk-etag-1"'},
+            request=httpx.Request("GET", "http://signal-ingest:8082/api/v1/risk/fleet"),
+        )
+        with patch("httpx.AsyncClient.request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = mock_resp
+            resp_get = client.get("/api/v1/risk/fleet")
+            assert resp_get.status_code == 200
+            assert resp_get.content == b""
+            assert resp_get.headers.get("etag") == '"risk-etag-1"'
+
+            resp_head = client.head("/api/v1/risk/fleet")
+            assert resp_head.status_code == 200
+            assert resp_head.content == b""
+            assert resp_head.headers.get("etag") == '"risk-etag-1"'
+
+    def test_risk_proxy_propagates_allow_header_on_405(self, client: TestClient):
+        mock_resp = httpx.Response(
+            405,
+            json={"error": "method not allowed"},
+            headers={"Allow": "GET, HEAD"},
+            request=httpx.Request("GET", "http://signal-ingest:8082/api/v1/risk/agents/agent-1"),
+        )
+        with patch("httpx.AsyncClient.request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = mock_resp
+            resp = client.get("/api/v1/risk/agents/agent-1")
+            assert resp.status_code == 405
+            assert resp.headers.get("allow") == "GET, HEAD"
+            assert resp.json() == {"error": "method not allowed"}
+
+    def test_risk_proxy_propagates_location_and_etag_headers(self, client: TestClient):
+        mock_resp = httpx.Response(
+            201,
+            json={"assessmentId": "risk-assess-1"},
+            headers={
+                "Location": "/api/v1/risk/assessments/risk-assess-1",
+                "ETag": '"w/assess-1"',
+                "X-Tenant-ID": "tenant-demo",
+            },
+            request=httpx.Request("GET", "http://signal-ingest:8082/api/v1/risk/fleet"),
+        )
+        with patch("httpx.AsyncClient.request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = mock_resp
+            resp = client.get("/api/v1/risk/fleet")
+            assert resp.status_code == 201
+            assert resp.headers.get("location") == "/api/v1/risk/assessments/risk-assess-1"
+            assert resp.headers.get("etag") == '"w/assess-1"'
+            assert resp.headers.get("x-tenant-id") == "tenant-demo"
+            assert resp.json()["assessmentId"] == "risk-assess-1"

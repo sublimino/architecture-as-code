@@ -12,7 +12,7 @@ import urllib.parse
 from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 from api_compat import APIError, Principal, authenticated_principal, authenticated_tenant
@@ -27,7 +27,7 @@ _SIGNAL_INGEST_URL = os.getenv("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
 _TIMEOUT = 10.0
 
 
-async def _proxy(method: str, path: str, principal: Principal, **kwargs: Any) -> JSONResponse:
+async def _proxy(method: str, path: str, principal: Principal, **kwargs: Any) -> Response:
     """Forward a request to signal-ingest as the gateway, acting for ``principal``'s tenant.
 
     X-Tenant-ID is not sent: signal-ingest never trusted it. The tenant travels as the gateway's
@@ -39,11 +39,6 @@ async def _proxy(method: str, path: str, principal: Principal, **kwargs: Any) ->
             base_url=_SIGNAL_INGEST_URL, timeout=_TIMEOUT
         ) as client:
             resp = await client.request(method, path, headers=headers, **kwargs)
-            try:
-                content = resp.json()
-            except Exception:
-                content = {"raw": resp.text}
-            return JSONResponse(status_code=resp.status_code, content=content)
     except httpx.ConnectError as exc:
         logger.warning("signal-ingest service unreachable at %s", _SIGNAL_INGEST_URL)
         raise APIError(
@@ -59,6 +54,37 @@ async def _proxy(method: str, path: str, principal: Principal, **kwargs: Any) ->
         raise APIError(
             502, "upstream_unavailable", "signal-ingest proxy error"
         ) from exc
+
+    # Collect upstream headers to propagate
+    from collections.abc import Mapping
+
+    forwarded_headers: dict[str, str] = {}
+    resp_headers_map: dict[str, str] = {}
+    headers_obj = getattr(resp, "headers", None)
+    if isinstance(headers_obj, Mapping):
+        resp_headers_map = {str(k).lower(): str(v) for k, v in headers_obj.items()}
+    for header_key in ("allow", "etag", "location", "x-tenant-id", "retry-after"):
+        if header_key in resp_headers_map:
+            forwarded_headers[header_key] = resp_headers_map[header_key]
+
+    # For 204 No Content, empty bodies, or HEAD requests, return Response directly without JSON parsing
+    if resp.status_code == 204 or not resp.content or method == "HEAD":
+        if "content-type" in resp_headers_map and resp.status_code != 204:
+            forwarded_headers["content-type"] = resp_headers_map["content-type"]
+        return Response(
+            status_code=resp.status_code,
+            content=b"",
+            headers=forwarded_headers,
+        )
+
+    try:
+        content = resp.json()
+    except Exception:
+        content = {"raw": resp.text}
+
+    outbound_headers = {"Content-Type": "application/json"}
+    outbound_headers.update(forwarded_headers)
+    return JSONResponse(status_code=resp.status_code, content=content, headers=outbound_headers)
 
 
 DEFAULT_FRAMEWORK_VERSIONS: list[dict[str, Any]] = [
@@ -150,7 +176,7 @@ async def get_agent_risk(
     trials: int | None = Query(default=None),
     seed: int | None = Query(default=None),
     model: str | None = Query(default=None),
-) -> JSONResponse:
+) -> Response:
     """Get quantitative OpenFAIR risk assessment for a specific agent.
 
     signal-ingest's own ``requireCrossTenantRead`` (api/handlers.go handleGetAgentRisk) means
@@ -183,7 +209,7 @@ async def get_agent_risk(
 async def get_fleet_risk(
     principal: Annotated[Principal, Depends(authenticated_principal)],
     request: Request,
-) -> JSONResponse:
+) -> Response:
     """Get quantitative OpenFAIR risk rollup across the agent fleet.
 
     Same construction as ``get_agent_risk``: gated cross-tenant-only by signal-ingest, so always

@@ -270,6 +270,7 @@ class _StubArchivista(BaseHTTPRequestHandler):
 
     def send_error(self, code, message=None, explain=None):
         if code == 501:
+            err_body = b"method not allowed\n"
             self.send_response(405)
             if self.path.startswith("/download/"):
                 self.send_header("Allow", "GET, HEAD")
@@ -278,10 +279,19 @@ class _StubArchivista(BaseHTTPRequestHandler):
             else:
                 self.send_header("Allow", "GET, POST, HEAD")
             self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(err_body)))
             self.end_headers()
-            self.wfile.write(b"method not allowed")
+            if self.command != "HEAD":
+                self.wfile.write(err_body)
             return
-        super().send_error(code, message, explain)
+        err_msg = message or "error"
+        body = json.dumps({"error": err_msg}).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
 
 class ReusableHTTPServer(HTTPServer):
@@ -522,3 +532,29 @@ def test_reachable_rekor_is_not_mistaken_for_publication(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", lambda *a, **kw: nullcontext(SimpleNamespace(status=200)))
     with pytest.raises(AnchorError, match="no checkpoint was published"):
         require_rekor_if_configured()
+
+
+def test_stub_archivista_head_body_suppression_and_method_gating(stub_archivista):
+    import urllib.error
+    import urllib.request
+
+    url = stub_archivista
+
+    # HEAD on 404 path
+    req = urllib.request.Request(f"{url}/download/nonexistent", method="HEAD")
+    try:
+        urllib.request.urlopen(req)
+        pytest.fail("expected 404")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 404
+        assert exc.read() == b""
+
+    # HEAD on /upload (which only allows POST -> 405 Method Not Allowed)
+    req_upload = urllib.request.Request(f"{url}/upload", method="HEAD")
+    try:
+        urllib.request.urlopen(req_upload)
+        pytest.fail("expected 405")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 405
+        assert exc.headers.get("Allow") == "POST"
+        assert exc.read() == b""

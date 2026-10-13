@@ -316,24 +316,39 @@ func (r *WebhookReceiver) IngestGKEJSONBytes(ctx context.Context, raw []byte) er
 func (r *WebhookReceiver) HandleGKECloudLogging(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		if req.Method != http.MethodHead {
+			fmt.Fprintln(w, "Method not allowed")
+		}
 		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(req.Body, MaxAuditPayloadBytes))
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to read payload: %v", err), http.StatusBadRequest)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		if req.Method != http.MethodHead {
+			fmt.Fprintf(w, "Failed to read payload: %v\n", err)
+		}
 		return
 	}
 	defer req.Body.Close()
 
 	if err := r.IngestGKEJSONBytes(req.Context(), body); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to decode GKE audit JSON: %v", err), http.StatusBadRequest)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		if req.Method != http.MethodHead {
+			fmt.Fprintf(w, "Failed to decode GKE audit JSON: %v\n", err)
+		}
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	if req.Method == http.MethodHead {
+		return
+	}
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"status": "ok",
 	})

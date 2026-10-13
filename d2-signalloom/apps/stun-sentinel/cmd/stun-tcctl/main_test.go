@@ -124,4 +124,25 @@ func TestMuxTriggerRoutesHEAD(t *testing.T) {
 	}
 }
 
+func TestTriggerHandlerMissingInterface(t *testing.T) {
+	for _, isolate := range []bool{true, false} {
+		handler := triggerHandler(nil, nil, isolate)
+
+		// POST without interface query param -> 400 Bad Request with JSON error
+		reqPost := httptest.NewRequest(http.MethodPost, "/v1/isolate", nil)
+		recPost := httptest.NewRecorder()
+		handler(recPost, reqPost)
+
+		if recPost.Code != http.StatusBadRequest {
+			t.Fatalf("POST without interface expected 400, got %d", recPost.Code)
+		}
+		if ct := recPost.Header().Get("Content-Type"); ct != "application/json" {
+			t.Fatalf("POST without interface Content-Type=%q, want application/json", ct)
+		}
+		if !strings.Contains(recPost.Body.String(), "interface query parameter required") {
+			t.Fatalf("POST without interface unexpected body: %q", recPost.Body.String())
+		}
+	}
+}
+
 

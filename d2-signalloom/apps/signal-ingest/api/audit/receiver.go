@@ -216,20 +216,32 @@ func (r *WebhookReceiver) IngestK8sEventList(eventList *K8sEventList) (accepted 
 func (r *WebhookReceiver) HandleAuditWebhook(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		if req.Method != http.MethodHead {
+			fmt.Fprintln(w, "Method not allowed")
+		}
 		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(req.Body, MaxAuditPayloadBytes))
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to read payload: %v", err), http.StatusBadRequest)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		if req.Method != http.MethodHead {
+			fmt.Fprintf(w, "Failed to read payload: %v\n", err)
+		}
 		return
 	}
 	defer req.Body.Close()
 
 	var eventList K8sEventList
 	if err := json.Unmarshal(body, &eventList); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid K8s EventList JSON: %v", err), http.StatusBadRequest)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		if req.Method != http.MethodHead {
+			fmt.Fprintf(w, "Invalid K8s EventList JSON: %v\n", err)
+		}
 		return
 	}
 
@@ -237,6 +249,9 @@ func (r *WebhookReceiver) HandleAuditWebhook(w http.ResponseWriter, req *http.Re
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	if req.Method == http.MethodHead {
+		return
+	}
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":   "ok",
 		"accepted": accepted,

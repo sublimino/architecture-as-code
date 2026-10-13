@@ -563,4 +563,32 @@ func TestAuditWebhookReceiver_MalformedPayload(t *testing.T) {
 	if wBad.Result().StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 Bad Request, got %d", wBad.Result().StatusCode)
 	}
+
+	// Test HEAD method rejected with empty body
+	reqHead := httptest.NewRequest(http.MethodHead, WebhookPath, nil)
+	wHead := httptest.NewRecorder()
+	receiver.HandleAuditWebhook(wHead, reqHead)
+	if wHead.Result().StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 Method Not Allowed for HEAD, got %d", wHead.Result().StatusCode)
+	}
+	if allow := wHead.Header().Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow: POST for HEAD, got %q", allow)
+	}
+	if wHead.Body.Len() != 0 {
+		t.Errorf("expected 0 bytes body on HEAD, got %d: %q", wHead.Body.Len(), wHead.Body.String())
+	}
+
+	// Test GKE HEAD method rejected with empty body
+	reqHeadGKE := httptest.NewRequest(http.MethodHead, "/audit/gke", nil)
+	wHeadGKE := httptest.NewRecorder()
+	receiver.HandleGKECloudLogging(wHeadGKE, reqHeadGKE)
+	if wHeadGKE.Result().StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 Method Not Allowed for GKE HEAD, got %d", wHeadGKE.Result().StatusCode)
+	}
+	if allow := wHeadGKE.Header().Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow: POST for GKE HEAD, got %q", allow)
+	}
+	if wHeadGKE.Body.Len() != 0 {
+		t.Errorf("expected 0 bytes body on GKE HEAD, got %d: %q", wHeadGKE.Body.Len(), wHeadGKE.Body.String())
+	}
 }

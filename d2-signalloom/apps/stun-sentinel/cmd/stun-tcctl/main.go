@@ -340,7 +340,11 @@ func newMux(l *tc.Loader, reg *tc.Registry) http.Handler {
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				fmt.Fprintln(w, "method not allowed")
+			}
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -356,7 +360,11 @@ func newMux(l *tc.Loader, reg *tc.Registry) http.Handler {
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				fmt.Fprintln(w, "method not allowed")
+			}
 			return
 		}
 		// Refresh from the BPF map before rendering, so a scrape always
@@ -434,21 +442,21 @@ func triggerHandler(l *tc.Loader, reg *tc.Registry, isolate bool) http.HandlerFu
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", "POST")
-			if r.Method == http.MethodHead {
-				w.WriteHeader(http.StatusMethodNotAllowed)
-				return
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "POST required"})
 			}
-			http.Error(w, "POST required", http.StatusMethodNotAllowed)
 			return
 		}
 		iface := r.URL.Query().Get("interface")
 		ipStr := r.URL.Query().Get("ip")
 		if iface == "" {
-			if r.Method == http.MethodHead {
-				w.WriteHeader(http.StatusBadRequest)
-				return
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			if r.Method != http.MethodHead {
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "interface query parameter required"})
 			}
-			http.Error(w, "interface query parameter required", http.StatusBadRequest)
 			return
 		}
 		ip := net.ParseIP(ipStr)

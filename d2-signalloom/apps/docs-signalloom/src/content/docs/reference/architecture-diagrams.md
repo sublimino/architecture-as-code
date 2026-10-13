@@ -40,6 +40,14 @@ design records, not descriptions of a running estate. Read
 [Current limits and roadmap](/docs/reference/roadmap/) for the phase that owns
 each target.
 
+### Microsoft Azure, AKS
+
+![Azure multi-tenant SaaS architecture](/docs/diagrams/osramp-azure-multitenant-saas.svg)
+
+- Editable vector SVG: [osramp-azure-multitenant-saas.drawio.svg](/docs/diagrams/osramp-azure-multitenant-saas.drawio.svg)
+- Native Draw.io XML: [osramp-azure-multitenant-saas.drawio](/docs/diagrams/osramp-azure-multitenant-saas.drawio)
+- High-resolution raster PNG: [osramp-azure-multitenant-saas.png](/docs/diagrams/osramp-azure-multitenant-saas.png)
+
 ### Amazon Web Services, EKS
 
 ![AWS multi-tenant SaaS architecture](/docs/diagrams/osramp-aws-multitenant-saas.svg)
@@ -55,14 +63,6 @@ each target.
 - Editable vector SVG: [osramp-gcp-multitenant-saas.drawio.svg](/docs/diagrams/osramp-gcp-multitenant-saas.drawio.svg)
 - Native Draw.io XML: [osramp-gcp-multitenant-saas.drawio](/docs/diagrams/osramp-gcp-multitenant-saas.drawio)
 - High-resolution raster PNG: [osramp-gcp-multitenant-saas.png](/docs/diagrams/osramp-gcp-multitenant-saas.png)
-
-### Microsoft Azure, AKS
-
-![Azure multi-tenant SaaS architecture](/docs/diagrams/osramp-azure-multitenant-saas.svg)
-
-- Editable vector SVG: [osramp-azure-multitenant-saas.drawio.svg](/docs/diagrams/osramp-azure-multitenant-saas.drawio.svg)
-- Native Draw.io XML: [osramp-azure-multitenant-saas.drawio](/docs/diagrams/osramp-azure-multitenant-saas.drawio)
-- High-resolution raster PNG: [osramp-azure-multitenant-saas.png](/docs/diagrams/osramp-azure-multitenant-saas.png)
 
 ## Where the diagram files live
 

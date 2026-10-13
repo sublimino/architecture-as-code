@@ -124,6 +124,17 @@ test.describe("architecture diagrams page", () => {
     await expect(body).toContainText("before production go-live");
   });
 
+  test("lists Azure first among the hyperscaler platforms", async ({ page }) => {
+    await page.goto(`${BASE}/${slug}/`, { waitUntil: "domcontentloaded" });
+    const headings = await page.locator("h3").allTextContents();
+    const clouds = headings.filter(h => /Azure|Amazon|Google/.test(h)).map(h => h.trim());
+    expect(clouds).toEqual([
+      "Microsoft Azure, AKS",
+      "Amazon Web Services, EKS",
+      "Google Cloud Platform, GKE",
+    ]);
+  });
+
   test("every inline diagram actually loads its asset", async ({ page }) => {
     await page.goto(`${BASE}/${slug}/`, { waitUntil: "load" });
 

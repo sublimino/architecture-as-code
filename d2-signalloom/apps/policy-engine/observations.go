@@ -70,9 +70,17 @@ func (h *ObservationHandlers) HandleEvaluateObservation(w http.ResponseWriter, r
 		return
 	}
 
-	tenantID := req.TenantID
-	if tenantID == "" {
-		tenantID = extractTenant(r)
+	tenantID, err := extractTenant(r)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	if req.TenantID != "" {
+		if tenantID != "" && req.TenantID != tenantID {
+			writeError(w, http.StatusForbidden, fmt.Sprintf("cross-tenant mismatch: authenticated tenant %q does not match request tenant %q", tenantID, req.TenantID))
+			return
+		}
+		tenantID = req.TenantID
 	}
 	if tenantID == "" {
 		writeError(w, http.StatusBadRequest, "tenant_id is required")

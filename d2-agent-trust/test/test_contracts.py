@@ -54,7 +54,11 @@ class A2A(unittest.TestCase):
   s=serve(self.public,0,receiver_instance=self.instance); th=threading.Thread(target=s.serve_forever); th.start()
   try:
    wanted=(ROOT/'a2a/agent-card.json').read_bytes()
-   for path in ('/.well-known/agent-card.json','/.well-known/agent.json'): self.assertEqual(wanted,urllib.request.urlopen(f'http://127.0.0.1:{s.server_port}{path}').read())
+   for path in ('/.well-known/agent-card.json','/.well-known/agent.json'):
+    resp=urllib.request.urlopen(f'http://127.0.0.1:{s.server_port}{path}')
+    self.assertEqual(resp.headers.get("Content-Length"), str(len(wanted)))
+    self.assertEqual(resp.headers.get("Content-Type"), "application/json")
+    self.assertEqual(wanted, resp.read())
    self.assertEqual(self.instance,json.loads(urllib.request.urlopen(f'http://127.0.0.1:{s.server_port}/challenge').read())['instanceNonce'])
   finally: s.shutdown(); th.join(); s.server_close()
  def test_http_uses_validator_not_claimed_identity_header(self):
@@ -65,7 +69,10 @@ class A2A(unittest.TestCase):
   try:
    url=f'http://127.0.0.1:{s.server_port}/a2a'; now=int(time.time()); c=self.context(nbf=now-1,exp=now+30,jti='http')
    req=urllib.request.Request(url,data=json.dumps(self.request).encode(),headers={'Authorization':'Bearer '+c,'X-SPIFFE-JWT-SVID':'good-svid','X-Authenticated-SPIFFE-ID':'spiffe://spoof'},method='POST')
-   self.assertEqual('allow',json.loads(urllib.request.urlopen(req).read())['decision'])
+   resp=urllib.request.urlopen(req)
+   self.assertIsNotNone(resp.headers.get("Content-Length"))
+   self.assertEqual(resp.headers.get("Content-Type"), "application/json")
+   self.assertEqual('allow',json.loads(resp.read())['decision'])
    bad=urllib.request.Request(url,data=json.dumps(self.request).encode(),headers={'Authorization':'Bearer '+self.context(nbf=now-1,exp=now+30,jti='bad'),'X-SPIFFE-JWT-SVID':'bad-svid','X-Authenticated-SPIFFE-ID':PLANNER},method='POST')
    with self.assertRaises(urllib.error.HTTPError) as denied: urllib.request.urlopen(bad)
    denied.exception.close()

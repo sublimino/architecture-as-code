@@ -341,3 +341,69 @@ class TestDiscoveryClaimHappyPath:
         body = res_b.json()
         assert "error" in body
         assert body["error"]["code"] == "claim_conflict"
+
+
+class TestDiscoveryWorkloadsDBMode:
+    def test_discovery_workloads_db_mode_populates_tenant_id_and_empty_estate(self, client: TestClient, monkeypatch):
+        """In DB mode, workloads must populate tenant_id strictly matching the caller and obey Empty Estate Invariant."""
+        class MockDBPool:
+            async def fetch(self, query: str, *args):
+                if "nhi_discovered_accounts" in query:
+                    return [{
+                        "id": "nhi-uuid-001",
+                        "account_name": "sa-finops-prod",
+                        "directory_source": "okta",
+                        "owner_email": "ops@corp.local",
+                        "privilege_level": "standard",
+                        "status": "discovered",
+                        "findings": ["stale_credential"],
+                        "scan_count": 3,
+                        "first_discovered_at": "2026-09-01T00:00:00Z",
+                        "last_seen_at": "2026-10-10T12:00:00Z",
+                    }]
+                if "agent_registry" in query:
+                    return [{
+                        "id": "ag-uuid-002",
+                        "name": "recon-worker",
+                        "lifecycle_state": "registered",
+                        "owner": "alice",
+                        "model_name": "claude-3-5-sonnet",
+                        "created_at": "2026-09-15T00:00:00Z",
+                        "config": {"namespace": "fe-signalloom-agents", "service_account": "recon-sa"},
+                        "claim_id": "cl-uuid-001",
+                        "claim_namespace": "fe-signalloom-agents",
+                        "spiffe_id": f"spiffe://cluster.local/platform/signalloom/tenant/{TENANT_A}/agent/recon-worker",
+                        "claim_status": "granted",
+                    }]
+                if "external_agent_registrations" in query:
+                    return [{
+                        "agent_id": "ext-agent-003",
+                        "host_id": "host-us-east-1",
+                        "host_os": "linux",
+                        "runtime_profile": "cloud_run",
+                        "enrollment_status": "enrolled",
+                        "metadata": {"owner": "alice", "model": "gemini-1.5-pro", "runtime": "cloud_run"},
+                        "spiffe_id_pattern": f"spiffe://signalloom.demo/ext/ext-agent-003",
+                        "created_at": "2026-09-20T00:00:00Z",
+                        "enrolled_at": "2026-09-21T00:00:00Z",
+                        "revoked_at": None,
+                    }]
+                return []
+
+        async def _mock_get_pool():
+            return MockDBPool()
+
+        monkeypatch.setattr(api_compat, "_get_pool", _mock_get_pool)
+
+        res = client.get("/api/v1/discovery/workloads", headers=_bearer(ALICE_SUB))
+        assert res.status_code == 200
+        items = res.json()["workloads"]
+        assert len(items) == 3
+
+        for item in items:
+            # tenant_id must be populated and strictly match the authenticated tenant
+            assert item["tenant_id"] == TENANT_A, f"Workload {item['id']} had tenant_id={item.get('tenant_id')}"
+            # No hardcoded demo clusters or workloads should leak
+            assert "afm-staging-collector" not in item["name"]
+            assert "prod-eu-validator" not in item["name"]
+

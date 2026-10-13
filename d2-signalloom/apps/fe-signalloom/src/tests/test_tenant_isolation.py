@@ -2557,7 +2557,7 @@ def test_demo_runs_are_a_global_singleton_readable_by_every_tenant(client, monke
 
 
 def test_policy_routes_reject_cross_tenant_payload(client):
-    """Verify evaluate, bundles, and rollback reject foreign tenant in request payload with 403."""
+    """Verify evaluate, bundles, rollback, and proxy routes reject foreign tenant in request payload or query with 403."""
     # 1. Evaluate
     resp_eval = client.post(
         "/api/v1/policies/evaluate",
@@ -2593,3 +2593,27 @@ def test_policy_routes_reject_cross_tenant_payload(client):
     )
     assert resp_rb.status_code == 403, resp_rb.text
     assert resp_rb.json()["error"]["code"] == "cross_tenant_forbidden"
+
+    # 4. Proxy query param rejection
+    resp_q = client.get(
+        f"/api/v1/policies?tenant={TENANT_B}",
+        headers=bearer(ALICE),
+    )
+    assert resp_q.status_code == 403, resp_q.text
+    assert resp_q.json()["error"]["code"] == "cross_tenant_forbidden"
+
+    resp_q2 = client.get(
+        f"/api/v1/compliance/frameworks?tenant_id={TENANT_B}",
+        headers=bearer(ALICE),
+    )
+    assert resp_q2.status_code == 403, resp_q2.text
+    assert resp_q2.json()["error"]["code"] == "cross_tenant_forbidden"
+
+    # 5. Mutating proxy body rejection
+    resp_scan = client.post(
+        "/api/v1/compliance/scan",
+        headers=bearer(ALICE),
+        json={"tenant_id": TENANT_B, "frameworks": ["nist-800-53"]},
+    )
+    assert resp_scan.status_code == 403, resp_scan.text
+    assert resp_scan.json()["error"]["code"] == "cross_tenant_forbidden"

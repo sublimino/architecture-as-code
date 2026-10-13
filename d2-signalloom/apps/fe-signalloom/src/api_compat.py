@@ -9892,6 +9892,7 @@ async def list_discovery_workloads(
                     DiscoveryWorkloadModel(
                         id=str(r["id"]),
                         name=r["account_name"],
+                        tenant_id=tenant_id,
                         source="idp",
                         source_label=source_label,
                         namespace=f"identity-{dir_source.lower()}",
@@ -9943,6 +9944,7 @@ async def list_discovery_workloads(
                     DiscoveryWorkloadModel(
                         id=str(r["id"]),
                         name=r["name"],
+                        tenant_id=tenant_id,
                         source="local_k8s",
                         source_label="Local K8s",
                         namespace=ns,
@@ -9998,6 +10000,7 @@ async def list_discovery_workloads(
                     DiscoveryWorkloadModel(
                         id=f"{tenant_id}:{agent_name}",
                         name=agent_name,
+                        tenant_id=tenant_id,
                         source="external_services",
                         source_label=source_label,
                         namespace=ns,

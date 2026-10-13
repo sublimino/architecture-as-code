@@ -59,7 +59,7 @@ async def proxy_policy_engine(
                     "Content-Type must be application/json",
                 )
             try:
-                json.loads(raw_body)
+                parsed_json = json.loads(raw_body)
             except Exception as exc:
                 logger.warning("policy-engine proxy rejected malformed JSON body: %s", exc)
                 return _error_response(
@@ -67,6 +67,19 @@ async def proxy_policy_engine(
                     "invalid_json",
                     f"Malformed JSON request body: {exc}",
                 )
+            if tenant_id and isinstance(parsed_json, dict):
+                body_tenant = parsed_json.get("tenant_id") or parsed_json.get("tenant")
+                if body_tenant and body_tenant != tenant_id:
+                    logger.warning(
+                        "Rejecting cross-tenant body in policy-engine proxy: authenticated=%s payload=%s",
+                        tenant_id,
+                        body_tenant,
+                    )
+                    return _error_response(
+                        403,
+                        "cross_tenant_forbidden",
+                        f"cross-tenant operation forbidden: authenticated tenant '{tenant_id}' cannot operate on '{body_tenant}'",
+                    )
             body_bytes = raw_body
 
     headers: dict[str, str] = {
@@ -83,7 +96,19 @@ async def proxy_policy_engine(
         headers["Authorization"] = auth_header
 
     params = dict(request.query_params)
-    if tenant_id and "tenant" not in params:
+    if tenant_id:
+        param_tenant = params.get("tenant") or params.get("tenant_id")
+        if param_tenant and param_tenant != tenant_id:
+            logger.warning(
+                "Rejecting cross-tenant query param in policy-engine proxy: authenticated=%s query=%s",
+                tenant_id,
+                param_tenant,
+            )
+            return _error_response(
+                403,
+                "cross_tenant_forbidden",
+                f"cross-tenant operation forbidden: authenticated tenant '{tenant_id}' cannot operate on '{param_tenant}'",
+            )
         params["tenant"] = tenant_id
 
     try:

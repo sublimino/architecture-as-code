@@ -512,6 +512,14 @@ func TestHTTPEndpoints(t *testing.T) {
 	if err != nil || crossRbResp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403 Forbidden on cross-tenant rollback, got code=%d err=%v", crossRbResp.StatusCode, err)
 	}
+
+	// 6. Conflicting header and query parameter must be rejected with HTTP 403 Forbidden
+	conflictReq, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/policies?tenant=tenant-foreign", nil)
+	conflictReq.Header.Set("X-Tenant-ID", "tenant-test")
+	conflictResp, err := client.Do(conflictReq)
+	if err != nil || conflictResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden on conflicting header and query tenant, got code=%d err=%v", conflictResp.StatusCode, err)
+	}
 }
 
 // TestConcurrentEvaluations verifies thread-safety and zero memory leakage under concurrency.

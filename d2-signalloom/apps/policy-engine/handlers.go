@@ -20,12 +20,16 @@ func NewPolicyEngineHandlers(store *PolicyStore, celEngine *CELEngine) *PolicyEn
 	}
 }
 
-func extractTenant(r *http.Request) string {
-	tenant := r.Header.Get("X-Tenant-ID")
-	if tenant == "" {
-		tenant = r.URL.Query().Get("tenant")
+func extractTenant(r *http.Request) (string, error) {
+	headerTenant := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+	queryTenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	if headerTenant != "" && queryTenant != "" && headerTenant != queryTenant {
+		return "", fmt.Errorf("cross-tenant mismatch: authenticated header %q does not match query tenant %q", headerTenant, queryTenant)
 	}
-	return strings.TrimSpace(tenant)
+	if headerTenant != "" {
+		return headerTenant, nil
+	}
+	return queryTenant, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -45,7 +49,11 @@ func (h *PolicyEngineHandlers) HandleListPolicies(w http.ResponseWriter, r *http
 		return
 	}
 
-	tenantID := extractTenant(r)
+	tenantID, err := extractTenant(r)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	summaries := h.store.ListPolicies(tenantID)
 	writeJSON(w, http.StatusOK, summaries)
 }
@@ -63,7 +71,11 @@ func (h *PolicyEngineHandlers) HandleEvaluatePolicies(w http.ResponseWriter, r *
 		return
 	}
 
-	tenantID := extractTenant(r)
+	tenantID, err := extractTenant(r)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if tenantID != "" && req.TenantID != "" && req.TenantID != tenantID {
 		writeError(w, http.StatusForbidden, fmt.Sprintf("cross-tenant mismatch: authenticated tenant %q does not match request tenant %q", tenantID, req.TenantID))
 		return
@@ -151,7 +163,11 @@ func (h *PolicyEngineHandlers) HandleRegisterBundle(w http.ResponseWriter, r *ht
 		return
 	}
 
-	tenantID := extractTenant(r)
+	tenantID, err := extractTenant(r)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if tenantID != "" && bundle.TenantID != "" && bundle.TenantID != tenantID {
 		writeError(w, http.StatusForbidden, fmt.Sprintf("cross-tenant mismatch: authenticated tenant %q does not match bundle tenant %q", tenantID, bundle.TenantID))
 		return
@@ -185,7 +201,11 @@ func (h *PolicyEngineHandlers) HandleRollback(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	tenantID := extractTenant(r)
+	tenantID, err := extractTenant(r)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if tenantID != "" && req.TenantID != "" && req.TenantID != tenantID {
 		writeError(w, http.StatusForbidden, fmt.Sprintf("cross-tenant mismatch: authenticated tenant %q does not match rollback tenant %q", tenantID, req.TenantID))
 		return

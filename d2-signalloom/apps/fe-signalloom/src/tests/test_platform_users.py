@@ -846,7 +846,7 @@ def test_platform_user_response_model_serializes_superadmin() -> None:
     assert res_super.is_superadmin is True
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_platform_user_repository_get_by_email() -> None:
     import platform_users
 
@@ -877,7 +877,7 @@ async def test_platform_user_repository_get_by_email() -> None:
     assert pool.statements[0][1] == ("alice@agentmaxxing.example", "tenant-agentmaxxing")
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_platform_user_repository_get_by_id() -> None:
     import platform_users
 
@@ -905,7 +905,7 @@ async def test_platform_user_repository_get_by_id() -> None:
     assert "id = $1" in pool.statements[0][0]
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_platform_user_repository_list_users() -> None:
     import platform_users
 

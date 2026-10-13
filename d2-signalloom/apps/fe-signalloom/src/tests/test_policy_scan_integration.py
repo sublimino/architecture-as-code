@@ -21,7 +21,10 @@ from urllib.parse import urlsplit, urlunsplit
 import asyncpg
 import httpx
 import pytest
-import respx
+try:
+    import respx
+except ImportError:  # pragma: no cover
+    respx = None
 from httpx import ASGITransport, AsyncClient
 
 try:
@@ -40,8 +43,8 @@ from main import app
 EAP_AUTHENTICATED = True
 DATABASE_URL = os.environ.get("DATABASE_URL")
 pytestmark = pytest.mark.skipif(
-    DATABASE_URL is None or pytest_asyncio is None,
-    reason="DATABASE_URL not set -- policy scan integration tests require a live Postgres",
+    DATABASE_URL is None or pytest_asyncio is None or respx is None,
+    reason="DATABASE_URL not set or dependencies missing -- policy scan integration tests require a live Postgres",
 )
 
 DB_DIR = Path(__file__).resolve().parents[1] / "db"
@@ -159,7 +162,7 @@ def engine_answer(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, json=out)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_seed_maps_every_cis_and_aigf_check_to_one_control(seeded_pool):
     rows = await seeded_pool.fetch(
         """SELECT policy_framework_id, policy_check_id FROM governance_controls
@@ -175,7 +178,7 @@ async def test_seed_maps_every_cis_and_aigf_check_to_one_control(seeded_pool):
     assert counts["FINOS AI Governance Framework"] == 16
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_error_is_a_storable_status(seeded_pool):
     await seeded_pool.execute(
         """INSERT INTO agent_compliance_results (tenant_id, agent_id, control_id, status)
@@ -186,7 +189,7 @@ async def test_error_is_a_storable_status(seeded_pool):
                VALUES ($1, $2, 'c0000000-0000-0000-0000-000000000008', 'maybe')""", TENANT, PATSY)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_scan_lands_every_verdict_on_its_agent_and_control_and_the_api_reports_it(
     seeded_pool, monkeypatch,
 ):
@@ -298,7 +301,7 @@ async def test_scan_lands_every_verdict_on_its_agent_and_control_and_the_api_rep
     assert len(unassessed) == 2 * len(CIS) and all(r["assessed_at"] is None for r in unassessed)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_a_stale_scan_never_overwrites_a_fresher_scans_verdict(seeded_pool, monkeypatch):
     """H3: two scans of one tenant, interleaved.
 
@@ -379,7 +382,7 @@ async def _as_tenant_demo(seeded_pool, monkeypatch):
     monkeypatch.setattr(settings, "api_subject_tenants", {**settings.api_subject_tenants, SUBJECT: TENANT})
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_another_tenants_identically_named_framework_never_reaches_this_tenant(seeded_pool, monkeypatch):
     """H4: the framework catalogue and its policy summary are tenant-scoped.
 

@@ -364,3 +364,12 @@ def _signal_ingest_gateway_key(tmp_path_factory, monkeypatch):
     path = tmp_path_factory.mktemp("ingest-key") / "token"
     path.write_text("test-gateway-key-" + "k" * 32)
     monkeypatch.setenv("SIGNAL_INGEST_KEY_FILE", str(path))
+
+
+def pytest_collection_modifyitems(items):
+    import inspect
+    for item in items:
+        if item.get_closest_marker("asyncio") or (hasattr(item, "obj") and inspect.iscoroutinefunction(item.obj)):
+            if not item.get_closest_marker("anyio"):
+                item.add_marker(pytest.mark.anyio)
+

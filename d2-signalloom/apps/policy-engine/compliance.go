@@ -472,7 +472,13 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 	// is used to refuse an incoherent request: a declared risk posture with no
 	// tenant to attribute it to is a caller bug, and pricing it anyway would
 	// produce a figure attributed to nobody.
-	tenantID := extractTenant(r)
+	tenantID, err := extractTenant(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
 
 	profile, err := riskProfileFor(req)
 	if err != nil {
@@ -756,7 +762,14 @@ func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Reques
 	//
 	// extractTenant is the same resolution handleScan performs, so a tenant
 	// reads back exactly what it stored and nothing else.
-	tenantID := extractTenant(r)
+	tenantID, err := extractTenant(r)
+	if err != nil {
+		writeJSONChecked(w, http.StatusForbidden, map[string]any{
+			"error":   "cross_tenant_forbidden",
+			"message": err.Error(),
+		})
+		return
+	}
 	scan, ok := ch.scanFor(tenantID)
 	if !ok {
 		// 404, NOT an empty 200. A tenant with no scan has no summary, and the

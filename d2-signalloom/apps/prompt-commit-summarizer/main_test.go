@@ -491,3 +491,48 @@ func TestHeadResponseWriterDirect(t *testing.T) {
 	}
 }
 
+func TestSummarizeOptionsAndEndpointValidation(t *testing.T) {
+	mux := newRouter("http://mock-llm", "test-model")
+
+	// 1. OPTIONS on root /
+	req := httptest.NewRequest(http.MethodOptions, "/", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for OPTIONS /, got %d", rec.Code)
+	}
+	if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Fatalf("expected Allow: POST, OPTIONS, got %q", allow)
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("expected empty body for OPTIONS /, got %d bytes", rec.Body.Len())
+	}
+
+	// 2. OPTIONS on health endpoints
+	for _, ep := range []string{"/health", "/healthz", "/readyz"} {
+		reqH := httptest.NewRequest(http.MethodOptions, ep, nil)
+		recH := httptest.NewRecorder()
+		mux.ServeHTTP(recH, reqH)
+		if recH.Code != http.StatusNoContent {
+			t.Fatalf("expected 204 for OPTIONS %s, got %d", ep, recH.Code)
+		}
+		if allow := recH.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Fatalf("expected Allow: GET, HEAD, OPTIONS, got %q", allow)
+		}
+		if recH.Body.Len() != 0 {
+			t.Fatalf("expected empty body for OPTIONS %s, got %d bytes", ep, recH.Body.Len())
+		}
+	}
+
+	// 3. Endpoint scheme and host validation in callLLM
+	client := &http.Client{}
+	ctx := t.Context()
+	for _, invalidEndpoint := range []string{"ftp://example.com/api", "file:///etc/passwd", "://invalid-url", "http://"} {
+		_, _, err := callLLM(ctx, client, invalidEndpoint, "test-model", "test diff")
+		if err == nil || !strings.Contains(err.Error(), "invalid LLM endpoint") {
+			t.Fatalf("expected invalid LLM endpoint error for %q, got: %v", invalidEndpoint, err)
+		}
+	}
+}
+
+

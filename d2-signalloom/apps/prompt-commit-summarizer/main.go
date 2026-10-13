@@ -13,12 +13,14 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 )
+
 
 // diffPayload is the expected CloudEvent body.
 type diffPayload struct {
@@ -109,6 +111,11 @@ func main() {
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -167,6 +174,11 @@ func makeSummarizeHandler(llmEndpoint, model string) http.HandlerFunc {
 			}
 			return
 		}
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Allow", "POST, OPTIONS")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", "POST")
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -176,6 +188,7 @@ func makeSummarizeHandler(llmEndpoint, model string) http.HandlerFunc {
 			}
 			return
 		}
+
 
 		// Validate CloudEvent type header if present.
 		ceType := strings.TrimSpace(r.Header.Get("Ce-Type"))
@@ -227,6 +240,11 @@ func makeSummarizeHandler(llmEndpoint, model string) http.HandlerFunc {
 
 
 func callLLM(ctx context.Context, client *http.Client, endpoint, model, diff string) (string, float64, error) {
+	u, err := url.Parse(endpoint)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", 0, fmt.Errorf("invalid LLM endpoint: must be a valid http or https URL")
+	}
+
 	reqBody := llmRequest{
 		Model: model,
 		Messages: []llmMessage{
@@ -257,7 +275,10 @@ func callLLM(ctx context.Context, client *http.Client, endpoint, model, diff str
 	if err != nil {
 		return "", 0, fmt.Errorf("LLM request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -268,6 +289,7 @@ func callLLM(ctx context.Context, client *http.Client, endpoint, model, diff str
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&llmResp); err != nil {
 		return "", 0, fmt.Errorf("decode LLM response: %w", err)
 	}
+
 
 	if len(llmResp.Choices) == 0 {
 		return "", 0, fmt.Errorf("LLM returned no choices")

@@ -16,10 +16,42 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
 )
+
+var validRepoRegex = regexp.MustCompile(`^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$`)
+var validLabelRegex = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.: -]*$`)
+
+func isValidRepo(repo string) bool {
+	if strings.HasPrefix(repo, "-") {
+		return false
+	}
+	parts := strings.Split(repo, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return false
+	}
+	if strings.HasPrefix(parts[0], "-") || strings.HasPrefix(parts[1], "-") {
+		return false
+	}
+	return validRepoRegex.MatchString(repo)
+}
+
+func sanitizeLabels(labels []string) []string {
+	var clean []string
+	for _, l := range labels {
+		l = strings.TrimSpace(l)
+		if l == "" || strings.HasPrefix(l, "-") {
+			continue
+		}
+		if validLabelRegex.MatchString(l) {
+			clean = append(clean, l)
+		}
+	}
+	return clean
+}
 
 // checkRunPayload is the relevant subset of a GitHub check_run event.
 type checkRunPayload struct {
@@ -124,6 +156,11 @@ func methodNotAllowed(w http.ResponseWriter, r *http.Request, allow string) {
 func newMux() http.Handler {
 	mux := http.NewServeMux()
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			methodNotAllowed(w, r, "GET, HEAD")
 			return
@@ -144,6 +181,11 @@ func newMux() http.Handler {
 func handleCheckRun(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
+		return
+	}
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -197,7 +239,7 @@ func handleCheckRun(w http.ResponseWriter, r *http.Request) {
 	if len(payload.CheckRun.PullRequests) > 0 {
 		prNum := payload.CheckRun.PullRequests[0].Number
 		repo := os.Getenv("GITHUB_REPO")
-		if repo != "" && comment != "" {
+		if repo != "" && comment != "" && prNum > 0 {
 			commentPosted = postGitHubComment(repo, prNum, comment, labels)
 		}
 	}
@@ -214,6 +256,15 @@ func handleCheckRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func postGitHubComment(repo string, prNum int, comment string, labels []string) bool {
+	if prNum <= 0 {
+		slog.Error("invalid pr number for github comment", "prNum", prNum)
+		return false
+	}
+	if !isValidRepo(repo) {
+		slog.Error("invalid repo for github comment", "repo", repo)
+		return false
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -230,9 +281,10 @@ func postGitHubComment(repo string, prNum int, comment string, labels []string) 
 	}
 
 	// Add labels.
-	if len(labels) > 0 {
+	cleanLabels := sanitizeLabels(labels)
+	if len(cleanLabels) > 0 {
 		args := []string{"pr", "edit", fmt.Sprintf("%d", prNum), "--repo", repo}
-		args = append(args, "--add-label", strings.Join(labels, ","))
+		args = append(args, "--add-label", strings.Join(cleanLabels, ","))
 		cmd = exec.CommandContext(ctx, "gh", args...)
 		cmd.Env = os.Environ()
 		if out, err := cmd.CombinedOutput(); err != nil {

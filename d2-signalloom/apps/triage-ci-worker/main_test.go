@@ -252,3 +252,93 @@ func TestMethodNotAllowed_DirectInvocationAndHEAD(t *testing.T) {
 		t.Errorf("HEAD methodNotAllowed body len = %d, want 0: %q", recHead.Body.Len(), recHead.Body.String())
 	}
 }
+
+func TestOptionsEndpointsAndFlagInjectionDefense(t *testing.T) {
+	mux := newMux()
+
+	// 1. Root OPTIONS
+	reqOptRoot := httptest.NewRequest(http.MethodOptions, "/", nil)
+	recOptRoot := httptest.NewRecorder()
+	mux.ServeHTTP(recOptRoot, reqOptRoot)
+
+	if recOptRoot.Code != http.StatusNoContent {
+		t.Fatalf("OPTIONS / expected 204 No Content, got %d", recOptRoot.Code)
+	}
+	if allow := recOptRoot.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Fatalf("OPTIONS / expected Allow: POST, OPTIONS, got %q", allow)
+	}
+	if recOptRoot.Body.Len() != 0 {
+		t.Fatalf("OPTIONS / expected empty body, got %q", recOptRoot.Body.String())
+	}
+
+	// 2. Probe endpoints OPTIONS
+	for _, endpoint := range []string{"/health", "/healthz", "/readyz"} {
+		reqOpt := httptest.NewRequest(http.MethodOptions, endpoint, nil)
+		recOpt := httptest.NewRecorder()
+		mux.ServeHTTP(recOpt, reqOpt)
+
+		if recOpt.Code != http.StatusNoContent {
+			t.Fatalf("OPTIONS %s expected 204 No Content, got %d", endpoint, recOpt.Code)
+		}
+		if allow := recOpt.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Fatalf("OPTIONS %s expected Allow: GET, HEAD, OPTIONS, got %q", endpoint, allow)
+		}
+		if recOpt.Body.Len() != 0 {
+			t.Fatalf("OPTIONS %s expected empty body, got %q", endpoint, recOpt.Body.String())
+		}
+	}
+
+	// 3. Flag injection & validation in postGitHubComment
+	// Non-positive PR numbers
+	for _, badPR := range []int{0, -1, -99} {
+		if postGitHubComment("owner/repo", badPR, "comment", []string{"label"}) {
+			t.Errorf("expected postGitHubComment to return false for non-positive PR %d", badPR)
+		}
+	}
+
+	// Invalid repos
+	badRepos := []string{
+		"--repo",
+		"-R",
+		"-owner/repo",
+		"owner/-repo",
+		"owner",
+		"owner/repo/extra",
+		"owner/repo;rm -rf /",
+		"owner repo",
+		"",
+	}
+	for _, br := range badRepos {
+		if isValidRepo(br) {
+			t.Errorf("expected isValidRepo(%q) to be false", br)
+		}
+		if postGitHubComment(br, 42, "comment", []string{"label"}) {
+			t.Errorf("expected postGitHubComment to return false for bad repo %q", br)
+		}
+	}
+
+	// Valid repos
+	goodRepos := []string{
+		"controlplaneio/osramp-demo",
+		"foo-bar/baz.qux",
+		"owner_123/repo_456",
+	}
+	for _, gr := range goodRepos {
+		if !isValidRepo(gr) {
+			t.Errorf("expected isValidRepo(%q) to be true", gr)
+		}
+	}
+
+	// Label sanitization
+	dirtyLabels := []string{"--injected-flag", "-f", "  valid-label  ", "triage:flaky", "invalid,comma", "safe_123"}
+	cleaned := sanitizeLabels(dirtyLabels)
+	expectedClean := []string{"valid-label", "triage:flaky", "safe_123"}
+	if len(cleaned) != len(expectedClean) {
+		t.Fatalf("expected %d sanitized labels, got %d: %v", len(expectedClean), len(cleaned), cleaned)
+	}
+	for i, l := range cleaned {
+		if l != expectedClean[i] {
+			t.Errorf("label %d: expected %q, got %q", i, expectedClean[i], l)
+		}
+	}
+}

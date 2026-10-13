@@ -41,13 +41,14 @@ func (h *Handlers) handlePromoteActor(w http.ResponseWriter, r *http.Request) {
 	slog.Info("actor promoted", "id", id, "confidence", actor.Confidence)
 
 	// Audit: actor_promoted — the highest-stakes event.
+	tenantID := resolveAuditTenant(r)
 	detail, _ := json.Marshal(map[string]any{
 		"confidence":     actor.Confidence,
 		"evidence_count": len(actor.EvidenceChain),
 		"status":         actor.Status,
 	})
 	if auditErr := h.Audit.WriteAuditEvent(r.Context(), audit.Event{
-		TenantID:  "tenant-demo",
+		TenantID:  tenantID,
 		EventType: audit.EventActorPromoted,
 		ActorID:   actor.ID,
 		Detail:    detail,

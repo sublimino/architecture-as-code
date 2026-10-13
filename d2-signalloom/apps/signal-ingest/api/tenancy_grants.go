@@ -196,3 +196,15 @@ func requireCrossTenantRead(w http.ResponseWriter, r *http.Request) bool {
 	writeError(w, http.StatusForbidden, "cross_tenant_read_required")
 	return false
 }
+
+// resolveAuditTenant extracts the tenant ID from the authenticated principal or tenant context,
+// falling back to "tenant-demo" only when no tenant context exists (e.g. unauthenticated test harnesses).
+func resolveAuditTenant(r *http.Request) string {
+	if p, ok := PrincipalFromContext(r.Context()); ok && p.TenantID != "" {
+		return p.TenantID
+	}
+	if tc, ok := TenantContextFromContext(r.Context()); ok && tc.TenantID != "" {
+		return tc.TenantID
+	}
+	return "tenant-demo"
+}

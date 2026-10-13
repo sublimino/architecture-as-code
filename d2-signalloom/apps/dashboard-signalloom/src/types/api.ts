@@ -1023,6 +1023,7 @@ export interface ControlRecommendations {
 export interface DiscoveryWorkload {
   id: string
   name: string
+  tenant_id?: string | null
   source: DiscoverySource
   source_label: string
   namespace?: string | null

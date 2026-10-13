@@ -18,7 +18,20 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	for _, route := range h.routeDefinitions(nil) {
 		handler := route.handler
 		mux.HandleFunc(route.pattern, func(w http.ResponseWriter, r *http.Request) {
-			handler(w, r.WithContext(context.WithValue(r.Context(), principalContextKey{}, operator)))
+			ctx := r.Context()
+			if _, ok := PrincipalFromContext(ctx); !ok {
+				if tc, ok := TenantContextFromContext(ctx); ok && tc.TenantID != "" {
+					p := Principal{
+						Subject:     tc.Principal,
+						TenantID:    tc.TenantID,
+						Permissions: map[Permission]bool{PermissionCrossTenantRead: true},
+					}
+					ctx = context.WithValue(ctx, principalContextKey{}, p)
+				} else {
+					ctx = context.WithValue(ctx, principalContextKey{}, operator)
+				}
+			}
+			handler(w, r.WithContext(ctx))
 		})
 	}
 }

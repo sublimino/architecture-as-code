@@ -275,6 +275,51 @@ class SpaServerContractTest(unittest.TestCase):
             self.assertEqual(resp.status, 204)
             self.assertEqual(resp.headers.get("Connection"), "close")
 
+    def test_conflicting_te_cl_closes_connection(self):
+        s = socket.create_connection(("127.0.0.1", self.port))
+        raw_req = (
+            b"OPTIONS / HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Transfer-Encoding: chunked\r\n"
+            b"Content-Length: 5\r\n\r\n"
+            b"5\r\nhello\r\n0\r\n\r\n"
+        )
+        s.sendall(raw_req)
+        s.settimeout(2.0)
+        data = b""
+        while True:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+            if b"\r\n\r\n" in data:
+                break
+        s.close()
+        self.assertIn(b"Connection: close", data)
+
+    def test_chunked_premature_eof_closes_connection(self):
+        s = socket.create_connection(("127.0.0.1", self.port))
+        # Omit terminating 0 chunk and shutdown write end
+        raw_req = (
+            b"OPTIONS / HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n"
+            b"5\r\nhello\r\n"
+        )
+        s.sendall(raw_req)
+        s.shutdown(socket.SHUT_WR)
+        s.settimeout(2.0)
+        data = b""
+        while True:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+            if b"\r\n\r\n" in data:
+                break
+        s.close()
+        self.assertIn(b"Connection: close", data)
+
 
 if __name__ == "__main__":
     unittest.main()

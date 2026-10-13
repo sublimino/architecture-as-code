@@ -132,32 +132,61 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         te = self.headers.get("Transfer-Encoding", "").lower()
+        has_cl = "content-length" in [k.lower() for k in self.headers.keys()]
+        if "chunked" in te and has_cl:
+            self.close_connection = True
+            self._err(400, "invalid_transfer_encoding", "both Transfer-Encoding and Content-Length provided")
+            return
+
         if "chunked" in te:
             chunks = []
             total = 0
+            terminated = False
             while total <= 1048576:
                 line = self.rfile.readline(128)
                 if not line:
                     self.close_connection = True
-                    break
+                    self._err(400, "premature_eof", "premature EOF reading chunk length")
+                    return
+                if not line.endswith(b"\n"):
+                    self.close_connection = True
+                    self._err(400, "invalid_chunk", "chunk length line too long or unterminated")
+                    return
                 chunk_len_str = line.split(b";")[0].strip()
                 if not chunk_len_str or not re.fullmatch(rb"[0-9a-fA-F]+", chunk_len_str):
                     self.close_connection = True
                     self._err(400, "invalid_chunk", "invalid chunk length")
                     return
-                chunk_len = int(chunk_len_str, 16)
+                try:
+                    chunk_len = int(chunk_len_str, 16)
+                except ValueError:
+                    self.close_connection = True
+                    self._err(400, "invalid_chunk", "invalid chunk length")
+                    return
                 if chunk_len < 0:
                     self.close_connection = True
                     self._err(400, "invalid_chunk", "negative chunk length")
                     return
                 if chunk_len == 0:
-                    while True:
+                    trailer_count = 0
+                    while trailer_count < 32:
                         trailer = self.rfile.readline(1024)
                         if not trailer:
                             self.close_connection = True
-                            break
+                            self._err(400, "premature_eof", "premature EOF reading trailer")
+                            return
+                        if not trailer.endswith(b"\n"):
+                            self.close_connection = True
+                            self._err(400, "invalid_chunk", "trailer line too long or unterminated")
+                            return
                         if trailer in (b"\r\n", b"\n"):
                             break
+                        trailer_count += 1
+                    else:
+                        self.close_connection = True
+                        self._err(400, "invalid_chunk", "too many trailer lines")
+                        return
+                    terminated = True
                     break
                 total += chunk_len
                 if total > 1048576:
@@ -180,6 +209,10 @@ class Handler(BaseHTTPRequestHandler):
                     self.close_connection = True
                     self._err(400, "invalid_chunk", "malformed chunk delimiter")
                     return
+            if not terminated:
+                self.close_connection = True
+                self._err(400, "premature_eof", "chunked stream ended without terminating chunk")
+                return
             raw = b"".join(chunks).decode("utf-8", errors="replace")
         else:
             raw_len = self.headers.get("Content-Length")

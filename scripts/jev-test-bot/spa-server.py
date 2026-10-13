@@ -59,35 +59,46 @@ class SpaHandler(SimpleHTTPRequestHandler):
         if not hasattr(self, "headers") or not self.headers:
             return
         te = self.headers.get("Transfer-Encoding", "").lower()
+        has_cl = "content-length" in [k.lower() for k in self.headers.keys()]
+        if "chunked" in te and has_cl:
+            self.close_connection = True
+            return
         if "chunked" in te:
             try:
                 total = 0
+                terminated = False
                 while total <= 1048576:
                     line = self.rfile.readline(128)
-                    if not line:
+                    if not line or not line.endswith(b"\n"):
                         self.close_connection = True
-                        break
+                        return
                     chunk_len_str = line.split(b";")[0].strip()
                     if not chunk_len_str or not re.fullmatch(rb"[0-9a-fA-F]+", chunk_len_str):
                         self.close_connection = True
-                        break
+                        return
                     chunk_len = int(chunk_len_str, 16)
                     if chunk_len < 0:
                         self.close_connection = True
-                        break
+                        return
                     if chunk_len == 0:
-                        while True:
+                        trailer_count = 0
+                        while trailer_count < 32:
                             trailer = self.rfile.readline(1024)
-                            if not trailer:
+                            if not trailer or not trailer.endswith(b"\n"):
                                 self.close_connection = True
-                                break
+                                return
                             if trailer in (b"\r\n", b"\n"):
                                 break
+                            trailer_count += 1
+                        else:
+                            self.close_connection = True
+                            return
+                        terminated = True
                         break
                     total += chunk_len
                     if total > 1048576:
                         self.close_connection = True
-                        break
+                        return
                     rem = chunk_len
                     while rem > 0:
                         b = self.rfile.read(min(rem, 65536))
@@ -98,7 +109,10 @@ class SpaHandler(SimpleHTTPRequestHandler):
                     delim = self.rfile.readline(4)
                     if delim not in (b"\r\n", b"\n"):
                         self.close_connection = True
-                        break
+                        return
+                if not terminated:
+                    self.close_connection = True
+                    return
             except Exception:
                 self.close_connection = True
             return

@@ -806,6 +806,42 @@ func TestWorkspacePruneTenantIsolation(t *testing.T) {
 	}
 }
 
+func TestOPTIONSRequests_AllEndpoints(t *testing.T) {
+	mgr := NewWorkspaceManager("fe-signalloom-agents")
+	srv := newServer(mgr)
+
+	testCases := []struct {
+		path      string
+		wantAllow string
+	}{
+		{"/health", "GET, HEAD, OPTIONS"},
+		{"/healthz", "GET, HEAD, OPTIONS"},
+		{"/readyz", "GET, HEAD, OPTIONS"},
+		{"/livez", "GET, HEAD, OPTIONS"},
+		{"/workspaces", "GET, HEAD, POST, OPTIONS"},
+		{"/workspaces/ws-test-123", "GET, HEAD, DELETE, OPTIONS"},
+		{"/workspaces/ws-test-123/teardown", "POST, OPTIONS"},
+		{"/workspaces/prune", "POST, OPTIONS"},
+	}
+
+	for _, tc := range testCases {
+		req := httptest.NewRequest(http.MethodOptions, tc.path, nil)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNoContent {
+			t.Errorf("OPTIONS %s expected 204, got %d", tc.path, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != tc.wantAllow {
+			t.Errorf("OPTIONS %s expected Allow=%q, got %q", tc.path, tc.wantAllow, allow)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("OPTIONS %s expected 0 body bytes, got %d", tc.path, rec.Body.Len())
+		}
+	}
+}
+
+
 
 
 

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -50,6 +51,13 @@ func validateRepo(repo string) error {
 	}
 	if strings.HasPrefix(repo, "-") {
 		return errors.New("repo cannot start with a dash")
+	}
+	if strings.ContainsAny(repo, "\r\n\x00") {
+		return errors.New("repo cannot contain control characters")
+	}
+	lower := strings.ToLower(repo)
+	if strings.HasPrefix(lower, "ext::") || strings.HasPrefix(lower, "fd::") {
+		return errors.New("repo cannot use remote helper protocols")
 	}
 	if len(repo) > 1024 {
 		return errors.New("repo URL must be 1024 characters or fewer")
@@ -130,6 +138,14 @@ func main() {
 func newServer(executor *Executor, store *SessionStore) http.Handler {
 	mux := http.NewServeMux()
 
+	healthOptionsHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+	}
+	mux.HandleFunc("OPTIONS /health", healthOptionsHandler)
+	mux.HandleFunc("OPTIONS /healthz", healthOptionsHandler)
+	mux.HandleFunc("OPTIONS /readyz", healthOptionsHandler)
+
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodHead {
@@ -145,7 +161,17 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 	mux.HandleFunc("GET /readyz", healthHandler)
 	mux.HandleFunc("HEAD /readyz", healthHandler)
 
+	mux.HandleFunc("OPTIONS /tasks", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Allow", "GET, HEAD, POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	mux.HandleFunc("POST /tasks", func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+		}()
+
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		var req TaskRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -171,6 +197,9 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 		}
 		if req.TokenBudget <= 0 {
 			req.TokenBudget = 50000
+		} else if req.TokenBudget > 1000000 {
+			writeError(w, http.StatusBadRequest, "token_budget must be 1000000 or fewer")
+			return
 		}
 
 		task, err := executor.Submit(req)
@@ -182,6 +211,11 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
 		json.NewEncoder(w).Encode(task)
+	})
+
+	mux.HandleFunc("OPTIONS /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
 	})
 
 	getTaskHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -222,6 +256,11 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 	}
 	mux.HandleFunc("GET /tasks", listTasksHandler)
 	mux.HandleFunc("HEAD /tasks", listTasksHandler)
+
+	mux.HandleFunc("OPTIONS /.well-known/agent-card.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	agentCardHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

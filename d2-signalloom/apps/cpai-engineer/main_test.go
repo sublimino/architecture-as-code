@@ -560,3 +560,90 @@ func TestHeadBodySuppressingMiddleware_Direct(t *testing.T) {
 		t.Errorf("HEAD expected header preserved, got %q", headRec.Header().Get("X-Custom-Header"))
 	}
 }
+
+func TestRepoValidationAndTokenBudgetLimits(t *testing.T) {
+	badRepos := []struct {
+		repo string
+		desc string
+	}{
+		{"-bad-repo", "leading dash"},
+		{"ext::sh -c evil", "git ext helper protocol"},
+		{"fd::17/foo", "git fd helper protocol"},
+		{"https://github.com/org/repo\ninjection", "newline character"},
+		{"https://github.com/org/repo\rinjection", "carriage return character"},
+		{"https://github.com/org/repo\x00injection", "null character"},
+	}
+	for _, tc := range badRepos {
+		if err := validateRepo(tc.repo); err == nil {
+			t.Errorf("validateRepo(%q) [%s]: expected error, got nil", tc.repo, tc.desc)
+		}
+	}
+
+	goodRepos := []string{
+		"https://github.com/example/repo.git",
+		"http://gitlab.internal/group/project",
+		"git@github.com:example/repo.git",
+		"ssh://git@github.com/example/repo.git",
+	}
+	for _, repo := range goodRepos {
+		if err := validateRepo(repo); err != nil {
+			t.Errorf("validateRepo(%q): expected valid, got %v", repo, err)
+		}
+	}
+
+	ts := newTestServer(t)
+
+	// Excessive token budget rejection
+	excessivePayload := TaskRequest{
+		Repo:        "https://github.com/example/repo.git",
+		Branch:      "main",
+		Instruction: "Task test",
+		TokenBudget: 2000000,
+	}
+	raw, _ := json.Marshal(excessivePayload)
+	resp, err := http.Post(ts.URL+"/tasks", "application/json", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("POST /tasks failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for excessive token budget, got %d", resp.StatusCode)
+	}
+}
+
+func TestOPTIONSRequests_AllEndpoints(t *testing.T) {
+	ts := newTestServer(t)
+
+	testCases := []struct {
+		path      string
+		wantAllow string
+	}{
+		{"/health", "GET, HEAD, OPTIONS"},
+		{"/healthz", "GET, HEAD, OPTIONS"},
+		{"/readyz", "GET, HEAD, OPTIONS"},
+		{"/tasks", "GET, HEAD, POST, OPTIONS"},
+		{"/tasks/test-task-123", "GET, HEAD, OPTIONS"},
+		{"/.well-known/agent-card.json", "GET, HEAD, OPTIONS"},
+	}
+
+	for _, tc := range testCases {
+		req, _ := http.NewRequest(http.MethodOptions, ts.URL+tc.path, nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("OPTIONS %s failed: %v", tc.path, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusNoContent {
+			t.Errorf("OPTIONS %s expected 204, got %d", tc.path, resp.StatusCode)
+		}
+		if allow := resp.Header.Get("Allow"); allow != tc.wantAllow {
+			t.Errorf("OPTIONS %s expected Allow=%q, got %q", tc.path, tc.wantAllow, allow)
+		}
+		if len(body) != 0 {
+			t.Errorf("OPTIONS %s expected 0 body bytes, got %d", tc.path, len(body))
+		}
+	}
+}
+

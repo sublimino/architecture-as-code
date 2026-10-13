@@ -31,7 +31,48 @@ APPLIANCE_MODE="${APPLIANCE_MODE:-hub}"
 RUN_STAGE="all"
 FORCE=0
 
+readonly EX_NOT_IMPLEMENTED=69
+readonly SLOT_PATH="scripts/init-tenant.sh"
+readonly SLOT_STATUS="pending-p2-1"
+readonly SLOT_OWNED_BY="SLSI-P2-1"
+readonly SLOT_GOVERNED_BY="proposal-slsi-v0.1.1"
+
+not_implemented() {
+  local what="$1"
+  cat >&2 <<EOF
+init-tenant.sh: '${what}' is not yet implemented, owned by ${SLOT_OWNED_BY}.
+
+This file is the installer SLOT, not the installer. It initialises nothing, and
+it refuses rather than exiting 0 so that no caller can mistake it for working.
+
+  owner      ${SLOT_OWNED_BY} (cards P2-1..P2-4, P3-1)
+  governed   ${SLOT_GOVERNED_BY}
+  slot state init-tenant.sh slot
+EOF
+  exit "${EX_NOT_IMPLEMENTED}"
+}
+
+slot() {
+  local repo_root="${INIT_TENANT_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+  local present=false
+  if [ -e "${repo_root}/${SLOT_PATH}" ]; then
+    present=true
+  fi
+  cat <<EOF
+{
+  "path": "${SLOT_PATH}",
+  "sourcePresent": ${present},
+  "status": "${SLOT_STATUS}",
+  "ownedBy": "${SLOT_OWNED_BY}",
+  "governedBy": "${SLOT_GOVERNED_BY}",
+  "implemented": false,
+  "notImplementedExitCode": ${EX_NOT_IMPLEMENTED}
+}
+EOF
+}
+
 usage() {
+  local exit_code="${1:-0}"
   cat <<EOF
 Usage: $(basename "$0") [options]
 
@@ -50,7 +91,7 @@ Options:
   --force                     Overwrite existing cryptographic keys or directories
   -h, --help                  Show this help message
 EOF
-  exit 1
+  exit "$exit_code"
 }
 
 # Parse CLI options
@@ -116,11 +157,11 @@ parse_args() {
         shift
         ;;
       -h|--help)
-        usage
+        usage 0
         ;;
       *)
         echo "ERROR: Unknown option: $1" >&2
-        usage
+        usage 1
         ;;
     esac
   done
@@ -463,8 +504,10 @@ EOF
   chmod 0644 "${KIND_CONFIG_PATH}"
 
   # Validate Kind YAML using python3 yaml parser
-  if command -v python3 >/dev/null 2>&1; then
-    python3 -c "import yaml; yaml.safe_load(open('${KIND_CONFIG_PATH}'))" || {
+  local py_cmd
+  py_cmd="$(python3 -c 'import yaml' >/dev/null 2>&1 && echo python3 || echo /usr/bin/python3)"
+  if "$py_cmd" -c 'import yaml' >/dev/null 2>&1; then
+    "$py_cmd" -c "import yaml; yaml.safe_load(open('${KIND_CONFIG_PATH}'))" || {
       echo "ERROR: Generated Kind configuration at ${KIND_CONFIG_PATH} failed YAML validation" >&2
       exit 1
     }
@@ -497,7 +540,25 @@ stage_p3_1_ingress() {
 # <<< SLSI-P3-1 >>>
 
 main() {
-  parse_args "$@"
+  if [[ "$#" -eq 0 ]]; then
+    not_implemented "init-tenant.sh with no subcommand"
+  fi
+
+  case "$1" in
+    slot)
+      slot
+      exit 0
+      ;;
+    plan|apply|verify|provision)
+      not_implemented "$1"
+      ;;
+    -h|--help|help)
+      usage 0
+      ;;
+    *)
+      parse_args "$@"
+      ;;
+  esac
 
   case "$RUN_STAGE" in
     p2-1|keys)

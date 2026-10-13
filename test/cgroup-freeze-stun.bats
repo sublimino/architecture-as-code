@@ -28,11 +28,11 @@
 # test. `bats -f <pattern>` matching zero tests exits 0, and a suite that
 # fails to parse partway through simply reports fewer tests; neither is
 # distinguishable from success without this check.
-export PATH="/usr/bin:$PATH"
+export PATH="/home/linuxbrew/.linuxbrew/bin:/usr/bin:$PATH"
 DECLARED_TESTS=23
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BATS_TEST_FILENAME}")/.." && pwd)"
-MODULE_DIR="${REPO_ROOT}/d2-signalloom/apps/signalloom-warden"
+MODULE_DIR="${REPO_ROOT}/d2-signalloom/apps/stun-sentinel"
 # shellcheck source=../scripts/lib/live-gate.sh
 source "${REPO_ROOT}/scripts/lib/live-gate.sh"
 CLUSTER_CONTEXT="${CLUSTER_CONTEXT:-kind-osramp}"
@@ -71,15 +71,18 @@ require_proof() {
 }
 
 setup_file() {
-  export PATH="/usr/bin:/home/linuxbrew/.linuxbrew/bin:$PATH"
+  export PATH="/home/linuxbrew/.linuxbrew/bin:/usr/bin:$PATH"
   export REPO_ROOT MODULE_DIR CLUSTER_CONTEXT KIND_NODE PROOF_JSON HARNESS_LOG
-  export GOPATH="${GOPATH:-/tmp/gopath}"
+  if [ -z "${GOPATH:-}" ] || [ ! -w "${GOPATH}" ] || [ "${GOPATH}" = "/usr/local/src/gocode" ]; then
+    export GOPATH="/tmp/gopath"
+  fi
   export GOCACHE="${GOCACHE:-/tmp/gocache}"
   export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
   export GONOSUMDB="*"
   export GOTOOLCHAIN="local"
   export CGO_ENABLED=0
   unset GOROOT
+  mkdir -p "${GOPATH}" "${GOCACHE}" "${GOMODCACHE}"
   rm -f "${PROOF_JSON}" "${HARNESS_LOG}"
 
   if ! have_cluster; then
@@ -111,26 +114,26 @@ teardown_file() {
   have_go || skip "go toolchain not installed"
   # -buildvcs=false: go build/test inside a git worktree fails with
   # "error obtaining VCS status: exit status 128".
-  run env PATH="/usr/bin:/home/linuxbrew/.linuxbrew/bin:$PATH" GONOSUMDB="*" GOTOOLCHAIN="local" CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false /usr/bin/go test -C "${MODULE_DIR}" -count=1 ./pkg/cgroup/
+  run env PATH="/home/linuxbrew/.linuxbrew/bin:/usr/bin:$PATH" GONOSUMDB="*" GOTOOLCHAIN="local" CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false go test -C "${MODULE_DIR}" -count=1 ./pkg/cgroup/
   [ "$status" -eq 0 ]
   [[ "$output" == *"ok"* ]]
 }
 
 @test "unit: telemetry emitter tests pass" {
   have_go || skip "go toolchain not installed"
-  run env PATH="/usr/bin:/home/linuxbrew/.linuxbrew/bin:$PATH" GONOSUMDB="*" GOTOOLCHAIN="local" CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false /usr/bin/go test -C "${MODULE_DIR}" -count=1 ./pkg/telemetry/
+  run env PATH="/home/linuxbrew/.linuxbrew/bin:/usr/bin:$PATH" GONOSUMDB="*" GOTOOLCHAIN="local" CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false go test -C "${MODULE_DIR}" -count=1 ./pkg/telemetry/
   [ "$status" -eq 0 ]
 }
 
 @test "unit: daemon tests pass" {
   have_go || skip "go toolchain not installed"
-  run env PATH="/usr/bin:/home/linuxbrew/.linuxbrew/bin:$PATH" GONOSUMDB="*" GOTOOLCHAIN="local" CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false /usr/bin/go test -C "${MODULE_DIR}" -count=1 ./cmd/signalloom-warden/
+  run env PATH="/home/linuxbrew/.linuxbrew/bin:/usr/bin:$PATH" GONOSUMDB="*" GOTOOLCHAIN="local" CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false go test -C "${MODULE_DIR}" -count=1 ./cmd/stun-sentinel/
   [ "$status" -eq 0 ]
 }
 
 @test "unit: cgroup package statement coverage is at least 90 percent" {
   have_go || skip "go toolchain not installed"
-  run env PATH="/usr/bin:/home/linuxbrew/.linuxbrew/bin:$PATH" GONOSUMDB="*" GOTOOLCHAIN="local" CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false /usr/bin/go test -C "${MODULE_DIR}" -cover -count=1 ./pkg/cgroup/
+  run env PATH="/home/linuxbrew/.linuxbrew/bin:/usr/bin:$PATH" GONOSUMDB="*" GOTOOLCHAIN="local" CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false go test -C "${MODULE_DIR}" -cover -count=1 ./pkg/cgroup/
   [ "$status" -eq 0 ]
   local pct
   pct="$(printf '%s' "$output" | grep -o 'coverage: [0-9.]*%' | grep -o '[0-9.]*')"

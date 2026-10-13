@@ -124,6 +124,11 @@ type SubjectPortabilityResponse struct {
 
 // handleExportSubject implements cross-plane per-subject export for Article 15 Access and Article 20 Portability.
 func (h *Handlers) handleExportSubject(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	subjectID, err := actorIDFromPath(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "subject id is required")
@@ -141,6 +146,12 @@ func (h *Handlers) handleExportSubject(w http.ResponseWriter, r *http.Request) {
 	// must be authorized for this subject or hold administrative DPO/tenant rights.
 	if err := h.verifyRequesterForSubject(r.Context(), subjectID, tenant); err != nil {
 		writeError(w, http.StatusForbidden, fmt.Sprintf("access denied: %v", err))
+		return
+	}
+
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 

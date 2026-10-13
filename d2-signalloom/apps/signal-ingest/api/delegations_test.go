@@ -194,3 +194,69 @@ func TestDelegationsEndpoint_ClampDelegation_200(t *testing.T) {
 		t.Fatalf("expected 200 on clamp, got %d: %s", cRec.Code, cRec.Body.String())
 	}
 }
+
+func TestDelegations_MethodGatesAndHEADBodySuppression(t *testing.T) {
+	_, _, s := setupDelegationsTestServer(t)
+	engine, _ := correlation.NewEngine(s)
+	h := &Handlers{Store: s, Engine: engine}
+
+	// 1. handleCreateDelegation: POST only (disallowed: GET, PUT, DELETE, PATCH)
+	for _, m := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req := httptest.NewRequest(m, "/api/v1/delegations", nil)
+		rec := httptest.NewRecorder()
+		h.handleCreateDelegation(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleCreateDelegation status = %d, want 405", m, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("%s handleCreateDelegation Allow = %q, want POST", m, allow)
+		}
+		if rec.Body.Len() == 0 {
+			t.Errorf("%s handleCreateDelegation expected non-empty error body", m)
+		}
+	}
+
+	// Direct HEAD on handleCreateDelegation: 405 with Allow: POST and 0-byte body
+	headReq := httptest.NewRequest(http.MethodHead, "/api/v1/delegations", nil)
+	headRec := httptest.NewRecorder()
+	h.handleCreateDelegation(headRec, headReq)
+	if headRec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD handleCreateDelegation status = %d, want 405", headRec.Code)
+	}
+	if allow := headRec.Header().Get("Allow"); allow != "POST" {
+		t.Errorf("HEAD handleCreateDelegation Allow = %q, want POST", allow)
+	}
+	if headRec.Body.Len() != 0 {
+		t.Errorf("HEAD handleCreateDelegation expected 0 body bytes, got %d", headRec.Body.Len())
+	}
+
+	// 2. handleClampDelegation: POST, DELETE (disallowed: GET, PUT, PATCH)
+	for _, m := range []string{http.MethodGet, http.MethodPut, http.MethodPatch} {
+		req := httptest.NewRequest(m, "/api/v1/delegations/clamp", nil)
+		rec := httptest.NewRecorder()
+		h.handleClampDelegation(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleClampDelegation status = %d, want 405", m, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST, DELETE" {
+			t.Errorf("%s handleClampDelegation Allow = %q, want 'POST, DELETE'", m, allow)
+		}
+		if rec.Body.Len() == 0 {
+			t.Errorf("%s handleClampDelegation expected non-empty error body", m)
+		}
+	}
+
+	// Direct HEAD on handleClampDelegation: 405 with Allow: POST, DELETE and 0-byte body
+	headClampReq := httptest.NewRequest(http.MethodHead, "/api/v1/delegations/clamp", nil)
+	headClampRec := httptest.NewRecorder()
+	h.handleClampDelegation(headClampRec, headClampReq)
+	if headClampRec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD handleClampDelegation status = %d, want 405", headClampRec.Code)
+	}
+	if allow := headClampRec.Header().Get("Allow"); allow != "POST, DELETE" {
+		t.Errorf("HEAD handleClampDelegation Allow = %q, want 'POST, DELETE'", allow)
+	}
+	if headClampRec.Body.Len() != 0 {
+		t.Errorf("HEAD handleClampDelegation expected 0 body bytes, got %d", headClampRec.Body.Len())
+	}
+}

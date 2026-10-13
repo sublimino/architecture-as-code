@@ -42,6 +42,11 @@ func (h *Handlers) getCodingAgentStore() codingagent.TelemetryStore {
 func (h *Handlers) handleCodingAgentTelemetry(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -112,6 +117,12 @@ func (h *Handlers) handleQueryCodingAgentTelemetry(w http.ResponseWriter, r *htt
 		return
 	}
 
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	filter := parseAggregateFilter(r)
 	store := h.getCodingAgentStore()
 	records, err := store.Query(r.Context(), claim.TenantID, filter)
@@ -138,6 +149,12 @@ func (h *Handlers) handleAggregateCodingAgentTelemetry(w http.ResponseWriter, r 
 		return
 	}
 
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	filter := parseAggregateFilter(r)
 	store := h.getCodingAgentStore()
 	result, err := store.Aggregate(r.Context(), claim.TenantID, filter)
@@ -158,6 +175,11 @@ func (h *Handlers) handleAggregateCodingAgentTelemetry(w http.ResponseWriter, r 
 func (h *Handlers) handleCodingAgentOrdering(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}

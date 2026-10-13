@@ -264,6 +264,11 @@ func (h *Handlers) handlePolicyFindings(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	rows, err := h.policySourceRows(r, req, obscel.SourceFinding)
 	if err != nil {
 		slog.Error("policy findings query failed", "error", err)
@@ -302,6 +307,11 @@ func (h *Handlers) handlePolicyDecisions(w http.ResponseWriter, r *http.Request)
 	}
 	req, ok := parsePolicyRead(w, r)
 	if !ok {
+		return
+	}
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 	rows, err := h.policyWindowRows(r, req)
@@ -402,6 +412,11 @@ type reviewRequestBody struct {
 func (h *Handlers) handlePolicyReview(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -541,6 +556,12 @@ func (h *Handlers) handlePolicyRates(w http.ResponseWriter, r *http.Request) {
 		bucket = 5 * time.Minute
 	default:
 		writeError(w, http.StatusBadRequest, "invalid 'bucket': want 1m or 5m")
+		return
+	}
+
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 

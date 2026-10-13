@@ -436,8 +436,8 @@ func TestCodingAgentTelemetry_ClockSkewAndUncertaintyOrdering(t *testing.T) {
 func TestCodingAgentTelemetryMethodGates(t *testing.T) {
 	h, _ := newTestHandlers(t)
 
-	// handleCodingAgentTelemetry: POST only
-	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+	// handleCodingAgentTelemetry: POST only (disallowed: GET, PUT, DELETE, PATCH)
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		req := httptest.NewRequest(method, "/api/v1/telemetry/coding-agents", nil)
 		rec := httptest.NewRecorder()
 		h.handleCodingAgentTelemetry(rec, req)
@@ -447,10 +447,27 @@ func TestCodingAgentTelemetryMethodGates(t *testing.T) {
 		if allow := rec.Header().Get("Allow"); allow != "POST" {
 			t.Errorf("%s handleCodingAgentTelemetry got Allow %q, want POST", method, allow)
 		}
+		if rec.Body.Len() == 0 {
+			t.Errorf("%s handleCodingAgentTelemetry expected non-empty error body", method)
+		}
 	}
 
-	// handleCodingAgentOrdering: POST only
-	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+	// Direct unwrapped HEAD on handleCodingAgentTelemetry: 405 with Allow: POST and 0-byte body
+	headIngestReq := httptest.NewRequest(http.MethodHead, "/api/v1/telemetry/coding-agents", nil)
+	headIngestRec := httptest.NewRecorder()
+	h.handleCodingAgentTelemetry(headIngestRec, headIngestReq)
+	if headIngestRec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD handleCodingAgentTelemetry status = %d, want 405", headIngestRec.Code)
+	}
+	if allow := headIngestRec.Header().Get("Allow"); allow != "POST" {
+		t.Errorf("HEAD handleCodingAgentTelemetry Allow = %q, want POST", allow)
+	}
+	if headIngestRec.Body.Len() != 0 {
+		t.Errorf("HEAD handleCodingAgentTelemetry body length = %d, want 0", headIngestRec.Body.Len())
+	}
+
+	// handleCodingAgentOrdering: POST only (disallowed: GET, PUT, DELETE, PATCH)
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		req := httptest.NewRequest(method, "/api/v1/telemetry/coding-agents/ordering", nil)
 		rec := httptest.NewRecorder()
 		h.handleCodingAgentOrdering(rec, req)
@@ -460,10 +477,27 @@ func TestCodingAgentTelemetryMethodGates(t *testing.T) {
 		if allow := rec.Header().Get("Allow"); allow != "POST" {
 			t.Errorf("%s handleCodingAgentOrdering got Allow %q, want POST", method, allow)
 		}
+		if rec.Body.Len() == 0 {
+			t.Errorf("%s handleCodingAgentOrdering expected non-empty error body", method)
+		}
 	}
 
-	// handleQueryCodingAgentTelemetry: GET, HEAD
-	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+	// Direct unwrapped HEAD on handleCodingAgentOrdering: 405 with Allow: POST and 0-byte body
+	headOrderReq := httptest.NewRequest(http.MethodHead, "/api/v1/telemetry/coding-agents/ordering", nil)
+	headOrderRec := httptest.NewRecorder()
+	h.handleCodingAgentOrdering(headOrderRec, headOrderReq)
+	if headOrderRec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD handleCodingAgentOrdering status = %d, want 405", headOrderRec.Code)
+	}
+	if allow := headOrderRec.Header().Get("Allow"); allow != "POST" {
+		t.Errorf("HEAD handleCodingAgentOrdering Allow = %q, want POST", allow)
+	}
+	if headOrderRec.Body.Len() != 0 {
+		t.Errorf("HEAD handleCodingAgentOrdering body length = %d, want 0", headOrderRec.Body.Len())
+	}
+
+	// handleQueryCodingAgentTelemetry: GET, HEAD (disallowed: POST, PUT, DELETE, PATCH)
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		req := httptest.NewRequest(method, "/api/v1/telemetry/coding-agents/query", nil)
 		rec := httptest.NewRecorder()
 		h.handleQueryCodingAgentTelemetry(rec, req)
@@ -473,9 +507,12 @@ func TestCodingAgentTelemetryMethodGates(t *testing.T) {
 		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
 			t.Errorf("%s handleQueryCodingAgentTelemetry got Allow %q, want GET, HEAD", method, allow)
 		}
+		if rec.Body.Len() == 0 {
+			t.Errorf("%s handleQueryCodingAgentTelemetry expected non-empty error body", method)
+		}
 	}
 
-	// handleAggregateCodingAgentTelemetry: GET, HEAD, POST
+	// handleAggregateCodingAgentTelemetry: GET, HEAD, POST (disallowed: PUT, DELETE, PATCH)
 	for _, method := range []string{http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		req := httptest.NewRequest(method, "/api/v1/telemetry/coding-agents/aggregate", nil)
 		rec := httptest.NewRecorder()
@@ -486,6 +523,9 @@ func TestCodingAgentTelemetryMethodGates(t *testing.T) {
 		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, POST" {
 			t.Errorf("%s handleAggregateCodingAgentTelemetry got Allow %q, want GET, HEAD, POST", method, allow)
 		}
+		if rec.Body.Len() == 0 {
+			t.Errorf("%s handleAggregateCodingAgentTelemetry expected non-empty error body", method)
+		}
 	}
 
 	// HEAD body suppression verification with tenant context
@@ -493,15 +533,44 @@ func TestCodingAgentTelemetryMethodGates(t *testing.T) {
 		TenantID:  "tenant-head-test",
 		Principal: "spiffe://cluster.local/ns/agents/sa/tester",
 	})
+
+	// Direct unwrapped HEAD on handleQueryCodingAgentTelemetry: 200 with 0 bytes and application/json
 	headQueryReq := httptest.NewRequest(http.MethodHead, "/api/v1/telemetry/coding-agents/query", nil).WithContext(ctx)
 	headQueryRec := httptest.NewRecorder()
-	headQueryRecWrapped := &headResponseWriter{ResponseWriter: headQueryRec}
-	h.handleQueryCodingAgentTelemetry(headQueryRecWrapped, headQueryReq)
+	h.handleQueryCodingAgentTelemetry(headQueryRec, headQueryReq)
 	if headQueryRec.Code != http.StatusOK {
-		t.Errorf("HEAD query got status %d, want 200", headQueryRec.Code)
+		t.Errorf("direct HEAD query got status %d, want 200", headQueryRec.Code)
 	}
 	if headQueryRec.Body.Len() != 0 {
-		t.Errorf("HEAD query body length = %d, want 0", headQueryRec.Body.Len())
+		t.Errorf("direct HEAD query body length = %d, want 0", headQueryRec.Body.Len())
+	}
+	if ct := headQueryRec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("direct HEAD query Content-Type = %q, want application/json", ct)
+	}
+
+	// Wrapped HEAD on handleQueryCodingAgentTelemetry
+	headQueryRecWrapped := httptest.NewRecorder()
+	wrappedRec := &headResponseWriter{ResponseWriter: headQueryRecWrapped}
+	h.handleQueryCodingAgentTelemetry(wrappedRec, headQueryReq)
+	if headQueryRecWrapped.Code != http.StatusOK {
+		t.Errorf("wrapped HEAD query got status %d, want 200", headQueryRecWrapped.Code)
+	}
+	if headQueryRecWrapped.Body.Len() != 0 {
+		t.Errorf("wrapped HEAD query body length = %d, want 0", headQueryRecWrapped.Body.Len())
+	}
+
+	// Direct unwrapped HEAD on handleAggregateCodingAgentTelemetry: 200 with 0 bytes and application/json
+	headAggReq := httptest.NewRequest(http.MethodHead, "/api/v1/telemetry/coding-agents/aggregate", nil).WithContext(ctx)
+	headAggRec := httptest.NewRecorder()
+	h.handleAggregateCodingAgentTelemetry(headAggRec, headAggReq)
+	if headAggRec.Code != http.StatusOK {
+		t.Errorf("direct HEAD aggregate got status %d, want 200", headAggRec.Code)
+	}
+	if headAggRec.Body.Len() != 0 {
+		t.Errorf("direct HEAD aggregate body length = %d, want 0", headAggRec.Body.Len())
+	}
+	if ct := headAggRec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("direct HEAD aggregate Content-Type = %q, want application/json", ct)
 	}
 }
 

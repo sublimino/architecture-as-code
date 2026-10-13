@@ -298,3 +298,48 @@ func BenchmarkRevocationDispatch(b *testing.B) {
 		}
 	}
 }
+
+func TestRevokeDelegations_MethodGatesAndHEADBodySuppression(t *testing.T) {
+	h, _ := newTestHandlers(t)
+
+	// 1. Disallowed methods return 405 with Allow: POST and non-empty error body
+	for _, m := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req := httptest.NewRequest(m, "/api/v1/delegations/revoke", nil)
+		rec := httptest.NewRecorder()
+		h.handleRevokeDelegations(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s /api/v1/delegations/revoke status = %d, want 405", m, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("%s /api/v1/delegations/revoke Allow = %q, want POST", m, allow)
+		}
+		if rec.Body.Len() == 0 {
+			t.Errorf("%s /api/v1/delegations/revoke expected non-empty error body", m)
+		}
+	}
+
+	// 2. Direct unwrapped HEAD on handleRevokeDelegations returns 405 with Allow: POST and 0-byte body
+	headReq := httptest.NewRequest(http.MethodHead, "/api/v1/delegations/revoke", nil)
+	headRec := httptest.NewRecorder()
+	h.handleRevokeDelegations(headRec, headReq)
+	if headRec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD /api/v1/delegations/revoke status = %d, want 405", headRec.Code)
+	}
+	if allow := headRec.Header().Get("Allow"); allow != "POST" {
+		t.Errorf("HEAD /api/v1/delegations/revoke Allow = %q, want POST", allow)
+	}
+	if headRec.Body.Len() != 0 {
+		t.Errorf("HEAD /api/v1/delegations/revoke expected 0 body bytes, got %d", headRec.Body.Len())
+	}
+
+	// 3. Wrapped HEAD recorder returns 405 with 0 body bytes
+	headWrappedRec := httptest.NewRecorder()
+	wrapped := &headResponseWriter{ResponseWriter: headWrappedRec}
+	h.handleRevokeDelegations(wrapped, headReq)
+	if headWrappedRec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("wrapped HEAD /api/v1/delegations/revoke status = %d, want 405", headWrappedRec.Code)
+	}
+	if headWrappedRec.Body.Len() != 0 {
+		t.Errorf("wrapped HEAD /api/v1/delegations/revoke expected 0 body bytes, got %d", headWrappedRec.Body.Len())
+	}
+}

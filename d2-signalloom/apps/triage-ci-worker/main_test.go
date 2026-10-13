@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -42,16 +43,21 @@ func TestHealthAndProbeEndpoints(t *testing.T) {
 			t.Fatalf("HEAD %s expected empty body, got %q", endpoint, recHead.Body.String())
 		}
 
-		// POST -> 405
-		reqPost := httptest.NewRequest(http.MethodPost, endpoint, nil)
-		recPost := httptest.NewRecorder()
-		mux.ServeHTTP(recPost, reqPost)
+		// Disallowed methods -> 405
+		for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+			reqPost := httptest.NewRequest(m, endpoint, nil)
+			recPost := httptest.NewRecorder()
+			mux.ServeHTTP(recPost, reqPost)
 
-		if recPost.Code != http.StatusMethodNotAllowed {
-			t.Fatalf("POST %s expected 405 Method Not Allowed, got %d", endpoint, recPost.Code)
-		}
-		if recPost.Header().Get("Allow") != "GET, HEAD" {
-			t.Fatalf("POST %s expected Allow: GET, HEAD, got %q", endpoint, recPost.Header().Get("Allow"))
+			if recPost.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("%s %s expected 405 Method Not Allowed, got %d", m, endpoint, recPost.Code)
+			}
+			if recPost.Header().Get("Allow") != "GET, HEAD" {
+				t.Fatalf("%s %s expected Allow: GET, HEAD, got %q", m, endpoint, recPost.Header().Get("Allow"))
+			}
+			if recPost.Body.Len() == 0 {
+				t.Fatalf("%s %s expected non-empty error body", m, endpoint)
+			}
 		}
 	}
 }
@@ -102,7 +108,7 @@ func TestUnmatchedPathsReturn404(t *testing.T) {
 func TestRootMethodNotAllowed(t *testing.T) {
 	mux := newMux()
 
-	for _, m := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+	for _, m := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		req := httptest.NewRequest(m, "/", nil)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
@@ -168,5 +174,81 @@ func TestRootNonFailureSkipped(t *testing.T) {
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected 204 No Content for non-failure check run, got %d", rec.Code)
+	}
+}
+
+func TestRootSuccessfulTriage(t *testing.T) {
+	mux := newMux()
+
+	body := `{
+		"action": "completed",
+		"check_run": {
+			"name": "unit-tests",
+			"status": "completed",
+			"conclusion": "failure",
+			"output": {
+				"title": "Build Failed",
+				"summary": "Tests failed",
+				"text": "--- FAIL: TestPaymentGateway (0.04s)\n    gateway_test.go:25: connection refused\n--- FAIL: TestFlaky (0.01s)\n"
+			}
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(body)))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for successful triage, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %q", ct)
+	}
+
+	var resp triageResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode triage response: %v", err)
+	}
+
+	if resp.RealFailures != 1 {
+		t.Errorf("expected 1 real failure, got %d", resp.RealFailures)
+	}
+	if resp.FlakyFailures != 1 {
+		t.Errorf("expected 1 flaky failure, got %d", resp.FlakyFailures)
+	}
+	if len(resp.Labels) == 0 {
+		t.Errorf("expected at least one suggested label, got none")
+	}
+}
+
+func TestMethodNotAllowed_DirectInvocationAndHEAD(t *testing.T) {
+	// 1. GET with methodNotAllowed -> 405 with body and Allow header
+	recGet := httptest.NewRecorder()
+	reqGet := httptest.NewRequest(http.MethodGet, "/test", nil)
+	methodNotAllowed(recGet, reqGet, "POST, PUT")
+
+	if recGet.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET methodNotAllowed code = %d, want 405", recGet.Code)
+	}
+	if allow := recGet.Header().Get("Allow"); allow != "POST, PUT" {
+		t.Errorf("GET methodNotAllowed Allow = %q, want POST, PUT", allow)
+	}
+	if recGet.Body.Len() == 0 {
+		t.Errorf("GET methodNotAllowed body is empty, want non-empty")
+	}
+
+	// 2. HEAD with methodNotAllowed -> 405 with 0 body bytes and Allow header
+	recHead := httptest.NewRecorder()
+	reqHead := httptest.NewRequest(http.MethodHead, "/test", nil)
+	methodNotAllowed(recHead, reqHead, "POST, PUT")
+
+	if recHead.Code != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD methodNotAllowed code = %d, want 405", recHead.Code)
+	}
+	if allow := recHead.Header().Get("Allow"); allow != "POST, PUT" {
+		t.Errorf("HEAD methodNotAllowed Allow = %q, want POST, PUT", allow)
+	}
+	if recHead.Body.Len() != 0 {
+		t.Errorf("HEAD methodNotAllowed body len = %d, want 0: %q", recHead.Body.Len(), recHead.Body.String())
 	}
 }

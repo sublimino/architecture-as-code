@@ -52,7 +52,7 @@ func TestHealthAndMetricsMethodNotAllowed(t *testing.T) {
 
 	paths := []string{"/health", "/healthz", "/readyz", "/metrics"}
 	for _, path := range paths {
-		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 			req := httptest.NewRequest(method, path, nil)
 			rec := httptest.NewRecorder()
 			mux.ServeHTTP(rec, req)
@@ -85,7 +85,7 @@ func TestHealthAndMetricsMethodNotAllowed(t *testing.T) {
 func TestTriggerHandlerMethodNotAllowed(t *testing.T) {
 	for _, isolate := range []bool{true, false} {
 		handler := triggerHandler(nil, nil, isolate)
-		for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete} {
+		for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 			req := httptest.NewRequest(method, "/v1/isolate", nil)
 			rec := httptest.NewRecorder()
 			handler(rec, req)
@@ -142,6 +142,85 @@ func TestTriggerHandlerMissingInterface(t *testing.T) {
 		if !strings.Contains(recPost.Body.String(), "interface query parameter required") {
 			t.Fatalf("POST without interface unexpected body: %q", recPost.Body.String())
 		}
+	}
+}
+
+func TestMuxUnmatchedRoutesHEAD(t *testing.T) {
+	mux := newMux(nil, nil)
+
+	for _, path := range []string{"/unknown", "/v1/unknown", "/health/subpath", "/metrics/sub"} {
+		req := httptest.NewRequest(http.MethodHead, path, nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("HEAD %s returned status %d, want 404", path, rec.Code)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("HEAD %s returned body %q, want empty body", path, rec.Body.String())
+		}
+	}
+}
+
+func TestTriggerHandler_DryRunExecutionAndNonVethRejection(t *testing.T) {
+	l := tc.NewDryRunLoader()
+	if err := l.Load(); err != nil {
+		t.Fatalf("failed to load dry-run loader: %v", err)
+	}
+	defer l.Close()
+	reg := tc.NewRegistry()
+
+	// 1. Non-veth device (eth0, lo, docker0) must be rejected with 403 Forbidden
+	for _, dev := range []string{"eth0", "lo", "docker0", "br-12345"} {
+		handler := triggerHandler(l, reg, true)
+		req := httptest.NewRequest(http.MethodPost, "/v1/isolate?interface="+dev, nil)
+		rec := httptest.NewRecorder()
+		handler(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("POST isolate non-veth %s: want 403, got %d", dev, rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), "device") && !strings.Contains(rec.Body.String(), "veth") {
+			t.Errorf("POST isolate non-veth %s: unexpected body %q", dev, rec.Body.String())
+		}
+
+		// HEAD on non-veth direct handler call must suppress body
+		reqHead := httptest.NewRequest(http.MethodHead, "/v1/isolate?interface="+dev, nil)
+		recHead := httptest.NewRecorder()
+		handler(recHead, reqHead)
+		// Method gate rejects HEAD before handler body logic
+		if recHead.Code != http.StatusMethodNotAllowed {
+			t.Errorf("HEAD isolate: want 405, got %d", recHead.Code)
+		}
+		if recHead.Body.Len() != 0 {
+			t.Errorf("HEAD isolate: want empty body, got %d bytes", recHead.Body.Len())
+		}
+	}
+
+	// 2. Non-existent veth interface returns 500 Internal Server Error (interface does not exist in host netns)
+	isoHandler := triggerHandler(l, reg, true)
+	reqIso := httptest.NewRequest(http.MethodPost, "/v1/isolate?interface=veth12345&ip=10.244.0.12", nil)
+	recIso := httptest.NewRecorder()
+	isoHandler(recIso, reqIso)
+
+	if recIso.Code != http.StatusInternalServerError {
+		t.Fatalf("POST isolate missing veth: want 500, got %d: %s", recIso.Code, recIso.Body.String())
+	}
+	if !strings.Contains(recIso.Body.String(), "interface no longer exists") {
+		t.Errorf("POST isolate missing veth unexpected body: %s", recIso.Body.String())
+	}
+
+	// 3. Release on valid veth in dryRun mode succeeds (fail-open idempotent semantics)
+	relHandler := triggerHandler(l, reg, false)
+	reqRel := httptest.NewRequest(http.MethodPost, "/v1/release?interface=veth12345&ip=10.244.0.12", nil)
+	recRel := httptest.NewRecorder()
+	relHandler(recRel, reqRel)
+
+	if recRel.Code != http.StatusOK {
+		t.Fatalf("POST release dry-run veth: want 200, got %d: %s", recRel.Code, recRel.Body.String())
+	}
+	if !strings.Contains(recRel.Body.String(), `"action":"release"`) {
+		t.Errorf("POST release dry-run veth unexpected body: %s", recRel.Body.String())
 	}
 }
 

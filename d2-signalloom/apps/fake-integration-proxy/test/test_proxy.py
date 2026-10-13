@@ -78,13 +78,23 @@ class ProxyTest(ProxyServerTestCase):
             self.assertEqual(b"", resp.read())
             connection.close()
 
-            # Test method not allowed for non-GET/HEAD verbs
-            for verb in ("POST", "PUT", "DELETE", "PATCH", "OPTIONS"):
+            # Test OPTIONS returns 204 No Content with Allow: GET, HEAD, OPTIONS
+            conn = http.client.HTTPConnection("127.0.0.1", self.port)
+            conn.request("OPTIONS", path)
+            opt_resp = conn.getresponse()
+            self.assertEqual(204, opt_resp.status)
+            self.assertEqual("GET, HEAD, OPTIONS", opt_resp.getheader("Allow"))
+            self.assertIsNone(opt_resp.getheader("Content-Type"))
+            self.assertEqual(b"", opt_resp.read())
+            conn.close()
+
+            # Test method not allowed for non-GET/HEAD/OPTIONS verbs
+            for verb in ("POST", "PUT", "DELETE", "PATCH"):
                 conn = http.client.HTTPConnection("127.0.0.1", self.port)
                 conn.request(verb, path)
                 bad_resp = conn.getresponse()
                 self.assertEqual(405, bad_resp.status)
-                self.assertEqual("GET, HEAD", bad_resp.getheader("Allow"))
+                self.assertEqual("GET, HEAD, OPTIONS", bad_resp.getheader("Allow"))
                 self.assertEqual("application/json", bad_resp.getheader("Content-Type"))
                 body_data = json.loads(bad_resp.read().decode())
                 self.assertEqual({"error": "method not allowed"}, body_data)
@@ -101,22 +111,40 @@ class ProxyTest(ProxyServerTestCase):
             self.assertEqual(b"", resp.read())
             connection.close()
 
-            # Non-GET/HEAD verbs return 405 with Allow: GET, HEAD
-            for verb in ("POST", "PUT", "DELETE", "PATCH", "OPTIONS"):
+            # OPTIONS returns 204 with Allow: GET, HEAD, OPTIONS
+            conn = http.client.HTTPConnection("127.0.0.1", self.port)
+            conn.request("OPTIONS", path)
+            opt_resp = conn.getresponse()
+            self.assertEqual(204, opt_resp.status)
+            self.assertEqual("GET, HEAD, OPTIONS", opt_resp.getheader("Allow"))
+            self.assertEqual(b"", opt_resp.read())
+            conn.close()
+
+            # Non-GET/HEAD/OPTIONS verbs return 405 with Allow: GET, HEAD, OPTIONS
+            for verb in ("POST", "PUT", "DELETE", "PATCH"):
                 conn = http.client.HTTPConnection("127.0.0.1", self.port)
                 conn.request(verb, path)
                 bad_resp = conn.getresponse()
                 self.assertEqual(405, bad_resp.status)
-                self.assertEqual("GET, HEAD", bad_resp.getheader("Allow"))
+                self.assertEqual("GET, HEAD, OPTIONS", bad_resp.getheader("Allow"))
                 conn.close()
 
-        # 2. Non-POST on /network-tests/scan returns 405 with Allow: POST
-        for verb in ("GET", "HEAD", "PUT", "DELETE", "PATCH", "OPTIONS"):
+        # 2. OPTIONS on /network-tests/scan returns 204 with Allow: POST, OPTIONS
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("OPTIONS", "/network-tests/scan")
+        opt_resp = conn.getresponse()
+        self.assertEqual(204, opt_resp.status)
+        self.assertEqual("POST, OPTIONS", opt_resp.getheader("Allow"))
+        self.assertEqual(b"", opt_resp.read())
+        conn.close()
+
+        # Non-POST/OPTIONS on /network-tests/scan returns 405 with Allow: POST, OPTIONS
+        for verb in ("GET", "HEAD", "PUT", "DELETE", "PATCH"):
             conn = http.client.HTTPConnection("127.0.0.1", self.port)
             conn.request(verb, "/network-tests/scan")
             bad_resp = conn.getresponse()
             self.assertEqual(405, bad_resp.status)
-            self.assertEqual("POST", bad_resp.getheader("Allow"))
+            self.assertEqual("POST, OPTIONS", bad_resp.getheader("Allow"))
             conn.close()
 
     def test_malformed_content_length_handled_safely(self):
@@ -184,7 +212,7 @@ class ProxyTest(ProxyServerTestCase):
             os.environ["SIGNALLOOM_DEMO_PROFILE"] = old
 
     def test_control_routes_head_and_method_not_allowed_parity(self):
-        # /_test/requests: GET, HEAD, DELETE allowed; others 405 with Allow: GET, HEAD, DELETE
+        # /_test/requests: GET, HEAD, DELETE, OPTIONS allowed
         conn = http.client.HTTPConnection("127.0.0.1", self.port)
         conn.request("HEAD", "/_test/requests")
         resp = conn.getresponse()
@@ -193,18 +221,27 @@ class ProxyTest(ProxyServerTestCase):
         self.assertEqual(b"", resp.read())
         conn.close()
 
-        for verb in ("POST", "PUT", "PATCH", "OPTIONS"):
+        # OPTIONS on /_test/requests returns 204 with Allow: GET, HEAD, DELETE, OPTIONS
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("OPTIONS", "/_test/requests")
+        resp = conn.getresponse()
+        self.assertEqual(204, resp.status)
+        self.assertEqual("GET, HEAD, DELETE, OPTIONS", resp.getheader("Allow"))
+        self.assertEqual(b"", resp.read())
+        conn.close()
+
+        for verb in ("POST", "PUT", "PATCH"):
             conn = http.client.HTTPConnection("127.0.0.1", self.port)
             conn.request(verb, "/_test/requests")
             resp = conn.getresponse()
             self.assertEqual(405, resp.status)
-            self.assertEqual("GET, HEAD, DELETE", resp.getheader("Allow"))
+            self.assertEqual("GET, HEAD, DELETE, OPTIONS", resp.getheader("Allow"))
             self.assertEqual("application/json", resp.getheader("Content-Type"))
             body = json.loads(resp.read().decode())
             self.assertEqual({"error": "method not allowed"}, body)
             conn.close()
 
-        # /_test/fixtures: GET, HEAD allowed; others 405 with Allow: GET, HEAD
+        # /_test/fixtures: GET, HEAD, OPTIONS allowed
         conn = http.client.HTTPConnection("127.0.0.1", self.port)
         conn.request("HEAD", "/_test/fixtures")
         resp = conn.getresponse()
@@ -213,24 +250,41 @@ class ProxyTest(ProxyServerTestCase):
         self.assertEqual(b"", resp.read())
         conn.close()
 
-        for verb in ("POST", "DELETE", "PUT", "PATCH", "OPTIONS"):
+        # OPTIONS on /_test/fixtures returns 204 with Allow: GET, HEAD, OPTIONS
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("OPTIONS", "/_test/fixtures")
+        resp = conn.getresponse()
+        self.assertEqual(204, resp.status)
+        self.assertEqual("GET, HEAD, OPTIONS", resp.getheader("Allow"))
+        self.assertEqual(b"", resp.read())
+        conn.close()
+
+        for verb in ("POST", "DELETE", "PUT", "PATCH"):
             conn = http.client.HTTPConnection("127.0.0.1", self.port)
             conn.request(verb, "/_test/fixtures")
             resp = conn.getresponse()
             self.assertEqual(405, resp.status)
-            self.assertEqual("GET, HEAD", resp.getheader("Allow"))
+            self.assertEqual("GET, HEAD, OPTIONS", resp.getheader("Allow"))
             self.assertEqual("application/json", resp.getheader("Content-Type"))
             body = json.loads(resp.read().decode())
             self.assertEqual({"error": "method not allowed"}, body)
             conn.close()
 
-        # /_test/fixtures/<category>/<name>: PUT allowed; others 405 with Allow: PUT
-        for verb in ("GET", "POST", "DELETE", "PATCH", "OPTIONS"):
+        # /_test/fixtures/<category>/<name>: PUT, OPTIONS allowed
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("OPTIONS", "/_test/fixtures/crm/sample")
+        resp = conn.getresponse()
+        self.assertEqual(204, resp.status)
+        self.assertEqual("PUT, OPTIONS", resp.getheader("Allow"))
+        self.assertEqual(b"", resp.read())
+        conn.close()
+
+        for verb in ("GET", "POST", "DELETE", "PATCH"):
             conn = http.client.HTTPConnection("127.0.0.1", self.port)
             conn.request(verb, "/_test/fixtures/crm/sample")
             resp = conn.getresponse()
             self.assertEqual(405, resp.status)
-            self.assertEqual("PUT", resp.getheader("Allow"))
+            self.assertEqual("PUT, OPTIONS", resp.getheader("Allow"))
             self.assertEqual("application/json", resp.getheader("Content-Type"))
             body = json.loads(resp.read().decode())
             self.assertEqual({"error": "method not allowed"}, body)
@@ -241,7 +295,7 @@ class ProxyTest(ProxyServerTestCase):
         conn.request("HEAD", "/_test/fixtures/crm/sample")
         resp = conn.getresponse()
         self.assertEqual(405, resp.status)
-        self.assertEqual("PUT", resp.getheader("Allow"))
+        self.assertEqual("PUT, OPTIONS", resp.getheader("Allow"))
         self.assertEqual("application/json", resp.getheader("Content-Type"))
         self.assertEqual(b"", resp.read())
         conn.close()
@@ -274,6 +328,52 @@ class ProxyTest(ProxyServerTestCase):
         self.assertEqual(b"", handler.wfile.data)
         handler.send_error(400, "Bad Request")
         self.assertEqual(b"", handler.wfile.data)
+
+    def test_business_routes_options(self):
+        for path in ("/llm/assistants", "/crm/contacts", "/notification/messages", "/outbound-reporting/reports"):
+            conn = http.client.HTTPConnection("127.0.0.1", self.port)
+            conn.request("OPTIONS", path)
+            resp = conn.getresponse()
+            self.assertEqual(204, resp.status)
+            self.assertEqual("GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS", resp.getheader("Allow"))
+            self.assertIsNone(resp.getheader("Content-Type"))
+            self.assertEqual(b"", resp.read())
+            conn.close()
+
+    def test_compliance_and_stun_options_and_method_not_allowed(self):
+        # 1. Compliance: GET, HEAD, OPTIONS allowed
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("OPTIONS", "/agents/agent-007/compliance")
+        resp = conn.getresponse()
+        self.assertEqual(204, resp.status)
+        self.assertEqual("GET, HEAD, OPTIONS", resp.getheader("Allow"))
+        self.assertEqual(b"", resp.read())
+        conn.close()
+
+        for verb in ("POST", "PUT", "DELETE", "PATCH"):
+            conn = http.client.HTTPConnection("127.0.0.1", self.port)
+            conn.request(verb, "/agents/agent-007/compliance")
+            resp = conn.getresponse()
+            self.assertEqual(405, resp.status)
+            self.assertEqual("GET, HEAD, OPTIONS", resp.getheader("Allow"))
+            conn.close()
+
+        # 2. Stun: POST, OPTIONS allowed
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("OPTIONS", "/agents/agent-007/stun")
+        resp = conn.getresponse()
+        self.assertEqual(204, resp.status)
+        self.assertEqual("POST, OPTIONS", resp.getheader("Allow"))
+        self.assertEqual(b"", resp.read())
+        conn.close()
+
+        for verb in ("GET", "HEAD", "PUT", "DELETE", "PATCH"):
+            conn = http.client.HTTPConnection("127.0.0.1", self.port)
+            conn.request(verb, "/agents/agent-007/stun")
+            resp = conn.getresponse()
+            self.assertEqual(405, resp.status)
+            self.assertEqual("POST, OPTIONS", resp.getheader("Allow"))
+            conn.close()
 
 
 

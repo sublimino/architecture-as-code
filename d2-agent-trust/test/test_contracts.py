@@ -77,22 +77,34 @@ class A2A(unittest.TestCase):
    self.assertEqual(b'', head_chal_resp.read())
    self.assertTrue(getattr(s, 'allow_reuse_address', False))
    for probe in ('/health','/healthz','/readyz','/challenge','/.well-known/agent-card.json'):
-    for m in ('POST', 'PUT', 'DELETE', 'PATCH', 'TRACE', 'OPTIONS'):
+    for m in ('POST', 'PUT', 'DELETE', 'PATCH', 'TRACE'):
      m_req=urllib.request.Request(f'http://127.0.0.1:{s.server_port}{probe}', data=b'{}' if m in ('POST','PUT','PATCH') else None, method=m)
      with self.assertRaises(urllib.error.HTTPError) as m_err: urllib.request.urlopen(m_req)
      self.assertEqual(405, m_err.exception.code)
-     self.assertEqual('GET, HEAD', m_err.exception.headers.get('Allow'))
+     self.assertEqual('GET, HEAD, OPTIONS', m_err.exception.headers.get('Allow'))
      self.assertEqual('application/json', m_err.exception.headers.get('Content-Type'))
      m_err.exception.close()
-   for method in ('GET','HEAD','PUT','DELETE','PATCH','TRACE','OPTIONS'):
+    opt_req=urllib.request.Request(f'http://127.0.0.1:{s.server_port}{probe}', method='OPTIONS')
+    opt_resp=urllib.request.urlopen(opt_req)
+    self.assertEqual(204, opt_resp.status)
+    self.assertEqual('GET, HEAD, OPTIONS', opt_resp.headers.get('Allow'))
+    self.assertEqual('0', opt_resp.headers.get('Content-Length'))
+    self.assertEqual(b'', opt_resp.read())
+   for method in ('GET','HEAD','PUT','DELETE','PATCH','TRACE'):
     a2a_req=urllib.request.Request(f'http://127.0.0.1:{s.server_port}/a2a', method=method)
     with self.assertRaises(urllib.error.HTTPError) as a2a_err: urllib.request.urlopen(a2a_req)
     self.assertEqual(405, a2a_err.exception.code)
-    self.assertEqual('POST', a2a_err.exception.headers.get('Allow'))
+    self.assertEqual('POST, OPTIONS', a2a_err.exception.headers.get('Allow'))
     self.assertEqual('application/json', a2a_err.exception.headers.get('Content-Type'))
     if method == 'HEAD':
      self.assertEqual(b'', a2a_err.exception.read())
     a2a_err.exception.close()
+   a2a_opt_req=urllib.request.Request(f'http://127.0.0.1:{s.server_port}/a2a', method='OPTIONS')
+   a2a_opt_resp=urllib.request.urlopen(a2a_opt_req)
+   self.assertEqual(204, a2a_opt_resp.status)
+   self.assertEqual('POST, OPTIONS', a2a_opt_resp.headers.get('Allow'))
+   self.assertEqual('0', a2a_opt_resp.headers.get('Content-Length'))
+   self.assertEqual(b'', a2a_opt_resp.read())
    for unknown in ('/unknown', '/api/v1/invalid', '/health/subpath'):
     u_req=urllib.request.Request(f'http://127.0.0.1:{s.server_port}{unknown}', method='HEAD')
     with self.assertRaises(urllib.error.HTTPError) as u_err: urllib.request.urlopen(u_req)
@@ -144,6 +156,9 @@ class A2A(unittest.TestCase):
   cases = [
     {'exp': float('inf')}, {'exp': float('nan')}, {'exp': True}, {'exp': False},
     {'nbf': float('nan')}, {'nbf': True}, {'nbf': False}, {'nbf': -1}, {'nbf': 1002, 'exp': 1001},
+    {'exp': 1000, 'nbf': 1000}, {'exp': self.now + 86401, 'nbf': self.now - 1},
+    {'tenant': 'invalid tenant spaces'}, {'project': 'invalid/project'},
+    {'actor': 'not-a-spiffe'}, {'receiver': 'not-a-spiffe'},
     {'jti': 'x' * 513},
   ]
   for change in cases:
@@ -166,6 +181,12 @@ class A2A(unittest.TestCase):
    validate_openbao_identity('http://bao', 'not-a-jwt', 'agent-trust-planner', PLANNER)
   with self.assertRaises(PermissionError):
    validate_openbao_identity('http://bao', svid, 'role/injection', PLANNER)
+  with self.assertRaises(PermissionError):
+   validate_openbao_identity('http://bao', svid, 'agent-trust-planner', 'not-a-spiffe')
+  with self.assertRaises(PermissionError):
+   validate_openbao_identity('http://bao', 'x.' + base64.urlsafe_b64encode(json.dumps({'sub': 'not-a-spiffe'}).encode()).rstrip(b'=').decode() + '.z', 'agent-trust-planner', PLANNER)
+  with self.assertRaises(PermissionError):
+   validate_openbao_identity('http://bao\r\nInjected: true', svid, 'agent-trust-planner', PLANNER)
 
  def test_unmatched_route_and_empty_auth_handling(self):
   s = serve(self.public, 0, receiver_instance=self.instance)
@@ -194,9 +215,19 @@ class A2A(unittest.TestCase):
 
 class Adapter(unittest.TestCase):
  def test_fetches_one_svid_and_fails_closed(self):
+  import stat
+  class MockStat:
+   st_mode = stat.S_IFSOCK | 0o666
+  class MockFileStat:
+   st_mode = stat.S_IFREG | 0o666
   result=subprocess.CompletedProcess([],0,json.dumps({'svids':[{'spiffeID':PLANNER,'svid':'a.b.c'}]}),'')
-  with patch('adapters.spire_workload_api.os.path.exists',return_value=True): self.assertEqual(PLANNER,fetch_jwt_svid('openbao-supercredential',runner=lambda *_args,**_kw:result).spiffe_id)
-  with patch('adapters.spire_workload_api.os.path.exists',return_value=True):
+  with patch('adapters.spire_workload_api.os.path.exists',return_value=True), patch('adapters.spire_workload_api.os.stat',return_value=MockStat()):
+   self.assertEqual(PLANNER,fetch_jwt_svid('openbao-supercredential',runner=lambda *_args,**_kw:result).spiffe_id)
+  with patch('adapters.spire_workload_api.os.path.exists',return_value=True), patch('adapters.spire_workload_api.os.stat',return_value=MockFileStat()):
+   with self.assertRaises(RuntimeError) as non_sock_ctx:
+    fetch_jwt_svid('openbao-supercredential',runner=lambda *_args,**_kw:result)
+   self.assertIn('not a socket', str(non_sock_ctx.exception))
+  with patch('adapters.spire_workload_api.os.path.exists',return_value=True), patch('adapters.spire_workload_api.os.stat',return_value=MockStat()):
    with self.assertRaises(RuntimeError): fetch_jwt_svid('a',runner=lambda *_args,**_kw:subprocess.CompletedProcess([],1,'','bad'))
    with self.assertRaises(RuntimeError): fetch_jwt_svid('a',runner=lambda *_args,**_kw:subprocess.CompletedProcess([],0,'{bad',''))
    with self.assertRaises(RuntimeError): fetch_jwt_svid('a',runner=lambda *_args,**_kw:subprocess.CompletedProcess([],0,json.dumps({'svids':[{},{}]}),''))

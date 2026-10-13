@@ -51,8 +51,13 @@ func TestLLMEndpointFormat(t *testing.T) {
 	var receivedPath string
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedPath = r.URL.Path
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Allow", "POST, OPTIONS")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
+			w.Header().Set("Allow", "POST, OPTIONS")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			if r.Method != http.MethodHead {
@@ -89,6 +94,23 @@ func TestLLMEndpointFormat(t *testing.T) {
 	// The expected endpoint path for OpenAI-compatible APIs.
 	expectedPath := "/v1/chat/completions"
 
+	// Verify OPTIONS request returns 204 No Content with Allow: POST, OPTIONS
+	optReq, err := http.NewRequest(http.MethodOptions, mock.URL+expectedPath, nil)
+	if err != nil {
+		t.Fatalf("OPTIONS request creation failed: %v", err)
+	}
+	optResp, err := http.DefaultClient.Do(optReq)
+	if err != nil {
+		t.Fatalf("OPTIONS request failed: %v", err)
+	}
+	defer optResp.Body.Close()
+	if optResp.StatusCode != http.StatusNoContent {
+		t.Errorf("expected 204 on OPTIONS, got %d", optResp.StatusCode)
+	}
+	if allow := optResp.Header.Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("expected Allow 'POST, OPTIONS' on OPTIONS, got %q", allow)
+	}
+
 	// Verify HEAD request is rejected with 405 Method Not Allowed and 0 body bytes
 	headResp, err := http.Head(mock.URL + expectedPath)
 	if err != nil {
@@ -98,8 +120,8 @@ func TestLLMEndpointFormat(t *testing.T) {
 	if headResp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 on HEAD, got %d", headResp.StatusCode)
 	}
-	if allow := headResp.Header.Get("Allow"); allow != "POST" {
-		t.Errorf("expected Allow 'POST', got %q", allow)
+	if allow := headResp.Header.Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("expected Allow 'POST, OPTIONS', got %q", allow)
 	}
 	headBytes, _ := io.ReadAll(headResp.Body)
 	if len(headBytes) != 0 {
@@ -296,8 +318,13 @@ func TestLLMErrorHandling(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			mock := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodOptions {
+					w.Header().Set("Allow", "POST, OPTIONS")
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
 				if r.Method != http.MethodPost {
-					w.Header().Set("Allow", "POST")
+					w.Header().Set("Allow", "POST, OPTIONS")
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusMethodNotAllowed)
 					if r.Method != http.MethodHead {
@@ -313,7 +340,7 @@ func TestLLMErrorHandling(t *testing.T) {
 			})))
 			defer mock.Close()
 
-			// Assert HEAD request is rejected with 405 Method Not Allowed, Allow: POST, and 0 body bytes
+			// Assert HEAD request is rejected with 405 Method Not Allowed, Allow: POST, OPTIONS, and 0 body bytes
 			headResp, err := http.Head(mock.URL + "/v1/chat/completions")
 			if err != nil {
 				t.Fatalf("HEAD: %v", err)
@@ -323,8 +350,8 @@ func TestLLMErrorHandling(t *testing.T) {
 			if headResp.StatusCode != http.StatusMethodNotAllowed {
 				t.Errorf("HEAD: expected 405, got %d", headResp.StatusCode)
 			}
-			if allow := headResp.Header.Get("Allow"); allow != "POST" {
-				t.Errorf("HEAD: expected Allow: POST, got %q", allow)
+			if allow := headResp.Header.Get("Allow"); allow != "POST, OPTIONS" {
+				t.Errorf("HEAD: expected Allow: POST, OPTIONS, got %q", allow)
 			}
 			if len(headBody) != 0 {
 				t.Errorf("HEAD: expected 0 body bytes, got %d: %q", len(headBody), string(headBody))
@@ -382,8 +409,13 @@ func TestAnthropicMessagesAPIFormat(t *testing.T) {
 	// shapes differ from OpenAI. Verify the contract.
 	var received anthropicRequest
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Allow", "POST, OPTIONS")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
+			w.Header().Set("Allow", "POST, OPTIONS")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			if r.Method != http.MethodHead {
@@ -425,6 +457,23 @@ func TestAnthropicMessagesAPIFormat(t *testing.T) {
 	}))
 	defer mock.Close()
 
+	// Verify OPTIONS request returns 204 No Content with Allow: POST, OPTIONS
+	optReq, err := http.NewRequest(http.MethodOptions, mock.URL+"/v1/messages", nil)
+	if err != nil {
+		t.Fatalf("OPTIONS request creation failed: %v", err)
+	}
+	optResp, err := http.DefaultClient.Do(optReq)
+	if err != nil {
+		t.Fatalf("OPTIONS request failed: %v", err)
+	}
+	defer optResp.Body.Close()
+	if optResp.StatusCode != http.StatusNoContent {
+		t.Errorf("expected 204 on OPTIONS, got %d", optResp.StatusCode)
+	}
+	if allow := optResp.Header.Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("expected Allow 'POST, OPTIONS' on OPTIONS, got %q", allow)
+	}
+
 	// Verify HEAD request is rejected with 405 Method Not Allowed and 0 body bytes
 	headResp, err := http.Head(mock.URL + "/v1/messages")
 	if err != nil {
@@ -434,8 +483,8 @@ func TestAnthropicMessagesAPIFormat(t *testing.T) {
 	if headResp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 on HEAD, got %d", headResp.StatusCode)
 	}
-	if allow := headResp.Header.Get("Allow"); allow != "POST" {
-		t.Errorf("expected Allow 'POST', got %q", allow)
+	if allow := headResp.Header.Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("expected Allow 'POST, OPTIONS', got %q", allow)
 	}
 	headBytes, _ := io.ReadAll(headResp.Body)
 	if len(headBytes) != 0 {

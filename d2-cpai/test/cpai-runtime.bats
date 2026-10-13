@@ -64,6 +64,12 @@ teardown_file() {
   echo "$output" | grep -q '"status":"alive"'
 }
 
+@test "healthz OPTIONS preflight succeeds" {
+  run curl -s -o /dev/null -w "%{http_code}" -X OPTIONS "http://localhost:${CPAI_PORT_FORWARD_PORT}/healthz"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ ^(200|204)$ ]]
+}
+
 @test "OpenAI hello-world: POST /v1/chat/completions returns a valid response" {
   local model="${CPAI_TEST_MODEL:-google-vertex/gemini-2.5-flash}"
   run curl -sS -w '\n%{http_code}' --max-time 60 \

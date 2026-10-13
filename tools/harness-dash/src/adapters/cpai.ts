@@ -51,6 +51,12 @@ export class CpaiAdapter extends BaseHarnessAdapter {
       let lastActivityDate = stat.mtime;
       let cwd = process.env.HOME || '/';
 
+      const modelsUsed = new Set<string>();
+      let inputTokens = 0;
+      let outputTokens = 0;
+      let totalCostUsd = 0;
+      let contextWindowUsedPct = 0;
+
       for (const line of lastLines) {
         try {
           const parsed = JSON.parse(line);
@@ -63,6 +69,22 @@ export class CpaiAdapter extends BaseHarnessAdapter {
             const d = new Date(parsed.timestamp);
             if (!isNaN(d.getTime())) lastActivityDate = d;
           }
+          if (typeof parsed.model === 'string' && parsed.model) {
+            modelsUsed.add(parsed.model);
+          } else if (Array.isArray(parsed.models)) {
+            for (const m of parsed.models) {
+              if (typeof m === 'string' && m) modelsUsed.add(m);
+            }
+          }
+          if (parsed.token_usage || parsed.usage) {
+            const u = parsed.token_usage || parsed.usage;
+            if (typeof u.input_tokens === 'number') inputTokens += u.input_tokens;
+            if (typeof u.output_tokens === 'number') outputTokens += u.output_tokens;
+            if (typeof u.total_cost_usd === 'number') totalCostUsd += u.total_cost_usd;
+            if (typeof u.context_window_used_pct === 'number') contextWindowUsedPct = u.context_window_used_pct;
+          }
+          if (typeof parsed.input_tokens === 'number') inputTokens += parsed.input_tokens;
+          if (typeof parsed.output_tokens === 'number') outputTokens += parsed.output_tokens;
         } catch {
           // ignore
         }
@@ -83,12 +105,12 @@ export class CpaiAdapter extends BaseHarnessAdapter {
         updatedAt: stat.mtime.toISOString(),
         lastActivityAt: lastActivityDate.toISOString(),
         cwd,
-        modelsUsed: ['claude-3-7-sonnet', 'deepseek-r1'],
+        modelsUsed: Array.from(modelsUsed),
         tokenUsage: {
-          inputTokens: 28000,
-          outputTokens: 4100,
-          totalCostUsd: 0.038,
-          contextWindowUsedPct: 22
+          inputTokens,
+          outputTokens,
+          totalCostUsd,
+          contextWindowUsedPct
         },
         subagentCount: subordinateActivities.length,
         subordinateActivities,

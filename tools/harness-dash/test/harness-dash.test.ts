@@ -65,6 +65,21 @@ describe('Universal AI CLI & Harness Dashboard Suite', () => {
     expect(session?.cwd).toBe(process.env.HOME || '/');
     expect(session?.url).toBe('cpai://session/session-cpai-demo');
     expect(session?.rawLogPath).toBe(testSessionFile);
+    expect(session?.modelsUsed).toEqual([]);
+    expect(session?.tokenUsage).toEqual({ inputTokens: 0, outputTokens: 0, totalCostUsd: 0, contextWindowUsedPct: 0 });
+
+    const metricSessionFile = path.join(tmpDir, 'session-cpai-metrics.jsonl');
+    await fs.writeFile(
+      metricSessionFile,
+      [
+        JSON.stringify({ session_name: 'CPAI Metrics', model: 'gemini-2.5-flash', input_tokens: 1200, output_tokens: 350 }),
+        JSON.stringify({ role: 'user', content: 'test', usage: { total_cost_usd: 0.005, context_window_used_pct: 12 } })
+      ].join('\n'),
+      'utf-8'
+    );
+    const metricSession = await adapter.parseSession(metricSessionFile, 'dev-box', 'dev-host');
+    expect(metricSession?.modelsUsed).toEqual(['gemini-2.5-flash']);
+    expect(metricSession?.tokenUsage).toEqual({ inputTokens: 1200, outputTokens: 350, totalCostUsd: 0.005, contextWindowUsedPct: 12 });
   });
 
   it('saves and retrieves sessions from partitioned sync store with zero conflict', async () => {

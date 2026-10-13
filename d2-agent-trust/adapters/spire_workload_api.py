@@ -3,6 +3,7 @@ import json
 import math
 import os
 import re
+import stat
 import subprocess
 from dataclasses import dataclass
 
@@ -15,24 +16,33 @@ class JwtSvid:
     spiffe_id: str
     token: str
 
-def workload_api_socket() -> str:
+def workload_api_socket(stat_fn=None) -> str:
     path = os.environ.get("SPIRE_AGENT_SOCKET", "").strip() or "/run/spire/sockets/agent.sock"
-    if not os.path.exists(path): raise RuntimeError(f"SPIRE Workload API socket unavailable: {path}")
+    if not os.path.exists(path):
+        raise RuntimeError(f"SPIRE Workload API socket unavailable: {path}")
+    try:
+        fn = stat_fn or os.stat
+        st = fn(path)
+        if hasattr(stat, "S_ISSOCK") and not stat.S_ISSOCK(st.st_mode):
+            raise RuntimeError(f"SPIRE Workload API socket path is not a socket: {path}")
+    except OSError as exc:
+        raise RuntimeError(f"SPIRE Workload API socket inaccessible: {exc}") from exc
     return path
 
-def fetch_jwt_svid(audience: str, *, timeout: float = 5, runner=subprocess.run) -> JwtSvid:
+def fetch_jwt_svid(audience: str, *, timeout: float = 5, runner=subprocess.run, stat_fn=None) -> JwtSvid:
     """Fetch exactly one JWT-SVID using installed ``spire-agent``; fail closed."""
     if not isinstance(audience, str) or not _AUDIENCE.fullmatch(audience):
         raise ValueError("invalid SPIRE JWT-SVID audience")
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or not (0 < timeout <= 30):
         raise ValueError("invalid SPIRE command timeout")
+    socket_path = workload_api_socket(stat_fn=stat_fn)
     try:
         result = runner(
-            ["spire-agent", "api", "fetch", "jwt", "-socketPath", workload_api_socket(), "-audience", audience, "-output", "json"],
+            ["spire-agent", "api", "fetch", "jwt", "-socketPath", socket_path, "-audience", audience, "-output", "json"],
             capture_output=True, text=True, timeout=timeout, check=False,
         )
     except (subprocess.SubprocessError, OSError) as exc:
-        raise RuntimeError(f"SPIRE command execution failed: {exc}") from None
+        raise RuntimeError(f"SPIRE command execution failed: {exc}") from exc
     if result.returncode:
         detail = (result.stderr or "").strip() or f"exit status {result.returncode}"
         raise RuntimeError(f"SPIRE JWT-SVID fetch failed: {detail}")

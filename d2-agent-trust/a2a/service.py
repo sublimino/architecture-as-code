@@ -9,6 +9,7 @@ PLANNER = "spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/paym
 TRIAGE = "spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/triage"
 _JWT = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
 _ROLE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+_SPIFFE = re.compile(r"^spiffe://[^\s]+$")
 
 def _b64(v): return base64.urlsafe_b64encode(v).rstrip(b"=").decode()
 def _unb64(v): return base64.urlsafe_b64decode(v + "=" * (-len(v) % 4))
@@ -35,12 +36,14 @@ class ReplayStore:
         return True
 def validate_openbao_identity(url, jwt_svid, role, expected_spiffe, opener=urllib.request.urlopen):
     """Real code seam: OpenBao JWT login validates a SPIRE JWT-SVID exact role."""
-    if not isinstance(url, str) or not (url.startswith("http://") or url.startswith("https://")):
+    if not isinstance(url, str) or not (url.startswith("http://") or url.startswith("https://")) or any(c in url for c in " \r\n\t"):
         raise PermissionError("invalid OpenBao URL")
     if not isinstance(role, str) or not _ROLE.fullmatch(role):
         raise PermissionError("invalid OpenBao role")
     if not isinstance(jwt_svid, str) or not _JWT.fullmatch(jwt_svid):
         raise PermissionError("invalid JWT-SVID format")
+    if not isinstance(expected_spiffe, str) or not _SPIFFE.fullmatch(expected_spiffe):
+        raise PermissionError("invalid expected SPIFFE ID")
     req = urllib.request.Request(f"{url.rstrip('/')}/v1/auth/jwt/login", data=json.dumps({"role":role,"jwt":jwt_svid}).encode(), headers={"Content-Type":"application/json"}, method="POST")
     try: response = json.loads(opener(req, timeout=5).read())
     except Exception as exc: raise PermissionError("OpenBao JWT validation failed") from exc
@@ -51,6 +54,8 @@ def validate_openbao_identity(url, jwt_svid, role, expected_spiffe, opener=urlli
         if len(parts) != 3: raise ValueError("malformed JWT")
         subject = json.loads(_unb64(parts[1])).get("sub")
     except Exception as exc: raise PermissionError("JWT-SVID subject unreadable") from exc
+    if not isinstance(subject, str) or not _SPIFFE.fullmatch(subject):
+        raise PermissionError("invalid JWT-SVID subject format")
     if subject != expected_spiffe: raise PermissionError("OpenBao identity scope")
     return expected_spiffe
 def authenticate_spiffe_via_openbao(audience, openbao_url, role, expected_spiffe, *, fetcher=fetch_jwt_svid, opener=urllib.request.urlopen):
@@ -84,6 +89,18 @@ def verify_and_authorize(context, public_key, request, peer_spiffe, replay, now=
         raise
     except Exception as exc:
         raise PermissionError("malformed authorization context") from exc
+    actor = claims.get("actor")
+    receiver = claims.get("receiver")
+    tenant = claims.get("tenant")
+    project = claims.get("project")
+    if not isinstance(actor, str) or not _SPIFFE.fullmatch(actor):
+        raise PermissionError("authorization context actor invalid")
+    if not isinstance(receiver, str) or not _SPIFFE.fullmatch(receiver):
+        raise PermissionError("authorization context receiver invalid")
+    if not isinstance(tenant, str) or not re.fullmatch(r"^[a-zA-Z0-9_-]{1,64}$", tenant):
+        raise PermissionError("authorization context tenant invalid")
+    if not isinstance(project, str) or not re.fullmatch(r"^[a-zA-Z0-9_-]{1,64}$", project):
+        raise PermissionError("authorization context project invalid")
     required = {
         "iss": ISSUER, "aud": AUDIENCE, "actor": PLANNER, "receiver": TRIAGE,
         "instance": receiver_instance, "tenant": "acme", "project": "payments",
@@ -100,12 +117,24 @@ def verify_and_authorize(context, public_key, request, peer_spiffe, replay, now=
         raise PermissionError("authorization context time/replay")
     if isinstance(exp, bool) or not isinstance(exp, (int, float)) or not math.isfinite(exp) or exp <= 0:
         raise PermissionError("authorization context time/replay")
+    if nbf >= exp or (exp - nbf) > 86400:
+        raise PermissionError("authorization context time/replay")
     if not (nbf <= now < exp) or not replay.consume(claims.get("jti"), exp, now):
         raise PermissionError("authorization context time/replay")
     return {"caller": peer_spiffe, "receiver": TRIAGE, "decision": "allow"}
 def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, openbao_role="agent-trust-planner", receiver_instance=None):
     card = Path(__file__).with_name("agent-card.json").read_bytes(); replay = ReplayStore(); instance = receiver_instance or secrets.token_urlsafe(16)
     class H(BaseHTTPRequestHandler):
+        def _drain_body(self):
+            try:
+                raw_len = self.headers.get("Content-Length")
+                if raw_len:
+                    length = int(raw_len.strip())
+                    if 0 < length <= 1048576:
+                        self.rfile.read(min(length, 4096))
+            except Exception:
+                pass
+
         def _send_json(self, status: int, payload: dict, allow: str | None = None):
             body = json.dumps(payload, separators=(',', ':')).encode()
             self.send_response(status)
@@ -117,6 +146,23 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
             if self.command != "HEAD":
                 self.wfile.write(body)
 
+        def do_OPTIONS(self):
+            self._drain_body()
+            path = self.path.split("?")[0].rstrip("/") or "/"
+            if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
+                self.send_response(204)
+                self.send_header("Allow", "GET, HEAD, OPTIONS")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if path == "/a2a":
+                self.send_response(204)
+                self.send_header("Allow", "POST, OPTIONS")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            self._send_json(404, {"error": "not found"})
+
         def do_GET(self):
             path = self.path.split("?")[0].rstrip("/") or "/"
             if path in ("/health", "/healthz", "/readyz"):
@@ -126,7 +172,7 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                 self._send_json(200, {"instanceNonce": instance})
                 return
             if path == "/a2a":
-                self._send_json(405, {"error": "method not allowed"}, allow="POST")
+                self._send_json(405, {"error": "method not allowed"}, allow="POST, OPTIONS")
                 return
             if path not in ("/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
                 self._send_json(404, {"error": "not found"})
@@ -147,7 +193,7 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                 self._send_json(200, {"instanceNonce": instance})
                 return
             if path == "/a2a":
-                self._send_json(405, {"error": "method not allowed"}, allow="POST")
+                self._send_json(405, {"error": "method not allowed"}, allow="POST, OPTIONS")
                 return
             if path not in ("/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
                 self._send_json(404, {"error": "not found"})
@@ -160,21 +206,26 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
         def do_POST(self):
             path = self.path.split("?")[0].rstrip("/") or "/"
             if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
-                self._send_json(405, {"error": "method not allowed"}, allow="GET, HEAD")
+                self._drain_body()
+                self._send_json(405, {"error": "method not allowed"}, allow="GET, HEAD, OPTIONS")
                 return
             if path != "/a2a":
+                self._drain_body()
                 self._send_json(404, {"error": "not found"})
                 return
             raw_len = self.headers.get("Content-Length")
             if raw_len is None:
+                self._drain_body()
                 self._send_json(400, {"error": "missing Content-Length"})
                 return
             try:
                 length = int(raw_len.strip())
             except ValueError:
+                self._drain_body()
                 self._send_json(400, {"error": "invalid Content-Length"})
                 return
             if length <= 0 or length > 1048576:
+                self._drain_body()
                 self._send_json(400, {"error": "Content-Length out of range"})
                 return
             try:
@@ -210,23 +261,24 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                 self._send_json(403, {"error": "forbidden"})
 
         def _handle_unsupported_method(self):
+            self._drain_body()
             path = self.path.split("?")[0].rstrip("/") or "/"
             if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
-                self._send_json(405, {"error": "method not allowed"}, allow="GET, HEAD")
+                self._send_json(405, {"error": "method not allowed"}, allow="GET, HEAD, OPTIONS")
                 return
             if path == "/a2a":
-                self._send_json(405, {"error": "method not allowed"}, allow="POST")
+                self._send_json(405, {"error": "method not allowed"}, allow="POST, OPTIONS")
                 return
             self._send_json(404, {"error": "not found"})
         def send_error(self, code: int, message: str | None = None, explain: str | None = None):
             path = getattr(self, "path", "/").split("?")[0].rstrip("/") or "/"
             allow = None
             if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
-                allow = "GET, HEAD"
+                allow = "GET, HEAD, OPTIONS"
                 if code == 501:
                     code = 405
             elif path == "/a2a":
-                allow = "POST"
+                allow = "POST, OPTIONS"
                 if code == 501:
                     code = 405
             else:
@@ -237,7 +289,6 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
         def do_PUT(self): self._handle_unsupported_method()
         def do_DELETE(self): self._handle_unsupported_method()
         def do_PATCH(self): self._handle_unsupported_method()
-        def do_OPTIONS(self): self._handle_unsupported_method()
         def do_TRACE(self): self._handle_unsupported_method()
         def do_CONNECT(self): self._handle_unsupported_method()
         def log_message(self,*_): pass

@@ -1567,6 +1567,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
         category = self._business_route(path)
         if category is None:
             return False
+        if self.command == "OPTIONS":
+            self._body()
+            self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS"})
+            return True
         body = self._body() if self.command in {"POST", "PUT", "PATCH"} else None
         fixture_name, fixture = self.state.select_fixture(category, path)
         self._capture(category, path, body, fixture_name)
@@ -1886,6 +1890,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         410 rather than 404 so a stale caller learns the route moved instead of
         concluding the agent does not exist. Nothing is looked up or patched.
         """
+        self._body()
         self._json(HTTPStatus.GONE, {
             "error": "stun moved to the fleet-manager cascade",
             "use": "POST /api/agents/{id}/stun on fe-signalloom",
@@ -1906,13 +1911,21 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self.state.reset_requests()
                 self._json(HTTPStatus.OK, {"requests": []})
                 return True
-            self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, DELETE"})
+            if self.command == "OPTIONS":
+                self._body()
+                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, DELETE, OPTIONS"})
+                return True
+            self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, DELETE, OPTIONS"})
             return True
         if path == "/_test/fixtures":
             if self.command in ("GET", "HEAD"):
                 self._json(HTTPStatus.OK, {"fixtures": self.state.get_fixtures()})
                 return True
-            self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD"})
+            if self.command == "OPTIONS":
+                self._body()
+                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
+                return True
+            self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
             return True
         parts = path.split("/")
         if len(parts) == 5 and parts[:3] == ["", "_test", "fixtures"]:
@@ -1928,7 +1941,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self.state.put_fixture(category, name, body)
                 self._json(HTTPStatus.OK, {"category": category, "name": name, "fixture": body})
                 return True
-            self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "PUT"})
+            if self.command == "OPTIONS":
+                self._body()
+                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "PUT, OPTIONS"})
+                return True
+            self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "PUT, OPTIONS"})
             return True
         self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
         return True
@@ -1943,44 +1960,68 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if path in ("/health", "/healthz", "/readyz"):
             if self.command in ("GET", "HEAD"):
                 self._json(HTTPStatus.OK, {"status": "ok"})
+            elif self.command == "OPTIONS":
+                self._body()
+                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
-                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD"})
+                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/agents":
             if self.command in ("GET", "HEAD"):
                 self._handle_agents()
+            elif self.command == "OPTIONS":
+                self._body()
+                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
-                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD"})
+                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/crypto-proofs":
             if self.command in ("GET", "HEAD"):
                 self._handle_crypto_proofs()
+            elif self.command == "OPTIONS":
+                self._body()
+                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
-                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD"})
+                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/trust-topology":
             if self.command in ("GET", "HEAD"):
                 self._handle_trust_topology()
+            elif self.command == "OPTIONS":
+                self._body()
+                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
-                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD"})
+                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/network-tests":
             if self.command in ("GET", "HEAD"):
                 self._handle_network_tests()
+            elif self.command == "OPTIONS":
+                self._body()
+                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
-                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD"})
+                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/network-tests/scan":
             if self.command == "POST":
                 self._handle_network_tests_scan()
+            elif self.command == "OPTIONS":
+                self._body()
+                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "POST, OPTIONS"})
             else:
-                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "POST"})
+                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "POST, OPTIONS"})
         elif path.startswith("/agents/") and path.endswith("/compliance"):
             if self.command in ("GET", "HEAD"):
                 agent_id = path.split("/")[2]
                 self._handle_agent_compliance(agent_id, self._requested_namespace())
+            elif self.command == "OPTIONS":
+                self._body()
+                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
-                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD"})
+                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path.startswith("/agents/") and path.endswith("/stun"):
             if self.command == "POST":
                 self._handle_agent_stun_gone()
+            elif self.command == "OPTIONS":
+                self._body()
+                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "POST, OPTIONS"})
             else:
-                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "POST"})
+                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "POST, OPTIONS"})
         elif self._handle_control() or self._handle_business():
             return
         else:

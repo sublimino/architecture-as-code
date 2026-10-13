@@ -80,6 +80,11 @@ func RequireAPIKey(keys []string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !authorized(r, keys) {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="policy-engine"`)
+			if r.Method == http.MethodHead {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
 			writeError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}

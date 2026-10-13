@@ -281,23 +281,40 @@ func TestHandleMutating_MethodNotAllowed(t *testing.T) {
 		handler http.HandlerFunc
 		path    string
 	}{
+		{"deploy", s.handleDeploy, "/api/v1/fleet/deploy"},
+		{"stun", s.handleStun, "/api/v1/fleet/stun/agent-1"},
 		{"recover", s.handleRecover, "/api/v1/fleet/recover"},
 		{"resume", s.handleResume, "/api/v1/fleet/resume"},
 		{"scan", s.handleScan, "/api/v1/fleet/scan"},
 		{"reset", s.handleReset, "/api/v1/fleet/reset"},
 		{"policyEvaluate", s.handlePolicyEvaluate, "/api/v1/fleet/policies/evaluate"},
+		{"workloadReport", s.handleWorkloadReport, "/api/v1/fleet/workloads/report"},
+		{"remoteStunAck", s.handleRemoteStunAck, "/api/v1/fleet/stun-state/ack"},
+	}
+
+	invalidMethods := []string{
+		http.MethodGet,
+		http.MethodPut,
+		http.MethodDelete,
+		http.MethodPatch,
+		http.MethodHead,
 	}
 
 	for _, rt := range routes {
 		t.Run(rt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, rt.path, nil)
-			w := httptest.NewRecorder()
-			rt.handler(w, req)
-			if w.Code != http.StatusMethodNotAllowed {
-				t.Fatalf("%s expected 405, got %d", rt.name, w.Code)
-			}
-			if allow := w.Header().Get("Allow"); allow != "POST" {
-				t.Fatalf("%s expected Allow: POST, got %q", rt.name, allow)
+			for _, m := range invalidMethods {
+				req := httptest.NewRequest(m, rt.path, nil)
+				w := httptest.NewRecorder()
+				rt.handler(w, req)
+				if w.Code != http.StatusMethodNotAllowed {
+					t.Fatalf("%s [%s] expected 405, got %d", rt.name, m, w.Code)
+				}
+				if allow := w.Header().Get("Allow"); allow != "POST" {
+					t.Fatalf("%s [%s] expected Allow: POST, got %q", rt.name, m, allow)
+				}
+				if m == http.MethodHead && w.Body.Len() != 0 {
+					t.Fatalf("%s [HEAD] expected 0 body bytes, got %d: %q", rt.name, w.Body.Len(), w.Body.String())
+				}
 			}
 		})
 	}
@@ -316,14 +333,16 @@ func TestHandleTopology_HEADAndMethodNotAllowed(t *testing.T) {
 		t.Fatalf("HEAD expected empty body, got %d bytes", headW.Body.Len())
 	}
 
-	postReq := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/topology", nil)
-	postW := httptest.NewRecorder()
-	s.handleTopology(postW, postReq)
-	if postW.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("POST expected 405, got %d", postW.Code)
-	}
-	if allow := postW.Header().Get("Allow"); allow != "GET, HEAD" {
-		t.Fatalf("expected Allow: GET, HEAD, got %q", allow)
+	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		postReq := httptest.NewRequest(m, "/api/v1/fleet/topology", nil)
+		postW := httptest.NewRecorder()
+		s.handleTopology(postW, postReq)
+		if postW.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("[%s] expected 405, got %d", m, postW.Code)
+		}
+		if allow := postW.Header().Get("Allow"); allow != "GET, HEAD" {
+			t.Fatalf("[%s] expected Allow: GET, HEAD, got %q", m, allow)
+		}
 	}
 }
 
@@ -341,12 +360,18 @@ func TestRoutes_HEADErrorBodySuppression(t *testing.T) {
 		{"readyz", "/readyz", http.StatusOK},
 		{"topology", "/api/v1/fleet/topology", http.StatusOK},
 		{"policies", "/api/v1/fleet/policies", http.StatusOK},
+		{"audit_events", "/api/v1/fleet/audit/events", http.StatusOK},
+		{"audit_stream", "/api/v1/fleet/audit/stream", http.StatusOK},
 		{"unauth_deploy", "/api/v1/fleet/deploy", http.StatusUnauthorized},
 		{"unauth_stun", "/api/v1/fleet/stun/agent-1", http.StatusUnauthorized},
 		{"unauth_resume", "/api/v1/fleet/resume", http.StatusUnauthorized},
 		{"unauth_scan", "/api/v1/fleet/scan", http.StatusUnauthorized},
 		{"unauth_recover", "/api/v1/fleet/recover", http.StatusUnauthorized},
 		{"unauth_reset", "/api/v1/fleet/reset", http.StatusUnauthorized},
+		{"unauth_workloads", "/api/v1/fleet/workloads", http.StatusUnauthorized},
+		{"unauth_workload_report", "/api/v1/fleet/workloads/report", http.StatusUnauthorized},
+		{"unauth_stun_state", "/api/v1/fleet/stun-state", http.StatusUnauthorized},
+		{"unauth_stun_state_ack", "/api/v1/fleet/stun-state/ack", http.StatusUnauthorized},
 		{"not_found", "/api/v1/fleet/unknown-route-404", http.StatusNotFound},
 	}
 

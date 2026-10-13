@@ -792,6 +792,11 @@ func (s *server) handleRemoteStunState(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleRemoteStunAck(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -848,6 +853,9 @@ func (s *server) handleRemoteStunAck(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
 	_ = json.NewEncoder(w).Encode(record)
 }
 

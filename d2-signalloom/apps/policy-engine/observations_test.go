@@ -538,6 +538,10 @@ func TestEvaluateObservationRequestValidation(t *testing.T) {
 		want    int
 	}{
 		{"GET is refused", http.MethodGet, "", nil, http.StatusMethodNotAllowed},
+		{"HEAD is refused with 0 body bytes", http.MethodHead, "", nil, http.StatusMethodNotAllowed},
+		{"PUT is refused", http.MethodPut, "", nil, http.StatusMethodNotAllowed},
+		{"DELETE is refused", http.MethodDelete, "", nil, http.StatusMethodNotAllowed},
+		{"PATCH is refused", http.MethodPatch, "", nil, http.StatusMethodNotAllowed},
 		{"malformed json", http.MethodPost, `{`, nil, http.StatusBadRequest},
 		{"missing tenant", http.MethodPost, `{"observation":{"id":"o"}}`, nil, http.StatusBadRequest},
 		{"tenant from header", http.MethodPost, `{"observation":{"id":"o","layer":"x"}}`,
@@ -561,6 +565,9 @@ func TestEvaluateObservationRequestValidation(t *testing.T) {
 			}
 			if tc.want == http.StatusMethodNotAllowed && w.Header().Get("Allow") != "POST" {
 				t.Fatalf("Allow header = %q, want POST", w.Header().Get("Allow"))
+			}
+			if tc.method == http.MethodHead && w.Body.Len() != 0 {
+				t.Fatalf("expected 0 body bytes on HEAD, got %d: %q", w.Body.Len(), w.Body.String())
 			}
 		})
 	}

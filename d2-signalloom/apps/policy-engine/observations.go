@@ -61,6 +61,11 @@ func NewObservationHandlers(store *PolicyStore, evaluator obscel.Evaluator) *Obs
 func (h *ObservationHandlers) HandleEvaluateObservation(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}

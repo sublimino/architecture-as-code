@@ -187,12 +187,15 @@ func TestEveryGuardedRouteIs401WithoutAKey(t *testing.T) {
 	mux := newGuardedMux(t, ParseAPIKeys("good-key"))
 
 	for _, route := range GuardedRoutes {
-		for _, method := range []string{http.MethodGet, http.MethodPost} {
+		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodHead} {
 			req := httptest.NewRequest(method, route, strings.NewReader("{}"))
 			w := httptest.NewRecorder()
 			mux.ServeHTTP(w, req)
 			if w.Code != http.StatusUnauthorized {
 				t.Errorf("%s %s: got %d, want 401 — the route is reachable without a key", method, route, w.Code)
+			}
+			if method == http.MethodHead && w.Body.Len() != 0 {
+				t.Errorf("%s %s: got %d body bytes on HEAD 401, want 0", method, route, w.Body.Len())
 			}
 		}
 	}

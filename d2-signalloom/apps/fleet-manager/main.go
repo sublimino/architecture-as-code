@@ -304,6 +304,11 @@ func (s *server) handleTopology(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -428,6 +433,11 @@ func writeCascadeResult(w http.ResponseWriter, result *CascadeResult) {
 func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -519,6 +529,11 @@ func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -667,6 +682,11 @@ type DeployResponse struct {
 func (s *server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -733,17 +753,29 @@ func (s *server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
 	json.NewEncoder(w).Encode(resp)
 }
 
 func (s *server) handleScan(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "accepted",
 		"message": "fleet-wide compliance scan initiated",
@@ -753,11 +785,20 @@ func (s *server) handleScan(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "accepted",
 		"message": "fleet teardown initiated",
@@ -792,6 +833,11 @@ func (s *server) handlePolicies(w http.ResponseWriter, r *http.Request) {
 func (s *server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -820,6 +866,10 @@ func (s *server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
 	json.NewEncoder(w).Encode(res)
 }
 
@@ -902,6 +952,9 @@ func cascadeContext(r *http.Request) (context.Context, context.CancelFunc) {
 func writeError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
+	if _, ok := w.(*headResponseWriter); ok {
+		return
+	}
 	json.NewEncoder(w).Encode(ErrorResponse{Error: msg})
 }
 

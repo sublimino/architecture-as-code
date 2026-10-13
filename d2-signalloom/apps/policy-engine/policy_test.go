@@ -699,3 +699,78 @@ func TestConcurrentEvaluations(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestPolicyEngineHandlers_DirectInvocationMethodMatrixAndHEAD(t *testing.T) {
+	celEngine, err := NewCELEngine()
+	if err != nil {
+		t.Fatalf("failed to create cel engine: %v", err)
+	}
+	store := NewPolicyStore(celEngine)
+	h := NewPolicyEngineHandlers(store, celEngine)
+
+	t.Run("HandleListPolicies_MethodsAndHEAD", func(t *testing.T) {
+		// Valid HEAD with tenant
+		headReq := httptest.NewRequest(http.MethodHead, "/api/v1/policies?tenant_id=tenant-1", nil)
+		headRec := httptest.NewRecorder()
+		h.HandleListPolicies(headRec, headReq)
+		if headRec.Code != http.StatusOK {
+			t.Fatalf("HEAD expected 200, got %d", headRec.Code)
+		}
+		if headRec.Body.Len() != 0 {
+			t.Fatalf("HEAD expected 0 body bytes, got %d", headRec.Body.Len())
+		}
+
+		// HEAD with invalid cross-tenant
+		badHeadReq := httptest.NewRequest(http.MethodHead, "/api/v1/policies?tenant=t1&tenant_id=t2", nil)
+		badHeadRec := httptest.NewRecorder()
+		h.HandleListPolicies(badHeadRec, badHeadReq)
+		if badHeadRec.Code != http.StatusForbidden {
+			t.Fatalf("HEAD invalid tenant expected 403, got %d", badHeadRec.Code)
+		}
+		if badHeadRec.Body.Len() != 0 {
+			t.Fatalf("HEAD invalid tenant expected 0 body bytes, got %d", badHeadRec.Body.Len())
+		}
+
+		// Invalid methods
+		for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+			req := httptest.NewRequest(m, "/api/v1/policies?tenant_id=tenant-1", nil)
+			rec := httptest.NewRecorder()
+			h.HandleListPolicies(rec, req)
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("[%s] expected 405, got %d", m, rec.Code)
+			}
+			if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
+				t.Fatalf("[%s] expected Allow: GET, HEAD, got %q", m, allow)
+			}
+		}
+	})
+
+	mutatingRoutes := []struct {
+		name    string
+		handler http.HandlerFunc
+		path    string
+	}{
+		{"HandleEvaluatePolicies", h.HandleEvaluatePolicies, "/api/v1/policies/evaluate"},
+		{"HandleRegisterBundle", h.HandleRegisterBundle, "/api/v1/policies/bundles"},
+		{"HandleRollback", h.HandleRollback, "/api/v1/policies/rollback"},
+	}
+
+	for _, rt := range mutatingRoutes {
+		t.Run(rt.name, func(t *testing.T) {
+			for _, m := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodHead} {
+				req := httptest.NewRequest(m, rt.path, nil)
+				rec := httptest.NewRecorder()
+				rt.handler(rec, req)
+				if rec.Code != http.StatusMethodNotAllowed {
+					t.Fatalf("[%s] expected 405, got %d", m, rec.Code)
+				}
+				if allow := rec.Header().Get("Allow"); allow != "POST" {
+					t.Fatalf("[%s] expected Allow: POST, got %q", m, allow)
+				}
+				if m == http.MethodHead && rec.Body.Len() != 0 {
+					t.Fatalf("[%s] expected 0 body bytes on HEAD, got %d", m, rec.Body.Len())
+				}
+			}
+		})
+	}
+}

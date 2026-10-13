@@ -3,6 +3,7 @@ package stun
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -48,8 +49,20 @@ func NewMemoryStunExecutor() *MemoryStunExecutor {
 func (m *MemoryStunExecutor) ExecuteStun(ctx context.Context, req StunRequest) (*StunResult, error) {
 	start := time.Now()
 
+	req.AgentID = strings.TrimSpace(req.AgentID)
+	req.ServiceAccountEmail = strings.TrimSpace(req.ServiceAccountEmail)
+
 	if req.AgentID == "" && req.ServiceAccountEmail == "" {
 		return nil, fmt.Errorf("agent_id or service_account_email is required for stun cascade")
+	}
+	if len(req.AgentID) > 256 {
+		return nil, fmt.Errorf("agent_id exceeds maximum length of 256 characters")
+	}
+	if len(req.ServiceAccountEmail) > 256 {
+		return nil, fmt.Errorf("service_account_email exceeds maximum length of 256 characters")
+	}
+	if len(req.Reason) > 1024 {
+		return nil, fmt.Errorf("reason exceeds maximum length of 1024 characters")
 	}
 
 	m.mu.Lock()

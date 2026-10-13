@@ -463,5 +463,98 @@ func TestWorkspaceConnectorHeadResponseWriterDirect(t *testing.T) {
 	}
 }
 
+func TestServer_OptionsAndIngestValidation(t *testing.T) {
+	srv := &Server{
+		client:    client.NewMockReportsClient(),
+		stunner:   stun.NewMemoryStunExecutor(),
+		ingestURL: "http://localhost:8090/api/v1/observations",
+	}
+
+	handler := srv.routes()
+
+	// 1. Probes & status OPTIONS -> 204 No Content with Allow: GET, HEAD, OPTIONS
+	for _, path := range []string{"/health", "/healthz", "/readyz", "/api/v1/workspace/status"} {
+		req := httptest.NewRequest(http.MethodOptions, path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNoContent {
+			t.Errorf("OPTIONS %s code = %d, want 204", path, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("OPTIONS %s Allow = %q, want 'GET, HEAD, OPTIONS'", path, allow)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("OPTIONS %s body len = %d, want 0", path, rec.Body.Len())
+		}
+	}
+
+	// 2. Poll & stun OPTIONS -> 204 No Content with Allow: POST, OPTIONS
+	for _, path := range []string{"/api/v1/workspace/poll", "/api/v1/workspace/stun"} {
+		req := httptest.NewRequest(http.MethodOptions, path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNoContent {
+			t.Errorf("OPTIONS %s code = %d, want 204", path, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("OPTIONS %s Allow = %q, want 'POST, OPTIONS'", path, allow)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("OPTIONS %s body len = %d, want 0", path, rec.Body.Len())
+		}
+	}
+
+	// 3. Direct handler invocations with OPTIONS
+	recPoll := httptest.NewRecorder()
+	srv.handlePoll(recPoll, httptest.NewRequest(http.MethodOptions, "/api/v1/workspace/poll", nil))
+	if recPoll.Code != http.StatusNoContent || recPoll.Header().Get("Allow") != "POST, OPTIONS" || recPoll.Body.Len() != 0 {
+		t.Errorf("direct handlePoll OPTIONS unexpected: code=%d allow=%q body=%q", recPoll.Code, recPoll.Header().Get("Allow"), recPoll.Body.String())
+	}
+
+	recStun := httptest.NewRecorder()
+	srv.handleStun(recStun, httptest.NewRequest(http.MethodOptions, "/api/v1/workspace/stun", nil))
+	if recStun.Code != http.StatusNoContent || recStun.Header().Get("Allow") != "POST, OPTIONS" || recStun.Body.Len() != 0 {
+		t.Errorf("direct handleStun OPTIONS unexpected: code=%d allow=%q body=%q", recStun.Code, recStun.Header().Get("Allow"), recStun.Body.String())
+	}
+
+	recStatus := httptest.NewRecorder()
+	srv.handleStatus(recStatus, httptest.NewRequest(http.MethodOptions, "/api/v1/workspace/status", nil))
+	if recStatus.Code != http.StatusNoContent || recStatus.Header().Get("Allow") != "GET, HEAD, OPTIONS" || recStatus.Body.Len() != 0 {
+		t.Errorf("direct handleStatus OPTIONS unexpected: code=%d allow=%q body=%q", recStatus.Code, recStatus.Header().Get("Allow"), recStatus.Body.String())
+	}
+
+	// 4. Ingest URL validation in pollAndIngest
+	badURLs := []string{
+		"ftp://localhost:8090/obs",
+		"gopher://localhost:8090/obs",
+		"file:///etc/passwd",
+		"http://",
+		"https://",
+		"not-a-valid-url",
+		"://bad-url",
+	}
+
+	mockClient := client.NewMockReportsClient()
+	mockClient.AddEvents(client.WorkspaceEvent{
+		ID:        "test-evt",
+		Type:      client.EventTypeDrive,
+		Timestamp: time.Now().UTC().Add(time.Minute),
+	})
+
+	for _, badURL := range badURLs {
+		s := &Server{
+			client:    mockClient,
+			stunner:   stun.NewMemoryStunExecutor(),
+			ingestURL: badURL,
+		}
+		_, err := s.pollAndIngest(t.Context())
+		if err == nil {
+			t.Errorf("expected error for bad ingestURL %q, got nil", badURL)
+		}
+	}
+}
+
 
 

@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"sync"
@@ -119,6 +121,11 @@ func (s *Server) routes() http.Handler {
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
 			w.Header().Set("Content-Type", "application/json")
@@ -134,6 +141,11 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	}
 	readyHandler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
 			w.Header().Set("Content-Type", "application/json")
@@ -148,19 +160,20 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
 	}
-	mux.HandleFunc("GET /health", healthHandler)
-	mux.HandleFunc("HEAD /health", healthHandler)
-	mux.HandleFunc("GET /healthz", healthHandler)
-	mux.HandleFunc("HEAD /healthz", healthHandler)
-	mux.HandleFunc("GET /readyz", readyHandler)
-	mux.HandleFunc("HEAD /readyz", readyHandler)
-	mux.HandleFunc("POST /api/v1/workspace/poll", s.handlePoll)
-	mux.HandleFunc("POST /api/v1/workspace/stun", s.handleStun)
-	mux.HandleFunc("GET /api/v1/workspace/status", s.handleStatus)
-	mux.HandleFunc("HEAD /api/v1/workspace/status", s.handleStatus)
+	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/healthz", healthHandler)
+	mux.HandleFunc("/readyz", readyHandler)
+	mux.HandleFunc("/api/v1/workspace/poll", s.handlePoll)
+	mux.HandleFunc("/api/v1/workspace/stun", s.handleStun)
+	mux.HandleFunc("/api/v1/workspace/status", s.handleStatus)
 }
 
 func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		w.Header().Set("Content-Type", "application/json")
@@ -192,6 +205,11 @@ func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStun(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		w.Header().Set("Content-Type", "application/json")
@@ -224,6 +242,11 @@ func (s *Server) handleStun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		w.Header().Set("Content-Type", "application/json")
@@ -280,6 +303,11 @@ func (s *Server) pollAndIngest(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("failed to marshal observations: %w", err)
 	}
 
+	parsedURL, err := url.Parse(s.ingestURL)
+	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
+		return 0, fmt.Errorf("invalid ingest endpoint %q: must be valid http or https URL with non-empty host", s.ingestURL)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.ingestURL, bytes.NewReader(payload))
 	if err != nil {
 		return 0, fmt.Errorf("failed to create ingest request: %w", err)
@@ -293,7 +321,10 @@ func (s *Server) pollAndIngest(ctx context.Context) (int, error) {
 		slog.Warn("failed to send to signal-ingest", "error", err)
 		return len(obsList), nil
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		slog.Error("signal-ingest rejected observation batch", "status", resp.StatusCode)

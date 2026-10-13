@@ -43,8 +43,47 @@ func TestMemoryStunExecutor_Validation(t *testing.T) {
 	executor := NewMemoryStunExecutor()
 	ctx := context.Background()
 
+	// Empty request
 	_, err := executor.ExecuteStun(ctx, StunRequest{})
 	if err == nil {
 		t.Errorf("expected error on empty stun request, got nil")
+	}
+
+	// Whitespace-only request
+	_, err = executor.ExecuteStun(ctx, StunRequest{
+		AgentID:             "   ",
+		ServiceAccountEmail: "   ",
+	})
+	if err == nil {
+		t.Errorf("expected error on whitespace stun request, got nil")
+	}
+
+	// Oversized AgentID
+	longID := ""
+	for i := 0; i < 257; i++ {
+		longID += "a"
+	}
+	_, err = executor.ExecuteStun(ctx, StunRequest{AgentID: longID})
+	if err == nil {
+		t.Errorf("expected error on oversized AgentID, got nil")
+	}
+
+	// Oversized ServiceAccountEmail
+	_, err = executor.ExecuteStun(ctx, StunRequest{ServiceAccountEmail: longID})
+	if err == nil {
+		t.Errorf("expected error on oversized ServiceAccountEmail, got nil")
+	}
+
+	// Oversized Reason
+	longReason := ""
+	for i := 0; i < 1025; i++ {
+		longReason += "r"
+	}
+	_, err = executor.ExecuteStun(ctx, StunRequest{
+		AgentID: "valid-agent",
+		Reason:  longReason,
+	})
+	if err == nil {
+		t.Errorf("expected error on oversized Reason, got nil")
 	}
 }

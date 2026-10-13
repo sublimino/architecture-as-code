@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
 # .agents/skills/sl-drift-sweep/Tools/drift-sweep.sh
-# Whole-codebase two-axis drift, architectural deepening, and code-smell scanner for Signal Loom.
-# Dynamically integrates 12 Matt Pocock skills via ajm-skill/Tools/Pocock.ts across 6 phases.
+# Whole-codebase three-axis drift, architectural deepening, and code-smell scanner for Signal Loom.
+# Uses 12 Matt Pocock skills bundled under this skill's vendor/pocock-skills directory.
 # Default mode: PAUSE_FOR_APPROVAL (emits report + Cleanup Job Manifest and pauses after Phase 3).
-# Autonomous mode (--auto or GOAL_MODE=1): emits manifest and sets EXECUTION_MODE=AUTO.
+# Autonomous mode requires an explicit --auto flag; an active goal never escalates execution.
 set -euo pipefail
 
-REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || pwd)"
+REPO_ROOT="${REPO_ROOT:-$DEFAULT_REPO_ROOT}"
+BUNDLE_ROOT="${BUNDLE_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 BASE_REF=""
-AUTO_MODE="${GOAL_MODE:-0}"
+AUTO_MODE=0
 CHURN_THRESHOLD=5
 PROPOSAL_SPRAWL_THRESHOLD=5
 SKIP_DOCS_LINT=0
 IGNORE_DIRTY=0
-STAGE_POCOCK=0
-POCOCK_TOOL="${POCOCK_TOOL:-${HOME}/.andy_sync/confExt/skills/ajm-skill/Tools/Pocock.ts}"
 
 POCOCK_REQUIRED_SKILLS=(
   "code-review"
@@ -44,7 +45,7 @@ Options:
   --proposal-sprawl-threshold <n>     Ungrouped 'Mission: —' proposals before flagging sprawl (default: 5)
   --skip-docs-lint                    Skip full docs-lint execution (for fast unit tests)
   --ignore-dirty                      Ignore uncommitted working-tree files during check
-  --stage-pocock                      Materialise all 12 required Matt Pocock skills via Pocock.ts if missing
+  --bundle-root <dir>                 Override the sl-drift-sweep bundle root
   -h, --help                          Show this help message
 EOF
 }
@@ -83,9 +84,9 @@ while [ $# -gt 0 ]; do
       IGNORE_DIRTY=1
       shift
       ;;
-    --stage-pocock)
-      STAGE_POCOCK=1
-      shift
+    --bundle-root)
+      BUNDLE_ROOT="${2:-}"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -119,42 +120,38 @@ fi
 
 STANDARDS_FINDINGS=0
 SPEC_FINDINGS=0
-ARCH_CANDIDATES=0
 declare -a JOBS=()
 
-echo "=== Signal Loom Two-Axis & Architectural Drift Sweep (sl-drift-sweep) ==="
+echo "=== Signal Loom Three-Axis Drift & Architecture Sweep (sl-drift-sweep) ==="
 echo "Repository     : $REPO_ROOT"
 echo "Base Ref       : $BASE_REF..HEAD"
 echo "Execution Mode : $EXECUTION_MODE"
 echo ""
 
 # ------------------------------------------------------------------------------
-# Phase 0: Matt Pocock Skill Toolchain Verification (12 Skills Across 6 Phases)
+# Phase 0: Bundled Matt Pocock Skill Verification (12 Skills Across 6 Phases)
 # ------------------------------------------------------------------------------
 echo "## Pocock Skill Toolchain (12 Skills Across 6 Phases)"
 POCOCK_STAGED_COUNT=0
 POCOCK_TOTAL="${#POCOCK_REQUIRED_SKILLS[@]}"
 
-if [ -f "$POCOCK_TOOL" ] && command -v bun >/dev/null 2>&1; then
-  if [ "$STAGE_POCOCK" -eq 1 ]; then
-    for sk in "${POCOCK_REQUIRED_SKILLS[@]}"; do
-      bun "$POCOCK_TOOL" fetch "$sk" >/dev/null 2>&1 || true
-    done
+for sk in "${POCOCK_REQUIRED_SKILLS[@]}"; do
+  if [ -f "$BUNDLE_ROOT/vendor/pocock-skills/${sk}/SKILL.md" ]; then
+    POCOCK_STAGED_COUNT=$((POCOCK_STAGED_COUNT + 1))
   fi
-  LIST_OUT="$(bun "$POCOCK_TOOL" list 2>/dev/null || true)"
-  for sk in "${POCOCK_REQUIRED_SKILLS[@]}"; do
-    if printf '%s\n' "$LIST_OUT" | grep -qE "^[[:space:]]+${sk}[[:space:]]+staged"; then
-      POCOCK_STAGED_COUNT=$((POCOCK_STAGED_COUNT + 1))
-    fi
-  done
+done
+
+if [ "$POCOCK_STAGED_COUNT" -lt "$POCOCK_TOTAL" ]; then
+  STANDARDS_FINDINGS=$((STANDARDS_FINDINGS + 1))
+  JOBS+=("job-pocock-skills: Restore missing bundled Pocock skills (${POCOCK_STAGED_COUNT}/${POCOCK_TOTAL} present)")
 fi
-echo "  [P0] Staged Pocock Skills   : ${POCOCK_STAGED_COUNT}/${POCOCK_TOTAL} ready (code-review, diagnosing-bugs, improve-codebase-architecture, codebase-design, setup-ts-deep-modules, domain-modeling, to-tickets, tdd, implement, retro, writing-for-agents, git-guardrails-claude-code)"
+echo "  [P0] Bundled Pocock Skills  : ${POCOCK_STAGED_COUNT}/${POCOCK_TOTAL} ready (code-review, diagnosing-bugs, improve-codebase-architecture, codebase-design, setup-ts-deep-modules, domain-modeling, to-tickets, tdd, implement, retro, writing-for-agents, git-guardrails-claude-code)"
 echo ""
 
 # ------------------------------------------------------------------------------
 # Axis A: Standards & Fowler Code-Smell Baseline (Pocock: code-review)
 # ------------------------------------------------------------------------------
-echo "## Axis A: Standards & Code-Smell Baseline (Pocock: code-review)"
+echo "## Axis A: Standards & Code-Smell Baseline (code-review, git-guardrails-claude-code)"
 
 # A1. Worktree Hygiene
 WT_GUARD_STATUS="PASS"
@@ -220,7 +217,7 @@ echo ""
 # ------------------------------------------------------------------------------
 # Axis B: Spec & Proposal Fidelity (Pocock: code-review + domain-modeling)
 # ------------------------------------------------------------------------------
-echo "## Axis B: Spec & Proposal Sprawl (Pocock: code-review, domain-modeling)"
+echo "## Axis B: Spec & Proposal Sprawl (code-review, domain-modeling)"
 
 # B1. Ungrouped Micro-Proposal Sprawl in docs/README.md
 UNGROUPED_PROPOSALS=0
@@ -248,16 +245,16 @@ echo ""
 # ------------------------------------------------------------------------------
 # Axis C: Whole-Codebase Architectural Deepening (Pocock: improve-codebase-architecture, codebase-design, setup-ts-deep-modules)
 # ------------------------------------------------------------------------------
-echo "## Axis C: Whole-Codebase Architecture & Seam Depth (Pocock: improve-codebase-architecture, codebase-design, setup-ts-deep-modules)"
-echo "  [C1] Deep-Module Seam Scan  : Ready (use codebase-design + improve-codebase-architecture on high-churn slices)"
+echo "## Axis C: Whole-Codebase Architecture & Seam Depth (improve-codebase-architecture, codebase-design, setup-ts-deep-modules)"
+echo "  [C1] Deep-Module Seam Scan  : Ready (use codebase-design + improve-codebase-architecture)"
 echo "  [C2] TS Entry-Point Seams   : Verified (test/acceptance/harness/http-gate.ts shared seam)"
 
 echo ""
 # ------------------------------------------------------------------------------
-# Summary & Cleanup Job Manifest (Pocock: to-tickets -> tdd / implement -> retro)
+# Summary & Cleanup Job Manifest (to-tickets -> tdd / implement -> retro / writing-for-agents)
 # ------------------------------------------------------------------------------
 TOTAL_JOBS="${#JOBS[@]}"
-echo "## Cleanup Job Manifest ($TOTAL_JOBS job(s) via Pocock: to-tickets)"
+echo "## Cleanup Job Manifest ($TOTAL_JOBS job(s) via to-tickets)"
 if [ "$TOTAL_JOBS" -eq 0 ]; then
   echo "  None — repository is clean across Standards, Spec, and Architecture axes."
 else
@@ -274,7 +271,7 @@ if [ "$TOTAL_JOBS" -eq 0 ]; then
 else
   echo "STATUS: DRIFT_DETECTED (standards=$STANDARDS_FINDINGS, spec=$SPEC_FINDINGS, jobs=$TOTAL_JOBS, pocock_skills=${POCOCK_STAGED_COUNT}/${POCOCK_TOTAL}, mode=$EXECUTION_MODE)"
   if [ "$EXECUTION_MODE" = "PAUSE_FOR_APPROVAL" ]; then
-    echo "ACTION: PAUSE — Present the Two-Axis Report and Cleanup Job Manifest to the user for approval (or re-run with --auto / /goal)."
+    echo "ACTION: PAUSE — Present the Three-Axis Report and Cleanup Job Manifest for explicit approval before any --auto run."
   else
     echo "ACTION: AUTO_EXECUTE — Proceed to Phase 4 (Isolated Worktree Partitioning & Subagent Dispatch)."
   fi

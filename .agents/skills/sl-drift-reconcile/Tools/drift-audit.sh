@@ -39,26 +39,26 @@ if ! kubectl cluster-info --request-timeout=4s >/dev/null 2>&1; then
 fi
 echo "CLUSTER_STATUS=ONLINE"
 
-# 3. Flux Kustomization status
-FLUX_KUST=$(kubectl get kustomization -n flux-system -o json 2>/dev/null || true)
-if [ -z "$FLUX_KUST" ]; then
+# 3. Flux Kustomization status (all namespaces)
+FLUX_KUST=$(kubectl get kustomizations.kustomize.toolkit.fluxcd.io -A -o json 2>/dev/null || true)
+TOTAL_COUNT=$(echo "$FLUX_KUST" | jq -r '.items | length' 2>/dev/null || echo "0")
+if [ -z "$FLUX_KUST" ] || [ "${TOTAL_COUNT:-0}" -eq 0 ]; then
   echo "FLUX_STATUS=NOT_FOUND"
-  echo "  [REMEDIATION] Flux Kustomizations not found in namespace flux-system."
+  echo "  [REMEDIATION] Flux Kustomizations not found in cluster."
   echo "  Verify Flux Operator installation: 'kubectl get pods -n flux-system'"
   echo "  Re-bootstrap Flux control plane: 'make up'"
   FAIL_COUNT=$((FAIL_COUNT + 1))
 else
   READY_COUNT=$(echo "$FLUX_KUST" | jq -r '[.items[] | select(.status.conditions[]? | select(.type=="Ready" and .status=="True"))] | length' 2>/dev/null || echo "0")
-  TOTAL_COUNT=$(echo "$FLUX_KUST" | jq -r '.items | length' 2>/dev/null || echo "0")
   echo "FLUX_KUSTOMIZATIONS_READY=${READY_COUNT}/${TOTAL_COUNT}"
   
-  # Check for error conditions
-  FAILURES=$(echo "$FLUX_KUST" | jq -r '.items[] | select(.status.conditions[]? | select(.type=="Ready" and .status=="False")) | .metadata.name + ": " + (.status.conditions[] | select(.type=="Ready") | .message)' 2>/dev/null || true)
+  # Check for error conditions across all namespaces
+  FAILURES=$(echo "$FLUX_KUST" | jq -r '.items[] | select(.status.conditions[]? | select(.type=="Ready" and .status=="False")) | .metadata.namespace + "/" + .metadata.name + ": " + (.status.conditions[] | select(.type=="Ready") | .message)' 2>/dev/null || true)
   if [ -n "$FAILURES" ]; then
     echo "FLUX_FAILURES_DETECTED=YES"
     echo "$FAILURES"
     echo "  [REMEDIATION] Flux Kustomization reconciliation failure detected."
-    echo "  Inspect controllers: 'flux get kustomizations -n flux-system'"
+    echo "  Inspect controllers: 'flux get kustomizations -A'"
     echo "  Inspect error logs: 'flux logs --level=error -n flux-system'"
     echo "  Force reconciliation with git source:"
     echo "    flux reconcile kustomization tenants -n flux-system --with-source"
@@ -101,6 +101,20 @@ if [ "$UNRESOLVED_COUNT" -gt 0 ]; then
   echo "  3. Re-reconcile to re-expand variables:"
   echo "     flux reconcile kustomization tenants -n flux-system --with-source"
   FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+
+# 5. Check for leaked test artifacts and trust-secret drift
+if [ -x "${REPO_ROOT}/scripts/clean-test-artifacts.sh" ]; then
+  CLEAN_CHECK_OUT=""
+  if CLEAN_CHECK_OUT=$("${REPO_ROOT}/scripts/clean-test-artifacts.sh" --check 2>&1); then
+    echo "TEST_ARTIFACTS_CLEAN=YES"
+  else
+    echo "TEST_ARTIFACTS_CLEAN=NO"
+    echo "$CLEAN_CHECK_OUT" | grep -E '\[ARTIFACT\]' || true
+    echo "  [REMEDIATION] Leaked test artifacts or trust-secret drift detected in cluster."
+    echo "  Run the dedicated clean job: 'make clean-test-artifacts' (or './scripts/clean-test-artifacts.sh')"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+  fi
 fi
 
 echo "=== Audit Completed ==="

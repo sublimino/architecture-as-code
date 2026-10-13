@@ -58,7 +58,7 @@ else
   echo "  [PASS] Deployment wait commands: Clean (no invalid condition=ready on deployments)"
 fi
 
-# 4. CRI Image Layer check if cluster running
+# 4. CRI Image Layer & Pod ImagePull/CrashLoop check if cluster running
 echo "Checking CRI Container Image Layers..."
 if kubectl cluster-info --request-timeout=2s >/dev/null 2>&1; then
   KIND_NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
@@ -70,6 +70,22 @@ if kubectl cluster-info --request-timeout=2s >/dev/null 2>&1; then
       echo "  [INFO] CRI Layers: dashboard-signalloom not yet pulled or loaded into node"
       echo "  [ADVISORY] Load images into Kind node CRI store: 'kind load docker-image localhost:5001/dashboard-signalloom:latest --name osramp'"
     fi
+  fi
+
+  BAD_PODS=$(kubectl get pods -A -o json 2>/dev/null | jq -r '
+    .items[]
+    | . as $pod
+    | (($pod.status.containerStatuses // []) + ($pod.status.initContainerStatuses // []))[]
+    | select(.state.waiting.reason != null and (.state.waiting.reason | test("^(ImagePullBackOff|ErrImagePull|ErrImageNeverPull|CrashLoopBackOff)$")))
+    | "\($pod.metadata.namespace)/\($pod.metadata.name) (\(.name): \(.state.waiting.reason) -> \(.image))"
+  ' 2>/dev/null || true)
+  if [ -n "$BAD_PODS" ]; then
+    echo "  [FAIL] Pods stuck in ImagePullBackOff / CrashLoopBackOff:"
+    echo "$BAD_PODS" | sed 's/^/    /'
+    echo "  [REMEDIATION] Load missing CRI images via './scripts/kind-load-verified.sh <image>' or rebuild stale local images."
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+  else
+    echo "  [PASS] Pod CRI Runtime: Zero pods in ImagePullBackOff or CrashLoopBackOff"
   fi
 else
   echo "  [INFO] Cluster offline, skipping CRI check"

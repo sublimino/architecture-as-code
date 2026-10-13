@@ -1,75 +1,73 @@
 ---
 name: sl-drift-sweep
-description: "Two-axis codebase drift and code-smell remediation sweeper for #partner-signal-loom. Runs Standards and Spec review across branch history. Pauses by default or runs end-to-end with --auto. USE WHEN drift sweep, codebase drift, code smell sweep, two-axis drift, clean up drift, sl-drift-sweep, or on schedule '0 4 * * *'."
+description: "Six-phase codebase drift, architectural deepening, and code-smell sweeper for #partner-signal-loom. Orchestrates 12 bundled Matt Pocock skills across Standards, Spec, and Architecture axes. Pauses by default or runs end-to-end with explicitly approved --auto. USE WHEN drift sweep, clean up drift, review jobs, sl-drift-sweep, /sl-drift-sweep, or on schedule '0 4 * * *'."
 ---
 
 # sl-drift-sweep
 
-Two-axis codebase drift auditor and parallel worktree remediation orchestrator for the **Signal Loom** (`#partner-signal-loom`) platform.
+Whole-codebase drift auditor, architectural deepening scanner, and parallel worktree remediation orchestrator for the **Signal Loom** (`#partner-signal-loom`) platform.
 
-### Separation from Sibling Skills
-- **`sl-drift-sweep` (this skill)**: Audits static codebase health, Fowler code smells, multi-agent file churn, and micro-proposal sprawl across git commit history.
-- **`sl-drift-reconcile`**: Audits live in-cluster Kubernetes state and Flux reconciliation against committed git artifacts (`git rev-parse HEAD`).
-
-## Loop Lens & Schedule Contract
+## Loop Lens & Execution Contract
 
 - **Cadence**: `0 4 * * *` (Daily post-sprint sweep, or on demand after a multi-agent commit wave).
 - **Trigger**: `/sl-drift-sweep`, `/sl-drift-sweep --auto`, `/goal`, or manual prompt "sweep repo drift and mess".
 - **Default Mode (`PAUSE_FOR_APPROVAL`)**:
-  - Executes **Phase 1 (Two-Axis Drift & Churn Triage)** via `Tools/drift-sweep.sh`. Presents the **Standards** and **Spec** findings plus the **Cleanup Job Manifest**, then **STOPS** for user sign-off.
-- **Autonomous Flag (`--auto` or `/goal` active)**:
-  - Proceeds automatically from Phase 1 through **Phase 2 (Worktree Partitioning)**, **Phase 3 (Parallel Subagents with Mutation Proofs)**, and **Phase 4 (Rebase, Merge & Teardown)**.
-- **Brief**: Emit a 4-bullet status: (1) Standards findings, (2) Spec findings, (3) Cleanup jobs ready or executed, and (4) Verification and hygiene status.
+  - Executes **Phase 1 (Two-Axis Drift & Bug Triage)**, **Phase 2 (Whole-Codebase Architectural Deepening Scan)**, and **Phase 3 (Tracer-Bullet Job Decomposition)**. Presents the report and **Cleanup Job Manifest**, then **STOPS** for user sign-off.
+- **Autonomous Flag (`--auto`, only after explicit approval)**:
+  - Runs Phase 1 through **Phase 4 (Worktrees & Mutation Proofs)**, **Phase 5 (Rebase & Merge)**, and **Phase 6 (Retro & Guardrails)**.
+  - An active `/goal` never enables autonomous execution by itself. Without explicit approval and `--auto`, remain in `PAUSE_FOR_APPROVAL` mode.
+- **Brief**: Emit 4 bullets: (1) Standards and Spec findings, (2) Deepening candidates, (3) Tracer-bullet jobs, and (4) Verification and retro status.
+
+---
+
+## 12 Integrated Matt Pocock Skills (Bundled in This Skill)
+
+| Phase | Bundled Skill | Role in `sl-drift-sweep` |
+|---|---|---|
+| **Phase 1: Two-Axis Review** | [`code-review`](vendor/pocock-skills/code-review/SKILL.md) | Parallel **Standards** (Fowler smells) vs **Spec** review |
+| **Phase 1: Red Build Triage** | [`diagnosing-bugs`](vendor/pocock-skills/diagnosing-bugs/SKILL.md) | Tight red loop, minimise, rank 3 to 5 falsifiable hypotheses |
+| **Phase 2: Deepening Scan** | [`improve-codebase-architecture`](vendor/pocock-skills/improve-codebase-architecture/SKILL.md) | Whole-codebase scan for shallow modules and deletion-test seams |
+| **Phase 2 & 4: Seam Design** | [`codebase-design`](vendor/pocock-skills/codebase-design/SKILL.md) | Deep-module vocabulary and parallel `DESIGN-IT-TWICE.md` interfaces |
+| **Phase 2: TS Boundaries** | [`setup-ts-deep-modules`](vendor/pocock-skills/setup-ts-deep-modules/SKILL.md) | Enforce package root entry points and hide internal subtrees |
+| **Phase 2: ADR Consolidation** | [`domain-modeling`](vendor/pocock-skills/domain-modeling/SKILL.md) | Consolidate micro-proposals into ADRs and sharpen `GLOSSARY.md` |
+| **Phase 3: Job Decomposition** | [`to-tickets`](vendor/pocock-skills/to-tickets/SKILL.md) | Decompose into tracer bullets or expand-contract batches with blocking edges |
+| **Phase 4: Seam TDD** | [`tdd`](vendor/pocock-skills/tdd/SKILL.md) | Vertical red-green slices at public seams, paired with mutation proofs |
+| **Phase 4: Implementation** | [`implement`](vendor/pocock-skills/implement/SKILL.md) | Scoped worktree execution per ticket or batch |
+| **Phase 6: Post-Sweep Retro** | [`retro`](vendor/pocock-skills/retro/SKILL.md) | Turn mechanical agent mistakes into deterministic BATS or linter checks |
+| **Phase 6: Agent Docs Pruning** | [`writing-for-agents`](vendor/pocock-skills/writing-for-agents/SKILL.md) | Prune `AGENTS.md` sediment, sharpen pointers, and cut no-op prose |
+| **Phase 6: Git Guardrails** | [`git-guardrails-claude-code`](vendor/pocock-skills/git-guardrails-claude-code/SKILL.md) | Block destructive git operations and in-repo worktrees |
 
 ---
 
 ## Mandate & Non-Negotiable Invariants
 
-1. **Two-Axis Separation (Never Merge Axes)**:
-   - Always report **Axis A (Standards & Fowler Code Smells)** separately from **Axis B (Spec & Proposal Fidelity)** so neither masks the other.
+1. **Three-Axis Separation (Never Merge Axes)**:
+   - Report **Axis A (Standards & Fowler Code Smells)**, **Axis B (Spec & Proposal Fidelity)**, and **Axis C (Architectural Depth & Seams)** separately.
 
-2. **Worktree Isolation & 21-Day `osramp` Prune Rule**:
-   - Remediation subagents MUST run in isolated git worktrees outside the repository root (`/tmp/osramp-worktrees/<job>` or `~/src/.worktrees/osramp-demo/<job>`), NEVER inside `$REPO_ROOT/.claude/worktrees/`.
+2. **Containment Remains Authoritative**:
+   - Never resume, restart, reconcile, replace, or otherwise mutate a stunned or contained workload during a drift sweep. Treat containment state as an immutable boundary and defer containment verification to [`sl-containment-guard`](../sl-containment-guard/SKILL.md).
+
+3. **Worktree Isolation & 21-Day `osramp` Prune Rule**:
+   - Remediation subagents MUST run in isolated git worktrees under `~/src/.worktrees/osramp-demo/<job>`, NEVER inside `$REPO_ROOT/.claude/worktrees/` or an ad hoc `/tmp` worktree root.
    - Never prune existing worktrees unless they are strictly **> 21 days old**, of **`osramp` type**, and have a clean working tree (`git status --porcelain` is empty).
 
-3. **Disjoint File Ownership Across Parallel Agents**:
-   - Every remediation worktree must own a strictly non-overlapping set of file globs. Shared index files (such as `docs/README.md`) belong to at most one agent so sequential fast-forward merges (`git merge --ff-only`) never conflict.
+4. **Disjoint File Ownership & Blocking Edges (`to-tickets`)**:
+   - Every remediation worktree must own a non-overlapping set of file globs. Shared index files (such as `docs/README.md`) belong to at most one agent so sequential fast-forward merges (`git merge --ff-only`) never conflict.
 
-4. **Shared Pattern Extraction Before Fan-Out**:
+5. **Shared Seam Design Before Fan-Out (`codebase-design`)**:
    - Define canonical helpers per runtime (`httputil.go`, `normalize_allow` / `_gate_route`, `http-gate.ts`) before fan-out. Check BATS grep tokens (`rg` across `test/*.bats`) so refactoring preserves contract tests.
 
-5. **Mandatory Empirical Mutation Proof (Red → Green → Mutate-Red → Restore-Green)**:
+6. **Mandatory Empirical Mutation Proof (`tdd` + Diff Proof)**:
    - Every subagent must prove its tests are falsifiable. Apply a forced mutation, confirm `git diff` is non-empty, observe a real assertion failure, and restore the code to green before committing.
 
-6. **Sequential Rebase, One-by-One Test, Fast-Forward Merge**:
-   - Never octopus-merge untested branches. Rebase each branch onto the target tip, run its focused test suite, and fast-forward merge one by one. Run the cross-cutting contract suite (`bats test/http-guard-dedup-contracts.bats test/worktree-hygiene.bats test/docs-index-sync.bats` and `make docs-lint`), then remove temporary worktrees.
+7. **Sequential Rebase, One-by-One Test, Fast-Forward Merge, and Retro (`retro`)**:
+   - Rebase each branch onto the target tip, run its focused test suite, and fast-forward merge one by one. Run the cross-cutting contract suite (`bats test/http-guard-dedup-contracts.bats test/worktree-hygiene.bats test/docs-index-sync.bats` and `make docs-lint`), remove temporary worktrees, and convert new mechanical findings into automated checks.
 
 ---
 
 ## Information Hierarchy
 
 - **Primary Workflow**: [`Workflows/Sweep.md`](Workflows/Sweep.md)
-- **Two-Axis Smell & Drift Reference**: [`References/DriftAndSmellBaseline.md`](References/DriftAndSmellBaseline.md)
+- **Three-Axis & Deep-Module Reference**: [`References/DriftAndSmellBaseline.md`](References/DriftAndSmellBaseline.md)
 - **Executable Drift Scanner**: [`Tools/drift-sweep.sh`](Tools/drift-sweep.sh)
-
----
-
-## Execution Sequence
-
-1. **Phase 1 — Two-Axis Drift & Churn Triage**:
-   - Run `bash .agents/skills/sl-drift-sweep/Tools/drift-sweep.sh [--base <ref>] [--auto]`.
-   - Inspect Axis A (docs-lint, multi-pass file churn, duplicated boilerplate, worktree hygiene) and Axis B (proposal sprawl, unindexed records, uncommitted drift).
-   - If `EXECUTION_MODE=PAUSE_FOR_APPROVAL` (no `--auto` and no `/goal`), present the **Cleanup Job Manifest** and wait for approval.
-2. **Phase 2 — Shared Pattern Extraction & Worktree Creation**:
-   - Create isolated worktrees for each approved job chunk and distribute shared runtime/toolchain rules.
-3. **Phase 3 — Parallel Subagent Remediation & Mutation Proofs**:
-   - Spawn one subagent per worktree (`invoke_subagent`) enforcing strict file boundaries and fail→fix mutation verification.
-4. **Phase 4 — Sequential Rebase, Merge & End-to-End Verification**:
-   - Rebase and test each branch one by one, fast-forward merge onto the active branch, run `make docs-lint` and `bats test/http-guard-dedup-contracts.bats`, and prune temporary worktrees.
-
----
-
-## Completion Criteria
-
-- **Clarity**: Two-axis verdict (`CLEAN` or `DRIFT_DETECTED` with explicit counts for Axis A Standards and Axis B Spec).
-- **Demand**: In interactive mode (`PAUSE_FOR_APPROVAL`), pause after emitting the Cleanup Job Manifest for approval. In `--auto` mode, subagents execute with empirical mutation falsifiability proofs (Red → Green → Mutate-Red → Restore-Green), sequential rebase, fast-forward merge, and clean worktree teardown.
+- **Bundled Upstream Notice**: [`vendor/pocock-skills/THIRD_PARTY_NOTICES.md`](vendor/pocock-skills/THIRD_PARTY_NOTICES.md)

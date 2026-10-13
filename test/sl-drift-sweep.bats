@@ -39,7 +39,7 @@ EOF
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"STATUS: DRIFT_DETECTED (standards=1, spec=1, jobs=2,"*"mode=PAUSE_FOR_APPROVAL)"* ]]
-  [[ "$output" == *"ACTION: PAUSE — Present the Two-Axis Report"* ]]
+  [[ "$output" == *"ACTION: PAUSE — Present the Three-Axis Report"* ]]
 }
 
 @test "drift-sweep.sh --auto emits AUTO_EXECUTE action when drift is detected" {
@@ -60,4 +60,3 @@ EOF
   [[ "$output" == *"STATUS: DRIFT_DETECTED (standards=1, spec=1, jobs=2,"*"mode=AUTO)"* ]]
   [[ "$output" == *"ACTION: AUTO_EXECUTE — Proceed to Phase 4"* ]]
 }
-

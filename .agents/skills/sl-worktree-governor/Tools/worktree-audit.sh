@@ -12,25 +12,43 @@ echo "Audit Timestamp: ${DATE_STR}"
 TOTAL_WORKTREES=0
 DIRTY_COUNT=0
 CLEAN_COUNT=0
+RESTRICTED_COUNT=0
 CURRENT_WT=""
 CURRENT_BRANCH="detached"
+
+audit_one_worktree() {
+  local wt="$1"
+  local branch="$2"
+  if [ -z "$wt" ] || [ ! -d "$wt" ]; then
+    return 0
+  fi
+  TOTAL_WORKTREES=$((TOTAL_WORKTREES + 1))
+  local status_out=""
+  if ! status_out=$(git -C "$wt" status --porcelain 2>/dev/null); then
+    echo "  [RESTRICTED - PRESERVE] Path: ${wt}"
+    echo "    Branch: ${branch} (unreadable under current sandbox; preserved)"
+    RESTRICTED_COUNT=$((RESTRICTED_COUNT + 1))
+    return 0
+  fi
+  local dirty_files=0
+  if [ -n "$status_out" ]; then
+    dirty_files=$(printf '%s\n' "$status_out" | wc -l | tr -d ' ')
+  fi
+  if [ "$dirty_files" -gt 0 ]; then
+    echo "  [DIRTY - PRESERVE] Path: ${wt}"
+    echo "    Branch: ${branch} | Modified files: ${dirty_files}"
+    DIRTY_COUNT=$((DIRTY_COUNT + 1))
+  else
+    echo "  [CLEAN - CANDIDATE] Path: ${wt}"
+    echo "    Branch: ${branch}"
+    CLEAN_COUNT=$((CLEAN_COUNT + 1))
+  fi
+}
 
 # Inspect git worktrees
 while IFS= read -r line; do
   if [[ "$line" =~ ^worktree\ (.*)$ ]]; then
-    if [ -n "$CURRENT_WT" ] && [ -d "$CURRENT_WT" ]; then
-      TOTAL_WORKTREES=$((TOTAL_WORKTREES + 1))
-      DIRTY_FILES=$(git -C "$CURRENT_WT" status --porcelain 2>/dev/null | wc -l || echo "0")
-      if [ "$DIRTY_FILES" -gt 0 ]; then
-        echo "  [DIRTY - PRESERVE] Path: ${CURRENT_WT}"
-        echo "    Branch: ${CURRENT_BRANCH} | Modified files: ${DIRTY_FILES}"
-        DIRTY_COUNT=$((DIRTY_COUNT + 1))
-      else
-        echo "  [CLEAN - CANDIDATE] Path: ${CURRENT_WT}"
-        echo "    Branch: ${CURRENT_BRANCH}"
-        CLEAN_COUNT=$((CLEAN_COUNT + 1))
-      fi
-    fi
+    audit_one_worktree "$CURRENT_WT" "$CURRENT_BRANCH"
     CURRENT_WT="${BASH_REMATCH[1]}"
     CURRENT_BRANCH="detached"
   elif [[ "$line" =~ ^branch\ refs/heads/(.*)$ ]]; then
@@ -38,24 +56,13 @@ while IFS= read -r line; do
   fi
 done < <(git worktree list --porcelain)
 
-if [ -n "$CURRENT_WT" ] && [ -d "$CURRENT_WT" ]; then
-  TOTAL_WORKTREES=$((TOTAL_WORKTREES + 1))
-  DIRTY_FILES=$(git -C "$CURRENT_WT" status --porcelain 2>/dev/null | wc -l || echo "0")
-  if [ "$DIRTY_FILES" -gt 0 ]; then
-    echo "  [DIRTY - PRESERVE] Path: ${CURRENT_WT}"
-    echo "    Branch: ${CURRENT_BRANCH} | Modified files: ${DIRTY_FILES}"
-    DIRTY_COUNT=$((DIRTY_COUNT + 1))
-  else
-    echo "  [CLEAN - CANDIDATE] Path: ${CURRENT_WT}"
-    echo "    Branch: ${CURRENT_BRANCH}"
-    CLEAN_COUNT=$((CLEAN_COUNT + 1))
-  fi
-fi
+audit_one_worktree "$CURRENT_WT" "$CURRENT_BRANCH"
 
 echo "=== Summary ==="
 echo "Total Worktrees: ${TOTAL_WORKTREES}"
 echo "Dirty / Uncommitted Worktrees: ${DIRTY_COUNT}"
 echo "Clean Worktrees: ${CLEAN_COUNT}"
+echo "Restricted / Unreadable Worktrees: ${RESTRICTED_COUNT}"
 
 if [ "$DIRTY_COUNT" -gt 0 ]; then
   echo "  [REMEDIATION - DIRTY WORKTREES] ${DIRTY_COUNT} worktree(s) contain uncommitted modifications."

@@ -125,80 +125,86 @@ def verify_and_authorize(context, public_key, request, peer_spiffe, replay, now=
 def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, openbao_role="agent-trust-planner", receiver_instance=None):
     card = Path(__file__).with_name("agent-card.json").read_bytes(); replay = ReplayStore(); instance = receiver_instance or secrets.token_urlsafe(16)
     class H(BaseHTTPRequestHandler):
-        def _drain_body(self):
+        protocol_version = "HTTP/1.1"
+
+        def _drain_body(self) -> bool:
             if not hasattr(self, "headers") or not self.headers:
-                return
+                return True
             te = self.headers.get("Transfer-Encoding", "").lower()
             has_cl = "content-length" in [k.lower() for k in self.headers.keys()]
-            if "chunked" in te and has_cl:
+            if ("chunked" in te and has_cl) or (te and has_cl):
                 self.close_connection = True
-                return
+                return False
             if "chunked" in te:
                 try:
                     total = 0
                     terminated = False
                     while total <= 1048576:
-                        line = self.rfile.readline(128)
+                        line = self.rfile.readline(1024)
                         if not line or not line.endswith(b"\n"):
                             self.close_connection = True
-                            return
+                            return False
                         chunk_len_str = line.split(b";")[0].strip()
                         if not chunk_len_str or not re.fullmatch(rb"[0-9a-fA-F]+", chunk_len_str):
                             self.close_connection = True
-                            return
+                            return False
                         try:
                             chunk_len = int(chunk_len_str, 16)
                         except ValueError:
                             self.close_connection = True
-                            return
+                            return False
                         if chunk_len < 0:
                             self.close_connection = True
-                            return
+                            return False
                         if chunk_len == 0:
                             trailer_count = 0
                             while trailer_count < 32:
                                 trailer = self.rfile.readline(1024)
                                 if not trailer or not trailer.endswith(b"\n"):
                                     self.close_connection = True
-                                    return
+                                    return False
                                 if trailer in (b"\r\n", b"\n"):
                                     break
                                 trailer_count += 1
                             else:
                                 self.close_connection = True
-                                return
+                                return False
                             terminated = True
                             break
                         total += chunk_len
                         if total > 1048576:
                             self.close_connection = True
-                            return
+                            return False
                         rem = chunk_len
                         while rem > 0:
                             b = self.rfile.read(min(rem, 65536))
                             if not b:
                                 self.close_connection = True
-                                return
+                                return False
                             rem -= len(b)
                         crlf = self.rfile.readline(4)
                         if crlf not in (b"\r\n", b"\n"):
                             self.close_connection = True
-                            return
+                            return False
                     if not terminated:
                         self.close_connection = True
-                        return
+                        return False
                 except Exception:
                     self.close_connection = True
-                return
+                    return False
+                return True
 
             raw_len = self.headers.get("Content-Length")
+            if raw_len is None:
+                return True
             try:
                 length = int(raw_len.strip() if isinstance(raw_len, str) else (raw_len or 0))
             except (ValueError, TypeError):
                 self.close_connection = True
-                return
+                return False
             if length < 0 or length > 1048576:
                 self.close_connection = True
+                return False
             elif 0 < length <= 1048576:
                 try:
                     rem = length
@@ -206,33 +212,40 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                         b = self.rfile.read(min(rem, 65536))
                         if not b:
                             self.close_connection = True
-                            break
+                            return False
                         rem -= len(b)
                 except (OSError, ValueError):
                     self.close_connection = True
+                    return False
+            return True
 
         def _send_json(self, status: int, payload: dict, allow: str | None = None):
-            self.send_response(status)
-            if status in (204, 205, 304):
+            try:
+                self.send_response(status)
+                if status in (204, 205, 304):
+                    if allow:
+                        self.send_header("Allow", allow)
+                    if getattr(self, "close_connection", False):
+                        self.send_header("Connection", "close")
+                    self.end_headers()
+                    return
+                body = json.dumps(payload, separators=(',', ':')).encode()
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
                 if allow:
                     self.send_header("Allow", allow)
                 if getattr(self, "close_connection", False):
                     self.send_header("Connection", "close")
                 self.end_headers()
-                return
-            body = json.dumps(payload, separators=(',', ':')).encode()
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            if allow:
-                self.send_header("Allow", allow)
-            if getattr(self, "close_connection", False):
-                self.send_header("Connection", "close")
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(body)
+                if self.command != "HEAD":
+                    self.wfile.write(body)
+            except OSError:
+                self.close_connection = True
 
         def do_OPTIONS(self):
-            self._drain_body()
+            if not self._drain_body():
+                self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
+                return
             path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
             if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
                 self.send_response(204)
@@ -253,6 +266,9 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
             self._send_json(404, {"error": "not found"})
 
         def do_GET(self):
+            if not self._drain_body():
+                self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
+                return
             path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
             if path in ("/health", "/healthz", "/readyz"):
                 self._send_json(200, {"status": "ok"})
@@ -266,14 +282,22 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
             if path not in ("/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
                 self._send_json(404, {"error": "not found"})
                 return
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(card)))
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(card)
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(card)))
+                if getattr(self, "close_connection", False):
+                    self.send_header("Connection", "close")
+                self.end_headers()
+                if self.command != "HEAD":
+                    self.wfile.write(card)
+            except OSError:
+                self.close_connection = True
 
         def do_HEAD(self):
+            if not self._drain_body():
+                self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
+                return
             path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
             if path in ("/health", "/healthz", "/readyz"):
                 self._send_json(200, {"status": "ok"})
@@ -287,24 +311,33 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
             if path not in ("/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
                 self._send_json(404, {"error": "not found"})
                 return
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(card)))
-            self.end_headers()
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(card)))
+                if getattr(self, "close_connection", False):
+                    self.send_header("Connection", "close")
+                self.end_headers()
+            except OSError:
+                self.close_connection = True
 
         def do_POST(self):
             path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
             if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
-                self._drain_body()
+                if not self._drain_body():
+                    self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return
                 self._send_json(405, {"error": "method not allowed"}, allow="GET, HEAD, OPTIONS")
                 return
             if path != "/a2a":
-                self._drain_body()
+                if not self._drain_body():
+                    self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return
                 self._send_json(404, {"error": "not found"})
                 return
             te = self.headers.get("Transfer-Encoding", "").lower()
             has_cl = "content-length" in [k.lower() for k in self.headers.keys()]
-            if te and has_cl:
+            if (te and has_cl) or ("chunked" in te and has_cl):
                 self.close_connection = True
                 self._send_json(400, {"error": "unsupported Transfer-Encoding or TE.CL conflict"})
                 return
@@ -314,7 +347,7 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                 return
             raw_len = self.headers.get("Content-Length")
             if raw_len is None:
-                self._drain_body()
+                self.close_connection = True
                 self._send_json(400, {"error": "missing Content-Length"})
                 return
             try:
@@ -365,31 +398,33 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                 self._send_json(403, {"error": "forbidden"})
 
         def _handle_unsupported_method(self):
-            self._drain_body()
+            if not self._drain_body():
+                self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
+                return
             path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
+            cmd = getattr(self, "command", "") or ""
             if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
-                self._send_json(405, {"error": "method not allowed"}, allow="GET, HEAD, OPTIONS")
+                self._send_json(405, {"error": f"method {cmd} not allowed on {path}"}, allow="GET, HEAD, OPTIONS")
                 return
             if path == "/a2a":
-                self._send_json(405, {"error": "method not allowed"}, allow="POST, OPTIONS")
+                self._send_json(405, {"error": f"method {cmd} not allowed on {path}"}, allow="POST, OPTIONS")
                 return
-            self._send_json(404, {"error": "not found"})
+            self._send_json(404, {"error": f"no route {cmd} {path}"})
         def send_error(self, code: int, message: str | None = None, explain: str | None = None):
+            if not self._drain_body():
+                self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
+                return
             path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
             cmd = getattr(self, "command", "") or ""
             if code in (405, 501):
                 if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
-                    self._drain_body()
                     self._send_json(405, {"error": f"method {cmd} not allowed on {path}"}, allow="GET, HEAD, OPTIONS")
                     return
                 if path == "/a2a":
-                    self._drain_body()
                     self._send_json(405, {"error": f"method {cmd} not allowed on {path}"}, allow="POST, OPTIONS")
                     return
-                self._drain_body()
                 self._send_json(404, {"error": f"no route {cmd} {path}"})
                 return
-            self._drain_body()
             msg = message or self.responses.get(code, ("error", ""))[0]
             self._send_json(code, {"error": msg})
         def do_PUT(self): self._handle_unsupported_method()

@@ -331,6 +331,45 @@ class A2A(unittest.TestCase):
    self.assertEqual("close", resp.getheader("Connection"))
    resp.read()
    conn.close()
+
+   # HTTP/1.1 keep-alive persistence across pipelined GET with drained body
+   conn = http.client.HTTPConnection("127.0.0.1", s.server_port)
+   conn.request("GET", "/health", body="hello", headers={"Content-Length": "5"})
+   resp1 = conn.getresponse()
+   self.assertEqual(200, resp1.status)
+   resp1.read()
+   conn.request("GET", "/health")
+   resp2 = conn.getresponse()
+   self.assertEqual(200, resp2.status)
+   resp2.read()
+   conn.close()
+
+   # TE.CL conflict on GET /health returns 400 and closes connection
+   conn = http.client.HTTPConnection("127.0.0.1", s.server_port)
+   conn.request("GET", "/health", body="3\r\nfoo\r\n0\r\n\r\n", headers={"Transfer-Encoding": "chunked", "Content-Length": "3"})
+   resp = conn.getresponse()
+   self.assertEqual(400, resp.status)
+   self.assertEqual("close", resp.getheader("Connection"))
+   resp.read()
+   conn.close()
+
+   # Malformed chunk framing on OPTIONS returns 400 Bad Request
+   conn = http.client.HTTPConnection("127.0.0.1", s.server_port)
+   conn.request("OPTIONS", "/health", body="xyz\r\n", headers={"Transfer-Encoding": "chunked"})
+   resp = conn.getresponse()
+   self.assertEqual(400, resp.status)
+   self.assertEqual("close", resp.getheader("Connection"))
+   resp.read()
+   conn.close()
+
+   # Oversized chunk extension line (>1024 bytes) returns 400 Bad Request
+   conn = http.client.HTTPConnection("127.0.0.1", s.server_port)
+   conn.request("OPTIONS", "/health", body=("3;" + "x" * 2048 + "\r\nfoo\r\n0\r\n\r\n"), headers={"Transfer-Encoding": "chunked"})
+   resp = conn.getresponse()
+   self.assertEqual(400, resp.status)
+   self.assertEqual("close", resp.getheader("Connection"))
+   resp.read()
+   conn.close()
   finally:
    s.shutdown(); th.join(); s.server_close()
 

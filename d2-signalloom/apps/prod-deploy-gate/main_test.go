@@ -154,8 +154,8 @@ func TestServer_HealthEndpoints(t *testing.T) {
 			if w.Code != http.StatusMethodNotAllowed {
 				t.Errorf("%s probe %s: want 405, got %d", m, path, w.Code)
 			}
-			if w.Header().Get("Allow") != "GET, HEAD" {
-				t.Errorf("%s probe %s: want Allow: GET, HEAD, got %q", m, path, w.Header().Get("Allow"))
+			if w.Header().Get("Allow") != "GET, HEAD, OPTIONS" {
+				t.Errorf("%s probe %s: want Allow: GET, HEAD, OPTIONS, got %q", m, path, w.Header().Get("Allow"))
 			}
 			if w.Body.Len() == 0 {
 				t.Errorf("%s probe %s: want non-empty error body", m, path)
@@ -177,8 +177,8 @@ func TestServer_MethodGates(t *testing.T) {
 			if w.Code != http.StatusMethodNotAllowed {
 				t.Errorf("%s %s: want 405, got %d", method, path, w.Code)
 			}
-			if w.Header().Get("Allow") != "POST" {
-				t.Errorf("%s %s: want Allow: POST, got %q", method, path, w.Header().Get("Allow"))
+			if w.Header().Get("Allow") != "POST, OPTIONS" {
+				t.Errorf("%s %s: want Allow: POST, OPTIONS, got %q", method, path, w.Header().Get("Allow"))
 			}
 			if method == http.MethodHead && w.Body.Len() != 0 {
 				t.Errorf("HEAD %s: want empty body, got %d bytes: %s", path, w.Body.Len(), w.Body.String())
@@ -186,7 +186,7 @@ func TestServer_MethodGates(t *testing.T) {
 		}
 	}
 
-	// Read routes (/gate/ and /gate/{id}) reject mutating verbs with 405 and Allow: GET, HEAD
+	// Read routes (/gate/ and /gate/{id}) reject mutating verbs with 405 and Allow: GET, HEAD, OPTIONS
 	for _, path := range []string{"/gate/", "/gate/gate-000001"} {
 		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 			req := httptest.NewRequest(method, path, nil)
@@ -195,8 +195,8 @@ func TestServer_MethodGates(t *testing.T) {
 			if w.Code != http.StatusMethodNotAllowed {
 				t.Errorf("%s %s: want 405, got %d", method, path, w.Code)
 			}
-			if w.Header().Get("Allow") != "GET, HEAD" {
-				t.Errorf("%s %s: want Allow: GET, HEAD, got %q", method, path, w.Header().Get("Allow"))
+			if w.Header().Get("Allow") != "GET, HEAD, OPTIONS" {
+				t.Errorf("%s %s: want Allow: GET, HEAD, OPTIONS, got %q", method, path, w.Header().Get("Allow"))
 			}
 			if w.Body.Len() == 0 {
 				t.Errorf("%s %s: want non-empty error body on %s", method, path, method)
@@ -441,13 +441,13 @@ func TestServer_OptionsMethodHandling(t *testing.T) {
 		path      string
 		wantAllow string
 	}{
-		{"/gate/request", "POST"},
-		{"/gate/approve", "POST"},
-		{"/gate/", "GET, HEAD"},
-		{"/gate/gate-000001", "GET, HEAD"},
-		{"/healthz", "GET, HEAD"},
-		{"/readyz", "GET, HEAD"},
-		{"/health", "GET, HEAD"},
+		{"/gate/request", "POST, OPTIONS"},
+		{"/gate/approve", "POST, OPTIONS"},
+		{"/gate/", "GET, HEAD, OPTIONS"},
+		{"/gate/gate-000001", "GET, HEAD, OPTIONS"},
+		{"/healthz", "GET, HEAD, OPTIONS"},
+		{"/readyz", "GET, HEAD, OPTIONS"},
+		{"/health", "GET, HEAD, OPTIONS"},
 	}
 
 	for _, tt := range tests {
@@ -463,6 +463,41 @@ func TestServer_OptionsMethodHandling(t *testing.T) {
 		}
 		if w.Body.Len() != 0 {
 			t.Errorf("OPTIONS %s: body len = %d, want 0", tt.path, w.Body.Len())
+		}
+	}
+}
+
+func TestServer_MethodRejectionsAllowHeader(t *testing.T) {
+	secret := []byte("secret-key-32-bytes-long-here!!")
+	srv := NewServer(secret, "", 10*time.Minute)
+	mux := newMux(srv)
+
+	tests := []struct {
+		method    string
+		path      string
+		wantAllow string
+	}{
+		{http.MethodGet, "/gate/request", "POST, OPTIONS"},
+		{http.MethodDelete, "/gate/request", "POST, OPTIONS"},
+		{http.MethodGet, "/gate/approve", "POST, OPTIONS"},
+		{http.MethodDelete, "/gate/approve", "POST, OPTIONS"},
+		{http.MethodPost, "/gate/gate-000001", "GET, HEAD, OPTIONS"},
+		{http.MethodDelete, "/gate/gate-000001", "GET, HEAD, OPTIONS"},
+		{http.MethodPost, "/healthz", "GET, HEAD, OPTIONS"},
+		{http.MethodPost, "/readyz", "GET, HEAD, OPTIONS"},
+		{http.MethodPost, "/health", "GET, HEAD, OPTIONS"},
+	}
+
+	for _, tt := range tests {
+		req := httptest.NewRequest(tt.method, tt.path, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s %s: status = %d, want 405", tt.method, tt.path, w.Code)
+		}
+		if allow := w.Header().Get("Allow"); allow != tt.wantAllow {
+			t.Errorf("%s %s: Allow = %q, want %q", tt.method, tt.path, allow, tt.wantAllow)
 		}
 	}
 }

@@ -447,5 +447,66 @@ func TestCardvaultWriteJSONDirectAndHEAD(t *testing.T) {
 	}
 }
 
+func TestCardvaultOptionsRequests(t *testing.T) {
+	srv := newTestServer("user", "pass")
+	defer srv.Close()
+
+	endpoints := []string{
+		"/healthz",
+		"/readyz",
+		"/health",
+		"/api/v1/cards",
+		"/api/v1/cards/card-001",
+	}
+
+	for _, ep := range endpoints {
+		// 1. Unauthenticated OPTIONS request (standard preflight)
+		req, err := http.NewRequest(http.MethodOptions, srv.URL+ep, nil)
+		if err != nil {
+			t.Fatalf("NewRequest: %v", err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("OPTIONS %s: %v", ep, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusNoContent {
+			t.Errorf("unauthenticated OPTIONS %s: want 204, got %d", ep, resp.StatusCode)
+		}
+		if len(body) != 0 {
+			t.Errorf("unauthenticated OPTIONS %s: want empty body, got %d bytes", ep, len(body))
+		}
+		if allow := resp.Header.Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("unauthenticated OPTIONS %s: want Allow: GET, HEAD, OPTIONS, got %q", ep, allow)
+		}
+
+		// 2. Authenticated OPTIONS request
+		reqAuth, err := http.NewRequest(http.MethodOptions, srv.URL+ep, nil)
+		if err != nil {
+			t.Fatalf("NewRequest: %v", err)
+		}
+		reqAuth.SetBasicAuth("user", "pass")
+		respAuth, err := http.DefaultClient.Do(reqAuth)
+		if err != nil {
+			t.Fatalf("OPTIONS %s: %v", ep, err)
+		}
+		bodyAuth, _ := io.ReadAll(respAuth.Body)
+		respAuth.Body.Close()
+
+		if respAuth.StatusCode != http.StatusNoContent {
+			t.Errorf("authenticated OPTIONS %s: want 204, got %d", ep, respAuth.StatusCode)
+		}
+		if len(bodyAuth) != 0 {
+			t.Errorf("authenticated OPTIONS %s: want empty body, got %d bytes", ep, len(bodyAuth))
+		}
+		if allow := respAuth.Header.Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("authenticated OPTIONS %s: want Allow: GET, HEAD, OPTIONS, got %q", ep, allow)
+		}
+	}
+}
+
+
 
 

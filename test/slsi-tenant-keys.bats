@@ -39,7 +39,8 @@ teardown() {
   run ./scripts/init-tenant.sh \
     --tenant-id "${TENANT_A}" \
     --output-dir "${TEST_DIR}/${TENANT_A}" \
-    --escrow-passphrase "${PASSPHRASE}"
+    --escrow-passphrase "${PASSPHRASE}" \
+    --stage p2-1
   [ "$status" -eq 0 ]
 
   local mode
@@ -51,7 +52,8 @@ teardown() {
   run ./scripts/init-tenant.sh \
     --tenant-id "${TENANT_A}" \
     --output-dir "${TEST_DIR}/${TENANT_A}" \
-    --escrow-passphrase "${PASSPHRASE}"
+    --escrow-passphrase "${PASSPHRASE}" \
+    --stage p2-1
   [ "$status" -eq 0 ]
 
   local key_path="${TEST_DIR}/${TENANT_A}/keys/cosign.key"
@@ -72,7 +74,8 @@ teardown() {
   run ./scripts/init-tenant.sh \
     --tenant-id "${TENANT_A}" \
     --output-dir "${TEST_DIR}/${TENANT_A}" \
-    --escrow-passphrase "${PASSPHRASE}"
+    --escrow-passphrase "${PASSPHRASE}" \
+    --stage p2-1
   [ "$status" -eq 0 ]
 
   local key_path="${TEST_DIR}/${TENANT_A}/keys/witness.pem"
@@ -94,7 +97,8 @@ teardown() {
   run ./scripts/init-tenant.sh \
     --tenant-id "${TENANT_A}" \
     --output-dir "${TEST_DIR}/${TENANT_A}" \
-    --escrow-passphrase "${PASSPHRASE}"
+    --escrow-passphrase "${PASSPHRASE}" \
+    --stage p2-1
   [ "$status" -eq 0 ]
 
   local key_path="${TEST_DIR}/${TENANT_A}/keys/orbit-approval.pem"
@@ -116,7 +120,8 @@ teardown() {
   run ./scripts/init-tenant.sh \
     --tenant-id "${TENANT_A}" \
     --output-dir "${TEST_DIR}/${TENANT_A}" \
-    --escrow-passphrase "${PASSPHRASE}"
+    --escrow-passphrase "${PASSPHRASE}" \
+    --stage p2-1
   [ "$status" -eq 0 ]
 
   local sc="${TEST_DIR}/${TENANT_A}/keys/signing-config.json"
@@ -146,7 +151,8 @@ teardown() {
   run ./scripts/init-tenant.sh \
     --tenant-id "${TENANT_A}" \
     --output-dir "${TEST_DIR}/${TENANT_A}" \
-    --escrow-passphrase "${PASSPHRASE}"
+    --escrow-passphrase "${PASSPHRASE}" \
+    --stage p2-1
   [ "$status" -eq 0 ]
 
   local escrow="${TEST_DIR}/${TENANT_A}/${TENANT_A}-escrow.tar.enc"
@@ -169,13 +175,15 @@ teardown() {
   run ./scripts/init-tenant.sh \
     --tenant-id "${TENANT_A}" \
     --output-dir "${TEST_DIR}/${TENANT_A}" \
-    --escrow-passphrase "${PASSPHRASE}"
+    --escrow-passphrase "${PASSPHRASE}" \
+    --stage p2-1
   [ "$status" -eq 0 ]
 
   run ./scripts/init-tenant.sh \
     --tenant-id "${TENANT_B}" \
     --output-dir "${TEST_DIR}/${TENANT_B}" \
-    --escrow-passphrase "${PASSPHRASE}"
+    --escrow-passphrase "${PASSPHRASE}" \
+    --stage p2-1
   [ "$status" -eq 0 ]
 
   # Cosign public keys must differ
@@ -201,13 +209,15 @@ teardown() {
   run ./scripts/init-tenant.sh \
     --tenant-id "${TENANT_A}" \
     --output-dir "${TEST_DIR}/${TENANT_A}" \
-    --escrow-passphrase "${PASSPHRASE}"
+    --escrow-passphrase "${PASSPHRASE}" \
+    --stage p2-1
   [ "$status" -eq 0 ]
 
   run ./scripts/init-tenant.sh \
     --tenant-id "${TENANT_A}" \
     --output-dir "${TEST_DIR}/${TENANT_A}" \
-    --escrow-passphrase "${PASSPHRASE}"
+    --escrow-passphrase "${PASSPHRASE}" \
+    --stage p2-1
   [ "$status" -ne 0 ]
   [[ "$output" =~ "Cryptographic keys already exist" ]]
 
@@ -216,6 +226,7 @@ teardown() {
     --tenant-id "${TENANT_A}" \
     --output-dir "${TEST_DIR}/${TENANT_A}" \
     --escrow-passphrase "${PASSPHRASE}" \
+    --stage p2-1 \
     --force
   [ "$status" -eq 0 ]
 }

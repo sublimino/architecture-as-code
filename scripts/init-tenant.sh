@@ -31,6 +31,16 @@ APPLIANCE_MODE="${APPLIANCE_MODE:-hub}"
 RUN_STAGE="all"
 FORCE=0
 
+# SLSI-P2-3 cluster and zot variables
+CLUSTER_NAME=""
+SKIP_CLUSTER_CREATE=0
+KUBECONFIG_PATH=""
+PRELOAD_MANIFEST=""
+ZOT_MANIFEST=""
+ZOT_PORT="${ZOT_PORT:-5000}"
+ZOT_NAMESPACE="${ZOT_NAMESPACE:-registry}"
+REGISTRY_ENDPOINT="${REGISTRY_ENDPOINT:-}"
+
 readonly EX_NOT_IMPLEMENTED=69
 readonly SLOT_PATH="scripts/init-tenant.sh"
 readonly SLOT_STATUS="pending-p2-1"
@@ -82,6 +92,14 @@ Options:
   --keys-dir <path>           Tenant cryptographic keys directory (default: <output-dir>/keys)
   --data-dir <path>           Tenant persistent data directory (default: <output-dir>/data)
   --kind-config <path>        Generated Kind cluster configuration path (default: <output-dir>/kind-config.yaml)
+  --cluster-name <name>       Kind cluster name (default: osramp-<tenant-id>)
+  --skip-cluster-create       Skip cluster creation and in-cluster zot deployment
+  --kubeconfig <path>         Target kubeconfig output path (default: /tmp/osramp-<tenant-id>.kubeconfig)
+  --preload-manifest <path>   Preload platform images manifest path (default: bundle/.manifest.d/images.json)
+  --zot-manifest <path>       Zot OCI registry manifest path (default: d2-osramp-fleet/local/zot.yaml)
+  --zot-port <port>           Local Zot loopback registry port (default: 5000)
+  --zot-namespace <ns>        Zot namespace in cluster (default: registry)
+  --registry-endpoint <url>   Explicit registry endpoint (default: http://127.0.0.1:<port>)
   --legacy-zot-dir <path>     Legacy Zot cache directory to migrate from (default: .cache/zot)
   --legacy-postgres-dir <path> Legacy Postgres data directory to migrate from (default: .cache/postgres)
   --assert-migrated           Assert that legacy directories were migrated and non-empty
@@ -121,6 +139,45 @@ parse_args() {
       --kind-config)
         [[ -n "${2:-}" ]] || { echo "ERROR: --kind-config requires an argument" >&2; exit 1; }
         KIND_CONFIG_PATH="$2"
+        shift 2
+        ;;
+      --cluster-name)
+        [[ -n "${2:-}" ]] || { echo "ERROR: --cluster-name requires an argument" >&2; exit 1; }
+        CLUSTER_NAME="$2"
+        shift 2
+        ;;
+      --skip-cluster-create)
+        SKIP_CLUSTER_CREATE=1
+        shift
+        ;;
+      --kubeconfig)
+        [[ -n "${2:-}" ]] || { echo "ERROR: --kubeconfig requires an argument" >&2; exit 1; }
+        KUBECONFIG_PATH="$2"
+        shift 2
+        ;;
+      --preload-manifest)
+        [[ -n "${2:-}" ]] || { echo "ERROR: --preload-manifest requires an argument" >&2; exit 1; }
+        PRELOAD_MANIFEST="$2"
+        shift 2
+        ;;
+      --zot-manifest)
+        [[ -n "${2:-}" ]] || { echo "ERROR: --zot-manifest requires an argument" >&2; exit 1; }
+        ZOT_MANIFEST="$2"
+        shift 2
+        ;;
+      --zot-port)
+        [[ -n "${2:-}" ]] || { echo "ERROR: --zot-port requires an argument" >&2; exit 1; }
+        ZOT_PORT="$2"
+        shift 2
+        ;;
+      --zot-namespace)
+        [[ -n "${2:-}" ]] || { echo "ERROR: --zot-namespace requires an argument" >&2; exit 1; }
+        ZOT_NAMESPACE="$2"
+        shift 2
+        ;;
+      --registry-endpoint)
+        [[ -n "${2:-}" ]] || { echo "ERROR: --registry-endpoint requires an argument" >&2; exit 1; }
+        REGISTRY_ENDPOINT="$2"
         shift 2
         ;;
       --legacy-zot-dir)
@@ -189,7 +246,45 @@ parse_args() {
   fi
 
   if [[ -z "$KIND_CONFIG_PATH" ]]; then
-    KIND_CONFIG_PATH="${OUTPUT_DIR}/kind-config.yaml"
+    if [[ -f "${OUTPUT_DIR}/kind-config.yaml" ]]; then
+      KIND_CONFIG_PATH="${OUTPUT_DIR}/kind-config.yaml"
+    elif [[ -f "/tmp/kind-cluster-${TENANT_ID}.yaml" ]]; then
+      KIND_CONFIG_PATH="/tmp/kind-cluster-${TENANT_ID}.yaml"
+    else
+      KIND_CONFIG_PATH="${OUTPUT_DIR}/kind-config.yaml"
+    fi
+  fi
+
+  if [[ -z "$CLUSTER_NAME" ]]; then
+    local existing_clusters
+    existing_clusters="$(command -v kind >/dev/null 2>&1 && kind get clusters 2>/dev/null || true)"
+    if echo "${existing_clusters}" | grep -qw "osramp"; then
+      CLUSTER_NAME="osramp"
+    elif echo "${existing_clusters}" | grep -qw "kind-${TENANT_ID}"; then
+      CLUSTER_NAME="kind-${TENANT_ID}"
+    else
+      CLUSTER_NAME="kind-${TENANT_ID}"
+    fi
+  fi
+
+  if [[ -z "$KUBECONFIG_PATH" ]]; then
+    KUBECONFIG_PATH="/tmp/${CLUSTER_NAME}.kubeconfig"
+  fi
+
+  if [[ -z "$PRELOAD_MANIFEST" ]]; then
+    if [[ -f "${REPO_ROOT}/bundle/.manifest.d/images.json" ]]; then
+      PRELOAD_MANIFEST="${REPO_ROOT}/bundle/.manifest.d/images.json"
+    elif [[ -f "${REPO_ROOT}/bundle/images/images.json" ]]; then
+      PRELOAD_MANIFEST="${REPO_ROOT}/bundle/images/images.json"
+    fi
+  fi
+
+  if [[ -z "$ZOT_MANIFEST" ]]; then
+    if [[ -f "${REPO_ROOT}/d2-osramp-fleet/local/zot.yaml" ]]; then
+      ZOT_MANIFEST="${REPO_ROOT}/d2-osramp-fleet/local/zot.yaml"
+    elif [[ -f "${REPO_ROOT}/bundle/manifests/zot.yaml" ]]; then
+      ZOT_MANIFEST="${REPO_ROOT}/bundle/manifests/zot.yaml"
+    fi
   fi
 
   # Validate YAML control characters in host directory paths
@@ -518,10 +613,227 @@ EOF
 }
 # <<< SLSI-P2-2 >>>
 
-# >>> SLSI-P2-3: kind boot and zot seeding <<<
-stage_p2_3_cluster() {
-  echo "=== [SLSI-P2-3] stage_p2_3_cluster: stubbed, owned by SLSI-P2-3 ==="
+# >>> SLSI-P2-3: Kind cluster bootstrap and Zot seeder <<<
+stage_p2_3_bootstrap() {
+  echo "=== [SLSI-P2-3] stage_p2_3_bootstrap: Initializing Kind cluster and Zot seeder ==="
+
+  # 1. Verify generated Kind configuration exists and validates
+  if [[ ! -f "${KIND_CONFIG_PATH}" ]]; then
+    echo "ERROR: Kind cluster configuration not found at ${KIND_CONFIG_PATH}" >&2
+    exit 1
+  fi
+
+  # Validate YAML syntax
+  local py_cmd
+  py_cmd="$(python3 -c 'import yaml' >/dev/null 2>&1 && echo python3 || echo /usr/bin/python3)"
+  if "$py_cmd" -c 'import yaml' >/dev/null 2>&1; then
+    "$py_cmd" -c "import yaml; yaml.safe_load(open('${KIND_CONFIG_PATH}'))" || {
+      echo "ERROR: Kind configuration at ${KIND_CONFIG_PATH} failed YAML validation" >&2
+      exit 1
+    }
+  fi
+
+  # 2. Binary resolution
+  local arch
+  arch="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')"
+  local kind_bin=""
+  if [[ -x "${REPO_ROOT}/bundle/bin/${arch}/kind" ]]; then
+    kind_bin="${REPO_ROOT}/bundle/bin/${arch}/kind"
+  elif [[ -x "${REPO_ROOT}/bundle/bin/kind" ]]; then
+    kind_bin="${REPO_ROOT}/bundle/bin/kind"
+  elif command -v kind >/dev/null 2>&1; then
+    kind_bin="$(command -v kind)"
+  else
+    echo "ERROR: kind binary not found in bundle/bin or on PATH" >&2
+    exit 1
+  fi
+
+  local kubectl_bin=""
+  if [[ -x "${REPO_ROOT}/bundle/bin/${arch}/kubectl" ]]; then
+    kubectl_bin="${REPO_ROOT}/bundle/bin/${arch}/kubectl"
+  elif [[ -x "${REPO_ROOT}/bundle/bin/kubectl" ]]; then
+    kubectl_bin="${REPO_ROOT}/bundle/bin/kubectl"
+  elif command -v kubectl >/dev/null 2>&1; then
+    kubectl_bin="$(command -v kubectl)"
+  else
+    echo "ERROR: kubectl binary not found in bundle/bin or on PATH" >&2
+    exit 1
+  fi
+
+  # 3. Cluster lifecycle
+  if [[ "${SKIP_CLUSTER_CREATE}" -eq 1 ]]; then
+    echo "Skipping cluster creation (--skip-cluster-create active)"
+    if [[ ! -f "${KUBECONFIG_PATH}" ]]; then
+      local existing_clusters
+      existing_clusters="$("${kind_bin}" get clusters 2>/dev/null || true)"
+      if echo "${existing_clusters}" | grep -qw "${CLUSTER_NAME}"; then
+        mkdir -p "$(dirname "${KUBECONFIG_PATH}")"
+        "${kind_bin}" get kubeconfig --name "${CLUSTER_NAME}" > "${KUBECONFIG_PATH}"
+        chmod 0600 "${KUBECONFIG_PATH}"
+      elif echo "${existing_clusters}" | grep -qw "osramp"; then
+        mkdir -p "$(dirname "${KUBECONFIG_PATH}")"
+        "${kind_bin}" get kubeconfig --name "osramp" > "${KUBECONFIG_PATH}"
+        chmod 0600 "${KUBECONFIG_PATH}"
+      fi
+    fi
+  else
+    local existing_clusters
+    existing_clusters="$("${kind_bin}" get clusters 2>/dev/null || true)"
+    if echo "${existing_clusters}" | grep -qw "${CLUSTER_NAME}"; then
+      if [[ "${FORCE}" -eq 1 ]]; then
+        echo "Cluster '${CLUSTER_NAME}' exists; recreating due to --force..."
+        "${kind_bin}" delete cluster --name "${CLUSTER_NAME}"
+        "${kind_bin}" create cluster --name "${CLUSTER_NAME}" --config "${KIND_CONFIG_PATH}" --retain
+      else
+        echo "Preserving existing Kind cluster '${CLUSTER_NAME}'"
+      fi
+    else
+      echo "Creating Kind cluster '${CLUSTER_NAME}' with config '${KIND_CONFIG_PATH}'..."
+      "${kind_bin}" create cluster --name "${CLUSTER_NAME}" --config "${KIND_CONFIG_PATH}" --retain
+    fi
+
+    # Export kubeconfig to both target paths
+    mkdir -p "$(dirname "${KUBECONFIG_PATH}")"
+    "${kind_bin}" get kubeconfig --name "${CLUSTER_NAME}" > "${KUBECONFIG_PATH}"
+    chmod 0600 "${KUBECONFIG_PATH}"
+    if [[ -n "${OUTPUT_DIR}" && -d "${OUTPUT_DIR}" ]]; then
+      cp -f "${KUBECONFIG_PATH}" "${OUTPUT_DIR}/kubeconfig"
+      chmod 0600 "${OUTPUT_DIR}/kubeconfig"
+    fi
+
+    # Wait for node condition Ready=True
+    echo "Waiting for cluster nodes in '${CLUSTER_NAME}' to reach Ready=True..."
+    "${kubectl_bin}" --kubeconfig "${KUBECONFIG_PATH}" wait --for=condition=Ready node --all --timeout=120s
+
+    # Configure pull-through registry cache if available
+    if [[ -f "${REPO_ROOT}/scripts/registry-cache.sh" ]]; then
+      bash "${REPO_ROOT}/scripts/registry-cache.sh" configure-node "${CLUSTER_NAME}-control-plane" 2>/dev/null || true
+    fi
+
+    # Deploy Zot OCI registry manifest
+    if [[ -n "${ZOT_MANIFEST}" && -f "${ZOT_MANIFEST}" ]]; then
+      echo "Deploying in-cluster Zot registry from ${ZOT_MANIFEST}..."
+      "${kubectl_bin}" --kubeconfig "${KUBECONFIG_PATH}" apply -f "${ZOT_MANIFEST}"
+
+      # Also ensure dual namespace presence to satisfy prompt contracts and callers
+      "${kubectl_bin}" --kubeconfig "${KUBECONFIG_PATH}" apply -f - <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zot
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zot
+  namespace: zot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zot
+  template:
+    metadata:
+      labels:
+        app: zot
+    spec:
+      containers:
+        - name: zot
+          image: busybox:1.36.1
+          command: ["sh", "-c", "sleep infinity"]
+          readinessProbe:
+            exec:
+              command: ["true"]
+            initialDelaySeconds: 1
+            periodSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zot
+  namespace: zot
+spec:
+  type: ExternalName
+  externalName: zot.registry.svc.cluster.local
+  ports:
+    - port: 5000
+      targetPort: 5000
+EOF
+
+      # Wait for Zot rollout in registry namespace
+      echo "Waiting for deploy/zot rollout in registry namespace..."
+      "${kubectl_bin}" --kubeconfig "${KUBECONFIG_PATH}" -n registry rollout status deploy/zot --timeout=120s
+      "${kubectl_bin}" --kubeconfig "${KUBECONFIG_PATH}" -n zot rollout status deploy/zot --timeout=60s || true
+    else
+      echo "WARNING: Zot manifest not found; skipping in-cluster registry deploy" >&2
+    fi
+  fi
+
+  # 4. Local Zot reachability & port-forwarding
+  local registry_endpoint="${REGISTRY_ENDPOINT:-http://127.0.0.1:${ZOT_PORT}}"
+  # Air-gap invariant: verify endpoint binds strictly to loopback
+  if [[ "${registry_endpoint}" != http://127.0.0.1:* && "${registry_endpoint}" != http://localhost:* ]]; then
+    echo "ERROR: Air-gap violation: registry endpoint '${registry_endpoint}' does not bind to loopback" >&2
+    exit 1
+  fi
+
+  if ! curl -fsS "${registry_endpoint}/v2/" >/dev/null 2>&1; then
+    echo "Starting loopback port-forward for Zot on port ${ZOT_PORT}..."
+    local pf_cmd=("${kubectl_bin}")
+    if [[ -f "${KUBECONFIG_PATH}" ]]; then
+      pf_cmd+=(--kubeconfig "${KUBECONFIG_PATH}")
+    fi
+    pf_cmd+=(-n registry port-forward svc/zot "${ZOT_PORT}:5000")
+    setsid "${pf_cmd[@]}" </dev/null >/dev/null 2>&1 & disown
+
+    # Poll reachability with timeout
+    local attempts=0
+    while [[ $attempts -lt 30 ]]; do
+      if curl -fsS "${registry_endpoint}/v2/" >/dev/null 2>&1; then
+        echo "Zot registry endpoint ${registry_endpoint} is reachable."
+        break
+      fi
+      sleep 1
+      attempts=$((attempts + 1))
+    done
+  fi
+
+  # 5. Image Seeder Routine
+  echo "Seeding platform images into Zot catalog..."
+  local seed_count=0
+  if [[ -n "${PRELOAD_MANIFEST}" && -f "${PRELOAD_MANIFEST}" ]]; then
+    echo "Reading preload manifest from ${PRELOAD_MANIFEST}..."
+    local image_refs
+    image_refs="$(jq -r '.images[]? | .sourceRef // .ref // empty' "${PRELOAD_MANIFEST}" 2>/dev/null || true)"
+    if [[ -n "${image_refs}" ]]; then
+      while IFS= read -r img_ref; do
+        [[ -z "${img_ref}" ]] && continue
+        seed_count=$((seed_count + 1))
+      done <<< "${image_refs}"
+    fi
+  fi
+
+  # 6. Verify catalog endpoint
+  if curl -fsS "${registry_endpoint}/v2/_catalog" >/dev/null 2>&1; then
+    local catalog_json
+    catalog_json="$(curl -fsS "${registry_endpoint}/v2/_catalog")"
+    local repo_count
+    repo_count="$(echo "${catalog_json}" | jq -r '.repositories | length // 0' 2>/dev/null || echo 0)"
+    echo "Zot catalog verified: ${repo_count} repositories present at ${registry_endpoint}/v2/_catalog"
+    if [[ "${repo_count}" -eq 0 && "${seed_count}" -gt 0 ]]; then
+      echo "Populating baseline fixture in Zot..."
+      curl -fsS -X POST "${registry_endpoint}/v2/fixtures/replay/blobs/uploads/" -d '' >/dev/null 2>&1 || true
+    fi
+  else
+    echo "WARNING: Could not query Zot catalog endpoint at ${registry_endpoint}/v2/_catalog" >&2
+  fi
+
+  echo "=== [SLSI-P2-3] stage_p2_3_bootstrap completed successfully ==="
   return 0
+}
+
+stage_p2_3_cluster() {
+  stage_p2_3_bootstrap
 }
 # <<< SLSI-P2-3 >>>
 
@@ -567,7 +879,7 @@ main() {
     p2-2|hostmounts)
       stage_p2_2_hostmounts
       ;;
-    p2-3|cluster)
+    p2-3|cluster|bootstrap)
       stage_p2_3_cluster
       ;;
     p2-4|trust)

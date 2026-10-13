@@ -41,7 +41,9 @@ setup() {
 
     export UV_CONFIG_FILE="${UV_CONFIG_FILE:-/dev/null}"
     export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}"
-    export GOPATH="${GOPATH:-/tmp/gopath}"
+    local gopath="${GOPATH:-}"
+    if [ "$gopath" = "/usr/local/src/gocode" ] || [ -z "$gopath" ]; then gopath=/tmp/gopath; fi
+    export GOPATH="$gopath"
     export GOCACHE="${GOCACHE:-/tmp/gocache}"
     export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
     export GONOSUMDB="${GONOSUMDB:-*}"

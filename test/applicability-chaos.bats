@@ -38,6 +38,13 @@ setup() {
   mutations="$root/scripts/applicability-chaos-mutations.sh"
   date_suite="$engine/frameworks/applicability_chaos_date_test.go"
   scan_suite="$engine/applicability_chaos_scan_test.go"
+  local gopath="${GOPATH:-}"
+  if [ "$gopath" = "/usr/local/src/gocode" ] || [ -z "$gopath" ]; then gopath=/tmp/gopath; fi
+  export GOPATH="$gopath"
+  export GOCACHE="${GOCACHE:-/tmp/gocache}"
+  export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+  export GONOSUMDB="*"
+  export CGO_ENABLED=0
 }
 
 # Column 1 of every non-comment row, in file order.

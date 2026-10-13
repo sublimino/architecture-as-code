@@ -12,9 +12,13 @@
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
   export KUBECONFIG=/dev/null
-  export CGO_ENABLED=0
-  export GOPATH="${GOPATH:-/tmp/gopath}"
+  local gopath="${GOPATH:-}"
+  if [ "$gopath" = "/usr/local/src/gocode" ] || [ -z "$gopath" ]; then gopath=/tmp/gopath; fi
+  export GOPATH="$gopath"
   export GOCACHE="${GOCACHE:-/tmp/gocache}"
+  export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+  export GONOSUMDB="*"
+  export CGO_ENABLED=0
 
   ALLOWLIST="${REPO_ROOT}/test/signalloom-warden-allowlist.txt"
   RS="${REPO_ROOT}/d2-osramp-fleet/tenants/base/agent-swarm.yaml"

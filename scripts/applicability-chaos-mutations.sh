@@ -36,6 +36,17 @@ set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+
+local_gopath="${GOPATH:-}"
+if [ "$local_gopath" = "/usr/local/src/gocode" ] || [ -z "$local_gopath" ]; then
+  local_gopath=/tmp/gopath
+fi
+export GOPATH="$local_gopath"
+export GOCACHE="${GOCACHE:-/tmp/gocache}"
+export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+export GONOSUMDB="${GONOSUMDB:-*}"
+export CGO_ENABLED=0
+
 ENGINE="$REPO_ROOT/d2-signalloom/apps/policy-engine"
 
 APP_GO="$ENGINE/frameworks/applicability.go"

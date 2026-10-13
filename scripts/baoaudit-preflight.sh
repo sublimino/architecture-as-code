@@ -41,6 +41,15 @@ echo "OK (unixgram non-blocking socket supported)"
 # 4. Go toolchain & signal-ingest package audit
 echo -n "[4/5] Checking Go toolchain & signal-ingest compilation... "
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+local_gopath="${GOPATH:-}"
+if [ "$local_gopath" = "/usr/local/src/gocode" ] || [ -z "$local_gopath" ]; then
+  local_gopath=/tmp/gopath
+fi
+export GOPATH="$local_gopath"
+export GOCACHE="${GOCACHE:-/tmp/gocache}"
+export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+export GONOSUMDB="${GONOSUMDB:-*}"
+export CGO_ENABLED="${CGO_ENABLED:-0}"
 if (cd "$REPO_ROOT/d2-signalloom/apps/signal-ingest" && go vet ./... >/dev/null 2>&1); then
     echo "OK (signal-ingest builds and passes go vet)"
 else

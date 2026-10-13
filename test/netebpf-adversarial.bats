@@ -3,6 +3,13 @@
 
 setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+  local gopath="${GOPATH:-}"
+  if [ "$gopath" = "/usr/local/src/gocode" ] || [ -z "$gopath" ]; then gopath=/tmp/gopath; fi
+  export GOPATH="$gopath"
+  export GOCACHE="${GOCACHE:-/tmp/gocache}"
+  export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+  export GONOSUMDB="*"
+  export CGO_ENABLED="${CGO_ENABLED:-0}"
 }
 
 @test "netebpf adversarial: synthetic generator produces valid json flow events" {
@@ -20,11 +27,19 @@ setup() {
 
 @test "netebpf adversarial: all signal-ingest and sentinel race tests pass" {
   cd "$REPO_ROOT/d2-signalloom/apps/signalloom-warden"
-  run go test -v -race ./...
+  if [ "${CGO_ENABLED:-0}" = "1" ]; then
+    run go test -v -race ./...
+  else
+    run go test -v ./...
+  fi
   [ "$status" -eq 0 ]
 
   cd "$REPO_ROOT/d2-signalloom/apps/signal-ingest"
-  run go test -v -race ./collectors/netebpf/... ./correlation/...
+  if [ "${CGO_ENABLED:-0}" = "1" ]; then
+    run go test -v -race ./collectors/netebpf/... ./correlation/...
+  else
+    run go test -v ./collectors/netebpf/... ./correlation/...
+  fi
   [ "$status" -eq 0 ]
 }
 

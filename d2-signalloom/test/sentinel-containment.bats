@@ -10,7 +10,9 @@
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
   export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}"
-  export GOPATH="${GOPATH:-/tmp/gopath}"
+  local gopath="${GOPATH:-}"
+  if [ "$gopath" = "/usr/local/src/gocode" ] || [ -z "$gopath" ]; then gopath=/tmp/gopath; fi
+  export GOPATH="$gopath"
   export GOCACHE="${GOCACHE:-/tmp/gocache}"
   export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
   export GONOSUMDB="${GONOSUMDB:-*}"

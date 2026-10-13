@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,6 +25,15 @@ func TestOpenBaoClient_TokenFile_ReReadOnEveryRequest(t *testing.T) {
 	var mu sync.Mutex
 	var seen []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "PUT, POST, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		mu.Lock()
 		seen = append(seen, r.Header.Get("X-Vault-Token"))
 		mu.Unlock()
@@ -68,6 +78,15 @@ func TestOpenBaoClient_StaticTokenWinsOverFile(t *testing.T) {
 	}
 	var got string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "PUT, POST, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		got = r.Header.Get("X-Vault-Token")
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -122,38 +141,101 @@ func newFakeBaoAccessorServer(t *testing.T, tokens map[string]*fakeBaoToken, ord
 		mu.Lock()
 		paths = append(paths, r.Method+" "+r.URL.Path+"?"+r.URL.RawQuery)
 		mu.Unlock()
-		switch {
-		case r.URL.Path == "/v1/auth/token/accessors" && r.Method == http.MethodGet && r.URL.Query().Get("list") == "true":
-			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"keys": order}})
-		case r.URL.Path == "/v1/auth/token/lookup-accessor" && r.Method == http.MethodPost:
-			var body struct {
-				Accessor string `json:"accessor"`
-			}
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			tok := tokens[body.Accessor]
-			if tok == nil {
-				w.WriteHeader(http.StatusBadRequest)
-				_, _ = w.Write([]byte(`{"errors":["invalid accessor"]}`))
+		switch r.URL.Path {
+		case "/v1/auth/token/accessors":
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "GET, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+				}
 				return
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
-				"accessor":     body.Accessor,
-				"display_name": tok.displayName,
-				"meta":         tok.meta,
-			}})
-		case r.URL.Path == "/v1/auth/token/revoke-accessor" && r.Method == http.MethodPost:
+			if r.URL.Query().Get("list") != "true" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["not found"]}`))
+				}
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			if r.Method != http.MethodHead {
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"keys": order}})
+			}
+		case "/v1/auth/token/lookup-accessor":
+			if r.Method != http.MethodPost && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "POST, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+				}
+				return
+			}
 			var body struct {
 				Accessor string `json:"accessor"`
 			}
-			_ = json.NewDecoder(r.Body).Decode(&body)
+			if r.Body != nil {
+				_ = json.NewDecoder(r.Body).Decode(&body)
+			}
+			tok := tokens[body.Accessor]
+			if tok == nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["invalid accessor"]}`))
+				}
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			if r.Method != http.MethodHead {
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+					"accessor":     body.Accessor,
+					"display_name": tok.displayName,
+					"meta":         tok.meta,
+				}})
+			}
+		case "/v1/auth/token/revoke-accessor":
+			if r.Method != http.MethodPost && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "POST, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+				}
+				return
+			}
+			var body struct {
+				Accessor string `json:"accessor"`
+			}
+			if r.Body != nil {
+				_ = json.NewDecoder(r.Body).Decode(&body)
+			}
 			mu.Lock()
 			paths = append(paths, "REVOKE "+body.Accessor)
 			mu.Unlock()
 			w.WriteHeader(http.StatusNoContent)
-		case r.URL.Path == "/v1/sys/leases/revoke" && r.Method == http.MethodPost:
+		case "/v1/sys/leases/revoke":
+			if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "PUT, POST, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+				}
+				return
+			}
 			w.WriteHeader(http.StatusNoContent)
 		default:
-			http.NotFound(w, r)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["not found"]}`))
+			}
 		}
 	}))
 	return srv, &paths
@@ -194,7 +276,11 @@ func TestOpenBaoClient_ActiveTokensBySubject(t *testing.T) {
 func TestOpenBaoClient_ActiveTokensBySubject_EmptyListIsZeroNotError(t *testing.T) {
 	// OpenBao answers LIST with 404 when there are no keys.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"errors":["not found"]}`))
+		}
 	}))
 	defer srv.Close()
 	client := NewOpenBaoClient(OpenBaoConfig{Address: srv.URL, Token: "s.fleet"})
@@ -208,9 +294,21 @@ func TestOpenBaoClient_ActiveTokensBySubject_EmptyListIsZeroNotError(t *testing.
 }
 
 func TestOpenBaoClient_ActiveTokensBySubject_DeniedIsAnError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(`{"errors":["permission denied"]}`))
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"errors":["permission denied"]}`))
+		}
 	}))
 	defer srv.Close()
 	client := NewOpenBaoClient(OpenBaoConfig{Address: srv.URL, Token: "s.fleet"})
@@ -265,12 +363,50 @@ func TestOpenBaoClient_RevokeTokensBySubject_DeniedFailsClosed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/auth/token/accessors":
-			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"keys": []string{"a1"}}})
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "GET, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+				}
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			if r.Method != http.MethodHead {
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"keys": []string{"a1"}}})
+			}
 		case "/v1/auth/token/lookup-accessor":
-			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"display_name": "jwt-" + sub}})
+			if r.Method != http.MethodPost && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "POST, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+				}
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			if r.Method != http.MethodHead {
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"display_name": "jwt-" + sub}})
+			}
 		default: // revoke-accessor
+			if r.Method != http.MethodPost && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "POST, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+				}
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte(`{"errors":["permission denied"]}`))
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["permission denied"]}`))
+			}
 		}
 	}))
 	defer srv.Close()
@@ -278,5 +414,71 @@ func TestOpenBaoClient_RevokeTokensBySubject_DeniedFailsClosed(t *testing.T) {
 	revoked, err := client.RevokeTokensBySubject(context.Background(), sub)
 	if !errors.Is(err, ErrEnforcementDenied) || revoked != 0 {
 		t.Fatalf("revoked=%d err=%v, want 0 and ErrEnforcementDenied", revoked, err)
+	}
+}
+
+func TestOpenBaoTokenMockServerMethodGatingAndHEAD(t *testing.T) {
+	tokens := map[string]*fakeBaoToken{
+		"acc-1": {displayName: "jwt-test", meta: map[string]string{"sub": "test"}},
+	}
+	srv, _ := newFakeBaoAccessorServer(t, tokens, []string{"acc-1"})
+	defer srv.Close()
+
+	// 1. Verify HEAD on /v1/auth/token/accessors?list=true returns 200 with 0 body bytes
+	headResp, err := http.Head(srv.URL + "/v1/auth/token/accessors?list=true")
+	if err != nil {
+		t.Fatalf("HEAD accessors error: %v", err)
+	}
+	defer headResp.Body.Close()
+	if headResp.StatusCode != http.StatusOK {
+		t.Errorf("HEAD accessors status = %d, want 200", headResp.StatusCode)
+	}
+	headBytes, _ := io.ReadAll(headResp.Body)
+	if len(headBytes) != 0 {
+		t.Errorf("HEAD accessors body length = %d, want 0", len(headBytes))
+	}
+
+	// 2. Verify POST on /v1/auth/token/accessors returns 405 with Allow: GET, HEAD
+	postResp, err := http.Post(srv.URL+"/v1/auth/token/accessors", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST accessors error: %v", err)
+	}
+	defer postResp.Body.Close()
+	if postResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("POST accessors status = %d, want 405", postResp.StatusCode)
+	}
+	if allow := postResp.Header.Get("Allow"); allow != "GET, HEAD" {
+		t.Errorf("POST accessors Allow = %q, want 'GET, HEAD'", allow)
+	}
+
+	// 3. Verify GET on /v1/auth/token/lookup-accessor returns 405 with Allow: POST, HEAD
+	getResp, err := http.Get(srv.URL + "/v1/auth/token/lookup-accessor")
+	if err != nil {
+		t.Fatalf("GET lookup-accessor error: %v", err)
+	}
+	defer getResp.Body.Close()
+	if getResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("GET lookup-accessor status = %d, want 405", getResp.StatusCode)
+	}
+	if allow := getResp.Header.Get("Allow"); allow != "POST, HEAD" {
+		t.Errorf("GET lookup-accessor Allow = %q, want 'POST, HEAD'", allow)
+	}
+
+	// 4. Verify HEAD on 400 invalid accessor path returns 400 with 0 body bytes
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodHead, srv.URL+"/v1/auth/token/lookup-accessor", nil)
+	if err != nil {
+		t.Fatalf("NewRequest error: %v", err)
+	}
+	head400Resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("HEAD lookup-accessor error: %v", err)
+	}
+	defer head400Resp.Body.Close()
+	if head400Resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("HEAD lookup-accessor status = %d, want 400", head400Resp.StatusCode)
+	}
+	head400Bytes, _ := io.ReadAll(head400Resp.Body)
+	if len(head400Bytes) != 0 {
+		t.Errorf("HEAD lookup-accessor body length = %d, want 0", len(head400Bytes))
 	}
 }

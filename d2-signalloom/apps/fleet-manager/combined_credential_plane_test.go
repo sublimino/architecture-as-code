@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -149,6 +150,15 @@ type baoTestServer struct {
 func newBaoTestServer(delay time.Duration, status int) *baoTestServer {
 	b := &baoTestServer{keysSeen: make(chan string, 16)}
 	b.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "POST, PUT, GET, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		if strings.Contains(r.URL.Path, "revoke") {
 			b.revokeCalls.Add(1)
 			select {
@@ -162,11 +172,15 @@ func newBaoTestServer(delay time.Duration, status int) *baoTestServer {
 					return
 				}
 			}
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(status)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"data":{}}`))
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"data":{}}`))
+		}
 	}))
 	return b
 }
@@ -515,9 +529,21 @@ func TestCombinedRevocation_SharedDeadlineBudgetIsNotSerialised(t *testing.T) {
 	spire := newCountingSpireClient(OutcomeContained)
 	spire.enter = func(ctx context.Context) error { return meet(ctx, spireIn, baoIn) }
 	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "POST, PUT, GET, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		if !strings.Contains(r.URL.Path, "revoke") {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"data":{}}`))
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"data":{}}`))
+			}
 			return
 		}
 		if err := meet(r.Context(), baoIn, spireIn); err != nil {
@@ -601,8 +627,21 @@ func TestCombinedRevocation_TrippedBreakerFailsFastAndDoesNotBlockSibling(t *tes
 	// what proves fast-fail: an open breaker sends nothing.
 	var baoCalls atomic.Int64
 	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "POST, PUT, GET, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		baoCalls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"errors":["internal error"]}`))
+		}
 	}))
 	defer bao.Close()
 	c := newCombinedFleetClient(t, spire, bao.URL)
@@ -850,9 +889,21 @@ func TestCombinedRevocation_BothPlanesDispatchedPromptly(t *testing.T) {
 	spire.enter = held
 	var baoRevokes atomic.Int64
 	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "POST, PUT, GET, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		if !strings.Contains(r.URL.Path, "revoke") {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"data":{}}`))
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"data":{}}`))
+			}
 			return
 		}
 		baoRevokes.Add(1)
@@ -883,4 +934,54 @@ func TestCombinedRevocation_BothPlanesDispatchedPromptly(t *testing.T) {
 	}
 	close(release)
 	<-done
+}
+
+func TestCombinedCredentialPlane_MockServerMethodGatingAndHEAD(t *testing.T) {
+	srv := newBaoTestServer(0, http.StatusNoContent)
+	defer srv.Close()
+
+	// 1. Verify HEAD on non-revoke path returns 200 with 0 body bytes
+	headResp, err := http.Head(srv.URL + "/v1/sys/health")
+	if err != nil {
+		t.Fatalf("HEAD /v1/sys/health error: %v", err)
+	}
+	defer headResp.Body.Close()
+	if headResp.StatusCode != http.StatusOK {
+		t.Errorf("HEAD /v1/sys/health status = %d, want 200", headResp.StatusCode)
+	}
+	headBytes, _ := io.ReadAll(headResp.Body)
+	if len(headBytes) != 0 {
+		t.Errorf("HEAD /v1/sys/health body length = %d, want 0", len(headBytes))
+	}
+
+	// 2. Verify DELETE on non-revoke returns 405 with Allow: POST, PUT, GET, HEAD
+	delReq, err := http.NewRequestWithContext(context.Background(), http.MethodDelete, srv.URL+"/v1/sys/health", nil)
+	if err != nil {
+		t.Fatalf("DELETE request create error: %v", err)
+	}
+	delResp, err := srv.Client().Do(delReq)
+	if err != nil {
+		t.Fatalf("DELETE request error: %v", err)
+	}
+	defer delResp.Body.Close()
+	if delResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("DELETE status = %d, want 405", delResp.StatusCode)
+	}
+	if allow := delResp.Header.Get("Allow"); allow != "POST, PUT, GET, HEAD" {
+		t.Errorf("DELETE Allow = %q, want 'POST, PUT, GET, HEAD'", allow)
+	}
+
+	// 3. Verify HEAD on revoke path returns 204 with 0 body bytes
+	headRevoke, err := http.Head(srv.URL + "/v1/sys/leases/revoke")
+	if err != nil {
+		t.Fatalf("HEAD revoke error: %v", err)
+	}
+	defer headRevoke.Body.Close()
+	if headRevoke.StatusCode != http.StatusNoContent {
+		t.Errorf("HEAD revoke status = %d, want 204", headRevoke.StatusCode)
+	}
+	headRevokeBytes, _ := io.ReadAll(headRevoke.Body)
+	if len(headRevokeBytes) != 0 {
+		t.Errorf("HEAD revoke body length = %d, want 0", len(headRevokeBytes))
+	}
 }

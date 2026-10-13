@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -94,12 +95,25 @@ type rotateBaoServer struct {
 func newRotateBaoServer(status int) *rotateBaoServer {
 	b := &rotateBaoServer{keysSeen: make(chan string, 16)}
 	b.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "POST, GET, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		b.rotateCalls.Add(1)
 		select {
 		case b.keysSeen <- r.Header.Get("X-Idempotency-Key"):
 		default:
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
+		if r.Method == http.MethodHead {
+			return
+		}
 		if status == http.StatusOK {
 			_, _ = w.Write([]byte(`{"data":{"token":"s.rot-new-token","lease_id":"auth/token/rot-lease"}}`))
 		} else {
@@ -651,5 +665,58 @@ func TestKeyRegistry_Discovery(t *testing.T) {
 	}
 	if entryB.OperatorID != opBob {
 		t.Errorf("bob operator_id = %q, want %q", entryB.OperatorID, opBob)
+	}
+}
+
+func TestResumeGovernance_RotateBaoServerMethodGatingAndHEAD(t *testing.T) {
+	bao200 := newRotateBaoServer(http.StatusOK)
+	defer bao200.Close()
+
+	// 1. Verify HEAD on rotateBaoServer returns 200 with 0 body bytes
+	headResp, err := http.Head(bao200.URL + "/v1/cardvault/creds/agent-llm-classifier")
+	if err != nil {
+		t.Fatalf("HEAD rotateBaoServer error: %v", err)
+	}
+	defer headResp.Body.Close()
+	if headResp.StatusCode != http.StatusOK {
+		t.Errorf("HEAD rotateBaoServer status = %d, want 200", headResp.StatusCode)
+	}
+	headBytes, _ := io.ReadAll(headResp.Body)
+	if len(headBytes) != 0 {
+		t.Errorf("HEAD rotateBaoServer body length = %d, want 0", len(headBytes))
+	}
+
+	// 2. Verify DELETE on rotateBaoServer returns 405 with Allow: POST, GET, HEAD
+	delReq, err := http.NewRequestWithContext(context.Background(), http.MethodDelete, bao200.URL+"/v1/cardvault/creds/agent-llm-classifier", nil)
+	if err != nil {
+		t.Fatalf("DELETE request error: %v", err)
+	}
+	delResp, err := bao200.Client().Do(delReq)
+	if err != nil {
+		t.Fatalf("DELETE do error: %v", err)
+	}
+	defer delResp.Body.Close()
+	if delResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("DELETE status = %d, want 405", delResp.StatusCode)
+	}
+	if allow := delResp.Header.Get("Allow"); allow != "POST, GET, HEAD" {
+		t.Errorf("DELETE Allow = %q, want 'POST, GET, HEAD'", allow)
+	}
+
+	// 3. Verify HEAD on 500 error server returns 500 with 0 body bytes
+	bao500 := newRotateBaoServer(http.StatusInternalServerError)
+	defer bao500.Close()
+
+	head500Resp, err := http.Head(bao500.URL + "/v1/cardvault/creds/agent-llm-classifier")
+	if err != nil {
+		t.Fatalf("HEAD rotateBaoServer 500 error: %v", err)
+	}
+	defer head500Resp.Body.Close()
+	if head500Resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("HEAD rotateBaoServer 500 status = %d, want 500", head500Resp.StatusCode)
+	}
+	head500Bytes, _ := io.ReadAll(head500Resp.Body)
+	if len(head500Bytes) != 0 {
+		t.Errorf("HEAD rotateBaoServer 500 body length = %d, want 0", len(head500Bytes))
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,6 +22,15 @@ func TestOpenBaoClient_RevokeLease_Success(t *testing.T) {
 	var receivedPath string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "PUT, POST, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		receivedPath = r.URL.Path
 		receivedToken = r.Header.Get("X-Vault-Token")
 		_ = json.NewDecoder(r.Body).Decode(&receivedBody)
@@ -71,14 +81,26 @@ func TestOpenBaoClient_RevokeLease_Success(t *testing.T) {
 func TestOpenBaoClient_RevokeLease_Idempotency(t *testing.T) {
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "PUT, POST, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		callCount++
 		if callCount == 1 {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		// Second call: lease already revoked / not found in OpenBao
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte(`{"errors":["lease not found"]}`))
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"errors":["lease not found"]}`))
+		}
 	}))
 	defer server.Close()
 
@@ -118,6 +140,15 @@ func TestOpenBaoClient_RevokeToken_And_Accessor(t *testing.T) {
 	var lastBody map[string]any
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "PUT, POST, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		lastPath = r.URL.Path
 		_ = json.NewDecoder(r.Body).Decode(&lastBody)
 		w.WriteHeader(http.StatusNoContent)
@@ -146,12 +177,28 @@ func TestOpenBaoClient_RenewSelf(t *testing.T) {
 	var renewBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/auth/token/renew-self" {
-			http.NotFound(w, r)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["not found"]}`))
+			}
+			return
+		}
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "PUT, POST, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
 			return
 		}
 		_ = json.NewDecoder(r.Body).Decode(&renewBody)
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"auth":{"client_token":"s.renewed","lease_duration":300}}`))
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"auth":{"client_token":"s.renewed","lease_duration":300}}`))
+		}
 	}))
 	defer server.Close()
 
@@ -170,10 +217,23 @@ func TestOpenBaoClient_Health(t *testing.T) {
 	healthStatus := http.StatusOK
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/sys/health" {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "GET, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+				}
+				return
+			}
 			w.WriteHeader(healthStatus)
 			return
 		}
-		http.NotFound(w, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"errors":["not found"]}`))
+		}
 	}))
 	defer server.Close()
 
@@ -201,9 +261,21 @@ func TestOpenBaoClient_Health(t *testing.T) {
 func TestOpenBaoClient_CircuitBreaker_TripsAndRecovers(t *testing.T) {
 	var attempts int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "PUT, POST, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		atomic.AddInt32(&attempts, 1)
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte(`{"errors":["internal backend error"]}`))
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"errors":["internal backend error"]}`))
+		}
 	}))
 	defer server.Close()
 
@@ -263,6 +335,15 @@ func TestOpenBaoClient_CircuitBreaker_TripsAndRecovers(t *testing.T) {
 
 func TestOpenBaoClient_CircuitBreaker_StateObservableInLogs(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "PUT, POST, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
@@ -299,6 +380,15 @@ func TestOpenBaoClient_CircuitBreaker_StateObservableInLogs(t *testing.T) {
 
 func TestOpenBaoClient_ContextCancellation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "PUT, POST, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		time.Sleep(500 * time.Millisecond)
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -343,8 +433,20 @@ func TestOpenBaoClient_FailureInjection_UnavailableOutcome(t *testing.T) {
 
 func TestOpenBaoClient_PermissionDenied_ReturnsDenied(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "PUT, POST, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(`{"errors":["permission denied: path sys/leases/revoke requires update capability"]}`))
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"errors":["permission denied: path sys/leases/revoke requires update capability"]}`))
+		}
 	}))
 	defer server.Close()
 
@@ -365,6 +467,15 @@ func TestOpenBaoClient_PermissionDenied_ReturnsDenied(t *testing.T) {
 
 func TestOpenBaoClient_StructuredLogFormat_MatchesAttestationSchema(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "PUT, POST, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()
@@ -419,6 +530,15 @@ func TestOpenBaoClient_AuditLogAgreement(t *testing.T) {
 	var mu sync.Mutex
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "PUT, POST, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		var reqData map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&reqData)
 
@@ -488,6 +608,15 @@ func TestOpenBaoClient_PostRevokeAuthRejection(t *testing.T) {
 		defer mu.Unlock()
 
 		if r.URL.Path == "/v1/sys/leases/revoke" {
+			if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "PUT, POST, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+				}
+				return
+			}
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			leaseID, _ := body["lease_id"].(string)
@@ -497,20 +626,38 @@ func TestOpenBaoClient_PostRevokeAuthRejection(t *testing.T) {
 		}
 
 		if r.URL.Path == "/v1/sys/leases/lookup" {
+			if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "PUT, POST, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+				}
+				return
+			}
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			leaseID, _ := body["lease_id"].(string)
+			w.Header().Set("Content-Type", "application/json")
 			if activeLeases[leaseID] {
 				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write([]byte(`{"data":{"id":"` + leaseID + `","ttl":300}}`))
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"data":{"id":"` + leaseID + `","ttl":300}}`))
+				}
 			} else {
 				w.WriteHeader(http.StatusNotFound)
-				_, _ = w.Write([]byte(`{"errors":["lease not found or revoked"]}`))
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["lease not found or revoked"]}`))
+				}
 			}
 			return
 		}
 
-		http.NotFound(w, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"errors":["not found"]}`))
+		}
 	}))
 	defer server.Close()
 
@@ -558,6 +705,15 @@ func TestOpenBaoClient_LatencyDistribution_Benchmark10x(t *testing.T) {
 	var mu sync.Mutex
 	revoked := map[string]int{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "PUT, POST, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		if r.URL.Path == "/v1/sys/leases/revoke" {
@@ -608,6 +764,15 @@ func TestOpenBaoClient_LatencyDistribution_Benchmark10x(t *testing.T) {
 // stay well inside the 2000 ms guaranteed-denial bound.
 func BenchmarkOpenBaoClient_RevokeLease(b *testing.B) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "PUT, POST, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		time.Sleep(10 * time.Millisecond) // OpenBao storage deletion delay
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -635,12 +800,28 @@ func TestOpenBaoClient_AutoRenew(t *testing.T) {
 	var renewCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/auth/token/renew-self" {
+			if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "PUT, POST, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+				}
+				return
+			}
 			atomic.AddInt32(&renewCount, 1)
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"auth":{"client_token":"s.token"}}`))
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"auth":{"client_token":"s.token"}}`))
+			}
 			return
 		}
-		http.NotFound(w, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"errors":["not found"]}`))
+		}
 	}))
 	defer server.Close()
 
@@ -659,5 +840,74 @@ func TestOpenBaoClient_AutoRenew(t *testing.T) {
 	count := atomic.LoadInt32(&renewCount)
 	if count < 2 {
 		t.Fatalf("expected at least 2 renewals, got %d", count)
+	}
+}
+
+func TestOpenBaoClient_MockServerMethodGatingAndHEAD(t *testing.T) {
+	// 1. Verify HEAD on health endpoint returns 200 with 0 body bytes
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/sys/health" {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "GET, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+				}
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"errors":["not found"]}`))
+		}
+	}))
+	defer server.Close()
+
+	headResp, err := http.Head(server.URL + "/v1/sys/health")
+	if err != nil {
+		t.Fatalf("HEAD /v1/sys/health error: %v", err)
+	}
+	defer headResp.Body.Close()
+	if headResp.StatusCode != http.StatusOK {
+		t.Errorf("HEAD /v1/sys/health status = %d, want 200", headResp.StatusCode)
+	}
+	headBody, _ := io.ReadAll(headResp.Body)
+	if len(headBody) != 0 {
+		t.Errorf("HEAD /v1/sys/health body length = %d, want 0", len(headBody))
+	}
+
+	// 2. Verify DELETE on /v1/sys/health returns 405 Method Not Allowed with Allow: GET, HEAD
+	delReq, err := http.NewRequestWithContext(context.Background(), http.MethodDelete, server.URL+"/v1/sys/health", nil)
+	if err != nil {
+		t.Fatalf("DELETE request create error: %v", err)
+	}
+	delResp, err := server.Client().Do(delReq)
+	if err != nil {
+		t.Fatalf("DELETE request error: %v", err)
+	}
+	defer delResp.Body.Close()
+	if delResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("DELETE status = %d, want 405", delResp.StatusCode)
+	}
+	if allow := delResp.Header.Get("Allow"); allow != "GET, HEAD" {
+		t.Errorf("DELETE Allow = %q, want 'GET, HEAD'", allow)
+	}
+
+	// 3. Verify HEAD on nonexistent path returns 404 with 0 body bytes
+	head404, err := http.Head(server.URL + "/v1/nonexistent")
+	if err != nil {
+		t.Fatalf("HEAD /v1/nonexistent error: %v", err)
+	}
+	defer head404.Body.Close()
+	if head404.StatusCode != http.StatusNotFound {
+		t.Errorf("HEAD /v1/nonexistent status = %d, want 404", head404.StatusCode)
+	}
+	body404, _ := io.ReadAll(head404.Body)
+	if len(body404) != 0 {
+		t.Errorf("HEAD /v1/nonexistent body length = %d, want 0", len(body404))
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -346,8 +347,21 @@ func setupFull5PlaneFleetClient(t testing.TB, nAgents int) (*k8sFleetClient, *ht
 	// report Contained. It now answers that LIST the way OpenBao does when no
 	// tokens exist: 404. Every other path keeps the 204.
 	baoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, POST, PUT, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
 		if r.URL.Path == "/v1/auth/token/accessors" {
-			http.NotFound(w, r)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["not found"]}`))
+			}
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -656,7 +670,20 @@ func TestDenialMatrix_PartialFailureHandling(t *testing.T) {
 
 	// Inject failure on OpenBao client
 	failingBaoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, POST, PUT, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"errors":["internal error"]}`))
+		}
 	}))
 	defer failingBaoServer.Close()
 
@@ -840,5 +867,106 @@ func findRepoRoot(t testing.TB) string {
 			t.Fatalf("could not find repo root from %s", dir)
 		}
 		dir = parent
+	}
+}
+
+func TestDenialMatrix_MockServerMethodGatingAndHEAD(t *testing.T) {
+	// 1. Verify HEAD on baoServer returns 204 with 0 body bytes
+	baoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, POST, PUT, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
+		if r.URL.Path == "/v1/auth/token/accessors" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["not found"]}`))
+			}
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer baoServer.Close()
+
+	headResp, err := http.Head(baoServer.URL + "/v1/sys/leases/revoke")
+	if err != nil {
+		t.Fatalf("HEAD baoServer error: %v", err)
+	}
+	defer headResp.Body.Close()
+	if headResp.StatusCode != http.StatusNoContent {
+		t.Errorf("HEAD baoServer status = %d, want 204", headResp.StatusCode)
+	}
+	headBytes, _ := io.ReadAll(headResp.Body)
+	if len(headBytes) != 0 {
+		t.Errorf("HEAD baoServer body length = %d, want 0", len(headBytes))
+	}
+
+	// 2. Verify HEAD on /v1/auth/token/accessors returns 404 with 0 body bytes
+	head404, err := http.Head(baoServer.URL + "/v1/auth/token/accessors")
+	if err != nil {
+		t.Fatalf("HEAD accessors error: %v", err)
+	}
+	defer head404.Body.Close()
+	if head404.StatusCode != http.StatusNotFound {
+		t.Errorf("HEAD accessors status = %d, want 404", head404.StatusCode)
+	}
+	body404, _ := io.ReadAll(head404.Body)
+	if len(body404) != 0 {
+		t.Errorf("HEAD accessors body length = %d, want 0", len(body404))
+	}
+
+	// 3. Verify DELETE on baoServer returns 405 with Allow: GET, POST, PUT, HEAD
+	delReq, err := http.NewRequestWithContext(context.Background(), http.MethodDelete, baoServer.URL+"/v1/sys/leases/revoke", nil)
+	if err != nil {
+		t.Fatalf("DELETE request error: %v", err)
+	}
+	delResp, err := baoServer.Client().Do(delReq)
+	if err != nil {
+		t.Fatalf("DELETE do error: %v", err)
+	}
+	defer delResp.Body.Close()
+	if delResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("DELETE status = %d, want 405", delResp.StatusCode)
+	}
+	if allow := delResp.Header.Get("Allow"); allow != "GET, POST, PUT, HEAD" {
+		t.Errorf("DELETE Allow = %q, want 'GET, POST, PUT, HEAD'", allow)
+	}
+
+	// 4. Verify HEAD on failingBaoServer returns 500 with 0 body bytes
+	failingBaoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, POST, PUT, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"errors":["internal error"]}`))
+		}
+	}))
+	defer failingBaoServer.Close()
+
+	head500, err := http.Head(failingBaoServer.URL + "/v1/sys/leases/revoke")
+	if err != nil {
+		t.Fatalf("HEAD failingBaoServer error: %v", err)
+	}
+	defer head500.Body.Close()
+	if head500.StatusCode != http.StatusInternalServerError {
+		t.Errorf("HEAD failingBaoServer status = %d, want 500", head500.StatusCode)
+	}
+	body500, _ := io.ReadAll(head500.Body)
+	if len(body500) != 0 {
+		t.Errorf("HEAD failingBaoServer body length = %d, want 0", len(body500))
 	}
 }

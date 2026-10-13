@@ -2097,19 +2097,7 @@ stage_p1_3_manifest() {
   if [[ -f "${stage_dir}/images/images.json" ]]; then
     jq --arg t "${created_at}" '.generatedAtUtc = $t' "${stage_dir}/images/images.json" > "${meta_dir}/images.json" && mv "${meta_dir}/images.json" "${stage_dir}/images/images.json"
   fi
-  if [[ -f "${bundle_dir}/images/images.json" ]]; then
-    cp "${stage_dir}/images/images.json" "${bundle_dir}/images/images.json" 2>/dev/null || true
-    if [[ -d "${bundle_dir}/.manifest.d" ]]; then
-      cp "${stage_dir}/images/images.json" "${bundle_dir}/.manifest.d/images.json" 2>/dev/null || true
-      (cd "${bundle_dir}/.manifest.d" && sha256sum "images.json" > "images.sha256") 2>/dev/null || true
-    fi
-  fi
-  if [[ -f "${bundle_dir}/images/resolved.json" ]]; then
-    cp "${stage_dir}/images/resolved.json" "${bundle_dir}/images/resolved.json" 2>/dev/null || true
-  fi
-  if [[ -f "${bundle_dir}/images/layout-closure.json" ]]; then
-    cp "${stage_dir}/images/layout-closure.json" "${bundle_dir}/images/layout-closure.json" 2>/dev/null || true
-  fi
+
 
   # 6. Anti-Criteria: Check for private key leaks
   local privkey_leak=0

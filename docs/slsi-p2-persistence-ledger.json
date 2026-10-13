@@ -1,0 +1,68 @@
+{
+  "schema_version": "slsi.phase2-ledger/v1",
+  "phase": "P2",
+  "governor_card": "SLSI-P2-GOV",
+  "task_id": "74dda",
+  "certified_at": "2026-10-13T01:35:00Z",
+  "integration_branch": "integration/slsi-v0.1.0",
+  "status": "pass",
+  "constituent_cards": [
+    {
+      "logical_id": "P2-1",
+      "task_id": "b7ac9",
+      "title": "zero-state cryptographic bootstrap",
+      "commit": "b7ac96e8",
+      "tests": "bats test/slsi-tenant-keys.bats",
+      "verdict": "pass"
+    },
+    {
+      "logical_id": "P2-2",
+      "task_id": "ec57a",
+      "title": "host persistence and Kind configuration generator",
+      "commit": "ec57a1b2",
+      "tests": "bats test/slsi-host-mounts.bats",
+      "verdict": "pass"
+    },
+    {
+      "logical_id": "P2-3",
+      "task_id": "f2017",
+      "title": "Kind cluster bootstrap and Zot seeder",
+      "commit": "d8e9a58b",
+      "tests": "bats test/slsi-zot-preload.bats",
+      "verdict": "pass"
+    },
+    {
+      "logical_id": "P2-4",
+      "task_id": "8123a",
+      "title": "dual-trust supply chain configuration",
+      "commit": "2d500664",
+      "tests": "bats test/slsi-dual-trust.bats",
+      "verdict": "pass"
+    },
+    {
+      "logical_id": "P2-5",
+      "task_id": "d9bb1",
+      "title": "appliance bootstrap and data persistence test",
+      "commit": "bd17f74d",
+      "tests": "bats test/slsi-bootstrap-persistence.bats",
+      "verdict": "pass"
+    }
+  ],
+  "test_suites_summary": {
+    "test/slsi-tenant-keys.bats": { "passed": 11, "failed": 0, "skipped": 0 },
+    "test/slsi-host-mounts.bats": { "passed": 7, "failed": 0, "skipped": 0 },
+    "test/slsi-zot-preload.bats": { "passed": 9, "failed": 0, "skipped": 0 },
+    "test/slsi-dual-trust.bats": { "passed": 5, "failed": 0, "skipped": 0 },
+    "test/slsi-bootstrap-persistence.bats": { "passed": 4, "failed": 0, "skipped": 0 },
+    "total_tests": 36,
+    "total_passed": 36,
+    "total_failed": 0
+  },
+  "invariants_certified": {
+    "zero_egress_air_gap": true,
+    "cryptographic_disjointness": true,
+    "host_mount_persistence": true,
+    "decision_8_mode_isolation": true,
+    "dual_trust_supply_chain": true
+  }
+}

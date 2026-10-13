@@ -26,6 +26,12 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/healthz")
+async def healthz() -> dict[str, str]:
+    """A cheap liveness probe for the standalone demo runner."""
+    return {"status": "ok"}
+
+
 @app.get("/readyz")
 async def readyz() -> JSONResponse:
     """Ready when the process can answer requests AND record what it is asked to do.

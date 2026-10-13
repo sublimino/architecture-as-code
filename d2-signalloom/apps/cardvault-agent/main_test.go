@@ -283,3 +283,13 @@ func TestHTTPClientTimeout(t *testing.T) {
 		t.Fatalf("unexpected timeout: %s", c.Timeout)
 	}
 }
+
+func TestCombinedOutputExecution(t *testing.T) {
+	out, err := combinedOutput("echo", "agent-ok")
+	if err != nil {
+		t.Fatalf("combinedOutput failed: %v", err)
+	}
+	if !strings.Contains(string(out), "agent-ok") {
+		t.Fatalf("expected agent-ok in output, got %q", string(out))
+	}
+}

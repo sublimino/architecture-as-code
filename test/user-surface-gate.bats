@@ -364,3 +364,12 @@ EOF
   [[ "$line" != *"127.0.0.1"* ]]
   [[ "$line" != *"localhost"* ]]
 }
+
+@test "stub-surface-server serves standard health, healthz, and readyz probes" {
+  start_stub '{"supercred":{"status":"healthy"}}'
+  for path in health healthz readyz; do
+    run curl -s -o /dev/null -w "%{http_code}" "${BASE}/${path}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "200" ]
+  done
+}

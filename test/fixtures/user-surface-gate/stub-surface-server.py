@@ -101,6 +101,11 @@ class Handler(BaseHTTPRequestHandler):
         self._send(202, {"run_id": run_id, "status": "running", "step": step})
 
     def do_GET(self):
+        clean_path = self.path.split("?")[0].rstrip("/") or "/"
+        if clean_path in ("/health", "/healthz", "/readyz"):
+            self._send(200, {"status": "ok"})
+            return
+
         m = re.match(r"^/api/demo/([^/]+)/(status|steps)$", self.path)
         if m:
             demo, what, mode = m.group(1), m.group(2), self._mode(m.group(1))

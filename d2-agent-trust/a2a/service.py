@@ -14,7 +14,7 @@ def valid_resource(resource): return isinstance(resource,str) and len(resource) 
 def mint_authorization_context_fixture(private_key, claims):
     """Deterministic platform authorization-context fixture, never a SPIFFE proof."""
     h = _b64(b'{"alg":"RS256","typ":"JWT"}'); p = _b64(json.dumps(claims, sort_keys=True, separators=(",", ":")).encode())
-    sig = subprocess.run(["openssl", "dgst", "-sha256", "-sign", private_key], input=f"{h}.{p}".encode(), capture_output=True, check=True).stdout
+    sig = subprocess.run(["openssl", "dgst", "-sha256", "-sign", private_key], input=f"{h}.{p}".encode(), capture_output=True, check=True, timeout=5.0).stdout
     return f"{h}.{p}.{_b64(sig)}"
 class ReplayStore:
     """Bounded, expiry-aware replay cache; saturation fails closed."""
@@ -47,7 +47,7 @@ def verify_and_authorize(context, public_key, request, peer_spiffe, replay, now=
     try:
         h,p,s=context.split("."); claims=json.loads(_unb64(p)); valid=json.loads(_unb64(h)).get("alg")=="RS256"
         with tempfile.NamedTemporaryFile() as f:
-            f.write(_unb64(s)); f.flush(); valid &= subprocess.run(["openssl","dgst","-sha256","-verify",public_key,"-signature",f.name],input=f"{h}.{p}".encode(),capture_output=True).returncode==0
+            f.write(_unb64(s)); f.flush(); valid &= subprocess.run(["openssl","dgst","-sha256","-verify",public_key,"-signature",f.name],input=f"{h}.{p}".encode(),capture_output=True,timeout=5.0).returncode==0
     except Exception as exc: raise PermissionError("malformed authorization context") from exc
     required={"iss":ISSUER,"aud":AUDIENCE,"actor":PLANNER,"receiver":TRIAGE,"instance":receiver_instance,"tenant":"acme","project":"payments","action":request.get("action"),"resource":request.get("resource"),"requestHash":request_hash(request)}
     if not valid or not valid_resource(request.get("resource")) or request.get("action") != "triage.analyze" or any(claims.get(k)!=v for k,v in required.items()): raise PermissionError("authorization context scope")
@@ -77,7 +77,7 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
             raw_len = self.headers.get("Content-Length")
             if raw_len is None: self.send_error(400); return
             try:
-                length = int(raw_len)
+                length = int(raw_len.strip())
             except ValueError:
                 self.send_error(400); return
             if length <= 0 or length > 1048576: self.send_error(400); return

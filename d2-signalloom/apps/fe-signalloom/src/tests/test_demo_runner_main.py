@@ -75,6 +75,7 @@ def test_demo_runner_main_exposes_only_demo_runner_and_probe_routes() -> None:
         "/api/demo/distancelatency/reset",
         "/api/demo/distancelatency/status",
         "/health",
+        "/healthz",
         "/readyz",
     }
 
@@ -82,6 +83,7 @@ def test_demo_runner_main_exposes_only_demo_runner_and_probe_routes() -> None:
 def test_demo_runner_main_health_and_readyz_need_no_database() -> None:
     with TestClient(app, raise_server_exceptions=False) as client:
         assert client.get("/health").json() == {"status": "ok"}
+        assert client.get("/healthz").json() == {"status": "ok"}
         assert client.get("/readyz").json() == {"status": "ready"}
         assert client.get("/api/agents").status_code == 404
 

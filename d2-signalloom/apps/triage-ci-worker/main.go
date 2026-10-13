@@ -171,8 +171,11 @@ func handleCheckRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func postGitHubComment(repo string, prNum int, comment string, labels []string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
 	// Post comment via stdin to eliminate Linux MAX_ARG_STRLEN (128 KiB) exec failures.
-	cmd := exec.Command("gh", "pr", "comment", fmt.Sprintf("%d", prNum),
+	cmd := exec.CommandContext(ctx, "gh", "pr", "comment", fmt.Sprintf("%d", prNum),
 		"--repo", repo,
 		"--body-file", "-",
 	)
@@ -187,7 +190,7 @@ func postGitHubComment(repo string, prNum int, comment string, labels []string) 
 	if len(labels) > 0 {
 		args := []string{"pr", "edit", fmt.Sprintf("%d", prNum), "--repo", repo}
 		args = append(args, "--add-label", strings.Join(labels, ","))
-		cmd = exec.Command("gh", args...)
+		cmd = exec.CommandContext(ctx, "gh", args...)
 		cmd.Env = os.Environ()
 		if out, err := cmd.CombinedOutput(); err != nil {
 			slog.Error("gh pr edit failed", "error", err, "output", string(out))

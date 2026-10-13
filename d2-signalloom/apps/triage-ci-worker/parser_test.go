@@ -151,3 +151,11 @@ func TestHealthEndpoints(t *testing.T) {
 		}
 	}
 }
+
+func TestPostGitHubCommentExecution(t *testing.T) {
+	// Calling with non-configured environment must return false cleanly without hanging.
+	res := postGitHubComment("nonexistent/repo", 1, "test comment", []string{"label"})
+	if res {
+		t.Error("expected false for failing gh pr comment")
+	}
+}

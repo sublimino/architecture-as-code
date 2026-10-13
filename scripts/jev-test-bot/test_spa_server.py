@@ -97,17 +97,27 @@ class SpaServerContractTest(unittest.TestCase):
                 self.assertEqual(resp.read(), b"")
 
     def test_unsupported_methods_return_405_with_allow_header(self):
-        for method in ["POST", "PUT", "DELETE", "PATCH", "OPTIONS"]:
+        for method in ["POST", "PUT", "DELETE", "PATCH"]:
             req = urllib.request.Request(f"http://127.0.0.1:{self.port}/", data=b"{}", method=method)
             with self.assertRaises(urllib.error.HTTPError) as ctx:
                 urllib.request.urlopen(req)
             self.assertEqual(ctx.exception.code, 405)
-            self.assertEqual(ctx.exception.headers.get("Allow"), "GET, HEAD")
+            self.assertEqual(ctx.exception.headers.get("Allow"), "GET, HEAD, OPTIONS")
             self.assertEqual(ctx.exception.headers.get("Content-Type"), "text/plain; charset=utf-8")
             body = ctx.exception.read()
             self.assertGreater(len(body), 0)
             self.assertEqual(ctx.exception.headers.get("Content-Length"), str(len(body)))
             ctx.exception.close()
+
+    def test_options_returns_204_and_allow_header(self):
+        for path in ["/", "/style.css", "/dashboard"]:
+            req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", method="OPTIONS")
+            with urllib.request.urlopen(req) as resp:
+                self.assertEqual(resp.status, 204)
+                self.assertEqual(resp.headers.get("Allow"), "GET, HEAD, OPTIONS")
+                self.assertIsNone(resp.headers.get("Content-Type"))
+                self.assertIsNone(resp.headers.get("Content-Length"))
+                self.assertEqual(resp.read(), b"")
 
     def test_send_error_head_suppression_and_501_mapping(self):
         # Test unit invocation of send_error directly on mock/simulated handler
@@ -141,7 +151,7 @@ class SpaServerContractTest(unittest.TestCase):
         h1 = FakeHandler()
         SpaHandler.send_error(h1, 405)
         self.assertEqual(h1.status_code, 405)
-        self.assertEqual(h1.headers_out.get("Allow"), "GET, HEAD")
+        self.assertEqual(h1.headers_out.get("Allow"), "GET, HEAD, OPTIONS")
         self.assertEqual(len(h1.body), 0)
         self.assertIsNotNone(h1.headers_out.get("Content-Length"))
 
@@ -149,7 +159,7 @@ class SpaServerContractTest(unittest.TestCase):
         h2 = FakeHandler()
         SpaHandler.send_error(h2, 501)
         self.assertEqual(h2.status_code, 405)
-        self.assertEqual(h2.headers_out.get("Allow"), "GET, HEAD")
+        self.assertEqual(h2.headers_out.get("Allow"), "GET, HEAD, OPTIONS")
         self.assertEqual(len(h2.body), 0)
 
         # 3. GET request receiving 501 (mapped to 405) has body
@@ -157,7 +167,7 @@ class SpaServerContractTest(unittest.TestCase):
         h3.command = "GET"
         SpaHandler.send_error(h3, 501)
         self.assertEqual(h3.status_code, 405)
-        self.assertEqual(h3.headers_out.get("Allow"), "GET, HEAD")
+        self.assertEqual(h3.headers_out.get("Allow"), "GET, HEAD, OPTIONS")
         self.assertGreater(len(h3.body), 0)
         self.assertEqual(h3.headers_out.get("Content-Length"), str(len(h3.body)))
 

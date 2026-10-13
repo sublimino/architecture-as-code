@@ -55,11 +55,16 @@ class _Shell(http.server.BaseHTTPRequestHandler):
     def do_HEAD(self):  # noqa: N802
         self._serve(send_body=False)
 
+    def do_OPTIONS(self):  # noqa: N802
+        self.send_response(204)
+        self.send_header("Allow", "GET, HEAD, OPTIONS")
+        self.end_headers()
+
     def send_error(self, code, message=None, explain=None):
         if code == 501:
             err_body = b"Method Not Allowed\n"
             self.send_response(405)
-            self.send_header("Allow", "GET, HEAD")
+            self.send_header("Allow", "GET, HEAD, OPTIONS")
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Content-Length", str(len(err_body)))
             self.end_headers()
@@ -196,10 +201,25 @@ def test_shell_stub_head_method_not_allowed_has_no_body(stub_server):
     conn.request("NONSTANDARD", "/risk")
     resp = conn.getresponse()
     assert resp.status == 405
-    assert resp.getheader("Allow") == "GET, HEAD"
+    assert resp.getheader("Allow") == "GET, HEAD, OPTIONS"
     assert resp.getheader("Content-Length") == str(len(b"Method Not Allowed\n"))
     body = resp.read()
     assert body == b"Method Not Allowed\n"
+    conn.close()
+
+
+def test_shell_stub_options_returns_204_and_allow_header(stub_server):
+    """OPTIONS probe must return 204 No Content with complete Allow header and empty body."""
+    import http.client
+    host_port = stub_server.replace("http://", "")
+    conn = http.client.HTTPConnection(host_port)
+    conn.request("OPTIONS", "/risk")
+    resp = conn.getresponse()
+    assert resp.status == 204
+    assert resp.getheader("Allow") == "GET, HEAD, OPTIONS"
+    assert resp.getheader("Content-Type") is None
+    assert resp.getheader("Content-Length") is None
+    assert resp.read() == b""
     conn.close()
 
     # Direct invocation of send_error with HEAD command suppresses body

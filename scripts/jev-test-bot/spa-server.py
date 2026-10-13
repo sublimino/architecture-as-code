@@ -15,7 +15,7 @@ document shell. That is a real limit on what the loop can find, and it is
 documented in `docs/signalloom/runbooks/jev-exploration-loop.md` rather than
 papered over.
 
-Only loopback is bound. Only GET and HEAD are answered.
+Only loopback is bound. Only GET, HEAD, and OPTIONS are answered.
 """
 
 from __future__ import annotations
@@ -44,11 +44,30 @@ class SpaHandler(SimpleHTTPRequestHandler):
             return os.path.join(root, self.index_name)
         return resolved
 
+    def _drain_body(self) -> None:
+        try:
+            raw_len = self.headers.get("Content-Length", "0")
+            length = int(raw_len.strip()) if raw_len else 0
+        except (ValueError, TypeError, AttributeError):
+            length = 0
+        if 0 < length <= 1048576:
+            try:
+                self.rfile.read(length)
+            except (OSError, ValueError):
+                pass
+        elif length > 1048576:
+            try:
+                self.rfile.read(1048576)
+            except (OSError, ValueError):
+                pass
+
     def _send_405(self):
-        msg = "This stub serves GET and HEAD only"
+        if hasattr(self, "_drain_body"):
+            self._drain_body()
+        msg = "This stub serves GET, HEAD, and OPTIONS only"
         body = msg.encode("utf-8")
         self.send_response(405)
-        self.send_header("Allow", "GET, HEAD")
+        self.send_header("Allow", "GET, HEAD, OPTIONS")
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -57,9 +76,11 @@ class SpaHandler(SimpleHTTPRequestHandler):
 
     def send_error(self, code, message=None, explain=None):
         if code in (405, 501):
-            body = b"This stub serves GET and HEAD only"
+            if hasattr(self, "_drain_body"):
+                self._drain_body()
+            body = b"This stub serves GET, HEAD, and OPTIONS only"
             self.send_response(405)
-            self.send_header("Allow", "GET, HEAD")
+            self.send_header("Allow", "GET, HEAD, OPTIONS")
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -88,7 +109,11 @@ class SpaHandler(SimpleHTTPRequestHandler):
         self._send_405()
 
     def do_OPTIONS(self):  # noqa: N802
-        self._send_405()
+        if hasattr(self, "_drain_body"):
+            self._drain_body()
+        self.send_response(204)
+        self.send_header("Allow", "GET, HEAD, OPTIONS")
+        self.end_headers()
 
     def log_message(self, fmt, *args):
         # One line per request on stderr, so the run log shows what was asked

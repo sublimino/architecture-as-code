@@ -223,14 +223,17 @@ class ControllerHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         return
 
-    def _json(self, status: int, payload: object, headers: dict[str, str] | None = None) -> None:
-        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    def _json(self, status: int, payload: object = None, headers: dict[str, str] | None = None) -> None:
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(encoded)))
         if headers:
             for k, v in headers.items():
                 self.send_header(k, v)
+        if status in (HTTPStatus.NO_CONTENT, HTTPStatus.RESET_CONTENT, HTTPStatus.NOT_MODIFIED) or payload is None:
+            self.end_headers()
+            return
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(encoded)
@@ -240,7 +243,7 @@ class ControllerHandler(BaseHTTPRequestHandler):
             self._json(
                 HTTPStatus.METHOD_NOT_ALLOWED,
                 {"error": "method not allowed"},
-                {"Allow": "GET, HEAD, POST, DELETE"},
+                {"Allow": "GET, HEAD, POST, DELETE, OPTIONS"},
             )
             return
         try:
@@ -372,24 +375,38 @@ class ControllerHandler(BaseHTTPRequestHandler):
         if path in ("/health", "/healthz", "/readyz", "/livez"):
             if self.command in ("GET", "HEAD"):
                 self._json(HTTPStatus.OK, {"status": "ok"})
+            elif self.command == "OPTIONS":
+                self._drain_body()
+                self._json(
+                    HTTPStatus.NO_CONTENT,
+                    None,
+                    {"Allow": "GET, HEAD, OPTIONS"},
+                )
             else:
                 self._drain_body()
                 self._json(
                     HTTPStatus.METHOD_NOT_ALLOWED,
                     {"error": "method not allowed"},
-                    {"Allow": "GET, HEAD"},
+                    {"Allow": "GET, HEAD, OPTIONS"},
                 )
         elif path == "/scan":
             if self.command == "POST":
                 self._handle_scan()
             elif self.command == "DELETE":
                 self._handle_scan_delete()
+            elif self.command == "OPTIONS":
+                self._drain_body()
+                self._json(
+                    HTTPStatus.NO_CONTENT,
+                    None,
+                    {"Allow": "POST, DELETE, OPTIONS"},
+                )
             else:
                 self._drain_body()
                 self._json(
                     HTTPStatus.METHOD_NOT_ALLOWED,
                     {"error": "method not allowed"},
-                    {"Allow": "POST, DELETE"},
+                    {"Allow": "POST, DELETE, OPTIONS"},
                 )
         else:
             self._drain_body()

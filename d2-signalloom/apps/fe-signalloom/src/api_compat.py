@@ -5458,14 +5458,14 @@ async def _execute_claim(
             if owner_val:
                 if _try_uuid(owner_val):
                     user_row = await conn.fetchrow(
-                        "SELECT id FROM public.platform_users WHERE id = $1 AND (tenant_id = $2 OR tenant_id = 'tenant-demo')",
+                        "SELECT id FROM public.platform_users WHERE id = $1 AND tenant_id = $2",
                         uuid.UUID(owner_val), tenant_id,
                     )
                     if user_row:
                         owner_user_id = user_row["id"]
                 if owner_user_id is None:
                     user_row = await conn.fetchrow(
-                        "SELECT id FROM public.platform_users WHERE LOWER(email) = LOWER($1) AND (tenant_id = $2 OR tenant_id = 'tenant-demo')",
+                        "SELECT id FROM public.platform_users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2",
                         owner_val, tenant_id,
                     )
                     if user_row:
@@ -5540,7 +5540,7 @@ async def _execute_claim(
             )
 
             ctrl_rows = await conn.fetch(
-                "SELECT id, name FROM public.governance_controls WHERE tenant_id = $1 OR tenant_id = 'tenant-demo' ORDER BY control_order",
+                "SELECT id, name FROM public.governance_controls WHERE tenant_id = $1 ORDER BY control_order",
                 tenant_id,
             )
             if ctrl_rows:
@@ -10024,48 +10024,9 @@ async def list_discovery_workloads(
 
         # 4. External K8s (AFM imported clusters)
         if enabled_connectors.get("external_k8s", True):
-            workloads.append(
-                DiscoveryWorkloadModel(
-                    id=f"{tenant_id}:afm-staging-collector",
-                    name="afm-staging-collector",
-                    source="external_k8s",
-                    source_label="AFM Cluster",
-                    namespace="staging-workloads",
-                    status="in_review",
-                    owner=f"security@{tenant_id}.local",
-                    spiffe_id="spiffe://afm.remote.io/ns/staging/sa/collector",
-                    model="llama-3.3-70b",
-                    last_seen_at=_now_iso(),
-                    recommendations=ControlRecommendationsModel(
-                        config="recommended",
-                        content="pass",
-                        supply_chain="recommended",
-                        eu_ai_act="pass",
-                    ),
-                    metadata={"cluster_name": "afm-staging", "imported_from": "kubesec-afm"},
-                )
-            )
-            workloads.append(
-                DiscoveryWorkloadModel(
-                    id=f"{tenant_id}:prod-eu-validator",
-                    name="prod-eu-validator",
-                    source="external_k8s",
-                    source_label="AFM Cluster",
-                    namespace="prod-eu",
-                    status="revoked",
-                    owner=f"compliance@{tenant_id}.local",
-                    spiffe_id="spiffe://prod-eu.remote.io/ns/prod-eu/sa/validator",
-                    model="mistral-large",
-                    last_seen_at="2026-07-20T10:00:00Z",
-                    recommendations=ControlRecommendationsModel(
-                        config="warning",
-                        content="warning",
-                        supply_chain="warning",
-                        eu_ai_act="warning",
-                    ),
-                    metadata={"cluster_name": "prod-eu-cluster", "revocation_reason": "unauthorized_network_access"},
-                )
-            )
+            # In live DB mode, external K8s clusters must only be discovered from live data.
+            # An empty estate is an honest answer; never inject synthetic demo fixtures.
+            pass
 
     else:
         # In-Memory Mode

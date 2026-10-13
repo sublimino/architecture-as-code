@@ -170,6 +170,80 @@ print('NETWORK_VALID')
     [[ "$output" =~ "world-writable" ]]
 }
 
+@test "digest gate fails closed on unapproved nono version" {
+    local mock_bin="$TEST_TMP/mock-agent"
+    echo "#!/bin/sh" > "$mock_bin"
+    echo "echo valid agent" >> "$mock_bin"
+    chmod 755 "$mock_bin"
+    local valid_digest
+    valid_digest="$(sha256sum "$mock_bin" | awk '{print $1}')"
+
+    local mock_nono="$TEST_TMP/mock-nono-unapproved"
+    echo "#!/bin/sh" > "$mock_nono"
+    echo "echo nono 0.99.0" >> "$mock_nono"
+    chmod 755 "$mock_nono"
+
+    run env NONO_BIN="$mock_nono" \
+            AGENT_BINARY="$mock_bin" \
+            AGENT_EXPECTED_DIGEST="$valid_digest" \
+            PROFILE_PATH="$PROFILE_PATH" \
+            "$GATE_SCRIPT"
+
+    [ "$status" -ne 0 ]
+    [[ "$output" =~ "unapproved version" ]]
+}
+
+@test "digest gate fails closed on mismatched nono binary SHA-256 digest" {
+    local mock_bin="$TEST_TMP/mock-agent"
+    echo "#!/bin/sh" > "$mock_bin"
+    echo "echo valid agent" >> "$mock_bin"
+    chmod 755 "$mock_bin"
+    local valid_digest
+    valid_digest="$(sha256sum "$mock_bin" | awk '{print $1}')"
+
+    local mock_nono="$TEST_TMP/mock-nono-tampered"
+    echo "#!/bin/sh" > "$mock_nono"
+    echo "echo nono 0.79.0" >> "$mock_nono"
+    chmod 755 "$mock_nono"
+
+    run env NONO_BIN="$mock_nono" \
+            AGENT_BINARY="$mock_bin" \
+            AGENT_EXPECTED_DIGEST="$valid_digest" \
+            PROFILE_PATH="$PROFILE_PATH" \
+            "$GATE_SCRIPT"
+
+    [ "$status" -ne 0 ]
+    [[ "$output" =~ "Nono binary digest mismatch" ]]
+}
+
+@test "digest gate succeeds with approved nono version and matching digest" {
+    local mock_bin="$TEST_TMP/mock-agent"
+    echo "#!/bin/sh" > "$mock_bin"
+    echo "echo valid agent" >> "$mock_bin"
+    chmod 755 "$mock_bin"
+    local valid_digest
+    valid_digest="$(sha256sum "$mock_bin" | awk '{print $1}')"
+
+    local mock_nono="$TEST_TMP/mock-nono-valid"
+    echo "#!/bin/sh" > "$mock_nono"
+    echo "echo nono 0.79.0" >> "$mock_nono"
+    chmod 755 "$mock_nono"
+    local nono_digest
+    nono_digest="$(sha256sum "$mock_nono" | awk '{print $1}')"
+
+    run env NONO_BIN="$mock_nono" \
+            EXPECTED_NONO_VERSION="0.79.0" \
+            EXPECTED_NONO_DIGEST="$nono_digest" \
+            AGENT_BINARY="$mock_bin" \
+            AGENT_EXPECTED_DIGEST="$valid_digest" \
+            PROFILE_PATH="$PROFILE_PATH" \
+            "$GATE_SCRIPT"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "Nono binary digest verified" ]]
+    [[ "$output" =~ "All preflight verification gates PASSED" ]]
+}
+
 @test "real Landlock probe: nono profile denies filesystem write outside workspace" {
     local test_work="$TEST_TMP/work"
     local test_output="$TEST_TMP/output"

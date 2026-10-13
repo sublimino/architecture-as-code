@@ -265,6 +265,10 @@ class ScanTest(ControllerServerTestCase):
         self.assertEqual(b"", response.read())
         connection.close()
 
+    def test_server_allows_address_reuse(self):
+        self.assertTrue(ThreadingHTTPServer.allow_reuse_address)
+        self.assertTrue(self.httpd.allow_reuse_address)
+
 
 if __name__ == "__main__":
 

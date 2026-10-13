@@ -312,14 +312,24 @@ func (s *WebhookServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.HandleValidate(w, r)
 }
 
+// methodNotAllowed sets RFC 9110 Allow headers and status 405, suppressing response bodies on HEAD requests.
+func methodNotAllowed(w http.ResponseWriter, r *http.Request, allow string) {
+	w.Header().Set("Allow", allow)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusMethodNotAllowed)
+	if r == nil || r.Method != http.MethodHead {
+		fmt.Fprintln(w, "method not allowed")
+	}
+}
+
 // HandleValidate handles admission webhook validation requests.
 func (s *WebhookServer) HandleValidate(w http.ResponseWriter, r *http.Request) {
 	start := s.Now()
 	timestamp := start.UTC().Format(time.RFC3339)
 
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		methodNotAllowed(w, r, "POST")
 		return
 	}
 
@@ -430,8 +440,7 @@ func HandleValidate(w http.ResponseWriter, r *http.Request) {
 // HandleMetrics outputs Prometheus metrics including legacy and fine-grained counters.
 func HandleMetrics(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		methodNotAllowed(w, r, "GET, HEAD")
 		return
 	}
 
@@ -442,8 +451,9 @@ func HandleMetrics(w http.ResponseWriter, r *http.Request) {
 	rejNodeCap := atomic.LoadUint64(&RejectionsNodeCapabilityTotal)
 	admAllowed := atomic.LoadUint64(&AdmissionsAllowedTotal)
 
-	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 
@@ -475,8 +485,7 @@ func HandleMetrics(w http.ResponseWriter, r *http.Request) {
 // HandleHealthz responds with health status and checks store connectivity.
 func HandleHealthz(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		methodNotAllowed(w, r, "GET, HEAD")
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -494,4 +503,19 @@ func HandleHealthz(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodHead {
 		_, _ = w.Write([]byte("ok\n"))
 	}
+}
+
+// NewMux creates an isolated HTTP serve mux with registered webhook, metrics, and health probe routes.
+func NewMux(server *WebhookServer) *http.ServeMux {
+	mux := http.NewServeMux()
+	if server != nil {
+		mux.HandleFunc("/validate", server.HandleValidate)
+	} else {
+		mux.HandleFunc("/validate", HandleValidate)
+	}
+	mux.HandleFunc("/metrics", HandleMetrics)
+	mux.HandleFunc("/healthz", HandleHealthz)
+	mux.HandleFunc("/readyz", HandleHealthz)
+	mux.HandleFunc("/health", HandleHealthz)
+	return mux
 }

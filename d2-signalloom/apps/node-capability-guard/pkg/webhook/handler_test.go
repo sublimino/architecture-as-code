@@ -720,6 +720,51 @@ func TestMethodNotAllowed_HandleValidate(t *testing.T) {
 		if rec.Header().Get("Allow") != "POST" {
 			t.Errorf("HandleValidate %s expected Allow: POST, got %q", method, rec.Header().Get("Allow"))
 		}
+		if method == http.MethodHead {
+			if rec.Body.Len() != 0 {
+				t.Errorf("HandleValidate HEAD expected empty body, got %q", rec.Body.String())
+			}
+		} else {
+			if rec.Body.Len() == 0 {
+				t.Errorf("HandleValidate %s expected non-empty error body", method)
+			}
+		}
+	}
+}
+
+func TestNewMux_RoutesAndHeadParity(t *testing.T) {
+	server := webhook.NewWebhookServer(nil, "signalloom.demo")
+	mux := webhook.NewMux(server)
+
+	// Test probes
+	for _, path := range []string{"/health", "/healthz", "/readyz"} {
+		recGet := httptest.NewRecorder()
+		mux.ServeHTTP(recGet, httptest.NewRequest(http.MethodGet, path, nil))
+		if recGet.Code != http.StatusOK {
+			t.Errorf("GET %s got status %d, want 200", path, recGet.Code)
+		}
+
+		recHead := httptest.NewRecorder()
+		mux.ServeHTTP(recHead, httptest.NewRequest(http.MethodHead, path, nil))
+		if recHead.Code != http.StatusOK {
+			t.Errorf("HEAD %s got status %d, want 200", path, recHead.Code)
+		}
+		if recHead.Body.Len() != 0 {
+			t.Errorf("HEAD %s got body %q, want empty", path, recHead.Body.String())
+		}
+	}
+
+	// Test /metrics HEAD parity
+	recMetHead := httptest.NewRecorder()
+	mux.ServeHTTP(recMetHead, httptest.NewRequest(http.MethodHead, "/metrics", nil))
+	if recMetHead.Code != http.StatusOK {
+		t.Errorf("HEAD /metrics got status %d, want 200", recMetHead.Code)
+	}
+	if ct := recMetHead.Header().Get("Content-Type"); ct != "text/plain; version=0.0.4; charset=utf-8" {
+		t.Errorf("HEAD /metrics Content-Type = %q, want text/plain; version=0.0.4; charset=utf-8", ct)
+	}
+	if recMetHead.Body.Len() != 0 {
+		t.Errorf("HEAD /metrics got body %q, want empty", recMetHead.Body.String())
 	}
 }
 

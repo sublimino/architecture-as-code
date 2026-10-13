@@ -101,6 +101,23 @@ func TestRootMethodNotAllowed(t *testing.T) {
 		if rec.Header().Get("Allow") != "POST" {
 			t.Fatalf("%s / expected Allow: POST, got %q", m, rec.Header().Get("Allow"))
 		}
+		if rec.Body.Len() == 0 {
+			t.Fatalf("%s / expected non-empty error body", m)
+		}
+	}
+
+	// HEAD -> 405 with Allow: POST and empty body
+	reqHead := httptest.NewRequest(http.MethodHead, "/", nil)
+	recHead := httptest.NewRecorder()
+	mux.ServeHTTP(recHead, reqHead)
+	if recHead.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("HEAD / expected 405 Method Not Allowed, got %d", recHead.Code)
+	}
+	if recHead.Header().Get("Allow") != "POST" {
+		t.Fatalf("HEAD / expected Allow: POST, got %q", recHead.Header().Get("Allow"))
+	}
+	if recHead.Body.Len() != 0 {
+		t.Fatalf("HEAD / expected empty body, got %q", recHead.Body.String())
 	}
 }
 

@@ -46,17 +46,14 @@ func main() {
 	server := webhook.NewWebhookServer(store, *trustDomain)
 	webhook.SetDefaultStore(store)
 
-	http.HandleFunc("/validate", server.HandleValidate)
-	http.HandleFunc("/metrics", webhook.HandleMetrics)
-	http.HandleFunc("/healthz", webhook.HandleHealthz)
-	http.HandleFunc("/readyz", webhook.HandleHealthz)
-	http.HandleFunc("/health", webhook.HandleHealthz)
+	mux := webhook.NewMux(server)
 
 	addr := fmt.Sprintf(":%d", *port)
 	log.Printf("node-capability-guard listening on %s (trust-domain=%s)", addr, *trustDomain)
 
 	srv := &http.Server{
 		Addr:              addr,
+		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

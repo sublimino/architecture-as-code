@@ -89,12 +89,22 @@ func main() {
 	_ = srv.Shutdown(ctx)
 }
 
+// methodNotAllowed sets RFC 9110 Allow headers and status 405, suppressing response bodies on HEAD requests.
+func methodNotAllowed(w http.ResponseWriter, r *http.Request, allow string) {
+	w.Header().Set("Allow", allow)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusMethodNotAllowed)
+	if r == nil || r.Method != http.MethodHead {
+		fmt.Fprintln(w, "method not allowed")
+	}
+}
+
 func newMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			methodNotAllowed(w, r, "GET, HEAD")
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -116,8 +126,7 @@ func handleCheckRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		methodNotAllowed(w, r, "POST")
 		return
 	}
 

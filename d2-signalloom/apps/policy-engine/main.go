@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -142,6 +143,11 @@ func evaluateCheck(name string, spec *PodSpec) CheckResult {
 // Handlers
 
 func handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		w.Header().Set("Content-Type", "application/json")
@@ -160,6 +166,11 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		w.Header().Set("Content-Type", "application/json")
@@ -178,6 +189,11 @@ func handleReadyz(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleEvaluate(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		w.Header().Set("Content-Type", "application/json")
@@ -188,6 +204,11 @@ func handleEvaluate(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
+
+	defer r.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+	}()
 
 	var req EvaluateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

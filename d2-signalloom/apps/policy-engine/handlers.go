@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -94,6 +95,11 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 
 // HandleListPolicies handles GET /api/v1/policies.
 func (h *PolicyEngineHandlers) HandleListPolicies(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -121,6 +127,11 @@ func (h *PolicyEngineHandlers) HandleListPolicies(w http.ResponseWriter, r *http
 
 // HandleEvaluatePolicies handles POST /api/v1/policies/evaluate.
 func (h *PolicyEngineHandlers) HandleEvaluatePolicies(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		if r.Method == http.MethodHead {
@@ -131,6 +142,11 @@ func (h *PolicyEngineHandlers) HandleEvaluatePolicies(w http.ResponseWriter, r *
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+
+	defer r.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+	}()
 
 	var req EvaluatePoliciesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -219,6 +235,11 @@ func (h *PolicyEngineHandlers) HandleEvaluatePolicies(w http.ResponseWriter, r *
 
 // HandleRegisterBundle handles POST /api/v1/policies/bundles.
 func (h *PolicyEngineHandlers) HandleRegisterBundle(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		if r.Method == http.MethodHead {
@@ -229,6 +250,11 @@ func (h *PolicyEngineHandlers) HandleRegisterBundle(w http.ResponseWriter, r *ht
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+
+	defer r.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+	}()
 
 	var bundle PolicyBundle
 	if err := json.NewDecoder(r.Body).Decode(&bundle); err != nil {
@@ -263,6 +289,11 @@ func (h *PolicyEngineHandlers) HandleRegisterBundle(w http.ResponseWriter, r *ht
 
 // HandleRollback handles POST /api/v1/policies/rollback.
 func (h *PolicyEngineHandlers) HandleRollback(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		if r.Method == http.MethodHead {
@@ -273,6 +304,11 @@ func (h *PolicyEngineHandlers) HandleRollback(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+
+	defer r.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+	}()
 
 	var req RollbackRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

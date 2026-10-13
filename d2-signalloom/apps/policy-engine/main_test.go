@@ -468,3 +468,114 @@ func TestHeadErrorBodySuppression(t *testing.T) {
 	}
 }
 
+func TestOPTIONSRequests_Parity(t *testing.T) {
+	// 1. Core health and evaluate handlers
+	healthReq := httptest.NewRequest(http.MethodOptions, "/healthz", nil)
+	healthRec := httptest.NewRecorder()
+	handleHealthz(healthRec, healthReq)
+	if healthRec.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS /healthz: expected 204, got %d", healthRec.Code)
+	}
+	if allow := healthRec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Errorf("OPTIONS /healthz: expected Allow='GET, HEAD, OPTIONS', got %q", allow)
+	}
+	if healthRec.Body.Len() != 0 {
+		t.Errorf("OPTIONS /healthz: expected 0 body bytes, got %d", healthRec.Body.Len())
+	}
+
+	readyReq := httptest.NewRequest(http.MethodOptions, "/readyz", nil)
+	readyRec := httptest.NewRecorder()
+	handleReadyz(readyRec, readyReq)
+	if readyRec.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS /readyz: expected 204, got %d", readyRec.Code)
+	}
+	if allow := readyRec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Errorf("OPTIONS /readyz: expected Allow='GET, HEAD, OPTIONS', got %q", allow)
+	}
+	if readyRec.Body.Len() != 0 {
+		t.Errorf("OPTIONS /readyz: expected 0 body bytes, got %d", readyRec.Body.Len())
+	}
+
+	evalReq := httptest.NewRequest(http.MethodOptions, "/api/v1/evaluate", nil)
+	evalRec := httptest.NewRecorder()
+	handleEvaluate(evalRec, evalReq)
+	if evalRec.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS /api/v1/evaluate: expected 204, got %d", evalRec.Code)
+	}
+	if allow := evalRec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("OPTIONS /api/v1/evaluate: expected Allow='POST, OPTIONS', got %q", allow)
+	}
+	if evalRec.Body.Len() != 0 {
+		t.Errorf("OPTIONS /api/v1/evaluate: expected 0 body bytes, got %d", evalRec.Body.Len())
+	}
+
+	// 2. Policy engine versioned handlers
+	celEng, err := NewCELEngine()
+	if err != nil {
+		t.Fatalf("failed to init CEL engine: %v", err)
+	}
+	store := NewPolicyStore(celEng)
+	pHandlers := NewPolicyEngineHandlers(store, celEng)
+
+	listReq := httptest.NewRequest(http.MethodOptions, "/api/v1/policies", nil)
+	listRec := httptest.NewRecorder()
+	pHandlers.HandleListPolicies(listRec, listReq)
+	if listRec.Code != http.StatusNoContent || listRec.Header().Get("Allow") != "GET, HEAD, OPTIONS" || listRec.Body.Len() != 0 {
+		t.Errorf("OPTIONS /api/v1/policies failed: code=%d allow=%q body=%d", listRec.Code, listRec.Header().Get("Allow"), listRec.Body.Len())
+	}
+
+	pEvalReq := httptest.NewRequest(http.MethodOptions, "/api/v1/policies/evaluate", nil)
+	pEvalRec := httptest.NewRecorder()
+	pHandlers.HandleEvaluatePolicies(pEvalRec, pEvalReq)
+	if pEvalRec.Code != http.StatusNoContent || pEvalRec.Header().Get("Allow") != "POST, OPTIONS" || pEvalRec.Body.Len() != 0 {
+		t.Errorf("OPTIONS /api/v1/policies/evaluate failed: code=%d allow=%q body=%d", pEvalRec.Code, pEvalRec.Header().Get("Allow"), pEvalRec.Body.Len())
+	}
+
+	regReq := httptest.NewRequest(http.MethodOptions, "/api/v1/policies/bundles", nil)
+	regRec := httptest.NewRecorder()
+	pHandlers.HandleRegisterBundle(regRec, regReq)
+	if regRec.Code != http.StatusNoContent || regRec.Header().Get("Allow") != "POST, OPTIONS" || regRec.Body.Len() != 0 {
+		t.Errorf("OPTIONS /api/v1/policies/bundles failed: code=%d allow=%q body=%d", regRec.Code, regRec.Header().Get("Allow"), regRec.Body.Len())
+	}
+
+	rbReq := httptest.NewRequest(http.MethodOptions, "/api/v1/policies/rollback", nil)
+	rbRec := httptest.NewRecorder()
+	pHandlers.HandleRollback(rbRec, rbReq)
+	if rbRec.Code != http.StatusNoContent || rbRec.Header().Get("Allow") != "POST, OPTIONS" || rbRec.Body.Len() != 0 {
+		t.Errorf("OPTIONS /api/v1/policies/rollback failed: code=%d allow=%q body=%d", rbRec.Code, rbRec.Header().Get("Allow"), rbRec.Body.Len())
+	}
+
+	// 3. Observation handlers
+	obsHandlers := NewObservationHandlers(store, nil)
+	obsReq := httptest.NewRequest(http.MethodOptions, "/api/v1/observations/evaluate", nil)
+	obsRec := httptest.NewRecorder()
+	obsHandlers.HandleEvaluateObservation(obsRec, obsReq)
+	if obsRec.Code != http.StatusNoContent || obsRec.Header().Get("Allow") != "POST, OPTIONS" || obsRec.Body.Len() != 0 {
+		t.Errorf("OPTIONS /api/v1/observations/evaluate failed: code=%d allow=%q body=%d", obsRec.Code, obsRec.Header().Get("Allow"), obsRec.Body.Len())
+	}
+
+	// 4. Compliance handlers
+	cHandler := &complianceHandler{}
+	scanReq := httptest.NewRequest(http.MethodOptions, "/api/v1/compliance/scan", nil)
+	scanRec := httptest.NewRecorder()
+	cHandler.handleScan(scanRec, scanReq)
+	if scanRec.Code != http.StatusNoContent || scanRec.Header().Get("Allow") != "POST, OPTIONS" || scanRec.Body.Len() != 0 {
+		t.Errorf("OPTIONS /api/v1/compliance/scan failed: code=%d allow=%q body=%d", scanRec.Code, scanRec.Header().Get("Allow"), scanRec.Body.Len())
+	}
+
+	fwReq := httptest.NewRequest(http.MethodOptions, "/api/v1/compliance/frameworks", nil)
+	fwRec := httptest.NewRecorder()
+	cHandler.handleFrameworks(fwRec, fwReq)
+	if fwRec.Code != http.StatusNoContent || fwRec.Header().Get("Allow") != "GET, HEAD, OPTIONS" || fwRec.Body.Len() != 0 {
+		t.Errorf("OPTIONS /api/v1/compliance/frameworks failed: code=%d allow=%q body=%d", fwRec.Code, fwRec.Header().Get("Allow"), fwRec.Body.Len())
+	}
+
+	sumReq := httptest.NewRequest(http.MethodOptions, "/api/v1/compliance/summary", nil)
+	sumRec := httptest.NewRecorder()
+	cHandler.handleSummary(sumRec, sumReq)
+	if sumRec.Code != http.StatusNoContent || sumRec.Header().Get("Allow") != "GET, HEAD, OPTIONS" || sumRec.Body.Len() != 0 {
+		t.Errorf("OPTIONS /api/v1/compliance/summary failed: code=%d allow=%q body=%d", sumRec.Code, sumRec.Header().Get("Allow"), sumRec.Body.Len())
+	}
+}
+
+

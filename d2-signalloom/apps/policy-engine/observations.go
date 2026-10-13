@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"time"
@@ -59,6 +60,11 @@ func NewObservationHandlers(store *PolicyStore, evaluator obscel.Evaluator) *Obs
 // hide what the other rules found. Fail-closed behaviour belongs to the ingest
 // drain loop, not to a read-only dry-run surface.
 func (h *ObservationHandlers) HandleEvaluateObservation(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		if r.Method == http.MethodHead {
@@ -69,6 +75,11 @@ func (h *ObservationHandlers) HandleEvaluateObservation(w http.ResponseWriter, r
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+
+	defer r.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+	}()
 
 	var req EvaluateObservationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

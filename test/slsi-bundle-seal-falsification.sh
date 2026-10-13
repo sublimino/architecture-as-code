@@ -163,8 +163,8 @@ assert_pass "precondition_control_absent_manifest_aborts_the_run" bash -c '
   out="$(SLSI_FALSIFY_DIST="$scratch" bash "'"${BASH_SOURCE[0]}"'" --precondition-only 2>&1)" && rc=0 || rc=$?
   rm -rf "$scratch"
   [ "$rc" -eq 2 ] || { printf "expected exit 2, got %s\n%s\n" "$rc" "$out" >&2; exit 1; }
-  printf "%s" "$out" | grep -q "HARNESS ERROR" || { printf "no HARNESS ERROR in:\n%s\n" "$out" >&2; exit 1; }
-  printf "%s" "$out" | grep -q "does not exist" || { printf "wrong reason:\n%s\n" "$out" >&2; exit 1; }
+  grep -q "HARNESS ERROR" <<<"$out" || { printf "no HARNESS ERROR in:\n%s\n" "$out" >&2; exit 1; }
+  grep -q "does not exist" <<<"$out" || { printf "wrong reason:\n%s\n" "$out" >&2; exit 1; }
 '
 
 assert_pass "precondition_control_unparseable_manifest_aborts_the_run" bash -c '
@@ -182,7 +182,7 @@ assert_pass "precondition_control_unparseable_manifest_aborts_the_run" bash -c '
   out="$(SLSI_FALSIFY_DIST="$scratch" bash "'"${BASH_SOURCE[0]}"'" --precondition-only 2>&1)" && rc=0 || rc=$?
   rm -rf "$scratch"
   [ "$rc" -eq 2 ] || { printf "expected exit 2, got %s\n%s\n" "$rc" "$out" >&2; exit 1; }
-  printf "%s" "$out" | grep -q "not parseable JSON" || { printf "wrong reason:\n%s\n" "$out" >&2; exit 1; }
+  grep -q "not parseable JSON" <<<"$out" || { printf "wrong reason:\n%s\n" "$out" >&2; exit 1; }
 '
 
 assert_pass "precondition_control_absent_archive_aborts_the_run" bash -c '
@@ -196,7 +196,7 @@ assert_pass "precondition_control_absent_archive_aborts_the_run" bash -c '
   out="$(SLSI_FALSIFY_DIST="$scratch" bash "'"${BASH_SOURCE[0]}"'" --precondition-only 2>&1)" && rc=0 || rc=$?
   rm -rf "$scratch"
   [ "$rc" -eq 2 ] || { printf "expected exit 2, got %s\n%s\n" "$rc" "$out" >&2; exit 1; }
-  printf "%s" "$out" | grep -q "no slsi-appliance-.*tar.gz" || { printf "wrong reason:\n%s\n" "$out" >&2; exit 1; }
+  grep -q "no slsi-appliance-.*tar.gz" <<<"$out" || { printf "wrong reason:\n%s\n" "$out" >&2; exit 1; }
 '
 
 # 1. Injected payload file detected by completeness and missed by correctness
@@ -331,7 +331,7 @@ assert_pass "present_utility_image_fails_loudly" bash -c '
   # survivable.
   err_msg="$(SLSI_BUNDLE_OUT="$tmp_out" BUNDLE_DIR="$tmp_bundle" stage_p1_3_manifest 2>&1)" || true
   rm -rf "$tmp_parent"
-  echo "$err_msg" | grep -qi "utility image record present"
+  grep -qi "utility image record present" <<<"$err_msg"
 '
 
 # 8. Provocation: private key detection fails build

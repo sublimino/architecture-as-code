@@ -366,6 +366,10 @@ verify_offline_manifest() {
   mapfile -t listed_paths < <(
     awk '{ line=$0; sub(/^[^ \t]+[ \t]+\*?/, "", line); if (line != "") print line }' "${manifest}"
   )
+  ((${#listed_paths[@]} > 0)) || {
+    echo "manifest ${manifest} contains no files" >&2
+    exit 1
+  }
   local -A listed_set=()
   local lp
   for lp in "${listed_paths[@]}"; do

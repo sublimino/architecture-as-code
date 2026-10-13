@@ -51,8 +51,8 @@ test -f "${KEYS_DIR}/cosign.key" || { echo "run 'make signing-keys' first"; exit
 # objects apply but are never enforced, so every denial below would read as
 # an unexpected admission -- fail with the cause instead of the symptom.
 echo "=== checking ValidatingAdmissionPolicy is served (requires k8s 1.30+)"
-if ! kubectl api-resources --api-group=admissionregistration.k8s.io 2>/dev/null \
-  | grep -q '\bvalidatingadmissionpolicies\b'; then
+local_api_resources="$(kubectl api-resources --api-group=admissionregistration.k8s.io 2>/dev/null || true)"
+if ! grep -q '\bvalidatingadmissionpolicies\b' <<<"$local_api_resources"; then
   echo "admissionregistration.k8s.io ValidatingAdmissionPolicy is not served by this API server"
   echo "the ValidatingAdmissionPolicy feature is GA in Kubernetes 1.30; this demo requires it"
   exit 1

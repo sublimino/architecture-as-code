@@ -160,6 +160,8 @@ teardown() {
 }
 
 @test "all generated YAML manifests across all 4 modes are syntactically valid YAML" {
+  local python_bin
+  python_bin="$(python3 -c 'import yaml' >/dev/null 2>&1 && echo python3 || echo /usr/bin/python3)"
   local modes=("airgap-local" "acme-dns01" "cloud-lb-l7" "custom-byo-pki")
 
   for mode in "${modes[@]}"; do
@@ -173,7 +175,7 @@ teardown() {
     # Validate each YAML file in output ingress dir
     for yf in "${mode_dir}/ingress/"*.yaml; do
       [ -f "$yf" ]
-      python3 -c "import yaml; list(yaml.safe_load_all(open('$yf')))"
+      "$python_bin" -c "import yaml; list(yaml.safe_load_all(open('$yf')))"
     done
   done
 }

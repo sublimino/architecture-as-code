@@ -50,7 +50,7 @@ run_pytest() {
   # It stays a --with rather than an entry in requirements.txt because that file
   # is what the Dockerfile pip-installs into the shipping image.
   uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist \
-    --with-requirements requirements.txt python -m pytest "$@"
+    --with respx --with-requirements requirements.txt python -m pytest "$@"
 }
 
 case "${TIER}" in

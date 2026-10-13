@@ -102,8 +102,8 @@ drivers call.
 
 | Permission | Justification |
 |---|---|
-| `compute.instances.suspend` | The operation. `suspend_lane()` in `scripts/ci/gcp-tf-ci.sh` and in `scripts/ci/gcp-tf-reaper.sh`, and `cmd_provision()` and `cmd_run()` in `scripts/ci/gcp-ci.sh`. Documented requirement for suspend. |
-| `compute.instances.resume` | The reciprocal, and the `SUSPENDED)` branch of every driver: `ensure_vm_ready()` in `scripts/gcp-tf/demo-up.sh`, `resume_lane()` in `scripts/ci/gcp-tf-ci.sh`, `ensure_vm_ssh_ready()` in `scripts/ci/gcp-ci.sh`. Suspend without resume is a one-way door. |
+| `compute.instances.suspend` | The operation. `suspend_lane()` in `scripts/ci/gcp-tf-ci.sh` and in `scripts/ci/gcp-tf-reaper.sh`, and `cmd_provision()` and `cmd_run()` in `scripts/ci/gcp-tf-ci.sh`. Documented requirement for suspend. |
+| `compute.instances.resume` | The reciprocal, and the `SUSPENDED)` branch of every driver: `ensure_vm_ready()` in `scripts/gcp-tf/demo-up.sh`, `resume_lane()` in `scripts/ci/gcp-tf-ci.sh`, `ensure_vm_ssh_ready()` in `scripts/ci/gcp-tf-ci.sh`. Suspend without resume is a one-way door. |
 | `compute.instances.start` | **Not implied by resume** — the docs treat stop/start and suspend/resume as separate pairs with separate permissions. Needed because *"You can suspend an instance for only up to 60 days before Compute Engine automatically transitions its state to `TERMINATED`"*, and a parked lane is exactly what sits suspended for months. Every driver already has the `TERMINATED \| STOPPED)` arm, in the same three functions. |
 | `compute.zoneOperations.get` | The one that would have been missed. Suspend/resume/start are **asynchronous**; gcloud polls the returned Operation unless `--async` is passed, and `--async` appears in **none** of the four drivers. Without it the VM really does suspend and the driver reports a 403 — the worst shape available, because the operator then retries against an already-suspended machine. |
 
@@ -157,10 +157,10 @@ tunnel and the login and still cannot suspend — reported by
 `roles/compute.osLogin` is the narrower role and was the preferred answer. It
 does not work here, on evidence rather than caution:
 
-- `lock_shim()` in `scripts/ci/gcp-ci.sh` runs **every** remote command as `sudo -u ci bash -c …`.
-- `push_code()` in `scripts/ci/gcp-ci.sh` unpacks the work tree with `sudo rm -rf`,
+- `lock_shim()` in `scripts/ci/gcp-tf-ci.sh` runs **every** remote command as `sudo -u ci bash -c …`.
+- `push_code()` in `scripts/ci/gcp-tf-ci.sh` unpacks the work tree with `sudo rm -rf`,
   `sudo mkdir`, `sudo tar -xzf` and `sudo chown -R ci:ci`.
-- `scripts/ci/vm-pipeline.sh:178` and `:201` open and re-close `/usr/local/bin`
+- `scripts/gcp-tf/demo-pipeline.sh:178` and `:201` open and re-close `/usr/local/bin`
   with `sudo chmod`, and `:205` installs the Playwright browser with `sudo npx`.
 
 An operator identity that cannot run the pipeline does not solve the problem

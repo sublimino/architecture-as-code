@@ -11,7 +11,7 @@ No sibling or governor worktree was read; the archived `5ef56` worktree's `git s
 ```text
 P2-PRE errata machine tag                      status=pass proceed=yes blocking_drift=no  (base 0445bb53)
 make -n test-eap-offline                        rc=0 (Makefile:536)
-git diff --stat integration/eapr-v0.1.0 -- .github/workflows/signalloom-ci.yaml | wc -l     0   (T6)
+git diff --stat integration/eapr-v0.1.0 -- .github/workflows/sl-ci-1-vm.yaml | wc -l     0   (T6)
 git remote -v                                   origin git@github.com:controlplaneio-in-toto/osramp-demo (fetch/push)
 ```
 
@@ -39,7 +39,7 @@ $ yq '(.on // .true) | keys' .github/workflows/security-scan.yaml             pu
 
 Registry hook: the workflow runs `bats test/eap-pr-workflow.bats` as its own step, and
 `bats-registry-coverage.bats` lists `.github/workflows/signalloom-eap-pr.yaml` as a third runner beside the two shell
-pipelines. `scripts/ci/vm-pipeline.sh` (frozen, out of scope) and `Makefile` are untouched; registering in
+pipelines. `scripts/gcp-tf/demo-pipeline.sh` (frozen, out of scope) and `Makefile` are untouched; registering in
 `demo-pipeline.sh` alone would have tripped the dual-lane guard.
 
 ## T3 — gate timing on this base
@@ -117,4 +117,4 @@ strict run of test_scenario_seeding.py            31 passed, 3 xfailed (B1, B2, 
 
 So P2-2's fixes flip exactly the four markers it retired and no other; merging P2-3 after P2-2 alone still leaves the gate red on two P2-1 items. P2-1 vs P2-2 conflict resolution is P2-GOV's.
 
-Pre-existing and out of scope: `test/terraform-dual-lane-registration.bats` test 3 fails on five suites registered in `vm-pipeline.sh` only; neither pipeline file is touched here.
+Pre-existing and out of scope: `test/terraform-dual-lane-registration.bats` test 3 fails on five suites registered in `demo-pipeline.sh` only; neither pipeline file is touched here.

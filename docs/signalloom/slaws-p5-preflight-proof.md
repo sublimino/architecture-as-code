@@ -16,7 +16,7 @@ This document establishes the verified immutable baseline for every SLAWS Phase 
 
 Key verification findings:
 1. **Acceptance Baseline:** Two consecutive passes of `scripts/slaws-acceptance.sh` executed cleanly across all eight legs with zero failures and identical `totals.key` digests.
-2. **CI Parity:** `scripts/check-ci-build-parity.sh` confirmed 0 defects across 19 BUILT/RAN steps and 1 explicit opt-out (`netassert-runner-image`).
+2. **CI Parity:** `scripts/check-build-parity.sh` confirmed 0 defects across 19 BUILT/RAN steps and 1 explicit opt-out (`netassert-runner-image`).
 3. **Race Safety:** `go test -race -count=1 ./...` in a `golang:1.27` container over `d2-signalloom/apps/signal-ingest` verified zero `WARNING: DATA RACE` across all packages.
 4. **Seam Map:** Published the complete `file:line` symbol map for live AWS collector interfaces, single-account configuration surface, GuardDuty EventBridge projection gap, and policy-engine actor dry-run divergence.
 5. **SIGNAL_DEV_MODE Finding:** Confirmed that `signal-ingest` never reads `SIGNAL_DEV_MODE` (only `stun-sentinel/pkg/hubclient/hubclient.go:42` consumes it).
@@ -62,32 +62,32 @@ Two independent, clean-tree acceptance runs were executed with empty build cache
 
 ## 3. CI Build Parity Evidence
 
-Execution: `bash scripts/check-ci-build-parity.sh`  
+Execution: `bash scripts/check-build-parity.sh`  
 Exit Code: `0`  
 Verdict: `0 defects`  
 
 ```text
 ── steps demo-signalloom-up runs, and whether CI runs them ──
 
-  BUILT       sldc-ingest-keys                         vm-pipeline.sh:258
-  BUILT       fleet-manager-keys                       vm-pipeline.sh:259
-  BUILT       fleet-operator-keys                      vm-pipeline.sh:260
-  BUILT       afm-importer-key                         vm-pipeline.sh:261
-  BUILT       signal-segment-key                       vm-pipeline.sh:262
-  BUILT       push-local-signalloom                    vm-pipeline.sh:263
-  BUILT       signalloom-spire-helper                  vm-pipeline.sh:264
+  BUILT       sldc-ingest-keys                         demo-pipeline.sh:258
+  BUILT       fleet-manager-keys                       demo-pipeline.sh:259
+  BUILT       fleet-operator-keys                      demo-pipeline.sh:260
+  BUILT       afm-importer-key                         demo-pipeline.sh:261
+  BUILT       signal-segment-key                       demo-pipeline.sh:262
+  BUILT       push-local-signalloom                    demo-pipeline.sh:263
+  BUILT       signalloom-spire-helper                  demo-pipeline.sh:264
   OPT-OUT     netassert-runner-image                   runtime-only: built on demand by the Scan Now button, which no CI stage presses
-  BUILT       signalloom-images                        vm-pipeline.sh:265
-  BUILT       demo-signalloom-supercred-images         vm-pipeline.sh:281
-  BUILT       demo-signalloom-security-images          vm-pipeline.sh:292
-  BUILT       demo-signalloom-function-images          vm-pipeline.sh:293
-  BUILT       push-local-fleet                         vm-pipeline.sh:308
-  BUILT       push-local-agent-trust                   vm-pipeline.sh:309
-  BUILT       demo-signalloom-fleet-image              vm-pipeline.sh:300
-  RAN         scripts/signalloom-local.sh:up           vm-pipeline.sh:314
-  RAN         scripts/agent-trust-local.sh:up          vm-pipeline.sh:396
-  BUILT       demo-signalloom-afm-up                   vm-pipeline.sh:411
-  BUILT       check-backends                           vm-pipeline.sh:437
+  BUILT       signalloom-images                        demo-pipeline.sh:265
+  BUILT       demo-signalloom-supercred-images         demo-pipeline.sh:281
+  BUILT       demo-signalloom-security-images          demo-pipeline.sh:292
+  BUILT       demo-signalloom-function-images          demo-pipeline.sh:293
+  BUILT       push-local-fleet                         demo-pipeline.sh:308
+  BUILT       push-local-agent-trust                   demo-pipeline.sh:309
+  BUILT       demo-signalloom-fleet-image              demo-pipeline.sh:300
+  RAN         scripts/signalloom-local.sh:up           demo-pipeline.sh:314
+  RAN         scripts/agent-trust-local.sh:up          demo-pipeline.sh:396
+  BUILT       demo-signalloom-afm-up                   demo-pipeline.sh:411
+  BUILT       check-backends                           demo-pipeline.sh:437
 
   Every step demo-signalloom-up runs is run or explicitly opted out of by CI.
 ```

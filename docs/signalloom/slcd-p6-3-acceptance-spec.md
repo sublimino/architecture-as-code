@@ -289,9 +289,9 @@ draft to be corrected if it wires a lane:
 - **Current row:** `coding-agent-topology.spec.ts` · `suite-only` · precondition
   and P6-4 hand-off in the reason column.
 - **What P6-4 must decide:** whether to move it to `ci:<stage>` by adding a
-  `run_stage` in `scripts/ci/vm-pipeline.sh` beside stage 1b/1c, and/or to
+  `run_stage` in `scripts/gcp-tf/demo-pipeline.sh` beside stage 1b/1c, and/or to
   `make:<target>` by adding a Makefile recipe. The guard asserts the row against
-  the Makefile recipe and the `vm-pipeline.sh` stage command, so the row must be
+  the Makefile recipe and the `demo-pipeline.sh` stage command, so the row must be
   updated in the same commit as either.
 - **What such a lane needs:** `bun` on the image, `bunx playwright install
   chromium`, and `PW_CHANNEL=chromium` exported. Nothing else — no cluster, no

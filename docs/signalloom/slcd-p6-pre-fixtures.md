@@ -22,7 +22,7 @@ The file is tab-separated (`\t`), comments begin with `#`, and rows are strictly
 | Column | Name | Format & Allowed Values | Enforcement Rules |
 | :--- | :--- | :--- | :--- |
 | 1 | `spec` | Filename matching `*.spec.ts` | Must exist on disk in `test/acceptance/`. Every spec file on disk must appear exactly once. |
-| 2 | `runner` | `ci:stage8`<br/>`ci:stage8b`<br/>`make:<target>`<br/>`suite-only`<br/>`unwired` | Must be a known runner kind. If `ci:*`, must match an active `run_stage` command in `scripts/ci/vm-pipeline.sh`. If `make:<target>`, target must exist in root `Makefile` and recipe must name `<spec>`. If `suite-only`, must match a `testMatch` project in `playwright.config.ts`. If `unwired`, must match NO project in `playwright.config.ts`. |
+| 2 | `runner` | `ci:stage8`<br/>`ci:stage8b`<br/>`make:<target>`<br/>`suite-only`<br/>`unwired` | Must be a known runner kind. If `ci:*`, must match an active `run_stage` command in `scripts/gcp-tf/demo-pipeline.sh`. If `make:<target>`, target must exist in root `Makefile` and recipe must name `<spec>`. If `suite-only`, must match a `testMatch` project in `playwright.config.ts`. If `unwired`, must match NO project in `playwright.config.ts`. |
 | 3 | `reason` | Non-empty string (mandatory for non-`ci:*`) | Explains the blocking precondition keeping the spec out of a default CI lane. Prose like "it just isn't" is forbidden; must state the exact technical precondition. |
 
 ### 1.3 Current Inventory & SLCD Gap Confirmation
@@ -55,10 +55,10 @@ The coverage guard `test/acceptance-spec-coverage.bats` executes in CI Stage 1c 
 │ Guard 4: Playwright Project    │ Cross-checks classified status against     │
 │          Wired/Unwired Parity  │ registry (wired != unwired)                │
 ├────────────────────────────────┼────────────────────────────────────────────┤
-│ Guard 5: CI Stage Execution    │ Verifies vm-pipeline.sh run_stage command  │
+│ Guard 5: CI Stage Execution    │ Verifies demo-pipeline.sh run_stage command  │
 │          Proof                 │ actually invokes the registered spec file  │
 ├────────────────────────────────┼────────────────────────────────────────────┤
-│ Guard 6: Pipeline-to-Registry  │ Asserts any spec named in vm-pipeline.sh   │
+│ Guard 6: Pipeline-to-Registry  │ Asserts any spec named in demo-pipeline.sh   │
 │          Completeness          │ is registered with a ci:* runner           │
 ├────────────────────────────────┼────────────────────────────────────────────┤
 │ Guard 7: Makefile Recipe       │ Extracts make target recipe via awk;       │
@@ -71,8 +71,8 @@ The coverage guard `test/acceptance-spec-coverage.bats` executes in CI Stage 1c 
 2. **`every spec on disk has exactly one registry row, and every row has a spec`**: Uses `LC_ALL=C comm` to assert zero set difference between `specs_on_disk` and `registry_specs`. Zero orphan specs, zero stale rows, zero duplicate rows permitted.
 3. **`every registry runner is a known kind, and every non-CI row gives a reason`**: Validates runner prefix and enforces non-whitespace `reason` string on all non-CI rows.
 4. **`a spec matches a playwright project if and only if the registry says so`**: Proves bi-directional wiring consistency. If `playwright.config.ts` claims a spec, registry cannot mark it `unwired`. If no project claims a spec, registry cannot mark it `suite-only`, `make:*`, or `ci:*`.
-5. **`every ci: row names a stage that really runs that spec`**: Scans `vm-pipeline.sh` for `run_stage <desc> <stage-id>-* <command>` and asserts the command contains the spec filename.
-6. **`every spec a CI stage runs is registered as ci:`**: Parses all `*.spec.ts` tokens from `vm-pipeline.sh` and ensures each has a `ci:<stage>` runner in `SPEC-REGISTRY.tsv`.
+5. **`every ci: row names a stage that really runs that spec`**: Scans `demo-pipeline.sh` for `run_stage <desc> <stage-id>-* <command>` and asserts the command contains the spec filename.
+6. **`every spec a CI stage runs is registered as ci:`**: Parses all `*.spec.ts` tokens from `demo-pipeline.sh` and ensures each has a `ci:<stage>` runner in `SPEC-REGISTRY.tsv`.
 7. **`every make: row names a target whose recipe runs that spec`**: Extracts the target recipe from `Makefile` using `awk` prefix matching (`index($0, t) == 1`) and asserts the spec filename is present in the recipe body.
 
 ---

@@ -12,7 +12,7 @@
 #
 # What each section pins, and why it is worth a test:
 #
-#   NO HAND-COPY   scripts/ci/vm-pipeline.sh reproduces the body of the
+#   NO HAND-COPY   scripts/gcp-tf/demo-pipeline.sh reproduces the body of the
 #                  `demo-signalloom-up` recipe by hand and that copy has drifted
 #                  FOUR times, the fourth invisible to the guard written for the
 #                  first three. The guard here is DERIVED from the Makefile, not
@@ -311,7 +311,7 @@ script_code() {
 		echo "scripts/gcp-tf/demo-pipeline.sh invokes recipe step(s) directly:"
 		echo "  $copied"
 		echo ""
-		echo "That is the hand-copy that has drifted four times in vm-pipeline.sh."
+		echo "That is the hand-copy that has drifted four times in demo-pipeline.sh."
 		echo "Call 'make demo-signalloom-up' and let the Makefile be the source of"
 		echo "truth. If a step genuinely must be lifted out, delete it from the"
 		echo "recipe as well — a step in two places is a step in neither."
@@ -579,7 +579,7 @@ script_code() {
 	assert_before '^make check-deployed-staleness$' 'acceptance-test\.sh'
 	# `make -C d2-signalloom test` globs d2-signalloom/test/*.bats, which includes
 	# runtime.bats, test-1-runtime.bats and api-route-liveness.bats — cluster
-	# suites, whatever the stage number suggests. vm-pipeline.sh runs it as stage
+	# suites, whatever the stage number suggests. demo-pipeline.sh runs it as stage
 	# 1, ahead of the staleness proof; here it comes after, because a cluster
 	# suite that runs before 6b produces a result that cannot be attributed to
 	# the tree under test.

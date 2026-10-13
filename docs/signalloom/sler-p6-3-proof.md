@@ -303,8 +303,8 @@ comfortably practical on every CI change rather than on demand.
 | Surface | Entry point |
 |---|---|
 | Make target | `make test-sler-multiplane-acceptance` (runs the Go suite **and** this guard) |
-| CI stage (suite) | `scripts/ci/vm-pipeline.sh` → `stage1c3-multiplane-acceptance.tap` |
-| CI stage (guard) | `scripts/ci/vm-pipeline.sh` → `stage1c4-acceptance-plane-coverage.tap` |
+| CI stage (suite) | `scripts/gcp-tf/demo-pipeline.sh` → `stage1c3-multiplane-acceptance.tap` |
+| CI stage (guard) | `scripts/gcp-tf/demo-pipeline.sh` → `stage1c4-acceptance-plane-coverage.tap` |
 | Offline lane | `make test-all-offline` |
 | Red-team gate | `scripts/run-redteam-suite.sh` runs the acceptance target before writing any evidence |
 
@@ -326,7 +326,7 @@ failed on the first wiring attempt with:
 
 ```
 not ok 10 every repo-root bats suite is invoked by the CI pipeline
-# Repo-root bats suite(s) that scripts/ci/vm-pipeline.sh never runs:
+# Repo-root bats suite(s) that scripts/gcp-tf/demo-pipeline.sh never runs:
 #   sler-p6-3-multiplane-acceptance.bats
 ```
 

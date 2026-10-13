@@ -179,7 +179,7 @@ nodeport_firewall_hint() {
       MY_IP=\$(curl -s https://ifconfig.me)
       gcloud compute firewall-rules create signalloom-demo-${port} \\
         --allow=tcp:${port} --source-ranges="\${MY_IP}/32" \\
-        --target-tags=signalloom-ci --description='SignalLoom demo, single source IP'
+        --target-tags=sl-ci-1-vm --description='SignalLoom demo, single source IP'
 
     Remove it when the demo is over:
 

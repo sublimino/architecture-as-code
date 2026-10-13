@@ -278,7 +278,7 @@ All participating autonomous agents operating on the `SLAAT` mission adhere to t
     - `scripts/test-agent-sandbox-escape.sh` (16 live Landlock escape probe battery).
     - `docs/slaat/p1-4/sentinel-landlock-confinement-adversarial-dossier.md` (19.4 KB comprehensive dossier).
     - `ci-evidence/slaat-p1-4-confinement-findings.json`, `ci-evidence/slaat-p1-4-landlock-escape-probe-records.json`, `ci-evidence/slaat-p1-4-sentinel-evasion-probe-records.json`, `ci-evidence/slaat-p1-4-cgroup-adversarial-probe-records.json`.
-    - `Makefile` & `scripts/ci/vm-pipeline.sh` (registered test targets).
+    - `Makefile` & `scripts/gcp-tf/demo-pipeline.sh` (registered test targets).
   - Integration Merge: Commit `ce04aa51` incorporates all deliverables and normalized errata into `refs/heads/integration/slaat-whole-system-adversarial`.
   - Review Ledger: Formally recorded `APPROVED` in `.kanban-review-ledger.json` and SQLite.
   - Card State: Advanced to `done` column (`done=5`: P1-PRE, P1-1, P1-2, P1-3, P1-4).

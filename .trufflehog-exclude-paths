@@ -9,7 +9,7 @@
 #
 # Scope note: run trufflehog over git-tracked files only. A full-tree scan returns
 # ~994 findings against ~95 for tracked files, because it walks .afm-image/*.tar.gz
-# container images, ci-reports-2*/ archives, __pycache__/*.pyc and AI session caches
+# container images, lane-reports-2*/ archives, __pycache__/*.pyc and AI session caches
 # — none of which are tracked, and all of which are already gitignored.
 #
 # Detector note: the Lob detector must be excluded via --exclude-detectors, not here.
@@ -66,8 +66,8 @@ docs/signalloom/sfdp-p3-3-archivista-evidence\.md$
 # ~994 findings a naive full-tree scan returns, which is why an unscoped scan reads as
 # catastrophic and a scoped one reads as clean.
 ^\.afm-image/
-^ci-reports-2/
-^ci-reports-2\.prev/
+^lane-reports-2/
+^lane-reports-2\.prev/
 ^\.cache/
 ^\.tmp/
 ^node_modules/

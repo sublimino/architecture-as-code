@@ -18,8 +18,8 @@ updated: 2026-10-06T12:50
 
 ## Executive Summary
 
-> CI does not test what we demo. The nightly `signalloom-ci` VM resets to
-> `origin/main` (`scripts/ci/vm-pipeline.sh:154`). That ref is 4,626 commits behind
+> CI does not test what we demo. The nightly `sl-ci-1-vm` VM resets to
+> `origin/main` (`scripts/gcp-tf/demo-pipeline.sh:154`). That ref is 4,626 commits behind
 > `feat/signal-loop-and-bootstrap-refactor`, so none of the EAP, SLAWS or Kusari
 > work runs in CI. The four GCP lanes (`demo-1`, `demo-2`, `ci-1`, `ci-2`) were
 > last recorded on 2026-08-21, and the Kusari pilot lane (ratified decision D1)
@@ -33,9 +33,9 @@ updated: 2026-10-06T12:50
 ## 1. Problem
 
 - **CI tests the wrong branch.**
-  - The nightly workflow `.github/workflows/signalloom-ci.yaml:19-32` drives VM `signalloom-ci` in project `cp-dev-ajm`.
+  - The nightly workflow `.github/workflows/sl-ci-1-vm.yaml:19-32` drives VM `sl-ci-1-vm` in project `sl-port-over-sandbox`.
   - The VM runs `git reset --hard origin/main && git clean -fdx` before the pipeline.
-- **No CI run exercises the EAP shape.** The pipelines run only the offline dual-cluster tests (`vm-pipeline.sh:805-809`, `demo-pipeline.sh:838-851`). Nothing in them exercises:
+- **No CI run exercises the EAP shape.** The pipelines run only the offline dual-cluster tests (`demo-pipeline.sh:805-809`, `demo-pipeline.sh:838-851`). Nothing in them exercises:
   - the second cluster
   - the warden `remote-tenant` overlay
   - `scripts/remote-tenant-lab.sh`
@@ -52,7 +52,7 @@ updated: 2026-10-06T12:50
 
 ## 2. Out of Scope
 
-- Deleting the `signalloom-ci` VM or anything else in `cp-dev-ajm`, and the nightly schedule on `main`. That schedule runs from the default branch, which this mission does not touch. VM deletion and `gh workflow disable` on `main` are AJM's actions.
+- Deleting the `sl-ci-1-vm` VM or anything else in `sl-port-over-sandbox`, and the nightly schedule on `main`. That schedule runs from the default branch, which this mission does not touch. VM deletion and `gh workflow disable` on `main` are AJM's actions.
 - A fifth lane, a new lane kind, widening the lane-key regex, and any platform terraform apply. The regex is enforced in about nine places (`Makefile:2404`, terraform `env-contract` rules 01-03, the identity, edge and compute modules, `demo-up.sh:722`, `node-doctor.sh:408`, `where.sh:143`). The pilot reuses lane key `demo-2` (AJM 2026-10-06), whose service account and quota already exist. `CPUS_ALL_REGIONS` is 32 and the four lanes use all of it.
 - Tetragon, in any lane. AJM decision 2026-10-06: Tetragon is never used. Runtime syscall detection is the warden's in-sentinel eBPF. The proposal *In-Sentinel eBPF Migration and Tetragon Deprecation (2026-Q4)* (SLSE) is absorbed into this mission as P1-7 to P1-10 and P2-5.
 - Merging feat into `main`.
@@ -111,8 +111,8 @@ updated: 2026-10-06T12:50
 | P1-PRE | ripwire; context-mode | Pre-flight analyst | S | 60m | antigravity | File:line map of the ENV check, the tfvars lane block, the `demo-up.sh` payload, `demo-pipeline.sh` test stages and the CI workflow; post lane names to chat for the SLEA collision check. |
 | P1-1 | context-mode; Hardening | Platform engineer | M | 120m | antigravity | Pilot profile for `demo-2`: `tailscale_hostname` override `sl-eap-4b53ab6b` (not `hostname`, which turns on public TLS), labels `tier=pilot`, in the example tfvars and lane schema. `/act` stays enabled. |
 | P1-2 | context-mode | Platform engineer | M | 120m | antigravity | `GCP_TF_DEMO_REF`: deploy a clean worktree of a named ref; `RUN_COMMIT` and the hand-off record that ref's short SHA and survive `gcp-tf-handoff` regeneration; refuse an implicit HEAD. |
-| P1-3 | context-mode; ripwire | Test/CI engineer | L | 180m | antigravity | EAP stages in `demo-pipeline.sh` for `ci` lanes (dual cluster, remote-tenant lab, Kusari offline and live, SLAWS, EAP offline); remove the Tetragon suite from `demo-pipeline.sh:820` and `vm-pipeline.sh:780` together. |
-| P1-4 | context-mode | CI engineer | S | 60m | antigravity | Make every workflow on this branch manual-only (remove `pull_request`, `push` and `schedule` triggers); update `test/eap-pr-workflow.bats`; record the pre-existing TFID digest failure. No edits to `vm-pipeline.sh`. |
+| P1-3 | context-mode; ripwire | Test/CI engineer | L | 180m | antigravity | EAP stages in `demo-pipeline.sh` for `ci` lanes (dual cluster, remote-tenant lab, Kusari offline and live, SLAWS, EAP offline); remove the Tetragon suite from `demo-pipeline.sh:820` and `demo-pipeline.sh:780` together. |
+| P1-4 | context-mode | CI engineer | S | 60m | antigravity | Make every workflow on this branch manual-only (remove `pull_request`, `push` and `schedule` triggers); update `test/eap-pr-workflow.bats`; record the pre-existing TFID digest failure. No edits to `demo-pipeline.sh`. |
 | P1-5 | context-mode; Hardening | Platform engineer | M | 150m | antigravity | Host-persistent kind data: `extraMounts` for Postgres, `local-path` PV storage and the Zot cache in `infra/kind/cluster-osramp.yaml` and the hub config, created by `dual-cluster-up.sh`; one source shared with `create-kind-cluster.sh`; a backup and restore script for node data. |
 | P1-6 | context-mode; Hardening | Go platform engineer | L | 180m | antigravity | Deterministic observations API: total order `(timestamp DESC, id DESC)` applied in the GET handler before the limit, store and replay order unchanged; opaque cursor paging with an explicit truncation signal; consumers and the live tier moved to the cursor; plain-language API docs. |
 | P1-7 | context-mode; Hardening | Go and eBPF engineer | L | 180m | antigravity | SLSE D1: the warden's in-sentinel eBPF engine captures `openat`, `openat2`, `execve` and `connect` from agent cgroups and posts normalised observations to signal-ingest. |
@@ -133,11 +133,11 @@ updated: 2026-10-06T12:50
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
 | P0 | baseline | On `integration/eapci-v0.1.0` at the cut SHA run `make test-eap-offline`, `make test-kusari-e2e`, `scripts/slaws-acceptance.sh /tmp/eapci-acceptance`, `make docs-lint`; `kanban-check.sh doctor`. | — | Four commands rc 0; totals in errata | S | antigravity | [Errata](#errata--eapci-p0) | — | — | — | — |
-| P1-PRE | preflight | File:line table for `Makefile:2397-2401` ENV check, `deploy/gcp/sl-port-over-sandbox.tfvars` lane block, `demo-up.sh:1068-1130` payload, `demo-pipeline.sh` test stages (around 838-851, 1062), `signalloom-ci.yaml:19-32`; name the exact edits for P1-1..P1-4; post lane names to `/tmp/chat.jsonl`. | P0 | Table in errata; no code change | S | antigravity | — | — | — | — | — |
+| P1-PRE | preflight | File:line table for `Makefile:2397-2401` ENV check, `deploy/gcp/sl-port-over-sandbox.tfvars` lane block, `demo-up.sh:1068-1130` payload, `demo-pipeline.sh` test stages (around 838-851, 1062), `sl-ci-1-vm.yaml:19-32`; name the exact edits for P1-1..P1-4; post lane names to `/tmp/chat.jsonl`. | P0 | Table in errata; no code change | S | antigravity | — | — | — | — | — |
 | P1-1 | implementation | Add an optional lane attribute `tailscale_hostname` to the `environments` object type (`env-contract/variables.tf`, a strict type that drops undeclared keys), carry it through the compute module (which hard-codes `sl-${environment_key}` at `compute/main.tf:175,213`) and the hand-off writer to `demo-up.sh:3384` and a pilot profile for `demo-2` in the example tfvars: labels `tier=pilot`, `tailscale_hostname = "sl-eap-4b53ab6b"`; do not set `hostname`, which enables public TLS (`edge/main.tf:34`). `/act` stays enabled on every lane. | P1-PRE | `terraform validate`; bats: the `demo-2` profile renders `tailscale_hostname` matching `^sl-eap-[a-f0-9]{8}$` and no `hostname`; other lanes unchanged | M | antigravity | pass — delivered: `5742a3fe` (see [Errata — EAPCI-P1-1](#errata--eapci-p1-1-demo-2-kusari-pilot-profile-tailscale_hostname-sl-eap-4b53ab6b)) | — | — | — | — |
 | P1-2 | implementation | `GCP_TF_DEMO_REF=<ref>`: build the payload from a clean worktree of that ref; set `RUN_COMMIT` (`demo-up.sh:2049`) from that ref's short SHA; write `source_ref` and `source_sha` to the hand-off and keep them through `gcp-tf-handoff` regeneration; refuse to run with no ref unless `GCP_TF_DEMO_REF=HEAD` is explicit. | P1-PRE | bats with stubbed git and gcloud: payload SHA equals the ref SHA; a dirty principal tree does not change it; `source_sha` survives a regenerated hand-off; missing ref fails with a named error | M | antigravity | — | — | — | — | — |
-| P1-3 | implementation | In `demo-pipeline.sh`, for `ci` lanes add stages: `scripts/dual-cluster-up.sh`, `scripts/remote-tenant-lab.sh --load-kind-image`, `make test-kusari-e2e`, `KUSARI_LIVE=1 bats test/kusari-e2e-live.bats` (fails on any `# skip`), `scripts/slaws-acceptance.sh`, `make test-eap-offline`; each records its rc. Remove `test/tetragon-telemetry-stream.bats` from both `demo-pipeline.sh:820` and `vm-pipeline.sh:780` in one commit (announce to sensai-sltm on `/tmp/chat.jsonl`); the suite file, scripts and Makefile targets are P1-9's. | P1-PRE | bats with a stub runner: `ci` lanes run all six in order, `demo` lanes none; a failing or skipping stage fails the pipeline by name; `terraform-dual-lane-registration.bats` green; neither pipeline names a Tetragon suite | L | antigravity | — | — | — | — | — |
-| P1-4 | implementation | Make every workflow under `.github/workflows/` on this branch manual-only: remove `pull_request`, `push` and `schedule` triggers, keep `workflow_dispatch` and `workflow_call`; update `test/eap-pr-workflow.bats` to assert the manual-only contract; record (do not fix) the pre-existing TFID digest failure for `vm-pipeline.sh` and `ci-lock.sh`. | P1-PRE | A bats test asserts no workflow on the branch has `pull_request`, `push` or `schedule`; `eap-pr-workflow.bats` green; YAML parses (`yq`); docs-lint clean | S | antigravity | — | — | — | — | — |
+| P1-3 | implementation | In `demo-pipeline.sh`, for `ci` lanes add stages: `scripts/dual-cluster-up.sh`, `scripts/remote-tenant-lab.sh --load-kind-image`, `make test-kusari-e2e`, `KUSARI_LIVE=1 bats test/kusari-e2e-live.bats` (fails on any `# skip`), `scripts/slaws-acceptance.sh`, `make test-eap-offline`; each records its rc. Remove `test/tetragon-telemetry-stream.bats` from both `demo-pipeline.sh:820` and `demo-pipeline.sh:780` in one commit (announce to sensai-sltm on `/tmp/chat.jsonl`); the suite file, scripts and Makefile targets are P1-9's. | P1-PRE | bats with a stub runner: `ci` lanes run all six in order, `demo` lanes none; a failing or skipping stage fails the pipeline by name; `terraform-dual-lane-registration.bats` green; neither pipeline names a Tetragon suite | L | antigravity | — | — | — | — | — |
+| P1-4 | implementation | Make every workflow under `.github/workflows/` on this branch manual-only: remove `pull_request`, `push` and `schedule` triggers, keep `workflow_dispatch` and `workflow_call`; update `test/eap-pr-workflow.bats` to assert the manual-only contract; record (do not fix) the pre-existing TFID digest failure for `demo-pipeline.sh` and `legacy-runner-lock`. | P1-PRE | A bats test asserts no workflow on the branch has `pull_request`, `push` or `schedule`; `eap-pr-workflow.bats` green; YAML parses (`yq`); docs-lint clean | S | antigravity | — | — | — | — | — |
 | P1-5 | implementation | Add `extraMounts` to `infra/kind/cluster-osramp.yaml` (and the hub cluster config used by `dual-cluster-up.sh`) binding the host dirs named by the existing `POSTGRES_DATA_DIR` (`.cache/postgres`), `ZOT_CACHE_DIR` (`.cache/zot`) and a new `LOCAL_PATH_DATA_DIR` (`.cache/local-path`) variables (`Makefile:66-67`) to `/var/local/signalloom-postgres-data` (uid 70, mode 0700), `/var/local-path-provisioner` and `/var/local/osramp-zot-cache`; render one kind config template (kind does not expand variables) used by both `dual-cluster-up.sh` and `create-kind-cluster.sh`, including the `/lib/modules` and `/sys/kernel/btf` binds the warden's eBPF needs on every lane; give `local-path` PVs stable directories (a `pathPattern` of `{{ .PVC.Namespace }}/{{ .PVC.Name }}` in the provisioner config) so a rebuilt cluster finds its data; export and restore the identity Secrets a rebuild would otherwise re-mint (`signal-segment-key`, fleet operator and caller keys, Dex static config); add a new script `kind-data-backup.sh` in `scripts/` with `backup <cluster> <dir>` and `restore <cluster> <dir>` subcommands using `docker cp` from the node. | P1-PRE | bats: the rendered kind config carries all three mounts with existing host dirs and correct ownership; backup then restore with a stubbed `docker` round-trips a fixture tree byte-for-byte and preserves uid 70; a PVC recreated with the same namespace and name resolves to the same host directory; `create-kind-cluster.sh` and `dual-cluster-up.sh` produce the same mount set | M | antigravity | — | — | — | — | — |
 | P1-6 | implementation | Make `GET /api/v1/observations` deterministic, bounded and pageable without changing the JSON array body, and make `GET /api/v1/store/stats` aggregate without decoding every observation (both decode the whole store per request today, which OOM-killed signal-ingest at 1Gi on 2026-10-06 and broke `/feeds` with 502s): sort `(timestamp DESC, id DESC)` in the `GET /api/v1/observations` handler, before `scopeObservations` applies `limit`; leave `QueryRange` order untouched, because replay (`api/policy_routes.go`, `e2e/harness.go`) depends on it; accept `cursor=<opaque>` (encodes the last `(timestamp, id)`); return `X-Next-Cursor` and `Link: <…>; rel="next"` when more rows exist and `X-Result-Truncated: false` when they do not; bind the cursor to the caller's tenant scope and reject a cursor minted for another scope; reject a malformed cursor with 400 and a message naming the fix; `signal_fusion.py` forwards `cursor` and passes the paging headers back; write the signal-ingest observations API page from scratch; move `signal_fusion.py` and `test/kusari-e2e-live.bats` (`observations_store`) to cursor paging (`policy-engine` only posts to `/evaluate` and is not a reader); document ordering and paging in the signal-ingest API docs with a worked `curl` example; re-pin the image (`scripts/signal-ingest-image-tag.sh`); return the memory limit from the 2Gi stopgap (`0ac8a717`) to 1Gi once peak working set under concurrent polling is measured below 512Mi. | P1-PRE | Go: peak heap for one `/observations?limit=100` and one `/store/stats` over a 100k-row fixture stays under a stated bound; 50 identical requests return byte-identical bodies on both stores; cursor paging over a 1,000-row fixture with duplicate timestamps visits each id exactly once; a mutation removing the sort fails; malformed cursor is 400; `TestReconciledManifestRunsTheImageBuiltFromThisSource` green; pytest for `signal_fusion` paging; docs-lint clean | L | antigravity | — | — | — | — | — |
 | P1-7 | implementation | Start with a gap table against SLSE's threat model T1-T5 (a prioritised execve/connect ring, PERFMON-only capabilities and a dedicated namespace are claimed but not built; the warden runs SYS_PTRACE, BPF, NET_ADMIN and SYS_ADMIN in `fe-signalloom-agents` with a 128Mi limit, and `main.go:614` only logs a literal tracepoint list). Then close the gaps: the four tracepoints are already attached in `d2-signalloom/apps/stun-sentinel/pkg/ebpf/loader.go:35-38` (probe `bpf/sentinel_probe.c`, cgroup id read, `Drops()` at :200); make sure the engine attaches `sys_enter_openat`, `sys_enter_openat2`, `sys_enter_execve` and `sys_enter_connect` scoped to agent cgroups, and post normalised observations to `signal-ingest` `/api/v1/observations` with the warden's named key; ring-buffer drops are counted and reported as an anomaly; the warden logs the tracepoints that actually attached. Report the new sentinel image tag; P1-GOV re-pins. | P1-PRE | Go unit tests for event normalisation of all four syscalls; a privileged-container or kind-node probe test proving an `openat("/etc/passwd")` from an agent cgroup yields one observation; drop counter exported; sentinel image re-pinned (`scripts/sentinel-image-tag.sh`) | L | antigravity | — | — | — | — | — |
@@ -214,7 +214,7 @@ _Cards append `#### Errata — EAPCI-<ID>` blocks here in delivery order. Nothin
 
 | Check / Probe | Result | Details / Pre-Existing Defect |
 | :--- | :--- | :--- |
-| `sha256sum -c test/fixtures/gcp-tf-ci/untouched-scripts.sha256` | FAILED | `scripts/ci/gcp-ci.sh: OK`, `scripts/ci/vm-pipeline.sh: FAILED`, `scripts/ci/ci-lock.sh: FAILED`. Pre-existing TFID digest failure documented in proposal amendments. |
+| `sha256sum -c test/fixtures/gcp-tf-ci/untouched-scripts.sha256` | FAILED | `scripts/ci/gcp-tf-ci.sh: OK`, `scripts/gcp-tf/demo-pipeline.sh: FAILED`, `scripts/ci/legacy-runner-lock: FAILED`. Pre-existing TFID digest failure documented in proposal amendments. |
 | `make gcp-tf-validate` (bats stage: `test/terraform-demo-driver.bats`) | FAILED | 3 tests fail in `test/terraform-demo-driver.bats` (132: failing remote path provisioning aborts; 133: provisioning and pipeline stubs fail independently; 134: PASS summary next to non-zero pipeline exit is a FAIL). All Terraform unit tests (195/195 across bootstrap, environments, compute, deploy-identity, edge, env-contract, identity, network) pass cleanly. |
 | `gcloud --version` | FAILED | `PermissionError: [Errno 13] Permission denied: '/home/andy/.config/gcloud/active_config'`. Pre-existing sandbox constraint documented in proposal §3. |
 
@@ -281,18 +281,18 @@ Every line range below was measured with `rg -n` inside a detached worktree at c
 | **P1-2** | `Makefile` | 2897–2915 | Add `source_ref` and `source_sha` to `gcp-tf-handoff` jq writer | DRIFT (spans 2897-2915). Rebased onto P1-1 merge. | **OWNED by P1-1** (P1-2 appends fields) |
 | **P1-2** | `test/terraform-demo-driver.bats` | 730–758 | Update and extend `ALLOW_DIRTY` and ref verification test cases | DRIFT (spans 730-758, not 739-752). | Exclusive to P1-2 |
 | **P1-3** | `scripts/gcp-tf/demo-pipeline.sh` | 583, 633, 843–863 | Add CI-lane execution of 6 EAP stages (`dual-cluster-up`, `remote-tenant-lab`, `test-kusari-e2e`, `kusari-e2e-live`, `slaws-acceptance`, `test-eap-offline`) | DRIFT (stage 1s is 843-863, not 838-851). | **OWNED by P1-3** |
-| **P1-3** | `scripts/gcp-tf/demo-pipeline.sh` | 820 | Remove `test/tetragon-telemetry-stream.bats \` from Stage 1g guard list | MATCH (:820). Single atomic commit with vm-pipeline.sh. | **OWNED by P1-3** |
-| **P1-3** | `scripts/ci/vm-pipeline.sh` | 780 | Remove `test/tetragon-telemetry-stream.bats \` from Stage 1g guard list | MATCH (:780). Single atomic commit with demo-pipeline.sh. | **OWNED by P1-3** |
+| **P1-3** | `scripts/gcp-tf/demo-pipeline.sh` | 820 | Remove `test/tetragon-telemetry-stream.bats \` from Stage 1g guard list | MATCH (:820). Single atomic commit with demo-pipeline.sh. | **OWNED by P1-3** |
+| **P1-3** | `scripts/gcp-tf/demo-pipeline.sh` | 780 | Remove `test/tetragon-telemetry-stream.bats \` from Stage 1g guard list | MATCH (:780). Single atomic commit with demo-pipeline.sh. | **OWNED by P1-3** |
 | **P1-3** | `scripts/gcp-tf/demo-pipeline.sh` | 1062–1074 | In estate bring-up, gate cluster-dependent EAP stages on `ci` lane kind | MATCH (:1062-1074). Stage convergence. | **OWNED by P1-3** |
 | **P1-3** | `scripts/ci/openreports-convert.sh` | 117–250 | Update `stageMap` to register EAP pipeline TAP reports and parsers | MATCH. OpenReports TAP registration. | Exclusive to P1-3 |
 | **P1-3** | `test/terraform-dual-lane-registration.bats` | 64 | Maintain cross-pipeline stage sync (`SINGLE_LANE_ALLOWED`) | MATCH. Pipeline parity assertion. | Exclusive to P1-3 |
-| **P1-4** | `.github/workflows/signalloom-ci.yaml` | 30–32 | Remove `schedule` cron trigger; retain manual `workflow_dispatch` only | MATCH (:30-32). | Exclusive to P1-4 |
+| **P1-4** | `.github/workflows/sl-ci-1-vm.yaml` | 30–32 | Remove `schedule` cron trigger; retain manual `workflow_dispatch` only | MATCH (:30-32). | Exclusive to P1-4 |
 | **P1-4** | `.github/workflows/signalloom-eap-pr.yaml` | 29–36 | Remove `pull_request` path triggers; retain manual `workflow_dispatch` only | MATCH (:29-36). | Exclusive to P1-4 |
 | **P1-4** | `.github/workflows/security-scan.yaml` | 17–24 | Remove `pull_request`, `push`, and `schedule` triggers; retain manual `workflow_dispatch` only | MATCH (:17-24). | Exclusive to P1-4 |
 | **P1-4** | `.github/workflows/terraform-validate.yaml` | 29–39 | Remove `pull_request` trigger; retain manual `workflow_dispatch` only | MATCH (:29-39). | Exclusive to P1-4 |
 | **P1-4** | `test/eap-pr-workflow.bats` | 64–88 | Update trigger assertions to verify manual-only contract | MATCH (:64-88). Test contract suite. | Exclusive to P1-4 |
 | **P1-4** | `test/terraform-suite-registration.bats` | 84–86 | Update trigger path assertions to match manual-only workflow contract | MATCH (:84-86). Test registration suite. | Exclusive to P1-4 |
-| **P1-4** | `test/fixtures/gcp-tf-ci/untouched-scripts.sha256` | 1–3 | Record pre-existing TFID digest failure for `vm-pipeline.sh` / `ci-lock.sh` (b9177c3f) | MATCH. Documents pre-existing ledger defect without modifying scripts. | Exclusive to P1-4 |
+| **P1-4** | `test/fixtures/gcp-tf-ci/untouched-scripts.sha256` | 1–3 | Record pre-existing TFID digest failure for `demo-pipeline.sh` / `legacy-runner-lock` (b9177c3f) | MATCH. Documents pre-existing ledger defect without modifying scripts. | Exclusive to P1-4 |
 | **P1-5** | `infra/kind/cluster-osramp.yaml` | 43–54 | Add `extraMounts` for Postgres (`.cache/postgres`), local-path (`.cache/local-path`), Zot (`.cache/zot`) | MATCH (:43-53). Durable storage configuration. | Exclusive to P1-5 |
 | **P1-5** | `infra/kind/cluster-signalloom-hub.yaml` | 39–40 | Add matching host `extraMounts` to control plane hub cluster config | MATCH. Dual-cluster persistence. | Exclusive to P1-5 |
 | **P1-5** | `scripts/dual-cluster-up.sh` | 123 | Render shared kind configuration template before cluster creation | MATCH (:123). Cluster provisioner. | Exclusive to P1-5 |
@@ -355,7 +355,7 @@ Every workflow under `.github/workflows/` evaluated with `yq '(.on // .true) | k
 | `release-artifacts.yaml` | `[workflow_dispatch]` | `[workflow_dispatch]` | Already manual-only; keep. |
 | `reusable-witness-step.yaml` | `[workflow_call]` | `[workflow_call]` | Reusable step; keep. |
 | `security-scan.yaml` | `[pull_request, push, workflow_dispatch, schedule]` | `[workflow_dispatch]` | P1-4 removes `pull_request`, `push`, and `schedule`. |
-| `signalloom-ci.yaml` | `[workflow_dispatch, schedule]` | `[workflow_dispatch]` | P1-4 removes `schedule`. |
+| `sl-ci-1-vm.yaml` | `[workflow_dispatch, schedule]` | `[workflow_dispatch]` | P1-4 removes `schedule`. |
 | `signalloom-eap-pr.yaml` | `[pull_request, workflow_dispatch]` | `[workflow_dispatch]` | P1-4 removes `pull_request`. |
 | `terraform-validate.yaml` | `[pull_request, workflow_dispatch]` | `[workflow_dispatch]` | P1-4 removes `pull_request`. |
 
@@ -363,11 +363,11 @@ Every workflow under `.github/workflows/` evaluated with `yq '(.on // .true) | k
 
 | Test Suite File | Runner Command | Owning Card | Triggering Edit in P1 |
 | :--- | :--- | :--- | :--- |
-| `test/eap-pr-workflow.bats` | `bats test/eap-pr-workflow.bats` | P1-4 | Workflow trigger removal in `signalloom-eap-pr.yaml`, `signalloom-ci.yaml`, `security-scan.yaml` |
+| `test/eap-pr-workflow.bats` | `bats test/eap-pr-workflow.bats` | P1-4 | Workflow trigger removal in `signalloom-eap-pr.yaml`, `sl-ci-1-vm.yaml`, `security-scan.yaml` |
 | `test/terraform-suite-registration.bats` | `bats test/terraform-suite-registration.bats` | P1-4 | Trigger path removals in `terraform-validate.yaml` |
 | `test/terraform-env-contract.bats` | `bats test/terraform-env-contract.bats` | P1-1 | Schema addition of `tailscale_hostname` in `env-contract/variables.tf` |
 | `test/terraform-demo-driver.bats` | `bats test/terraform-demo-driver.bats` | P1-2 | Named ref payload enforcement (`GCP_TF_DEMO_REF`) and dirty tree refusal |
-| `test/terraform-dual-lane-registration.bats` | `bats test/terraform-dual-lane-registration.bats` | P1-3 / P1-9 | Removal of `tetragon-telemetry-stream.bats` across `demo-pipeline.sh` and `vm-pipeline.sh` |
+| `test/terraform-dual-lane-registration.bats` | `bats test/terraform-dual-lane-registration.bats` | P1-3 / P1-9 | Removal of `tetragon-telemetry-stream.bats` across `demo-pipeline.sh` and `demo-pipeline.sh` |
 | `d2-signalloom/test/bats-registry-coverage.bats` | `bats d2-signalloom/test/bats-registry-coverage.bats` | P1-9 (P1-3 pipeline line) | Pipeline suite additions / deletions (`test-sentinel-ebpf` added, `tetragon` deleted) |
 | `terraform/modules/compute/tests/compute.tftest.hcl` | `terraform test` (in `terraform/modules/compute`) | P1-1 | Tailnet hostname derivation test asserting `sl-demo-7` vs explicit override |
 
@@ -382,7 +382,7 @@ Every workflow under `.github/workflows/` evaluated with `yq '(.on // .true) | k
 
 ##### 7. Pre-Existing Red Ledger (Carried Forward from P0)
 
-- `sha256sum -c test/fixtures/gcp-tf-ci/untouched-scripts.sha256`: Pre-existing TFID digest mismatch on `scripts/ci/vm-pipeline.sh` and `scripts/ci/ci-lock.sh` (attributed to commit `b9177c3f`). Carried forward; not fixed in P1.
+- `sha256sum -c test/fixtures/gcp-tf-ci/untouched-scripts.sha256`: Pre-existing TFID digest mismatch on `scripts/gcp-tf/demo-pipeline.sh` and `scripts/ci/legacy-runner-lock` (attributed to commit `b9177c3f`). Carried forward; not fixed in P1.
 - `gcloud --version`: Fails with `PermissionError: [Errno 13] Permission denied: '/home/andy/.config/gcloud/active_config'` inside agent sandbox. Pre-existing constraint documented in §3.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
@@ -587,13 +587,13 @@ In `scripts/gcp-tf/four-lane-loop.sh:143`, the command `GCP_TF_DEMO_ALLOW_DIRTY=
 - Added `DEMO_LIST_STAGES=1` listing mode for dry-run inspection by offline test harnesses.
 - Sequenced CI EAP stages strictly after `check-deployed-staleness` (~:1134) on `ci` lanes only; demo lanes run none of them.
 - Stage 4 enforces a strict skip guard: captures TAP output from `KUSARI_LIVE=1 KUBECONFIG="${HOME}/.kube/config" bats --tap test/kusari-e2e-live.bats`, failing with non-zero exit if `# skip` is encountered.
-- Removed `test/tetragon-telemetry-stream.bats` symmetrically from `scripts/gcp-tf/demo-pipeline.sh:820` and `scripts/ci/vm-pipeline.sh:780` in one commit; announced edit to sensai-sltm on `/tmp/chat.jsonl`.
-- Registered `stage6eap4-kusari-live.tap` in `scripts/ci/openreports-convert.sh` and updated `test/ci-report-integrity.bats` to verify both pipeline definitions.
+- Removed `test/tetragon-telemetry-stream.bats` symmetrically from `scripts/gcp-tf/demo-pipeline.sh:820` and `scripts/gcp-tf/demo-pipeline.sh:780` in one commit; announced edit to sensai-sltm on `/tmp/chat.jsonl`.
+- Registered `stage6eap4-kusari-live.tap` in `scripts/ci/openreports-convert.sh` and updated `test/lane-report-integrity.bats` to verify both pipeline definitions.
 - Authored comprehensive test suite `test/eapci-ci-stages.bats` covering DEMO_ENV validation, stage ordering, demo-lane exclusion, named stage failure with stages.json recording, and TAP skip detection.
 **Deviations:** None.
 **Notes:**
-- `bats test/terraform-dual-lane-registration.bats test/ci-report-integrity.bats test/ci-terminal-state.bats test/eapci-ci-stages.bats test/gcp-demo-pipeline.bats` verified 100% green (105 tests, 0 failures).
-- Inherited TFID ledger check (`test/fixtures/gcp-tf-ci/untouched-scripts.sha256`) for `vm-pipeline.sh` has SHA-256 `e17dfb334452027ad1c140daf7ba22709e2fdc5a8bab51a074154c3cbc6466c0`; to be re-recorded once at P1-GOV.
+- `bats test/terraform-dual-lane-registration.bats test/lane-report-integrity.bats test/ci-terminal-state.bats test/eapci-ci-stages.bats test/gcp-demo-pipeline.bats` verified 100% green (105 tests, 0 failures).
+- Inherited TFID ledger check (`test/fixtures/gcp-tf-ci/untouched-scripts.sha256`) for `demo-pipeline.sh` has SHA-256 `e17dfb334452027ad1c140daf7ba22709e2fdc5a8bab51a074154c3cbc6466c0`; to be re-recorded once at P1-GOV.
 - Registry coverage `d2-signalloom/test/bats-registry-coverage.bats` flags `test/tetragon-telemetry-stream.bats` as unrun by runners as expected during the P1-3/P1-9 window prior to P1-9 deleting the suite file.
 
 #### Errata — EAPCI-P1-4 Make every workflow on this branch manual-only
@@ -604,14 +604,14 @@ In `scripts/gcp-tf/four-lane-loop.sh:143`, the command `GCP_TF_DEMO_ALLOW_DIRTY=
 **Governor merge:** pending Governor reconciliation
 **Decisions:**
 - All 9 workflow files under `.github/workflows/` converted to manual-only (`workflow_dispatch` or `workflow_call`).
-- Removed `schedule` trigger from `.github/workflows/signalloom-ci.yaml` (lines 30-32).
+- Removed `schedule` trigger from `.github/workflows/sl-ci-1-vm.yaml` (lines 30-32).
 - Removed `pull_request` trigger and its path filters from `.github/workflows/signalloom-eap-pr.yaml` (lines 29-36).
 - Removed `pull_request`, `push`, and `schedule` triggers from `.github/workflows/security-scan.yaml` (lines 17-24).
 - Removed `pull_request` trigger and its branch/path filters from `.github/workflows/terraform-validate.yaml` (lines 29-39).
 - Updated `test/eap-pr-workflow.bats` to test every file in `.github/workflows/` against `pull_request`, `push`, and `schedule`, and to assert positive controls (`workflow_dispatch` or `workflow_call`) per file.
 - Updated `test/terraform-suite-registration.bats:84-87` to assert `terraform-validate.yaml` is manual-only (`workflow_dispatch`).
-- Recorded (did not fix) pre-existing TFID digest failure for `scripts/ci/vm-pipeline.sh` and `scripts/ci/ci-lock.sh` caused by `b9177c3f`. `scripts/ci/vm-pipeline.sh` was not modified (`sha256: 787128c3099ab83556a60fa580cda71a50dc8fe9f825c1b114f3dd64f14533a7`).
-- Confirmed zero gcloud calls made and `signalloom-ci` VM was not touched. Note that `main` branch schedule continues to fire on GitHub until AJM disables it there (Proposal §2).
+- Recorded (did not fix) pre-existing TFID digest failure for `scripts/gcp-tf/demo-pipeline.sh` and `scripts/ci/legacy-runner-lock` caused by `b9177c3f`. `scripts/gcp-tf/demo-pipeline.sh` was not modified (`sha256: 787128c3099ab83556a60fa580cda71a50dc8fe9f825c1b114f3dd64f14533a7`).
+- Confirmed zero gcloud calls made and `sl-ci-1-vm` VM was not touched. Note that `main` branch schedule continues to fire on GitHub until AJM disables it there (Proposal §2).
 **Deviations:** None.
 **Notes:**
 
@@ -625,7 +625,7 @@ In `scripts/gcp-tf/four-lane-loop.sh:143`, the command `GCP_TF_DEMO_ALLOW_DIRTY=
 | `release-artifacts.yaml` | `workflow_dispatch` | `workflow_dispatch` | Unchanged (already manual) |
 | `reusable-witness-step.yaml` | `workflow_call` | `workflow_call` | Unchanged (reusable workflow) |
 | `security-scan.yaml` | `pull_request`, `push`, `workflow_dispatch`, `schedule` | `workflow_dispatch` | Automatic triggers removed |
-| `signalloom-ci.yaml` | `workflow_dispatch`, `schedule` | `workflow_dispatch` | Schedule trigger removed |
+| `sl-ci-1-vm.yaml` | `workflow_dispatch`, `schedule` | `workflow_dispatch` | Schedule trigger removed |
 | `signalloom-eap-pr.yaml` | `pull_request`, `workflow_dispatch` | `workflow_dispatch` | Pull request trigger removed |
 | `terraform-validate.yaml` | `pull_request`, `workflow_dispatch` | `workflow_dispatch` | Pull request trigger removed |
 
@@ -637,19 +637,19 @@ In `scripts/gcp-tf/four-lane-loop.sh:143`, the command `GCP_TF_DEMO_ALLOW_DIRTY=
 | Terraform suite registration | `bats test/terraform-suite-registration.bats` | PASS (19/19 ok) | Asserts `terraform-validate.yaml` is manual-only (`workflow_dispatch`) and runs `make gcp-tf-validate` |
 | Workflow YAML syntax | `for f in .github/workflows/*.yaml; do yq '.' "$f"; done` | PASS (9/9 clean) | All 9 YAML files parse cleanly with 0 errors |
 | Documentation lint | `make docs-lint` | PASS (689/689 clean) | Zero doclint errors across all tracked markdown files |
-| Schedule mutation proof | Inject `schedule:` into `signalloom-ci.yaml` | KILLED | `test/eap-pr-workflow.bats` failed identifying `signalloom-ci.yaml`; restored `cmp` clean |
+| Schedule mutation proof | Inject `schedule:` into `sl-ci-1-vm.yaml` | KILLED | `test/eap-pr-workflow.bats` failed identifying `sl-ci-1-vm.yaml`; restored `cmp` clean |
 | Push mutation proof | Inject `push:` into `security-scan.yaml` | KILLED | `test/eap-pr-workflow.bats` failed identifying `security-scan.yaml`; restored `cmp` clean |
 
 ##### TFID Digest Drift Evidence (Carried Forward from P0)
 
 ```
 $ sha256sum -c test/fixtures/gcp-tf-ci/untouched-scripts.sha256
-scripts/ci/gcp-ci.sh: OK
-scripts/ci/vm-pipeline.sh: FAILED
-scripts/ci/ci-lock.sh: FAILED
+scripts/ci/gcp-tf-ci.sh: OK
+scripts/gcp-tf/demo-pipeline.sh: FAILED
+scripts/ci/legacy-runner-lock: FAILED
 sha256sum: WARNING: 2 computed checksums did NOT match
 ```
-Attributed to commit `b9177c3f`. `scripts/ci/vm-pipeline.sh` and `test/fixtures/gcp-tf-ci/untouched-scripts.sha256` are untouched.
+Attributed to commit `b9177c3f`. `scripts/gcp-tf/demo-pipeline.sh` and `test/fixtures/gcp-tf-ci/untouched-scripts.sha256` are untouched.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P1-4","status":"pass","commit":"5790db860f9d18b6707419e3e03faf1f773c8e6e"} -->
@@ -800,7 +800,7 @@ The 2026-10-07 removal above (commit `4a0a767b`) **did not reach `integration/sl
 - Allowlist tidy: Removed dead Tetragon collector rows from `test/fixtures/test-isolation-allowlist.txt`. Added missing `test/tombstone-mutation-check.bats` `/tmp/gocache` and `/tmp/gomodcache` entries.
 - Registries verification: `test/terraform-dual-lane-registration.bats` (6/6 passing), `test/acceptance-spec-coverage.bats` (7/7 passing), `make docs-lint` (688 files clean), and `make test-alignment` (103 files clean) all 100% green.
 - Mutation tests: Verified mutation 1 (adding nonexistent `test/tetragon-telemetry-stream.bats` to `SINGLE_LANE_ALLOWED` fails dual-lane registration with RED) and mutation 2 (omitting `test-sentinel-ebpf` from `test-all-offline` fails invocation check with RED), restoring cleanly to GREEN each time.
-- Acceptance grep: `rg -il tetragon Makefile test/acceptance/agent-claim.spec.ts test/crkc-phase1-unified-stun.bats test/fixtures/test-isolation-allowlist.txt scripts/slaat-baseline.sh scripts/build_phase1_cards.py scripts/generate_phase1_cards.py` returns 0 output. Across `Makefile scripts test d2-signalloom/deploy`, only `scripts/gcp-tf/demo-pipeline.sh` and `scripts/ci/vm-pipeline.sh` match (removed in P1-3 branch, out of scope for P1-9 per contract).
+- Acceptance grep: `rg -il tetragon Makefile test/acceptance/agent-claim.spec.ts test/crkc-phase1-unified-stun.bats test/fixtures/test-isolation-allowlist.txt scripts/slaat-baseline.sh scripts/build_phase1_cards.py scripts/generate_phase1_cards.py` returns 0 output. Across `Makefile scripts test d2-signalloom/deploy`, only `scripts/gcp-tf/demo-pipeline.sh` and `scripts/gcp-tf/demo-pipeline.sh` match (removed in P1-3 branch, out of scope for P1-9 per contract).
 **Deviations:** None.
 **Notes:**
 
@@ -865,7 +865,7 @@ No rebases were needed. No worker commit was amended. Every worker tip matched o
 - signal-ingest `base/deployment.yaml:45`: `src-8273655b1f19c15a` → `src-93ef78c37f62ca38` (`scripts/signal-ingest-image-tag.sh`).
 - sentinel `signalloom-warden/daemonset.yaml:95` and `test/fixtures/cold-start-manifests.tsv:11`: `src-0a6aad47e85a` → `src-08e40cec5d33` (`scripts/sentinel-image-tag.sh`; matches P1-7's report).
 - Guards: `TestReconciledManifestRunsTheImageBuiltFromThisSource` PASS; `test/sentinel-image-provenance.bats` 13/13. Both tags were recomputed unchanged on `10d4198a`, `41bce5cd`, `35c86d9b` and `92c5eb7c`. No pin changed after the counted runs started, and no `_test.go` is a signal-ingest tag input.
-- `test/fixtures/gcp-tf-ci/untouched-scripts.sha256`: `vm-pipeline.sh` re-recorded once, `4babac66…` → `e17dfb334452027ad1c140daf7ba22709e2fdc5a8bab51a074154c3cbc6466c0`, naming `b9177c3f902019e94d5d7129684f18a3e018d90b` and P1-3 `df82316b`. `ci-lock.sh` is still red (inherited since b9177c3f). **Acknowledgement requested from sensai-sltm on `/tmp/chat.jsonl`; none received yet.**
+- `test/fixtures/gcp-tf-ci/untouched-scripts.sha256`: `demo-pipeline.sh` re-recorded once, `4babac66…` → `e17dfb334452027ad1c140daf7ba22709e2fdc5a8bab51a074154c3cbc6466c0`, naming `b9177c3f902019e94d5d7129684f18a3e018d90b` and P1-3 `df82316b`. `legacy-runner-lock` is still red (inherited since b9177c3f). **Acknowledgement requested from sensai-sltm on `/tmp/chat.jsonl`; none received yet.**
 - `go mod tidy` (go1.27.0) leaves signal-ingest, stun-sentinel and signalloom-stun-sentinel unchanged; `cilium/tetragon` is gone from `go.mod`.
 
 ##### 4. Counted acceptance (`KUBECONFIG=/dev/null`, detached `/tmp/eapci-p1gov`)
@@ -906,9 +906,9 @@ alignment                rc=0 pass=checked=104 fail=0
 
 ##### 5. Battery on the merged tree
 
-- **EAPCI and Terraform bats** (`eapci-*`, `kind-data-*`, dual-lane, env-contract, identity): 91 ok; reds are #45 sudo under NoNewPrivs (sandbox) and the TFID `ci-lock.sh` drift (inherited). #47 (stage refusal) was introduced by P1-3 and fixed in `10d4198a`.
-- **Card bats** (gcp-demo-pipeline, terraform-demo-driver, ci-report-integrity, kind-config-heredoc, eap-pr-workflow, postgres-persistence, zot-cache, signalloom-warden-manifests, bats-registry-coverage, crkc-phase1-unified-stun): 209 ok, 3 not ok. All three `bats-registry-coverage` reds are also red at base `f431272c`, so the "green after the P1-3/P1-9 pair" criterion was never met at base either. The uninvoked-suite list grows by `eapci-pilot-profile.bats`, `kind-data-backup.bats` and `kind-data-mounts.bats`, and shrinks by `kusari-e2e-live.bats`. `SINGLE_LANE_ALLOWED`: `test/gcp-demo-pipeline.bats test/supervise-port-forward-knobs.bats test/kusari-e2e-live.bats test/eapci-ci-stages.bats`.
-- **`make gcp-tf-validate`:** rc 2 (1133 ok). The eight affected suites were re-run side by side at tip and base: **identical red sets (8 each, 287 ok each; tip-only and base-only both empty)**. The eight are sudo/NoNewPrivs, TFID `ci-lock.sh`, the bootstrap plan, the working-tree artefact check, the leaked-sentinel exit code, the four-lane proof glob, the drifted-name anti-test and VACGATE. `ms_sed_effective` (#549) failed only under the full sweep's load and passed on the rerun.
+- **EAPCI and Terraform bats** (`eapci-*`, `kind-data-*`, dual-lane, env-contract, identity): 91 ok; reds are #45 sudo under NoNewPrivs (sandbox) and the TFID `legacy-runner-lock` drift (inherited). #47 (stage refusal) was introduced by P1-3 and fixed in `10d4198a`.
+- **Card bats** (gcp-demo-pipeline, terraform-demo-driver, lane-report-integrity, kind-config-heredoc, eap-pr-workflow, postgres-persistence, zot-cache, signalloom-warden-manifests, bats-registry-coverage, crkc-phase1-unified-stun): 209 ok, 3 not ok. All three `bats-registry-coverage` reds are also red at base `f431272c`, so the "green after the P1-3/P1-9 pair" criterion was never met at base either. The uninvoked-suite list grows by `eapci-pilot-profile.bats`, `kind-data-backup.bats` and `kind-data-mounts.bats`, and shrinks by `kusari-e2e-live.bats`. `SINGLE_LANE_ALLOWED`: `test/gcp-demo-pipeline.bats test/supervise-port-forward-knobs.bats test/kusari-e2e-live.bats test/eapci-ci-stages.bats`.
+- **`make gcp-tf-validate`:** rc 2 (1133 ok). The eight affected suites were re-run side by side at tip and base: **identical red sets (8 each, 287 ok each; tip-only and base-only both empty)**. The eight are sudo/NoNewPrivs, TFID `legacy-runner-lock`, the bootstrap plan, the working-tree artefact check, the leaked-sentinel exit code, the four-lane proof glob, the drifted-name anti-test and VACGATE. `ms_sed_effective` (#549) failed only under the full sweep's load and passed on the rerun.
 - **`make -n test-sentinel-ebpf`** rc 0 and **`make test-sentinel-ebpf`** rc 0.
 - **Go suites:** signal-ingest memory and FrostDB modes rc 0, stun-sentinel and signalloom-stun-sentinel rc 0.
 - **Dashboard vitest:** 216 files, 3731 passed, 3 skipped (after a frozen `bun install` in the fresh tree).
@@ -923,7 +923,7 @@ alignment                rc=0 pass=checked=104 fail=0
 
 ##### 7. Recommendations (outside this card)
 
-- sensai-sltm to acknowledge the `vm-pipeline.sh` ledger re-record. `ci-lock.sh` drift still needs its own owner.
+- sensai-sltm to acknowledge the `demo-pipeline.sh` ledger re-record. `legacy-runner-lock` drift still needs its own owner.
 - `slaws-acceptance` policy-engine leg: set `CGO_ENABLED=0` in the script, or run it outside nono, so the gate can exit 0. Owner: SLAWS line.
 - `bats-registry-coverage`: register the three new EAPCI/kind-data suites in a pipeline stage.
 - Worker branches `eapci-P1-{1..10}-w1` and their worktrees are merged and removable.

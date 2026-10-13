@@ -261,7 +261,7 @@ disk_test_dirs() {
 
 @test "the VM-side guard-falsification proof stays OUT of the offline gate" {
   # Not an oversight, and the comment in the Makefile says so. It is a ~119KB
-  # harness that needs a VM, it is run by demo-pipeline.sh and vm-pipeline.sh,
+  # harness that needs a VM, it is run by demo-pipeline.sh and demo-pipeline.sh,
   # and `gcp-tf-validate` is the offline gate. Widening the wildcard to
   # test/*-proof.sh would pull it in and break that gate.
   #
@@ -281,8 +281,8 @@ disk_test_dirs() {
     echo "${gf} is no longer run by demo-pipeline.sh — now it IS unregistered" >&2
     return 1
   }
-  grep -q "${gf}" "${REPO_ROOT}/scripts/ci/vm-pipeline.sh" || {
-    echo "${gf} is no longer run by vm-pipeline.sh" >&2
+  grep -q "${gf}" "${REPO_ROOT}/scripts/gcp-tf/demo-pipeline.sh" || {
+    echo "${gf} is no longer run by demo-pipeline.sh" >&2
     return 1
   }
 }

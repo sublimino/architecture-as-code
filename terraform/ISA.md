@@ -17,7 +17,7 @@ Source proposal: `2. Areas/CEO/Enhancement Proposals/Proposal — Signal Loom Te
 ## Problem
 
 Signal Loom demonstrations today depend on an operator's workstation, an imperative
-`scripts/ci/gcp-ci.sh` that creates GCP resources with `gcloud` side effects, and a temporary
+`scripts/ci/gcp-tf-ci.sh` that creates GCP resources with `gcloud` side effects, and a temporary
 ngrok tunnel for public reach. There is no declarative record of what exists in the cloud, no
 remote locked state, no managed TLS edge, no allowlist, no audit trail, and no reversible
 destroy path scoped to a single environment. Two operators cannot run independent demos, a
@@ -37,8 +37,8 @@ at a shared foundation or a key that does not match.
 ## Out of Scope
 
 Application code changes, application authorization redesign, and any production-SLA claim are
-excluded. The existing imperative GCP CI estate (`signalloom-ci`, `signalloom-ci-2`, their VPC,
-NAT, and service account in `cp-dev-ajm`) is neither imported, replaced, nor destroyed by this
+excluded. The existing imperative GCP CI estate (`sl-ci-1-vm`, `sl-ci-2-vm`, their VPC,
+NAT, and service account in `sl-port-over-sandbox`) is neither imported, replaced, nor destroyed by this
 work — it continues to run unchanged alongside. GKE migration, multi-region HA, and
 project-per-environment placement are deferred beyond the first increment. Terragrunt is not
 adopted. Terraform state bucket deletion is never part of an environment destroy. No live
@@ -81,7 +81,7 @@ gated on Andy's reviewed plan and authenticated credentials.
 - Cloud Armor policy default action is `deny(403)`; allow rules are explicit and logged.
 - `project_id` is an explicit input, never derived, never defaulted to a real project.
 - All Make targets that mutate cloud state require an explicit environment key argument.
-- The existing `scripts/ci/gcp-ci.sh` estate is read-only to this work.
+- The existing `scripts/ci/gcp-tf-ci.sh` estate is read-only to this work.
 - No live `terraform apply`, `gcloud` mutation, DNS record, or state bucket is created by an
   agent. Every cloud-touching step is emitted as a reviewed command for Andy to run.
 
@@ -323,7 +323,7 @@ Andy's authenticated credentials.
 - [ ] ISC-200: The script is `shellcheck`-clean.
 - [ ] ISC-201: A fake-client test exercises the script's control flow without touching GCP.
 - [ ] ISC-202: The fake-client test covers the pass path, the fail path, and the interrupt path.
-- [ ] ISC-203: The existing `scripts/ci/gcp-ci.sh` is byte-identical to its pre-change state.
+- [ ] ISC-203: The existing `scripts/ci/gcp-tf-ci.sh` is byte-identical to its pre-change state.
 
 ### I. Observability, audit, and cost
 
@@ -373,7 +373,7 @@ Andy's authenticated credentials.
 - [ ] ISC-244: A test greps the Makefile's new targets for a hardcoded project ID and finds none.
 - [ ] ISC-245: `make gcp-tf-validate` completes with no network access.
 - [ ] ISC-246: The Make targets do not shadow or rename any existing `ci-*` target.
-- [ ] ISC-247: A test asserts `ci-gcp`, `ci-gcp-2`, `ci-provision`, and `ci-status` still exist and are unchanged.
+- [ ] ISC-247: A test asserts `gcp-tf-up`, and `doctor-node` still exist and are unchanged.
 
 ### K. Tests, CI wiring, and documentation
 
@@ -410,9 +410,9 @@ Andy's authenticated credentials.
 
 - [ ] ISC-276: Anti: no `terraform apply`, `terraform destroy`, or `gcloud` mutation is executed by an agent.
 - [ ] ISC-277: Anti: no GCS bucket, GCE instance, DNS record, or IAM binding exists in GCP as a result of this session without Andy's explicit run.
-- [ ] ISC-278: Anti: `scripts/ci/gcp-ci.sh` is not modified — `git diff` on it is empty.
-- [ ] ISC-279: Anti: `scripts/ci/vm-pipeline.sh` is not modified.
-- [ ] ISC-280: Anti: `scripts/ci/ci-lock.sh` is not modified.
+- [ ] ISC-278: Anti: `scripts/ci/gcp-tf-ci.sh` is not modified — `git diff` on it is empty.
+- [ ] ISC-279: Anti: `scripts/gcp-tf/demo-pipeline.sh` is not modified.
+- [ ] ISC-280: Legacy CI lock retired.
 - [ ] ISC-281: Anti: no existing Makefile target's recipe is changed.
 - [ ] ISC-282: Anti: no existing test file under `test/` or `d2-signalloom/test/` is modified.
 - [ ] ISC-283: Anti: no `*.tfstate` file is created in the repo tree.
@@ -581,8 +581,8 @@ Every command below was run offline with no cloud credentials.
 **Frozen estate (ISC-278..280, ISC-203)**
 
 - `git diff --name-only ce088ae <branch>` for all six chunk branches against
-  `scripts/ci/gcp-ci.sh`, `vm-pipeline.sh`, `ci-lock.sh` — **0 files for every branch**.
-  `vm-pipeline.sh` did change on the target branch, from concurrent commit `d1abaac`
+  `scripts/ci/gcp-tf-ci.sh`, `demo-pipeline.sh`, — **0 files for every branch**.
+  `demo-pipeline.sh` did change on the target branch, from concurrent commit `d1abaac`
   (three image-push steps), which is outside this work; the digest fixture was
   re-recorded against that commit with the reason written into the fixture.
 
@@ -601,7 +601,7 @@ Every command below was run offline with no cloud credentials.
 **Not verified — and why**
 
 - No `terraform plan`, `apply`, `destroy`, or `init` against a real backend has run.
-  `gcloud`'s active account is `sublimino@gmail.com`, which cannot reach `cp-dev-ajm`;
+  `gcloud`'s active account is `sublimino@gmail.com`, which cannot reach `sl-port-over-sandbox`;
   `andy@control-plane.io` is authenticated but requires reauthentication that cannot be
   completed non-interactively. ISC-321 (the reviewable first plan) is therefore
   **[DEFERRED-VERIFY]**, blocked on Andy running `gcloud auth login` and supplying the

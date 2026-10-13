@@ -219,7 +219,7 @@ deployment_verbs_in() {
 
 @test "the startup script installs the prerequisites the pipeline cannot" {
 	# git   — install-ci-tools.sh installs bats by `git clone`, and
-	#         vm-pipeline.sh runs `git init` so Kustomize resolves the tree.
+	#         demo-pipeline.sh runs `git init` so Kustomize resolves the tree.
 	# make  — the whole pipeline is make targets.
 	# curl  — every fetch in the installer and in fetch_verified.
 	#

@@ -27,11 +27,11 @@ errata shows its worktree (`d04e1`) was created from `0445bb53`; this one was no
 
 ```text
 $ yq '(.on // .true) | keys | join(",")' .github/workflows/signalloom-eap-pr.yaml    pull_request,workflow_dispatch
-$ yq ... signalloom-ci.yaml                                                            workflow_dispatch,schedule
+$ yq ... sl-ci-1-vm.yaml                                                            workflow_dispatch,schedule
 $ yq ... security-scan.yaml   (positive control)                                       pull_request,push,workflow_dispatch,schedule
 $ bats test/eap-pr-workflow.bats                                                       1..14, 14 ok
 $ EAP_PR_WORKFLOW=<scratch copy, make line -> python -m pytest tests -q> bats ...     not ok 5, 6, 7, 8   (drift guard red)
-$ git diff --stat 68d87aca HEAD -- .github/workflows/signalloom-ci.yaml               (empty)
+$ git diff --stat 68d87aca HEAD -- .github/workflows/sl-ci-1-vm.yaml               (empty)
 $ git ls-tree -r --name-only 0445bb53 | rg 'signalloom-eap-pr|eap-pr-workflow'        (neither exists on the tip: additive, no merge conflict)
 $ cp workflow + bats onto /tmp tip; bats test/eap-pr-workflow.bats                    14 ok;  make -n test-eap-offline  rc=0
 ```

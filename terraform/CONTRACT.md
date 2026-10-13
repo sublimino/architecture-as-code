@@ -30,8 +30,7 @@ merge conflict by definition.
 delimited block at the end of the file. No other chunk edits it. `.gitignore` is owned by F1
 alone, also append-only.
 
-**Nobody** edits: `scripts/ci/gcp-ci.sh`, `scripts/ci/vm-pipeline.sh`, `scripts/ci/ci-lock.sh`,
-`d2-osramp-fleet/terraform/**`, any existing file under `test/`, `d2-signalloom/**`,
+**Nobody** edits: `scripts/ci/gcp-tf-ci.sh`, `scripts/gcp-tf/demo-pipeline.sh`, `d2-osramp-fleet/terraform/**`, any existing file under `test/`, `d2-signalloom/**`,
 `terraform/ISA.md`, or this file.
 
 ---
@@ -386,7 +385,7 @@ insufficient to delete the bucket. Assert the negative as well as the positive.
   glob and once via the extra invocation. That gate already takes ~13 minutes. A
   duplicate run is green, just slower, so the gate will never tell you.
   `test/guard-falsification-proof.sh` is deliberately *not* matched by that glob. It needs a VM.
-  It is invoked by `demo-pipeline.sh` and `vm-pipeline.sh`. Widening the wildcard to
+  It is invoked by `demo-pipeline.sh` and `demo-pipeline.sh`. Widening the wildcard to
   `test/*-proof.sh` would drag it into the offline gate and break it.
 
 ### 7b. Mutate the REAL file. A fixture mutation proves only that the fixture is wired up.

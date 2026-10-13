@@ -447,7 +447,7 @@ assert_not_suspended() {
 	grep -q 'sl-demo-1-vm' "$STUB_INSTANCE_LIST"
 	grep -q 'sl-demo-2-vm' "$STUB_INSTANCE_LIST"
 	grep -q 'sl-demo-3-vm' "$STUB_INSTANCE_LIST"
-	grep -q 'signalloom-ci' "$STUB_INSTANCE_LIST"
+	grep -q 'sl-protected-runner' "$STUB_INSTANCE_LIST"
 
 	# And every row carries the full seven PIPE-separated columns. A short row
 	# degrades to an empty kind label, which gate 3 refuses — so a truncated
@@ -625,7 +625,7 @@ assert_not_suspended() {
 	[[ "$output" == *"disagrees with ci-lane"* ]]
 }
 
-@test "GCPTFREAP GATE 6 the legacy signalloom-ci runners are NEVER suspended" {
+@test "GCPTFREAP GATE 6 the legacy sl-protected-runner runners are NEVER suspended" {
 	# They carry valid ci-1 / ci-2 labels AND kind = ci AND matching environment
 	# labels in the fixture, so gates 1 through 5 all pass. Only the explicit
 	# denylist stands between them and a suspend.
@@ -633,8 +633,8 @@ assert_not_suspended() {
 	reap_all 60
 
 	assert_a_real_lane_was_reaped
-	assert_not_suspended signalloom-ci
-	assert_not_suspended signalloom-ci-2
+	assert_not_suspended sl-protected-runner
+	assert_not_suspended sl-protected-runner-2
 	[[ "$output" == *"protected instance"* ]]
 }
 
@@ -687,7 +687,7 @@ assert_not_suspended() {
 	# is the structural claim: their protection does not depend on the number.
 	run grep -c 'instances suspend sl-demo' "$log"
 	[ "$output" -eq 0 ]
-	run grep -cE 'instances suspend signalloom-ci' "$log"
+	run grep -cE 'instances suspend sl-protected-runner' "$log"
 	[ "$output" -eq 0 ]
 }
 

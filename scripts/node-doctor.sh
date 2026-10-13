@@ -168,7 +168,7 @@ gc() {
 # Never collapse "we could not ask" into "the VM is absent". An expired
 # credential once produced "VM not found — run provision first" against a
 # healthy VM, and acting on that rebuilds an estate that was fine. The three
-# outcomes are distinguished by the error text, exactly as scripts/ci/gcp-ci.sh
+# outcomes are distinguished by the error text, exactly as scripts/ci/gcp-tf-ci.sh
 # does it; test/gcp-ci-vm-status.bats carries the full account.
 vm_status() {
   local out rc=0

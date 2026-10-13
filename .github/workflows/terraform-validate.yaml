@@ -14,7 +14,7 @@
 # gate whose blast radius is the cloud.
 #
 # This job is also the COMPENSATING CONTROL for the fact that
-# scripts/ci/vm-pipeline.sh (the GCP-VM tier) still hand-lists its bats suites
+# scripts/gcp-tf/demo-pipeline.sh (the GCP-VM tier) still hand-lists its bats suites
 # and is frozen. Terraform suites are not registered there and would otherwise
 # never run in CI at all.
 #

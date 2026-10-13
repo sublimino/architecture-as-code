@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # @id      live-gate-ci-wiring
-# @target  scripts/ci/vm-pipeline.sh, scripts/gcp-tf/demo-pipeline.sh
+# @target  scripts/gcp-tf/demo-pipeline.sh, scripts/gcp-tf/demo-pipeline.sh
 # @doc     scripts/lib/live-gate.sh
 #
 # scripts/lib/live-gate.sh refuses live node work unless SLDC_LIVE=1 is set and
@@ -63,9 +63,9 @@ PY
 }
 
 @test "live-gate wiring: the CI lane runs every live-gated suite after convergence with SLDC_LIVE=1" {
-  run lane_violations scripts/ci/vm-pipeline.sh
+  run lane_violations scripts/gcp-tf/demo-pipeline.sh
   [ "$status" -eq 0 ]
-  [ -z "$output" ] || { echo "vm-pipeline.sh never runs these live, so their live halves always skip:"; echo "$output"; return 1; }
+  [ -z "$output" ] || { echo "demo-pipeline.sh never runs these live, so their live halves always skip:"; echo "$output"; return 1; }
 }
 
 @test "live-gate wiring: the demo lane runs every live-gated suite after convergence with SLDC_LIVE=1" {

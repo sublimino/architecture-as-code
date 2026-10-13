@@ -31,7 +31,7 @@ import { colors } from '../styles/tokens'
 import { curlPipeJq, jqOutput, jqString } from './proofQuery'
 import type { NetworkTestListResponse, NetworkTestResult } from '../types/api'
 
-// ── CI Pipeline results (from signalloom-ci-run-5/signalloom-ci-report.yaml) ──
+// ── CI Pipeline results (from sl-ci-1-vm-run-5/sl-ci-1-vm-report.yaml) ──
 
 interface CIResult {
   source: string
@@ -870,7 +870,7 @@ export default function NetworkTestsPage() {
       </Section>
 
       {/* ── CI Pipeline Results ── */}
-      <Section title="CI Pipeline Results" hint="signalloom-ci-run-5 | 2026-08-01">
+      <Section title="CI Pipeline Results" hint="sl-ci-1-vm-run-5 | 2026-08-01">
         <DataTable<CIResult>
           columns={[
             { key: 'source', label: 'Source', sortable: true },
@@ -938,7 +938,7 @@ export default function NetworkTestsPage() {
           )}
         />
         <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
-          Showing {CI_RESULTS.length} of {CI_SUMMARY.pass + CI_SUMMARY.fail + CI_SUMMARY.error + CI_SUMMARY.skip} total results from signalloom-ci-pipeline
+          Showing {CI_RESULTS.length} of {CI_SUMMARY.pass + CI_SUMMARY.fail + CI_SUMMARY.error + CI_SUMMARY.skip} total results from sl-ci-1-vm-pipeline
         </div>
       </Section>
 

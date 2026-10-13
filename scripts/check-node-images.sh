@@ -13,7 +13,7 @@
 #   olly-tenant-app:dev olly-elk-mcp:dev olly-stubs:dev
 #
 # Every one belongs to Olly Sentinel or the OSRAMP listener/processor path, and
-# scripts/ci/vm-pipeline.sh deliberately skips the OSRAMP-demo ResourceSets. So
+# scripts/gcp-tf/demo-pipeline.sh deliberately skips the OSRAMP-demo ResourceSets. So
 # on a signalloom-only run all seven are absent BY DESIGN, and doctor printed
 #
 #   ⚠ 7 image(s) missing from kind node — run: make images
@@ -45,7 +45,7 @@
 #
 # Same reasoning as scripts/check-backends.sh, which derives the backends that
 # must be deployed from nginx.conf's proxy_pass lines, and
-# scripts/check-ci-build-parity.sh, which derives CI's build steps from the
+# scripts/check-build-parity.sh, which derives CI's build steps from the
 # Makefile. Aimed here at what the node holds rather than at deployment or
 # build parity.
 #

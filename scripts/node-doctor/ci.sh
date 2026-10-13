@@ -41,12 +41,7 @@
 #
 # ─── What is deliberately NOT checked, and why ──────────────────────────────
 #
-# The CI advisory lock. scripts/ci/ci-lock.sh keeps it at /home/ci/.ci-lock,
-# which belongs to the legacy scripts/ci/gcp-ci.sh estate. Measured on
-# sl-ci-1-vm 2026-08-21: /opt/signalloom holds no lock file and there is no
-# /home/ci. Checking a path that does not exist on these lanes would report a
-# free lock on every run — a check that cannot fail, which is worse than no
-# check because it also stops anyone writing one that can.
+# The CI advisory lock was part of the retired V1 CI estate.
 #
 # A local systemd idle timer. There is none: `systemctl list-units --type=timer`
 # on sl-ci-1-vm returns nothing idle-related. The suspension is driven from

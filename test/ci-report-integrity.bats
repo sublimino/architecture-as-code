@@ -27,7 +27,7 @@
 
 setup() {
     repo_root="$(cd "${BATS_TEST_FILENAME%/*}/.." && pwd)"
-    pipeline="$repo_root/scripts/ci/vm-pipeline.sh"
+    pipeline="$repo_root/scripts/gcp-tf/demo-pipeline.sh"
     converter="$repo_root/scripts/ci/openreports-convert.sh"
 }
 

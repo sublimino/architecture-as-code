@@ -89,12 +89,12 @@ agents", iterates only five tool names and excludes `kagent-tool-server`.
 ## 4. Suite registration — pre-existing red, not caused by Phase 2
 
 `d2-signalloom/test/bats-registry-coverage.bats` test 10 fails: 14 repo-root
-suites are never invoked by `scripts/ci/vm-pipeline.sh`. Nine of the fourteen
+suites are never invoked by `scripts/gcp-tf/demo-pipeline.sh`. Nine of the fourteen
 already existed at `d662f365^`, so the oracle was red before the KTEST line was
 cut; the salvage commit added five more.
 
 `test/kagent-infra.bats` is the sharper case — it is invoked by **nothing**
-(absent from `vm-pipeline.sh` and from `scripts/kagent-test.sh`) and is **4/4 red**.
+(absent from `demo-pipeline.sh` and from `scripts/kagent-test.sh`) and is **4/4 red**.
 Its subject `scripts/kagent-infra.sh` diverges from the contract the test states:
 it ignores `KAGENT_INFRA_MANIFEST_DIR` entirely and hardcodes
 `d2-signalloom/infra/kagent/{crds,local}`; `down` deletes the whole `kagent`

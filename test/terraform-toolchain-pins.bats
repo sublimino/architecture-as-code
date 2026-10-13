@@ -326,7 +326,7 @@ FIXTURE
 
 # ── The three tools v2 dropped ──────────────────────────────────────────────
 #
-# scripts/ci/vm-startup.sh (the v1 CI VM) installs node, bun and uv.
+# scripts/ci/demo-vm.sh (the v1 CI VM) installs node, bun and uv.
 # terraform/modules/compute/startup/demo-vm.sh (v2) installs none of them and
 # claimed "node arrives with the Playwright setup", which is false — the
 # Playwright step RUNS `npx playwright install chrome` and has never provided
@@ -339,13 +339,13 @@ FIXTURE
 
 @test "every tool the demo pipeline invokes is installed by install-ci-tools.sh" {
   local pipe="${REPO_ROOT}/scripts/gcp-tf/demo-pipeline.sh"
-  local vmpipe="${REPO_ROOT}/scripts/ci/vm-pipeline.sh"
+  local vmpipe="${REPO_ROOT}/scripts/gcp-tf/demo-pipeline.sh"
   [ -f "$pipe" ]
   [ -f "$vmpipe" ]
 
   # The runtime interpreters the two pipelines shell out to. Each is a real
   # call site, cited so this list is auditable rather than asserted:
-  #   node/npx  vm-pipeline.sh   `sudo npx playwright install chrome`
+  #   node/npx  demo-pipeline.sh   `sudo npx playwright install chrome`
   #   bun/bunx  demo-pipeline.sh `bun install --frozen-lockfile`, `bun run test`
   #   uv        demo-pipeline.sh `uv run --python 3.12 --with pytest`
   local missing=""
@@ -359,7 +359,7 @@ FIXTURE
     echo "install-ci-tools.sh pins no version for:${missing}" >&2
     echo "" >&2
     echo "These are invoked by the pipelines and provided by nothing in the v2" >&2
-    echo "lane. v1's scripts/ci/vm-startup.sh installs all three; demo-vm.sh does" >&2
+    echo "lane. v1's scripts/ci/demo-vm.sh installs all three; demo-vm.sh does" >&2
     echo "not. That gap is three separate forty-minute failures, one per run." >&2
     return 1
   }

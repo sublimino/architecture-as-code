@@ -3,7 +3,7 @@
 ## Context
 
 The GCP CI VM ran the full 8-stage pipeline (attempt 10) and scored 3/8 pass. The 5 failures traced to:
-- **Stage 1**: no `.git/` on VM (kustomize security boundary) — fixed in `vm-pipeline.sh`
+- **Stage 1**: no `.git/` on VM (kustomize security boundary) — fixed in `demo-pipeline.sh`
 - **Stage 4**: `go` not in VM PATH — fixed with GOBIN + `/usr/local/bin` writable
 - **Stages 6-8**: cascading from two fleet issues:
   - HTTPRoute RBAC: `flux` SA in `fe-signalloom` can't manage `gateway.networking.k8s.io/httproutes` — **fixed** in `signalloom.yaml` (Role + RoleBinding added)
@@ -70,18 +70,18 @@ If stages 7-8 fail: these need live services. Check pods in `fe-signalloom`, `in
 
 ```bash
 cd /home/andy/src/cp/osramp-demo
-tar --exclude='.git' --exclude='node_modules' --exclude='.cache' --exclude='ci-reports' --exclude='worktrees' -czf /tmp/osramp-demo-ci.tar.gz .
+tar --exclude='.git' --exclude='node_modules' --exclude='.cache' --exclude='lane-reports' --exclude='worktrees' -czf /tmp/osramp-demo-ci.tar.gz .
 
 # Push code
-SSH_AUTH_SOCK= gcloud compute ssh signalloom-ci ... --command="sudo rm -rf /home/ci/osramp-demo && ..." < /tmp/osramp-demo-ci.tar.gz
+SSH_AUTH_SOCK= gcloud compute ssh sl-ci-1-vm ... --command="sudo rm -rf /home/ci/osramp-demo && ..." < /tmp/osramp-demo-ci.tar.gz
 
 # Resume and run
-./scripts/ci/gcp-ci.sh run
+./scripts/ci/gcp-tf-ci.sh run
 ```
 
 ### Step 5: On pass — suspend VM
 
-`gcp-ci.sh run` automatically suspends on pass. If it fails, SSH in to debug, fix, repush, rerun.
+`gcp-tf-ci.sh run` automatically suspends on pass. If it fails, SSH in to debug, fix, repush, rerun.
 
 ## Files to modify
 
@@ -92,4 +92,4 @@ None anticipated — all fixes are already committed. This plan is about verific
 - Local: all 8 stages pass individually
 - Remote: `summary.json` shows `"overall": "PASS"` with 8/8 stages passed
 - VM: suspended after successful run
-- `ci-reports/signalloom-ci-report.yaml` has 0 errors in the OpenReports summary
+- `lane-reports/sl-ci-1-vm-report.yaml` has 0 errors in the OpenReports summary

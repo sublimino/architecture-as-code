@@ -8,7 +8,7 @@
 # can detect a test incapable of failing. Before this suite landed it was
 # invoked in exactly two places, both of which need a VM:
 #
-#   scripts/ci/vm-pipeline.sh:759      cd ${WORK_DIR} && ./scripts/check-vacuous-assertions.sh
+#   scripts/gcp-tf/demo-pipeline.sh:759      cd ${WORK_DIR} && ./scripts/check-vacuous-assertions.sh
 #   scripts/gcp-tf/demo-pipeline.sh:682  the same call
 #
 # `make gcp-tf-validate` did not run it, and neither did anything else a

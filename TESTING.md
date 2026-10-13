@@ -36,7 +36,7 @@ the script directly to use Google Chrome.
 one source for where each spec runs. The CI check
 [`test/acceptance-spec-coverage.bats`](test/acceptance-spec-coverage.bats)
 compares the registry with `playwright.config.ts`, the `Makefile`, and
-[`scripts/ci/vm-pipeline.sh`](scripts/ci/vm-pipeline.sh).
+[`scripts/gcp-tf/demo-pipeline.sh`](scripts/gcp-tf/demo-pipeline.sh).
 
 Read `SPEC-REGISTRY.tsv` for the current spec assignments. Do not copy its rows
 into this page. The coverage check fails CI when the registry drifts. Copied

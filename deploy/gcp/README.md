@@ -125,7 +125,7 @@ gcloud compute ssh sl-demo-1-vm --zone us-east4-a --project CHANGEME-project \
 | Role | Scope | Required by |
 |---|---|---|
 | `roles/iap.tunnelResourceAccessor` | project | Opening the IAP TCP tunnel. Without it `--tunnel-through-iap` fails with `4033: 'not authorized'` before SSH is attempted. |
-| `roles/compute.osAdminLogin` | project | OS Login **with sudo**. `scripts/ci/gcp-ci.sh` runs every remote command as `sudo -u ci` and unpacks its work tree with `sudo tar`/`sudo chown`; `scripts/ci/vm-pipeline.sh` opens `/usr/local/bin` with `sudo chmod`. The no-sudo `roles/compute.osLogin` cannot run the pipeline. |
+| `roles/compute.osAdminLogin` | project | OS Login **with sudo**. `scripts/ci/gcp-tf-ci.sh` runs every remote command as `sudo -u ci` and unpacks its work tree with `sudo tar`/`sudo chown`; `scripts/gcp-tf/demo-pipeline.sh` opens `/usr/local/bin` with `sudo chmod`. The no-sudo `roles/compute.osLogin` cannot run the pipeline. |
 | `slOperatorInstanceLifecycle` (**custom**) | project | Suspending, resuming and starting a demo VM — the step that stops the billing on a parked lane. Four permissions: `compute.instances.suspend`, `.resume`, `.start`, and `compute.zoneOperations.get` for the operation poll gcloud performs unless `--async` is passed. |
 | `roles/iam.serviceAccountUser` | **the runtime service account resource** | OS Login to an instance carrying a non-default service account requires `actAs` on that account. Never at project scope — there it would cover every service account in the project, including `sl-tf-deploy`. |
 

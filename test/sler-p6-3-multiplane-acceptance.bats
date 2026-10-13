@@ -23,7 +23,7 @@
 #
 # So one side of every check below is derived from the artefact that decides —
 # schema.go for the enum, the Makefile recipe for the make wiring,
-# scripts/ci/vm-pipeline.sh for the CI wiring, the P5-2 JSON for the bounds —
+# scripts/gcp-tf/demo-pipeline.sh for the CI wiring, the P5-2 JSON for the bounds —
 # and never from a list kept in this file.
 #
 # ─── The parsers refuse to guess ────────────────────────────────────────────
@@ -42,7 +42,7 @@ setup() {
 	suite="$repo_root/d2-signalloom/apps/fleet-manager/multiplane_acceptance_test.go"
 	matrix="$repo_root/docs/signalloom/sler-p5-2-denial-matrix.json"
 	proof="$repo_root/docs/signalloom/sler-p6-3-proof.md"
-	pipeline="$repo_root/scripts/ci/vm-pipeline.sh"
+	pipeline="$repo_root/scripts/gcp-tf/demo-pipeline.sh"
 	makefile="$repo_root/Makefile"
 	redteam="$repo_root/scripts/run-redteam-suite.sh"
 
@@ -222,7 +222,7 @@ make_recipe() {
 	' "$makefile"
 }
 
-# The command a vm-pipeline.sh run_stage invocation runs, selected by the stage
+# The command a demo-pipeline.sh run_stage invocation runs, selected by the stage
 # id at the front of its report filename. Keyed on the report FILENAME because
 # openreports-convert.sh keys on that same string.
 stage_command() {
@@ -414,7 +414,7 @@ stage_command() {
 	local command
 	command="$(stage_command "$ci_stage")"
 	[ -n "$command" ] || {
-		echo "no run_stage in scripts/ci/vm-pipeline.sh writes a ${ci_stage}-* report."
+		echo "no run_stage in scripts/gcp-tf/demo-pipeline.sh writes a ${ci_stage}-* report."
 		echo
 		echo "a suite reachable only from a manual make invocation is a suite that"
 		echo "stops running the first time someone forgets. that is the silent"

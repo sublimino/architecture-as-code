@@ -186,7 +186,7 @@ STUB
   # left this test GREEN. It counted a string in a comment and called it wiring:
   # decorative, in precisely the way this repo keeps getting caught by. Only the
   # mutation proof exposed it.
-  run bash -c "grep -vE '^[[:space:]]*#' '${REPO_ROOT}/scripts/ci/vm-pipeline.sh' | grep -c 'check-flux-substitution\.sh'"
+  run bash -c "grep -vE '^[[:space:]]*#' '${REPO_ROOT}/scripts/gcp-tf/demo-pipeline.sh' | grep -c 'check-flux-substitution\.sh'"
   [ "$status" -eq 0 ]
   [ "$output" -ge 1 ]
 }

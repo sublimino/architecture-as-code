@@ -87,7 +87,7 @@ The only built-in hostile action is the stub writing `/tmp/hostile-test.txt` on 
 - **Stage 3 Python: 23 failed / 2289 passed.** The security-relevant cluster is `test_eap_default_deny`. Anonymous `GET /api/telemetry/agents[/{pod_name}]` and `/api/v1/telemetry/agents[/{pod_name}]` answer **200, not 401**. These are the P4-1 cAdvisor routes in `fe-signalloom/src/cadvisor_poller.py:319-379`, and they breach Shared Pattern 5. The remaining failures are tenant-isolation sweep, audit provenance and vocabulary, API-compat and connectors.
 - **Stages 4-5: 33 of 39 commands pass.**
   - `test-kpai` 74/76, which was already red at P4-GOV.
-  - `bats-registry-coverage`: p1/p2/p3 preflight suites were already unregistered; the frozen `vm-pipeline.sh` is not edited here.
+  - `bats-registry-coverage`: p1/p2/p3 preflight suites were already unregistered; the frozen `demo-pipeline.sh` is not edited here.
   - `demo-signalloom-test-config`: the same registry guard, plus ROUTELIVE and FLEET-LIVE checks that probe a running portal.
   - `test-deployed-staleness` / `supercred-images-test`: the untracked-artefact fingerprint check.
   - `test-count-floor`: timed out after 900 s.

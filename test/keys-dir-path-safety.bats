@@ -48,7 +48,7 @@ setup() {
   if [ -n "$offenders" ]; then
     echo "A prefix is concatenated onto \$(KEYS_DIR). KEYS_DIR is absolute in" >&2
     echo "any tree with a .git, which is every checkout, every worktree, AND the" >&2
-    echo "CI VM (vm-pipeline.sh runs git init after extracting the tarball)." >&2
+    echo "CI VM (demo-pipeline.sh runs git init after extracting the tarball)." >&2
     echo "Use \$(abspath \$(KEYS_DIR)) instead, as AUDIT_ANCHOR_KEYS does:" >&2
     echo "$offenders" >&2
     return 1

@@ -121,7 +121,7 @@ setup() {
 }
 
 @test "both CI pipelines execute the mandatory Netassert runtime stage" {
-  for pipeline in scripts/ci/vm-pipeline.sh scripts/gcp-tf/demo-pipeline.sh; do
+  for pipeline in scripts/gcp-tf/demo-pipeline.sh scripts/gcp-tf/demo-pipeline.sh; do
     run grep -F 'Live NetworkPolicy enforcement (netassert)' "$repo_root/$pipeline"
     [ "$status" -eq 0 ]
     run grep -F 'make -C d2-signalloom test-netassert' "$repo_root/$pipeline"

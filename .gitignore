@@ -86,7 +86,7 @@ tunnel-policy.yaml
 # Session artifacts (PAI work memory, plans, CI reports, test results)
 MEMORY/
 Plans/
-ci-reports*/
+lane-reports*/
 # Written by scripts/gcp-tf/demo-up.sh. Covers demo-reports/ and the
 # demo-reports.prev/ generation it rotates the previous run into.
 demo-reports*/

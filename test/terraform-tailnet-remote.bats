@@ -532,7 +532,7 @@ mutate() {
 # ─── Fence headroom, so a slowing lane is visible before it fails ──────────
 
 @test "TIMING every check reports its elapsed time against its fence" {
-	# The instrumentation hole this closes is scripts/ci/vm-pipeline.sh's: it
+	# The instrumentation hole this closes is scripts/gcp-tf/demo-pipeline.sh's: it
 	# announces a stage and its timeout and never prints what the stage took,
 	# so the outer fences are unmeasured and nobody can state the headroom.
 	run_driver ts-test

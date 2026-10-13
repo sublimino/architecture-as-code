@@ -167,7 +167,7 @@ flowchart TD
     Disk[test/acceptance/*.spec.ts] -->|specs_on_disk| Guard[test/acceptance-spec-coverage.bats]
     Config[playwright.config.ts] -->|classify_specs| Guard
     Makefile[Makefile Targets] -->|grep make:target| Guard
-    Pipeline[scripts/ci/vm-pipeline.sh] -->|grep ci:stage| Guard
+    Pipeline[scripts/gcp-tf/demo-pipeline.sh] -->|grep ci:stage| Guard
     Registry[test/acceptance/SPEC-REGISTRY.tsv] -->|registry_rows| Guard
     
     Guard --> Assert1{Every *.spec.ts on disk has exactly 1 registry row?}
@@ -181,7 +181,7 @@ When **SLER-P6-3** authors the automated end-to-end multi-plane containment acce
 1. **No Hand-Kept Lists**: The spec must not rely on unverified documentation claims.
 2. **Registry Registration**: It must add an explicit entry into `test/acceptance/SPEC-REGISTRY.tsv` with its exact runner (`make:demo-signalloom-containment-acceptance` or `suite-only`) and clear prerequisite reasons.
 3. **Playwright Project Mapping**: A dedicated project with proper dependency wiring (`dependencies: ["setup"]`) must be declared in `test/acceptance/playwright.config.ts`.
-4. **CI Integration**: If wired into CI, `scripts/ci/vm-pipeline.sh` must explicitly execute the spec by name.
+4. **CI Integration**: If wired into CI, `scripts/gcp-tf/demo-pipeline.sh` must explicitly execute the spec by name.
 5. **Stage-1c Gate Validation**: `bats test/acceptance-spec-coverage.bats` must execute cleanly and verify 100% consistency across disk, config, Makefile, and pipeline.
 
 ---

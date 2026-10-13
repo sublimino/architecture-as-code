@@ -71,7 +71,7 @@ exists to prevent.
 357.
 
 **Anti-criteria:** 276, 278, 279 — no `terraform apply`/`destroy`, no `gcloud` mutation, no
-`gcloud auth` change; `scripts/ci/gcp-ci.sh` and `scripts/ci/vm-pipeline.sh` untouched (`git diff`
+`gcloud auth` change; `scripts/ci/gcp-tf-ci.sh` and `scripts/gcp-tf/demo-pipeline.sh` untouched (`git diff`
 empty on both).
 
 ## ISCs NOT met, with reasons
@@ -161,7 +161,7 @@ with no edit.
 
    `module "observability"` is **already live** — it is F6-owned and present. Nothing to uncomment.
 
-4. **`scripts/ci/vm-pipeline.sh` still hand-lists its bats suites and is frozen.** No terraform
+4. **`scripts/gcp-tf/demo-pipeline.sh` still hand-lists its bats suites and is frozen.** No terraform
    suite is registered in the GCP-VM tier, and none should be added there without unfreezing it.
    **The compensating control is `.github/workflows/terraform-validate.yaml`**, which runs
    `make gcp-tf-validate` on every PR against `feat/signal-loop-and-bootstrap-refactor` with no

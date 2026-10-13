@@ -131,7 +131,7 @@ def _demo_types() -> set[str]:
 
     Derived, never listed. A hardcoded set here would reproduce the very defect
     this file exists to catch, one level up -- which is the mistake
-    ``scripts/check-ci-build-parity.sh`` and ``scripts/doctor.sh`` were both
+    ``scripts/check-build-parity.sh`` and ``scripts/doctor.sh`` were both
     converted away from.
     """
     found: set[str] = set()

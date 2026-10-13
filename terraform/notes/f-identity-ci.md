@@ -78,7 +78,7 @@ turns a passing run red, and that mutation is itself a committed test.
 **1. The reaper's demo protection is redundant by design, and single-gate mutation is invisible.**
 Removing *any one* of the four gates changes no test outcome, because each of the others still
 catches every adversarial row. Two gates must be removed before a demo VM reaches a suspend call
-(`label`+`name` → the demo test fails; `name`+`denylist` → the legacy `signalloom-ci` test fails;
+(`label`+`name` → the demo test fails; `name`+`denylist` → the legacy `sl-ci-1-vm` test fails;
 all three → both fail). This is the redundancy working, not a hole, but it does mean the bats
 suite proves the *conjunction* is load-bearing rather than each gate individually. Recorded here
 because "I removed the allowlist and nothing failed" is otherwise a very reasonable thing to
@@ -96,7 +96,7 @@ runs `setsid --wait` in the **foreground** with the killer in the background, an
 holding the pattern, so it fired on itself — indistinguishable, in the output, from a real leak.
 Rewritten to assemble the forbidden path from two literals. Narrowing it then surfaced a second
 point worth knowing: `scripts/ci/gcp-tf-ci.sh` carries `/home/ci/osramp-demo` as the **remote**
-work directory, matching `gcp-ci.sh`'s existing convention. That is legitimate and is explicitly
+work directory, matching `gcp-tf-ci.sh`'s existing convention. That is legitimate and is explicitly
 carved out; the prohibition is on a developer's machine leaking into a committed file. The
 carve-out has its own test asserting it has not widened into "any home path is fine", and the
 guard is proven to still bite by injecting a leak into a throwaway copy of the tree.
@@ -113,9 +113,9 @@ before hand-off rather than editing `.gitignore`, which F1 owns. **F1 should add
 `.terraform.lock.hcl`, and `*.tfstate*`** — otherwise the first person to run the Make target
 commits a provider binary.
 
-**6. `test/fixtures/gcp-tf-ci/untouched-scripts.sha256` pins `gcp-ci.sh`, `ci-lock.sh`, and
-`vm-pipeline.sh` (ISC-203).** If any of those is ever legitimately changed, refresh it with
-`sha256sum scripts/ci/gcp-ci.sh scripts/ci/ci-lock.sh scripts/ci/vm-pipeline.sh > test/fixtures/gcp-tf-ci/untouched-scripts.sha256`
+**6. `test/fixtures/gcp-tf-ci/untouched-scripts.sha256` pins `gcp-tf-ci.sh`, and
+`demo-pipeline.sh` (ISC-203).** If any of those is ever legitimately changed, refresh it with
+`sha256sum scripts/ci/gcp-tf-ci.sh scripts/gcp-tf/demo-pipeline.sh > test/fixtures/gcp-tf-ci/untouched-scripts.sha256`
 in the same commit. A stale digest reads as tampering.
 
 **7. Mutation fixtures carry a `.fixture` suffix on purpose.** They contain `roles/owner`,

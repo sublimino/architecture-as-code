@@ -25,7 +25,7 @@
 #
 # So one side of every check below is derived from the filesystem or from the
 # artefact that actually decides (playwright.config.ts, the Makefile,
-# vm-pipeline.sh), and both directions are asserted. A spec cannot be added
+# demo-pipeline.sh), and both directions are asserted. A spec cannot be added
 # without a row; a row cannot outlive its spec; a spec cannot be marked unwired
 # once a project claims it; and a spec cannot claim a CI stage that does not run
 # it. Same shape as scripts/check-backends.sh, which reads nginx's proxy_pass
@@ -40,7 +40,7 @@ setup() {
 	accept_dir="$repo_root/test/acceptance"
 	registry="$accept_dir/SPEC-REGISTRY.tsv"
 	pw_config="$accept_dir/playwright.config.ts"
-	pipeline="$repo_root/scripts/ci/vm-pipeline.sh"
+	pipeline="$repo_root/scripts/gcp-tf/demo-pipeline.sh"
 	makefile="$repo_root/Makefile"
 }
 
@@ -151,7 +151,7 @@ classify_specs() {
 	PY
 }
 
-# The command a vm-pipeline.sh run_stage invocation runs, selected by the stage
+# The command a demo-pipeline.sh run_stage invocation runs, selected by the stage
 # id at the front of its report filename.
 #
 # Keyed on the report FILENAME rather than a stage number in a comment, because
@@ -177,7 +177,7 @@ stage_command() {
 }
 
 # Every spec filename any run_stage command names. Comments are stripped first:
-# vm-pipeline.sh mentions signalloom-test-1.spec.ts in prose near the top, and
+# demo-pipeline.sh mentions signalloom-test-1.spec.ts in prose near the top, and
 # counting a comment as coverage would let a spec be removed from a stage while
 # still reading as wired.
 pipeline_specs() {
@@ -333,7 +333,7 @@ make_recipe() {
 		stage="${runner#ci:}"
 		command="$(stage_command "$stage")"
 		if [ -z "$command" ]; then
-			missing+=("$spec: no run_stage in vm-pipeline.sh writes a ${stage}-* report")
+			missing+=("$spec: no run_stage in demo-pipeline.sh writes a ${stage}-* report")
 		elif [[ "$command" != *"$spec"* ]]; then
 			missing+=("$spec: stage ${stage} exists but its command does not run it")
 		fi

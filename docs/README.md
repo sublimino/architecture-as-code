@@ -129,7 +129,7 @@ Deploy to GCP after the local tests pass. The GCP workflow costs money and needs
 | [`../terraform/README.md`](../terraform/README.md) | Why the estate uses three Terraform roots |
 | [`../terraform/CONTRACT.md`](../terraform/CONTRACT.md) | Invariants between the Terraform roots |
 | [`../terraform/RUNBOOK.md`](../terraform/RUNBOOK.md) | Terraform steps for `demo-1`. The file says that most steps were never run. Use `gcp-demo/RUNBOOK.md` first. |
-| [`../scripts/ci/README.md`](../scripts/ci/README.md) | The older CI pipeline on the `signalloom-ci` VMs |
+| [`../scripts/ci/README.md`](../scripts/ci/README.md) | The older CI pipeline on the `sl-ci-1-vm` VMs |
 
 ## 3 · Debug the system
 

@@ -145,5 +145,5 @@
       "adjudication": "Not fixed by OSD-5. The artefacts are generated, not hand-written, and the remedy is to run d2-signalloom/infra/inf-signalloom/scripts/generate-bootstrap.py twice and commit both outputs. That is a d2-signalloom contracts change in nobody's declared ownership for this wave, and regenerating could carry further drift beyond migration 061, so it is the lead's to assign."
     }
   ],
-  "coverageCaveat": "test-all-offline is itself named by none of the three pipeline files the bats registry guard treats as runners (scripts/ci/vm-pipeline.sh, scripts/gcp-tf/demo-pipeline.sh, .github/workflows/signalloom-eap-pr.yaml). A green `make test-all-offline` therefore proves the leg passes locally and proves NOTHING about CI coverage. Registering the leg, or its individual targets, in a pipeline is a lead decision and is not taken by this card."
+  "coverageCaveat": "test-all-offline is itself named by none of the three pipeline files the bats registry guard treats as runners (scripts/gcp-tf/demo-pipeline.sh, scripts/gcp-tf/demo-pipeline.sh, .github/workflows/signalloom-eap-pr.yaml). A green `make test-all-offline` therefore proves the leg passes locally and proves NOTHING about CI coverage. Registering the leg, or its individual targets, in a pipeline is a lead decision and is not taken by this card."
 }

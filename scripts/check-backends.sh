@@ -136,7 +136,7 @@ case "${1:-live}" in
   # cluster in front of them. Not harmless now that this gates a pipeline
   # stage, where a kubeconfig that is missing or points somewhere else is
   # precisely how a guard turns into decoration: every backend absent, stage
-  # green. This is the failure check-ci-build-parity.sh's header names —
+  # green. This is the failure check-build-parity.sh's header names —
   # "could not look" written over "looked and found nothing" — and it reaches
   # the same verdict: both are exit 1, and the distinction lives in the words.
   live)   check_static; check_live || could_not_look=1 ;;

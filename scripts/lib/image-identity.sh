@@ -95,7 +95,7 @@
 #
 # So on Docker's containerd image store the two values are structurally
 # different identifiers for the SAME image and the comparison fails 100% of the
-# time, deterministically. Measured on signalloom-ci-2, 2026-08-18:
+# time, deterministically. Measured on sl-ci-2-vm, 2026-08-18:
 #
 #   docker .Id            sha256:59aad5ea7cf4…   (index digest)
 #   crictl IMAGE ID       sha256:29d454929e03…   (config digest)
@@ -516,7 +516,7 @@ image_identity_present_on_node() {
 # ─── Adoption: the bytes are usually already there ──────────────────────────
 #
 # All three consumers of this library recover a failed load the same way: export
-# the image to a tar, re-import it, label it, wait. Measured on signalloom-ci-2
+# the image to a tar, re-import it, label it, wait. Measured on sl-ci-2-vm
 # on 2026-08-18, in the act, that export moves NOTHING:
 #
 #   recovery: importing fake-integration-proxy:dev into containerd

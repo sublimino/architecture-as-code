@@ -2,7 +2,7 @@
 # Signal Loom network — one custom-mode VPC per environment, private by
 # construction.
 #
-# The imperative estate this replaces (scripts/ci/gcp-ci.sh) builds the same
+# The imperative estate this replaces (scripts/ci/gcp-tf-ci.sh) builds the same
 # shape by hand: custom-mode VPC, one /24 subnet in europe-west2, Cloud Router
 # + Cloud NAT for outbound, and IAP-only SSH. Two things it does not do, which
 # this module does: it scopes no firewall rule to a service account, and it

@@ -499,7 +499,7 @@ attach_oracle() {
 #                        control: delete the invocation line entirely      -> RED
 #
 # CI-BUILD-PARITY-REAL is recorded above as it was MEASURED, not as it stands.
-# That blind spot was real and is now closed: check-ci-build-parity.sh strips
+# That blind spot was real and is now closed: check-build-parity.sh strips
 # trailing comments quote-awarely, and both parity cases FIRE on the subtle
 # mutation as of 2026-08-16. The record stays because the classification is the
 # lesson — the first run called this guard DECORATION and was wrong, and the
@@ -682,7 +682,7 @@ register KEYS-DIR-CONCAT keys bats test/keys-dir-path-safety.bats \
 
 # ── CI honesty ──────────────────────────────────────────────────────────────
 
-PIPELINE="scripts/ci/vm-pipeline.sh"
+PIPELINE="scripts/gcp-tf/demo-pipeline.sh"
 # The second runner of root-level suites. The CI lane and the demo lane register
 # overlapping but NOT identical sets, and reading only one of them counts every
 # suite the other owns as invoked by nothing.
@@ -700,7 +700,7 @@ run_stage \
   "cd ${WORK_DIR} && npx playwright test --junit-xml=${REPORT_DIR}/stage9z-orphan.xml"
 '
 }
-register CI-ORPHAN-REPORT ci-honesty bats test/ci-report-integrity.bats \
+register CI-ORPHAN-REPORT ci-honesty bats test/lane-report-integrity.bats \
 	'every structured report the pipeline produces is mapped in the converter' \
 	"$PIPELINE" 'not in the converter map|not ok' mut_ci_orphan_structured_report
 
@@ -713,7 +713,7 @@ mut_ci_stale_converter_entry() {
 		"  { file: 'stage9z-deleted-long-ago.tap', parser: parseTap, source: 'ghost', category: 'meta' },
   { file: 'stage1-static.tap'"
 }
-register CI-STALE-CONVERTER-ENTRY ci-honesty bats test/ci-report-integrity.bats \
+register CI-STALE-CONVERTER-ENTRY ci-honesty bats test/lane-report-integrity.bats \
 	'every converter map entry names a file the pipeline actually produces' \
 	"$CONVERTER" 'no pipeline stage produces|not ok' mut_ci_stale_converter_entry
 
@@ -724,14 +724,14 @@ mut_ci_parser_format_mismatch() {
 		"{ file: 'stage1-static.tap',     parser: parseTap," \
 		"{ file: 'stage1-static.tap',     parser: parseJunitXml,"
 }
-register CI-PARSER-MISMATCH ci-honesty bats test/ci-report-integrity.bats \
+register CI-PARSER-MISMATCH ci-honesty bats test/lane-report-integrity.bats \
 	'no converter entry uses parseTap on a non-TAP file' \
 	"$CONVERTER" 'mismatched file/parser|not ok' mut_ci_parser_format_mismatch
 
 mut_ci_relative_path_var() {
 	# A CI path variable holding a relative value resolves against whatever cwd
 	# the stage happens to have. The VM's cwd is not ours.
-	py_sub "Makefile" 'GCP_CI_REPORT_DIR=$(abspath ci-reports-2)' 'GCP_CI_REPORT_DIR=ci-reports-2'
+	py_sub "Makefile" 'GCP_CI_REPORT_DIR=$(abspath lane-reports-2)' 'GCP_CI_REPORT_DIR=lane-reports-2'
 }
 register CI-RELATIVE-PATH ci-honesty bats test/ci-path-anchoring.bats \
 	'no CI path variable is assigned a relative value in the Makefile' \
@@ -904,7 +904,7 @@ ctl_ci_build_parity_delete() {
 	# The control: delete the invocation line outright, leaving the pipeline's
 	# explanatory FULL-LINE comment about the same step in place.
 	#
-	# Measured — this goes RED. That is the whole point: check-ci-build-parity.sh
+	# Measured — this goes RED. That is the whole point: check-build-parity.sh
 	# does strip full-line comments, so a surviving comment does NOT rescue a
 	# deleted step.
 	#
@@ -937,16 +937,16 @@ register_control ctl_ci_build_parity_delete
 # The same defect measured one layer down, through the `sh` guard kind rather
 # than through the bats wrapper. This localises the blind spot: if the bats case
 # above and this one both stay green on the trailing-comment mutation, the gap is
-# in check-ci-build-parity.sh itself and not in how the suite calls it. It also
+# in check-build-parity.sh itself and not in how the suite calls it. It also
 # exercises the harness's `sh` code path against a real guard — that path had no
 # registered case at all until now, which in a tool about untested checks was an
 # untested branch of the tool itself.
-register CI-BUILD-PARITY-SCRIPT ci-honesty sh scripts/check-ci-build-parity.sh \
+register CI-BUILD-PARITY-SCRIPT ci-honesty sh scripts/check-build-parity.sh \
 	'' "$PIPELINE" 'MISSING' mut_ci_build_parity_drop
 register_control ctl_ci_build_parity_delete
 
 # The same guard aimed at the half of the recipe it could not see until now.
-# check-ci-build-parity.sh read `$(MAKE)` lines only, so demo-signalloom-up's two
+# check-build-parity.sh read `$(MAKE)` lines only, so demo-signalloom-up's two
 # closing script invocations were outside the comparison — and the guard printed
 # a pass over a pipeline missing the only step that activates the Agent Trust
 # slice. A from-scratch run then reached 21/27 stages with zero of six
@@ -1506,7 +1506,7 @@ orc_kind_cmdsub() {
 # Build steps in the demo-signalloom-up recipe that the CI pipeline does not
 # actually invoke.
 #
-# The first version of this oracle shelled out to check-ci-build-parity.sh —
+# The first version of this oracle shelled out to check-build-parity.sh —
 # which IS the guard for CI-BUILD-PARITY-SCRIPT. An oracle that runs the guard
 # agrees with the guard by construction, including in its blind spots, so it
 # reported "no violation" for a step the pipeline had genuinely stopped
@@ -1516,7 +1516,7 @@ orc_ci_build_parity() {
 	python3 - <<-'PY'
 		import re, pathlib
 		mk = pathlib.Path("Makefile").read_text()
-		pipe = pathlib.Path("scripts/ci/vm-pipeline.sh").read_text()
+		pipe = pathlib.Path("scripts/gcp-tf/demo-pipeline.sh").read_text()
 		# Written-down decisions, mirrored from the checker's ALLOWED list: one is
 		# runtime-only, one needs a source tree absent from the CI VM.
 		ALLOWED = {"netassert-runner-image", "demo-signalloom-afm-up"}
@@ -1565,7 +1565,7 @@ orc_ci_parity_activation() {
 	python3 - <<-'PY'
 		import re, pathlib
 		mk = pathlib.Path("Makefile").read_text()
-		pipe = pathlib.Path("scripts/ci/vm-pipeline.sh").read_text()
+		pipe = pathlib.Path("scripts/gcp-tf/demo-pipeline.sh").read_text()
 
 		steps, inrecipe = [], False
 		for line in mk.split("\n"):
@@ -1602,7 +1602,7 @@ orc_ci_parity_activation_order() {
 	python3 - <<-'PY'
 		import re, pathlib
 		mk = pathlib.Path("Makefile").read_text()
-		pipe = pathlib.Path("scripts/ci/vm-pipeline.sh").read_text()
+		pipe = pathlib.Path("scripts/gcp-tf/demo-pipeline.sh").read_text()
 		ANCHOR = r'signalloom-local\.sh up'
 
 		steps, inrecipe, anchor_at = [], False, None

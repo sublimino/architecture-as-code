@@ -228,7 +228,7 @@ allocations (`demo-1` 10.10.1.0/24, `ci-1` 10.10.2.0/24, `demo-2` 10.10.3.0/24)
 all remain collision-free, and none collides with the hand-built CI estate's
 `10.0.0.0/24` either.
 
-Note: the `signalloom-ci` VPC referenced in the examples' prose **does not exist
+Note: the `sl-ci-1-vm` VPC referenced in the examples' prose **does not exist
 in this project**. This is a fresh project, not the one the old CI estate runs
 in.
 
@@ -313,9 +313,9 @@ byte-identical to their recorded state"* **fails**, and it failed before this
 work started.
 
 `test/fixtures/gcp-tf-ci/untouched-scripts.sha256` records
-`1b4da9d8…` for `scripts/ci/vm-pipeline.sh`, but the file already hashed
+`1b4da9d8…` for `scripts/gcp-tf/demo-pipeline.sh`, but the file already hashed
 `8b29bdee…` at this branch's base commit `50b3886` — proven with
-`git show 50b3886:scripts/ci/vm-pipeline.sh | sha256sum`, no checkout. The
+`git show 50b3886:scripts/gcp-tf/demo-pipeline.sh | sha256sum`, no checkout. The
 working tree copy is byte-identical to that base version; no commit on this
 branch touches `scripts/`. It was last changed by `ff65b68` *"fix(ci): run the
 Agent Trust activation, and let the parity guard see it"*, which edited the

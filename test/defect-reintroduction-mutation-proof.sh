@@ -452,7 +452,7 @@ unmutate "$DRIVER"
 #
 # scripts/check-vacuous-assertions.sh detects this immediately and names it
 # precisely. It was simply never run by `make gcp-tf-validate` — only by
-# vm-pipeline.sh and demo-pipeline.sh, both of which need a VM. Re-introducing
+# demo-pipeline.sh and demo-pipeline.sh, both of which need a VM. Re-introducing
 # the defect left every test/terraform-*.bats suite green in 238s.
 # test/terraform-vacuity-gate.bats closes that, and is what this proves.
 # ═══════════════════════════════════════════════════════════════════════════

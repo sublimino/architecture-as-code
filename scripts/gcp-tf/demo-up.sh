@@ -45,10 +45,10 @@
 # else, where http is safe because the origin is loopback and the IAP tunnel is
 # the confidentiality boundary.
 #
-# It is a SIBLING of scripts/ci/gcp-ci.sh and scripts/ci/gcp-tf-ci.sh. That
-# first one owns the shared signalloom-ci VMs and their kind pipeline; the
+# It is a SIBLING of scripts/ci/gcp-tf-ci.sh and scripts/ci/gcp-tf-ci.sh. That
+# first one owns the shared sl-ci-1-vm VMs and their kind pipeline; the
 # second owns the per-lane Terraform CI runners. This one owns the human-facing
-# demo VM. None of the three reads or writes another's state, and gcp-ci.sh is
+# demo VM. None of the three reads or writes another's state, and gcp-tf-ci.sh is
 # frozen (test/fixtures/gcp-tf-ci/untouched-scripts.sha256 pins its digest).
 #
 # ─── Nothing is hardcoded; everything comes from the hand-off ───────────────
@@ -1625,7 +1625,7 @@ snapshot_remote_git() {
 
 # ── Run state: written at every transition, starting before the VM is touched ─
 #
-# Lifted from scripts/ci/gcp-ci.sh, which arrived at it the hard way. The
+# Lifted from scripts/ci/gcp-tf-ci.sh, which arrived at it the hard way. The
 # failure it removes is a report directory whose newest file describes a
 # PREVIOUS run: a mid-run poll then reads a verdict that has already been
 # superseded, and an aborted run inherits its predecessor's "all green".
@@ -1817,7 +1817,7 @@ on_term() { exit 143; }
 #                      summary was ever collected and the classifier read the
 #                      absent verdict as ABORTED.
 #   DEMO_SOURCE_COMMIT the pipeline fell back to `git rev-parse HEAD` against
-#                      the throwaway repo vm-pipeline.sh git-inits for
+#                      the throwaway repo demo-pipeline.sh git-inits for
 #                      Kustomize, and stamped THAT into summary.json — the
 #                      `master@47c5ea5` in the run log. That is the exact
 #                      failure the paragraph above predicts, and it disables the
@@ -4800,7 +4800,7 @@ TS_TEST_SLOWEST_NAME=""
 #
 # Each request runs under a hard `--max-time ${TS_TEST_TIMEOUT}` ceiling, and
 # until this was added the run reported the VERDICT and nothing about the
-# margin. That is the same instrumentation hole as scripts/ci/vm-pipeline.sh,
+# margin. That is the same instrumentation hole as scripts/gcp-tf/demo-pipeline.sh,
 # which announces `──── TEST: <name> (timeout 900s) ────` and never prints what
 # the stage actually took — so the inner waits are well instrumented, the outer
 # fences are not measured at all, and nobody can say what the headroom is.

@@ -43,16 +43,9 @@ export KUBECONFIG GOPATH GONOSUMDB GOCACHE GOMODCACHE CGO_ENABLED HELM_CACHE_HOM
 # any linked worktree, and to its own from the main checkout. On the main
 # checkout this is exactly the old value, so that path is unchanged.
 #
-# The relative fallback almost never fires, and it is important not to believe
-# otherwise. gcp-ci.sh:322 does tar the tree with --exclude='.git' — but
-# vm-pipeline.sh:91-95 runs `git init` on the VM immediately after extracting it,
-# because Kustomize treats .git/ as the security boundary for relative path
-# traversal and rejects ../base/ refs without one. So the git branch below fires
-# on CI too, and KEYS_DIR is absolute there as well.
-#
-# An earlier version of this comment claimed the opposite. That false premise is
-# what made ../$(KEYS_DIR) at the bootstrap-local line look safe, and it aborted
-# both CI lanes. The fallback is for a genuinely git-less tree only.
+# The relative fallback almost never fires; git rev-parse --git-common-dir
+# resolves on both local checkouts and remote V2 lanes. The fallback is for a
+# genuinely git-less tree only.
 GIT_COMMON_DIR := $(shell git rev-parse --git-common-dir 2>/dev/null)
 DEFAULT_KEYS_DIR := $(if $(wildcard .keys/witness.pem),.keys,$(if $(GIT_COMMON_DIR),$(abspath $(GIT_COMMON_DIR)/..)/.keys,.keys))
 KEYS_DIR ?= $(DEFAULT_KEYS_DIR)
@@ -88,7 +81,7 @@ help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 	@printf '\n\033[1mWhere to read more\033[0m\n'
 	@printf '  \033[36m%-34s\033[0m %s\n' 'AGENTS.md'                  'Start here — slices, shared foundation, conventions'
-	@printf '  \033[36m%-34s\033[0m %s\n' 'scripts/ci/README.md'       'GCP CI VMs: warm/cold, locks, and the traps that cost hours'
+	@printf '  \033[36m%-34s\033[0m %s\n' 'scripts/ci/README.md'       'GCP V2 CI lanes and tooling'
 	@printf '  \033[36m%-34s\033[0m %s\n' 'docs/cluster-debugging.md'  'Cluster/registry faults + probes that lie'
 	@printf '  \033[36m%-34s\033[0m %s\n' 'TESTING.md'                 'Which suites exist and what actually runs'
 	@printf '  \033[36m%-34s\033[0m %s\n' 'd2-agent-trust/AGENTS.md'   'SPIFFE trust slice + its Pitfalls section'
@@ -99,8 +92,6 @@ help: ## Display this help.
 	@printf '  %s\n' 'make doctor-node ENV=demo-1                  NODE level: VM, tailnet, docker, zot PUSH, AFM cluster count'
 	@printf '  %s\n' 'make doctor-node-all                         every lane; exit 3 = could not measure, which is NOT a pass'
 	@printf '  %s\n' 'make demo-signalloom-supercred-evidence      what is TRUE of the credential chain, with proof commands'
-	@printf '  %s\n' 'make ci-state / ci-state-2                   what the last run DID, and which file says so (local, no gcloud)'
-	@printf '  %s\n' 'make ci-status / ci-status-2                 CI VM state (SUSPENDED means the last run PASSED)'
 	@printf '  %s\n' 'unset SSH_AUTH_SOCK                          before any ad-hoc gcloud compute ssh, or it "times out"'
 	@printf '  %s\n' 'make check-deployed-staleness                is the cluster running THIS tree? (exit 2 = unproven, not a pass)'
 	@printf '\n'
@@ -646,7 +637,6 @@ test-all-offline: offline-deps ## Run all offline test suites (Go unit, Vitest, 
 	$(MAKE) test-demo-lifecycle
 	$(MAKE) test-node-doctor
 	$(MAKE) test-cosign-signing-consistency
-	$(MAKE) test-ci-build-parity
 	$(MAKE) test-kind-load-verified
 	$(MAKE) test-deployed-staleness
 	$(MAKE) test-supervise-port-forward
@@ -657,9 +647,6 @@ test-all-offline: offline-deps ## Run all offline test suites (Go unit, Vitest, 
 	$(MAKE) demo-signalloom-supercred-evidence-test
 	$(MAKE) test-bao-spire-proof-harness
 	$(MAKE) test-revocation-demo-safety
-	$(MAKE) test-ci-lock
-	$(MAKE) test-ci-state
-	$(MAKE) test-ci-path-anchoring
 	$(MAKE) test-ui-typography
 	$(MAKE) audit-anchor-test
 	$(MAKE) test-impl-agent-log
@@ -1338,14 +1325,6 @@ factory-schemas-validate: ## Validate AI-Governed Software Factory JSON schemas.
 factory-appraisal-test: ## Run the complete AI-Governed Software Factory governance and appraisal test suite.
 	bats test/software-factory-governance.bats
 	(cd d2-signalloom/apps/factory-appraiser && go test ./...)
-
-.PHONY: check-ci-build-parity
-check-ci-build-parity: ## Fail if CI omits a build or activation step demo-signalloom-up runs (no cluster required).
-	./scripts/check-ci-build-parity.sh
-
-.PHONY: test-ci-build-parity
-test-ci-build-parity: ## Verify the CI build-parity guard against fixture recipes, including that it cannot pass vacuously (no cluster required).
-	bats test/ci-build-parity.bats
 
 # SLSI-P1-4 air-gap proof. Needs a BUILT dist/slsi-appliance-<version>.tar.gz
 # (or SLSI_BUNDLE_TARBALL), docker with the sandbox image already local, and
@@ -2206,102 +2185,14 @@ public-test: ## Run acceptance tests against the active public/serve URL.
 
 ##@ CI
 
-# $(abspath …), not a bare `ci-reports-2`. gcp-ci.sh's DEFAULT report dir is
-# ${REPO_ROOT}/ci-reports — absolute, and anchored to the script, which is what
-# the warm lane gets. Passing a RELATIVE override made the cold lane the only
-# asymmetric one: `ci-reports-2` resolves against the running process's cwd, so
-# the two lanes anchored their reports to different things and `make -C … ci-gcp-2`
-# wrote its reports outside the tree it was testing. That is how
-# /home/andy/src/cp/osramp-demo/ci-reports-2/ came to hold a d574d7d report from
-# a run nobody made there.
-#
-# Third instance of this class in this repo: ../$(KEYS_DIR) at bootstrap-local,
-# AUDIT_ANCHOR_KEYS, and now this. Same treatment, same reason. gcp-ci.sh also
-# anchors a relative value at REPO_ROOT now, so this is belt and braces — the
-# two together mean neither the caller's cwd nor the env var can move the
-# reports. test/ci-path-anchoring.bats derives the guard from this line.
-CI_2_ENV = GCP_CI_VM_NAME=signalloom-ci-2 GCP_CI_LABELS=purpose=signalloom-ci-2,worker=signalloom-ci-2,persistent=true GCP_CI_REMOTE_WORK_DIR=/home/ci/osramp-demo-ci-2 GCP_CI_REMOTE_REPORT_DIR=/home/ci/reports-signalloom-ci-2 GCP_CI_REPORT_DIR=$(abspath ci-reports-2) GCP_CI_REPORT_FILENAME=signalloom-ci-2-report.yaml GCP_CI_PIPELINE_LOG=/home/ci/ci-pipeline-ci-2.log
-
 .PHONY: ci-tools
 ci-tools: ## Install the CI toolchain: pinned pre-built binaries, then setup.sh.
-	@# Same two installers, same order, as scripts/ci/vm-pipeline.sh. The pinned
+	@# Same two installers, same order, as demo-pipeline.sh. The pinned
 	@# pre-built binaries go first so setup.sh's `have` guards skip them and its
 	@# `go install` compile path is never reached for anything already present;
 	@# setup.sh still runs because it alone installs skopeo, witness, yq and jq.
 	./scripts/ci/install-ci-tools.sh
 	./scripts/setup.sh --tools-only
-
-.PHONY: ci-provision
-ci-provision: ## One-time: create the persistent GCP CI VM + networking.
-	./scripts/ci/gcp-ci.sh provision
-
-.PHONY: ci-gcp
-ci-gcp: ## Resume the CI VM, run Signalloom D2 e2e, suspend on pass.
-	./scripts/ci/gcp-ci.sh run
-
-.PHONY: ci-provision-2
-ci-provision-2: ## One-time: create the isolated second GCP CI VM.
-	$(CI_2_ENV) ./scripts/ci/gcp-ci.sh provision
-
-.PHONY: ci-gcp-2
-ci-gcp-2: ## Sync local tree to VM2, run Signalloom D2 e2e, suspend on pass.
-	$(CI_2_ENV) ./scripts/ci/gcp-ci.sh provision
-	$(CI_2_ENV) ./scripts/ci/gcp-ci.sh run
-
-.PHONY: ci-ssh-2
-ci-ssh-2: ## Resume and SSH into VM2 after a failed CI run.
-	$(CI_2_ENV) ./scripts/ci/gcp-ci.sh ssh
-
-.PHONY: ci-status-2
-ci-status-2: ## Show the isolated second CI VM state.
-	$(CI_2_ENV) ./scripts/ci/gcp-ci.sh status
-
-.PHONY: ci-report-2
-ci-report-2: ## View VM2's last collected stage summary and report path.
-	@if [ -f ci-reports-2/summary.json ]; then \
-		jq . ci-reports-2/summary.json; \
-	else \
-		echo "No report found. Run 'make ci-gcp-2' first."; \
-	fi
-	@if [ -f ci-reports-2/signalloom-ci-2-report.yaml ]; then \
-		echo "OpenReports: ci-reports-2/signalloom-ci-2-report.yaml"; \
-	fi
-
-# ci-state answers "what happened to the last run?" without gcloud, without the
-# network, and without touching the lock — so it is safe to run while a lane is
-# in flight. It names the report file it read by absolute path, because with a
-# dozen checkouts of this repo each holding their own <checkout>/ci-reports, the
-# data was never the problem: knowing which file was authoritative was.
-#
-# It exits 0 only on PASS. ABORTED, STALE and a run still in flight all exit
-# non-zero, so `make ci-state && deploy` cannot proceed on a non-verdict — make
-# will print "Error 2" for those, which is the point, not a bug.
-.PHONY: ci-state
-ci-state: ## What did the last ci-gcp run do? Names the report file it read. Exit 0 only on PASS.
-	@./scripts/ci/gcp-ci.sh state
-
-.PHONY: ci-state-2
-ci-state-2: ## What did the last ci-gcp-2 run do? Names the report file it read. Exit 0 only on PASS.
-	@$(CI_2_ENV) ./scripts/ci/gcp-ci.sh state
-
-.PHONY: ci-ssh
-ci-ssh: ## SSH into the CI VM for debugging (resumes if suspended).
-	./scripts/ci/gcp-ci.sh ssh
-
-.PHONY: ci-status
-ci-status: ## Show CI VM status (RUNNING / SUSPENDED / etc).
-	./scripts/ci/gcp-ci.sh status
-
-.PHONY: ci-report
-ci-report: ## View the last OpenReports report from a ci-gcp run.
-	@if [ -f ci-reports/summary.json ]; then \
-		jq . ci-reports/summary.json; \
-	else \
-		echo "No report found. Run 'make ci-gcp' first."; \
-	fi
-	@if [ -f ci-reports/signalloom-ci-report.yaml ]; then \
-		echo "OpenReports: ci-reports/signalloom-ci-report.yaml"; \
-	fi
 
 # ---------------------------------------------------------------------------
 # Risk — policy as versioned code, priced in pounds.
@@ -2406,18 +2297,6 @@ risk-check: ## CI gate: artefacts validate, engine self-checks, results are repr
 		|| { echo "risk/out/ is stale — commit the regenerated report"; git diff --stat -- risk/out/; exit 1; }
 	@echo "risk-check: artefacts valid, engine self-checked, report reproducible"
 
-.PHONY: test-ci-lock
-test-ci-lock: ## Verify the exclusive CI-VM lock against a fake remote (no VM required).
-	bats test/ci-lock.bats
-
-.PHONY: test-ci-state
-test-ci-state: ## Verify ci-state names its source, dates its claim, and cannot call a non-verdict a pass (no VM required).
-	bats test/ci-state-locality.bats
-
-.PHONY: test-ci-path-anchoring
-test-ci-path-anchoring: ## Verify no CI path variable is relative, in the Makefile source AND in what make expands.
-	bats test/ci-path-anchoring.bats
-
 .PHONY: demo-signalloom-function-images
 demo-signalloom-function-images: ## Build and kind-load the two Knative-backed swarm functions (prompt-commit-summarizer, triage-ci-worker); nothing else built them (2026-10-03).
 	$(MAKE) swarm-prompt-summarizer-image
@@ -2498,11 +2377,7 @@ check-deployed-staleness: ## Assert the running pods are running THIS working tr
 # ===========================================================================
 # GCP Terraform platform — appended by chunk F6. See terraform/CONTRACT.md §1.
 #
-# This block is APPEND-ONLY. Nothing above this line is edited, renamed or
-# reordered by it, and no target here shadows an existing `ci-*` target: the
-# existing GCP CI VM lane (`ci-gcp`, `ci-gcp-2`, `ci-provision`, `ci-status`)
-# runs the kind-based demo pipeline and is untouched. Everything here is
-# prefixed `gcp-tf-`.
+# Everything in this block is prefixed `gcp-tf-`.
 # ===========================================================================
 
 TF ?= terraform
@@ -2703,11 +2578,9 @@ GCP_TF_PROOFS_RUN ?= $(foreach p,$(GCP_TF_PROOFS),bash $(p) &&) true
 # test/guard-falsification-proof.sh is a proof and is NOT matched, because it is
 # not named `*-mutation-proof.sh`. That exclusion is CORRECT and must survive
 # future tidying. It is a ~119KB VM-side harness that proves this repo's guards
-# are capable of failing, and it is already run in the two places that can
-# actually run it:
+# are capable of failing, and it is already run on the VM:
 #
-#   scripts/gcp-tf/demo-pipeline.sh:634   cd ${WORK_DIR} && ./test/guard-falsification-proof.sh
-#   scripts/ci/vm-pipeline.sh:807         cd ${WORK_DIR} && ./test/guard-falsification-proof.sh
+#   scripts/gcp-tf/demo-pipeline.sh   cd ${WORK_DIR} && ./test/guard-falsification-proof.sh
 #
 # No make target runs it and none should. `gcp-tf-validate` is the OFFLINE gate
 # — no network, no cloud, no cluster — and that harness needs a VM. Widening

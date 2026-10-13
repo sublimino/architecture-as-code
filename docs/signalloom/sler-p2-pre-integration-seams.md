@@ -133,7 +133,7 @@ A comprehensive grep across the entire codebase identified five distinct invocat
 - **Citations**:
   - `d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-sync-cronjob.yaml:3`
   - `test/spire-openbao-trust-drift.bats:25-53`
-  - `scripts/ci/vm-pipeline.sh:1012-1014`
+  - `scripts/gcp-tf/demo-pipeline.sh:1012-1014`
   - `scripts/lib/spire-trust-anchor.sh:6`
   - `terraform/notes/l-jwks-url-upgrade-path.md:10-14`
 

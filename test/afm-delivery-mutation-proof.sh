@@ -40,7 +40,7 @@ cd "$REPO_ROOT"
 AFM_SH="scripts/k8s-afm.sh"
 MAKEFILE="Makefile"
 BACKENDS="scripts/check-backends.sh"
-PIPELINE="scripts/ci/vm-pipeline.sh"
+PIPELINE="scripts/gcp-tf/demo-pipeline.sh"
 
 SUITE_AFM="test/k8s-afm-preflight.bats"
 SUITE_BACKENDS="d2-signalloom/test/dashboard-backends.bats"

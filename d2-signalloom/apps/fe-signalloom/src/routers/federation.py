@@ -289,6 +289,22 @@ async def proxy_federation_request(
             f"{target_path!r}; no federation state is available to report",
         )
 
+    # Collect upstream headers to propagate
+    forwarded_headers: dict[str, str] = {}
+    for header_key in ("allow", "etag", "location", "x-tenant-id", "retry-after"):
+        if header_key in resp.headers:
+            forwarded_headers[header_key] = resp.headers[header_key]
+
+    # For 204 No Content, empty bodies, or HEAD requests, return Response directly without JSON parsing
+    if resp.status_code == 204 or not resp.content or request.method == "HEAD":
+        if "content-type" in resp.headers and resp.status_code != 204:
+            forwarded_headers["content-type"] = resp.headers["content-type"]
+        return Response(
+            status_code=resp.status_code,
+            content=b"",
+            headers=forwarded_headers,
+        )
+
     # Outbound content-type validation: reject HTML fallbacks or non-JSON payloads
     resp_content_type = resp.headers.get("content-type", "")
     resp_text_sample = resp.text[:100].lower() if resp.text else ""
@@ -335,10 +351,13 @@ async def proxy_federation_request(
             f"signal-ingest returned unparseable JSON (status {resp.status_code})",
         )
 
+    outbound_headers = {"Content-Type": "application/json"}
+    outbound_headers.update(forwarded_headers)
+
     return JSONResponse(
         status_code=resp.status_code,
         content=data,
-        headers={"Content-Type": "application/json"},
+        headers=outbound_headers,
     )
 
 
@@ -401,19 +420,19 @@ async def local_federation_read(subpath: str, principal: Principal) -> Response:
 
 @router.api_route(
     "/api/v1/federation/{subpath:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"],
 )
 @router.api_route(
     "/api/v1/federation",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"],
 )
 @router.api_route(
     "/v1/federation/{subpath:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"],
 )
 @router.api_route(
     "/v1/federation",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"],
 )
 async def proxy_federation_route(
     request: Request,

@@ -720,3 +720,119 @@ async def test_w9_federation_unserved_route_does_not_fabricate(subpath):
             )
 
 
+@pytest.mark.asyncio
+async def test_federation_proxy_handles_204_no_content():
+    """Test proxy cleanly forwards 204 No Content without crashing on JSON deserialization."""
+    signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
+
+    with respx.mock(assert_all_called=False) as respx_mock:
+        route = respx_mock.post(f"{signal_ingest_url}/api/v1/federation/sync").mock(
+            return_value=httpx.Response(
+                204,
+                content=b"",
+                headers={"X-Tenant-ID": EAP_TENANT_A},
+            )
+        )
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/federation/sync",
+                json={"action": "sync"},
+                headers=eap_bearer(EAP_ALICE),
+            )
+            assert resp.status_code == 204
+            assert resp.content == b""
+            assert route.called
+            assert resp.headers.get("x-tenant-id") == EAP_TENANT_A
+
+
+@pytest.mark.asyncio
+async def test_federation_proxy_handles_empty_body_and_head():
+    """Test proxy cleanly handles empty bodies and HEAD requests without 502 Bad Gateway errors."""
+    signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
+
+    with respx.mock(assert_all_called=False) as respx_mock:
+        route = respx_mock.get(f"{signal_ingest_url}/api/v1/federation/ping").mock(
+            return_value=httpx.Response(
+                200,
+                content=b"",
+                headers={"Content-Type": "application/json", "ETag": '"empty-fed-etag"'},
+            )
+        )
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # GET with empty upstream body
+            resp_get = await client.get("/api/v1/federation/ping", headers=eap_bearer(EAP_ALICE))
+            assert resp_get.status_code == 200
+            assert resp_get.content == b""
+            assert resp_get.headers.get("etag") == '"empty-fed-etag"'
+
+            # HEAD request with empty upstream body
+            resp_head = await client.head("/api/v1/federation/ping", headers=eap_bearer(EAP_ALICE))
+            assert resp_head.status_code == 200
+            assert resp_head.content == b""
+            assert resp_head.headers.get("etag") == '"empty-fed-etag"'
+
+
+@pytest.mark.asyncio
+async def test_federation_proxy_propagates_allow_header_on_405():
+    """Test proxy propagates RFC 9110 Section 15.5.6 Allow header on 405 Method Not Allowed."""
+    signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
+
+    with respx.mock(assert_all_called=False) as respx_mock:
+        route = respx_mock.post(f"{signal_ingest_url}/api/v1/federation/readonly-feed").mock(
+            return_value=httpx.Response(
+                405,
+                json={"error": "method not allowed"},
+                headers={"Allow": "GET, HEAD"},
+            )
+        )
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/federation/readonly-feed",
+                json={"data": "test"},
+                headers=eap_bearer(EAP_ALICE),
+            )
+            assert resp.status_code == 405
+            assert resp.headers.get("allow") == "GET, HEAD"
+            assert resp.json()["error"] == "method not allowed"
+            assert route.called
+
+
+@pytest.mark.asyncio
+async def test_federation_proxy_propagates_location_and_etag_headers():
+    """Test proxy propagates Location, ETag, and X-Tenant-ID headers from upstream."""
+    signal_ingest_url = os.environ.get("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
+
+    with respx.mock(assert_all_called=False) as respx_mock:
+        route = respx_mock.post(f"{signal_ingest_url}/api/v1/federation/register").mock(
+            return_value=httpx.Response(
+                201,
+                json={"registration_id": "reg-12345"},
+                headers={
+                    "Location": "/api/v1/federation/register/reg-12345",
+                    "ETag": '"w/reg-12345"',
+                    "X-Tenant-ID": EAP_TENANT_A,
+                },
+            )
+        )
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/federation/register",
+                json={"zone": "us-east-1"},
+                headers=eap_bearer(EAP_ALICE),
+            )
+            assert resp.status_code == 201
+            assert resp.headers.get("location") == "/api/v1/federation/register/reg-12345"
+            assert resp.headers.get("etag") == '"w/reg-12345"'
+            assert resp.headers.get("x-tenant-id") == EAP_TENANT_A
+            assert resp.json()["registration_id"] == "reg-12345"
+            assert route.called
+
+

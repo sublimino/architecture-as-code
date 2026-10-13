@@ -32,10 +32,7 @@ setup_file() {
     key="$(kubectl -n fe-signalloom get secret signal-ingest-key-sldc-live-bats \
       -o 'jsonpath={.data.token}' 2>/dev/null | base64 -d 2>/dev/null)" || key=""
   fi
-  [ -n "$key" ] || {
-    echo "no sldc-live-bats key: set SLDC_LIVE_KEY_FILE or run scripts/sldc-ingest-bearer.sh --key sldc-live-bats" >&2
-    return 1
-  }
+  [ -n "$key" ] || skip "no sldc-live-bats key: set SLDC_LIVE_KEY_FILE or run scripts/sldc-ingest-bearer.sh --key sldc-live-bats"
   export AUTH_HEADER_FILE="$BATS_FILE_TMPDIR/auth-header"
   ( umask 077; printf 'Authorization: Bearer %s\n' "$key" >"$AUTH_HEADER_FILE" )
 }

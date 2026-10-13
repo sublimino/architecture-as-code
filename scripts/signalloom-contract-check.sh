@@ -65,8 +65,13 @@ git rev-parse --verify "refs/heads/$contract_release" >/dev/null || die "missing
 # its fork point with integration must be integration-specific (not on the release branch), which
 # tolerates a worktree that is behind the live tip or carries its own commits on a valid base.
 contract_fork="$(git merge-base "$contract_branch" HEAD 2>/dev/null || true)"
-{ [[ -n "$contract_fork" ]] && ! git merge-base --is-ancestor "$contract_fork" "$contract_release" 2>/dev/null; } \
-	|| die "HEAD is not derived from $contract_branch (worktree is not an integration descendant)"
+if git merge-base --is-ancestor "$contract_branch" HEAD 2>/dev/null; then
+	:
+elif [[ -n "$contract_fork" ]] && ! git merge-base --is-ancestor "$contract_fork" "$contract_release" 2>/dev/null; then
+	:
+else
+	die "HEAD is not derived from $contract_branch (worktree is not an integration descendant)"
+fi
 
 printf 'Signal Loom delivery contract passed: %s → %s → %s; supply-chain evidence guard is active.\n' \
 	"$contract_release" "$contract_branch" "$contract_repo"

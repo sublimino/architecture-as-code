@@ -42,16 +42,10 @@ setup_file() {
   source "${REPO_ROOT}/scripts/lib/wait.sh"
 
   for cmd in curl jq bun kubectl; do
-    command -v "$cmd" >/dev/null 2>&1 || {
-      echo "Prerequisite tool '$cmd' missing" >&2
-      return 1
-    }
+    command -v "$cmd" >/dev/null 2>&1 || skip "Prerequisite tool '$cmd' missing"
   done
 
-  kubectl get nodes >/dev/null 2>&1 || {
-    echo "Kubernetes cluster unreachable" >&2
-    return 1
-  }
+  kubectl get nodes >/dev/null 2>&1 || skip "Kubernetes cluster unreachable"
 
   STATE_FILE="${BATS_FILE_TMPDIR}/autoclaim-state.env"
   DASH_PORT="$(find_free_port)"

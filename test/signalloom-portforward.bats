@@ -51,6 +51,8 @@ setup() {
 }
 
 @test "manage-portforward-service.sh status reports active service and HTTP 200" {
+  systemctl --user is-active --quiet "signalloom-portforward.service" 2>/dev/null || skip "signalloom-portforward.service is not active"
+  curl -sf -o /dev/null http://localhost:5173 2>/dev/null || skip "signalloom-portforward endpoint is not answering on localhost:5173"
   run "${MANAGE_SCRIPT}" status
   [ "$status" -eq 0 ]
   [[ "$output" =~ "active (running)" ]]

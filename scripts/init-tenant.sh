@@ -590,6 +590,10 @@ stage_p2_2_hostmounts() {
   chmod 0700 "${DATA_DIR}/frostdb"
   apply_ownership 0 0 "${DATA_DIR}/frostdb"
 
+  # Pre-upgrade snapshot storage directory (SLSI-P3-2)
+  mkdir -p "${OUTPUT_DIR}/snapshots"
+  chmod 0700 "${OUTPUT_DIR}/snapshots"
+
   # Explicit constraint: NO nats directory
   if [[ -d "${DATA_DIR}/nats" ]]; then
     rm -rf "${DATA_DIR}/nats"

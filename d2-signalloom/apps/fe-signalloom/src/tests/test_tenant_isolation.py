@@ -396,6 +396,7 @@ DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     # lookup returns no row (404), after the statements this sweep inspects.
     ("POST", "/api/v1/invites/redeem", {"token": "not-a-real-invite-token"}),
     ("GET", "/api/v1/agents", None),
+    ("GET", "/api/v1/agents/00000000-0000-0000-0000-0000000000a1", None),
     ("GET", "/api/agents/00000000-0000-0000-0000-0000000000a1", None),
     ("GET", "/api/agents/00000000-0000-0000-0000-0000000000a1/origin-verification", None),
     ("GET", "/api/agents/00000000-0000-0000-0000-0000000000a1/violations", None),

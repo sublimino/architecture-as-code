@@ -333,3 +333,7 @@ Build the dashboard image with `scripts/build-sign-dashboard.sh`:
 - Generates SPDX SBOM, SLSA provenance, and Cosign signature.
 - Stores evidence in `docs/signalloom/evidence/`.
 - Tested by [`test/dashboard-supplychain.bats`](test/dashboard-supplychain.bats). Run `bats d2-signalloom/test/dashboard-supplychain.bats` from the repository root.
+
+## Architecture Diagrams
+
+Read [`apps/docs-signalloom/DIAGRAMS.md`](apps/docs-signalloom/DIAGRAMS.md) before you change any published diagram. It lists the components every diagram shows, the components every diagram leaves out, and the render command.

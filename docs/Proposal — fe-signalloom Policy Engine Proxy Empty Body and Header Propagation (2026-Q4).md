@@ -1,0 +1,52 @@
+# Proposal: fe-signalloom Policy Engine Proxy Empty Body and Header Propagation
+
+**Status:** Proposed  
+**Date:** 2026-10-13  
+**Author:** Signal Loom Security Team  
+**Scope:** `d2-signalloom/apps/fe-signalloom/src/routers/policy_engine.py`, `d2-signalloom/apps/fe-signalloom/src/tests/test_policy_engine.py`
+
+## Executive Summary
+
+This proposal hardens the `fe-signalloom` policy engine reverse proxy (`proxy_policy_engine`) against 502 Bad Gateway crashes caused by empty response bodies and unparseable JSON deserialization attempts.
+It handles HTTP 204 No Content, HTTP 304 Not Modified, HEAD responses, and empty upstream bodies without invoking JSON parsing.
+It preserves critical upstream response headers.
+These include RFC 9110 Section 15.5.6 `Allow` headers on 405 Method Not Allowed, `Location` on 201 Created, `ETag`, and `X-Tenant-ID`.
+It expands test coverage in `test_policy_engine.py` to verify empty response body handling, 204 No Content status, and header propagation.
+
+## Problem Statement
+
+Automated sweeps identified two defects in `fe-signalloom`'s policy engine proxy:
+1. In `src/routers/policy_engine.py`, `proxy_policy_engine` unconditionally calls `resp.json()` on upstream HTTP responses. When upstream returns HTTP 204 No Content, HTTP 304 Not Modified, an empty body (`b""`), or responds to a HEAD request, `resp.json()` raises `json.JSONDecodeError`. The handler catches this exception and converts a successful upstream response into a spurious `502 invalid_upstream_response: "policy-engine returned unparseable JSON (status 204)"`.
+2. The proxy handler returns `JSONResponse(..., headers={"Content-Type": "application/json"})`, stripping upstream headers. Crucial headers such as `Allow`, `Location`, `ETag`, and `X-Tenant-ID` are dropped before reaching downstream consumers.
+
+## Technical Design
+
+### Empty Body and 204 No Content Handling
+
+In `src/routers/policy_engine.py`:
+1. Check `resp.status_code == 204 or not resp.content or request.method == "HEAD"`.
+2. If this condition holds, construct a `Response(status_code=resp.status_code, content=b"", headers=forwarded_headers)`.
+3. Per RFC 9110 Section 15.3.5, do not attach `Content-Type` to 204 responses. Preserve `Content-Type` for non-204 responses with empty content (such as HEAD responses or 200/304).
+
+### Header Forwarding
+
+Collect upstream headers matching `("allow", "etag", "location", "x-tenant-id", "retry-after")`:
+1. On empty body / 204 / HEAD responses, include these headers in the returned `Response`.
+2. On standard JSON responses, combine `{"Content-Type": "application/json"}` with the collected headers.
+3. This ensures `Allow` headers on 405 responses and `Location` headers on 201 responses survive proxying.
+
+### Test Suite Expansion
+
+In `src/tests/test_policy_engine.py`:
+1. `test_policy_engine_proxy_handles_204_no_content`: verifies that upstream 204 No Content returns 204 with empty body and no 502 crash.
+2. `test_policy_engine_proxy_handles_empty_body_and_head`: verifies that upstream 200 with empty body returns 200 with empty body.
+3. `test_policy_engine_proxy_propagates_allow_header_on_405`: verifies that upstream 405 Method Not Allowed forwards the `Allow` header.
+4. `test_policy_engine_proxy_propagates_location_header_on_201`: verifies that upstream 201 Created forwards the `Location` header.
+5. `test_policy_engine_proxy_direct_invocation_empty_body_and_204`: validates direct execution of `proxy_policy_engine` with simulated empty and 204 responses.
+
+## Verification Strategy
+
+1. `UV_CACHE_DIR=/tmp/uv-cache UV_CONFIG_FILE=/dev/null uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with respx --with-requirements requirements.txt python -m pytest -v tests/test_policy_engine.py tests/test_head_response_suppression.py`
+2. `./scripts/signalloom-api-test.sh contract`
+3. `bats test/docs-index-sync.bats`
+4. `./scripts/docs-lint.sh "docs/Proposal — fe-signalloom Policy Engine Proxy Empty Body and Header Propagation (2026-Q4).md"`

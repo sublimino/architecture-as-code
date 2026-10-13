@@ -203,3 +203,160 @@ async def test_policy_engine_proxy_body_tenant_validation_and_whitespace():
             assert resp_foreign.status_code == 403
             assert resp_foreign.json()["error"]["code"] == "cross_tenant_forbidden"
 
+
+@pytest.mark.asyncio
+async def test_policy_engine_proxy_handles_204_no_content():
+    """Test proxy cleanly forwards 204 No Content without crashing on JSON deserialization."""
+    policy_engine_url = getattr(settings, "policy_engine_url", "http://policy-engine:8081")
+
+    with respx.mock(assert_all_called=False) as respx_mock:
+        route = respx_mock.get(f"{policy_engine_url}/api/v1/compliance/noop").mock(
+            return_value=httpx.Response(
+                204,
+                content=b"",
+                headers={"X-Tenant-ID": EAP_TENANT_A},
+            )
+        )
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/api/v1/compliance/noop", headers=eap_bearer(EAP_ALICE))
+            assert resp.status_code == 204
+            assert resp.content == b""
+            assert route.called
+            assert resp.headers.get("x-tenant-id") == EAP_TENANT_A
+
+
+@pytest.mark.asyncio
+async def test_policy_engine_proxy_handles_empty_body_and_head():
+    """Test proxy cleanly handles empty bodies and HEAD requests without 502 Bad Gateway errors."""
+    policy_engine_url = getattr(settings, "policy_engine_url", "http://policy-engine:8081")
+
+    with respx.mock(assert_all_called=False) as respx_mock:
+        route = respx_mock.get(f"{policy_engine_url}/api/v1/compliance/empty-check").mock(
+            return_value=httpx.Response(
+                200,
+                content=b"",
+                headers={"Content-Type": "application/json", "ETag": '"empty-etag"'},
+            )
+        )
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # GET with empty upstream body
+            resp_get = await client.get("/api/v1/compliance/empty-check", headers=eap_bearer(EAP_ALICE))
+            assert resp_get.status_code == 200
+            assert resp_get.content == b""
+            assert resp_get.headers.get("etag") == '"empty-etag"'
+
+            # HEAD request with empty upstream body
+            resp_head = await client.head("/api/v1/compliance/empty-check", headers=eap_bearer(EAP_ALICE))
+            assert resp_head.status_code == 200
+            assert resp_head.content == b""
+            assert resp_head.headers.get("etag") == '"empty-etag"'
+
+
+@pytest.mark.asyncio
+async def test_policy_engine_proxy_propagates_allow_header_on_405():
+    """Test proxy propagates RFC 9110 Section 15.5.6 Allow header on 405 Method Not Allowed."""
+    policy_engine_url = getattr(settings, "policy_engine_url", "http://policy-engine:8081")
+
+    with respx.mock(assert_all_called=False) as respx_mock:
+        route = respx_mock.post(f"{policy_engine_url}/api/v1/compliance/gate").mock(
+            return_value=httpx.Response(
+                405,
+                json={"error": "method not allowed"},
+                headers={"Allow": "GET, HEAD"},
+            )
+        )
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/compliance/gate",
+                json={"test": True},
+                headers=eap_bearer(EAP_ALICE),
+            )
+            assert resp.status_code == 405
+            assert resp.headers.get("allow") == "GET, HEAD"
+            assert resp.json()["error"] == "method not allowed"
+            assert route.called
+
+
+@pytest.mark.asyncio
+async def test_policy_engine_proxy_propagates_location_and_etag_headers():
+    """Test proxy propagates Location, ETag, and X-Tenant-ID headers from upstream."""
+    policy_engine_url = getattr(settings, "policy_engine_url", "http://policy-engine:8081")
+
+    with respx.mock(assert_all_called=False) as respx_mock:
+        route = respx_mock.post(f"{policy_engine_url}/api/v1/compliance/runs").mock(
+            return_value=httpx.Response(
+                201,
+                json={"run_id": "run-xyz-999"},
+                headers={
+                    "Location": "/api/v1/compliance/runs/run-xyz-999",
+                    "ETag": '"w/run-xyz"',
+                    "X-Tenant-ID": EAP_TENANT_A,
+                },
+            )
+        )
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/compliance/runs",
+                json={"action": "start"},
+                headers=eap_bearer(EAP_ALICE),
+            )
+            assert resp.status_code == 201
+            assert resp.headers.get("location") == "/api/v1/compliance/runs/run-xyz-999"
+            assert resp.headers.get("etag") == '"w/run-xyz"'
+            assert resp.headers.get("x-tenant-id") == EAP_TENANT_A
+            assert resp.json()["run_id"] == "run-xyz-999"
+            assert route.called
+
+
+@pytest.mark.asyncio
+async def test_proxy_policy_engine_direct_invocation_empty_body_and_204():
+    """Directly test proxy_policy_engine function with 204, empty body, and HEAD requests."""
+    from routers.policy_engine import proxy_policy_engine
+    from starlette.requests import Request
+    policy_engine_url = getattr(settings, "policy_engine_url", "http://policy-engine:8081")
+
+    # 1. 204 No Content
+    with respx.mock(assert_all_called=False) as respx_mock:
+        respx_mock.get(f"{policy_engine_url}/api/v1/test_prefix/item").mock(
+            return_value=httpx.Response(204, content=b"", headers={"X-Tenant-ID": "tenant-test"})
+        )
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/test_prefix/item",
+            "headers": [(b"authorization", f"Bearer {EAP_ALICE}".encode())],
+            "query_string": b"",
+        }
+        req = Request(scope)
+        resp = await proxy_policy_engine(req, "item", "test_prefix", tenant_id="tenant-test")
+        assert resp.status_code == 204
+        assert resp.body == b""
+        assert resp.headers.get("x-tenant-id") == "tenant-test"
+
+    # 2. Direct HEAD request
+    with respx.mock(assert_all_called=False) as respx_mock:
+        respx_mock.head(f"{policy_engine_url}/api/v1/test_prefix/status").mock(
+            return_value=httpx.Response(200, content=b"", headers={"Content-Type": "application/json", "ETag": '"head-etag"'})
+        )
+        scope = {
+            "type": "http",
+            "method": "HEAD",
+            "path": "/api/v1/test_prefix/status",
+            "headers": [(b"authorization", f"Bearer {EAP_ALICE}".encode())],
+            "query_string": b"",
+        }
+        req = Request(scope)
+        resp = await proxy_policy_engine(req, "status", "test_prefix", tenant_id="tenant-test")
+        assert resp.status_code == 200
+        assert resp.body == b""
+        assert resp.headers.get("etag") == '"head-etag"'
+
+

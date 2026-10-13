@@ -353,6 +353,7 @@ func newA2AHandlerWithInstance(client *http.Client, address, role, expectedSubje
 			http.Error(response, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		response.Header().Set("Content-Type", "application/json")
 		response.WriteHeader(http.StatusOK)
 	}
 	mux.HandleFunc("/health", healthHandler)
@@ -372,6 +373,7 @@ func newA2AHandlerWithInstance(client *http.Client, address, role, expectedSubje
 	})
 	mux.HandleFunc("/a2a", func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost {
+			response.Header().Set("Allow", "POST")
 			http.Error(response, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}

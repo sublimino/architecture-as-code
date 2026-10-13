@@ -87,6 +87,35 @@ class ProxyTest(ProxyServerTestCase):
                 self.assertEqual({"error": "method not allowed"}, body_data)
                 conn.close()
 
+    def test_data_routes_head_and_method_gates(self):
+        # 1. HEAD method parity on GET data routes
+        for path in ("/agents", "/crypto-proofs", "/trust-topology", "/network-tests"):
+            connection = http.client.HTTPConnection("127.0.0.1", self.port)
+            connection.request("HEAD", path)
+            resp = connection.getresponse()
+            self.assertIn(resp.status, (200, 502))
+            self.assertEqual("application/json", resp.getheader("Content-Type"))
+            self.assertEqual(b"", resp.read())
+            connection.close()
+
+            # Non-GET/HEAD verbs return 405 with Allow: GET, HEAD
+            for verb in ("POST", "PUT", "DELETE"):
+                conn = http.client.HTTPConnection("127.0.0.1", self.port)
+                conn.request(verb, path)
+                bad_resp = conn.getresponse()
+                self.assertEqual(405, bad_resp.status)
+                self.assertEqual("GET, HEAD", bad_resp.getheader("Allow"))
+                conn.close()
+
+        # 2. Non-POST on /network-tests/scan returns 405 with Allow: POST
+        for verb in ("GET", "HEAD", "PUT", "DELETE"):
+            conn = http.client.HTTPConnection("127.0.0.1", self.port)
+            conn.request(verb, "/network-tests/scan")
+            bad_resp = conn.getresponse()
+            self.assertEqual(405, bad_resp.status)
+            self.assertEqual("POST", bad_resp.getheader("Allow"))
+            conn.close()
+
     def test_malformed_content_length_handled_safely(self):
         connection = http.client.HTTPConnection("127.0.0.1", self.port)
         connection.request("POST", "/llm/assistants", "not-read", {"Content-Length": "invalid-len"})

@@ -22,6 +22,9 @@ func TestHealth(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("expected status 200 for %s, got %d", endpoint, rec.Code)
 		}
+		if ct := rec.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+			t.Fatalf("expected Content-Type text/plain; charset=utf-8 for %s, got %s", endpoint, ct)
+		}
 		if !strings.Contains(rec.Body.String(), "ok") {
 			t.Fatalf("expected body to contain ok, got %s", rec.Body.String())
 		}
@@ -34,6 +37,9 @@ func TestHealth(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("expected status 200 for HEAD %s, got %d", endpoint, rec.Code)
 		}
+		if ct := rec.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+			t.Fatalf("expected Content-Type text/plain; charset=utf-8 for HEAD %s, got %s", endpoint, ct)
+		}
 		if rec.Body.Len() != 0 {
 			t.Fatalf("expected empty body for HEAD %s, got %d bytes", endpoint, rec.Body.Len())
 		}
@@ -45,6 +51,9 @@ func TestHealth(t *testing.T) {
 
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("expected status 405 for POST %s, got %d", endpoint, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
+			t.Fatalf("expected Allow GET, HEAD for POST %s, got %s", endpoint, allow)
 		}
 	}
 }
@@ -101,6 +110,9 @@ func TestMethodNotAllowed(t *testing.T) {
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected status 405 Method Not Allowed, got %d", rec.Code)
+	}
+	if allow := rec.Header().Get("Allow"); allow != "POST" {
+		t.Fatalf("expected Allow POST for GET /, got %s", allow)
 	}
 }
 

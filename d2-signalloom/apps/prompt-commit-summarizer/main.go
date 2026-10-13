@@ -114,6 +114,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	if r.Method != http.MethodHead {
 		fmt.Fprintln(w, "ok")
@@ -138,6 +139,7 @@ func makeSummarizeHandler(llmEndpoint, model string) http.HandlerFunc {
 			return
 		}
 		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}

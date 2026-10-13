@@ -1535,7 +1535,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             token = _read_service_account_token()
             context = _kubernetes_ssl_context()
             base_url = _kubernetes_api_base()
-        except (OSError, ValueError, TypeError, ssl.SSLError) as exc:
+        except (OSError, ValueError, TypeError, RuntimeError, ssl.SSLError) as exc:
             print(f"agent discovery failed: {exc}", file=sys.stderr, flush=True)
             self._json(
                 HTTPStatus.OK,
@@ -1629,7 +1629,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 HTTPStatus.OK,
                 {"proofs": proofs, "namespace": CRYPTO_PROOF_NAMESPACE},
             )
-        except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
+        except (OSError, ValueError, TypeError, RuntimeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
             print(f"crypto proofs failed: {exc}", file=sys.stderr, flush=True)
             self._json(
                 HTTPStatus.OK,
@@ -1642,7 +1642,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 _kubernetes_api_base(), _read_service_account_token(), _kubernetes_ssl_context(),
             )
             self._json(HTTPStatus.OK, snapshot)
-        except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
+        except (OSError, ValueError, TypeError, RuntimeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
             # The FastAPI proxy treats complete collection failure as a 502; the
             # direct endpoint remains structurally honest for diagnostics.
             self._json(HTTPStatus.BAD_GATEWAY, {"error": f"trust topology unavailable: {exc}"})
@@ -1699,7 +1699,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             token = _read_service_account_token()
             context = _kubernetes_ssl_context()
             base_url = _kubernetes_api_base()
-        except (OSError, ValueError, TypeError, ssl.SSLError) as exc:
+        except (OSError, ValueError, TypeError, RuntimeError, ssl.SSLError) as exc:
             print(f"network tests failed: {exc}", file=sys.stderr, flush=True)
             self._json(
                 HTTPStatus.OK,
@@ -1884,21 +1884,42 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, {"status": "ok"})
             else:
                 self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD"})
-        elif path == "/agents" and self.command == "GET":
-            self._handle_agents()
-        elif path == "/crypto-proofs" and self.command == "GET":
-            self._handle_crypto_proofs()
-        elif path == "/trust-topology" and self.command == "GET":
-            self._handle_trust_topology()
-        elif path == "/network-tests" and self.command == "GET":
-            self._handle_network_tests()
-        elif path == "/network-tests/scan" and self.command == "POST":
-            self._handle_network_tests_scan()
-        elif path.startswith("/agents/") and path.endswith("/compliance") and self.command == "GET":
-            agent_id = path.split("/")[2]
-            self._handle_agent_compliance(agent_id, self._requested_namespace())
-        elif path.startswith("/agents/") and path.endswith("/stun") and self.command == "POST":
-            self._handle_agent_stun_gone()
+        elif path == "/agents":
+            if self.command in ("GET", "HEAD"):
+                self._handle_agents()
+            else:
+                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD"})
+        elif path == "/crypto-proofs":
+            if self.command in ("GET", "HEAD"):
+                self._handle_crypto_proofs()
+            else:
+                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD"})
+        elif path == "/trust-topology":
+            if self.command in ("GET", "HEAD"):
+                self._handle_trust_topology()
+            else:
+                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD"})
+        elif path == "/network-tests":
+            if self.command in ("GET", "HEAD"):
+                self._handle_network_tests()
+            else:
+                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD"})
+        elif path == "/network-tests/scan":
+            if self.command == "POST":
+                self._handle_network_tests_scan()
+            else:
+                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "POST"})
+        elif path.startswith("/agents/") and path.endswith("/compliance"):
+            if self.command in ("GET", "HEAD"):
+                agent_id = path.split("/")[2]
+                self._handle_agent_compliance(agent_id, self._requested_namespace())
+            else:
+                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD"})
+        elif path.startswith("/agents/") and path.endswith("/stun"):
+            if self.command == "POST":
+                self._handle_agent_stun_gone()
+            else:
+                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "POST"})
         elif self._handle_control() or self._handle_business():
             return
         else:

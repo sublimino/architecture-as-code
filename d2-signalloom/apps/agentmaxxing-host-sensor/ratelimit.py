@@ -4,6 +4,7 @@ Enforces windowed throughput caps and file count limits to prevent denial-of-ser
 and bounded resource consumption.
 """
 
+import math
 import threading
 import time
 from typing import Dict, List, Optional, Tuple
@@ -50,6 +51,13 @@ class RateLimiter:
         if now is None:
             now = time.monotonic()
 
+        if (
+            isinstance(size_bytes, bool)
+            or not isinstance(size_bytes, (int, float))
+            or (isinstance(size_bytes, float) and (math.isnan(size_bytes) or math.isinf(size_bytes)))
+        ):
+            return False, "invalid_file_size_type"
+
         if size_bytes > self.max_file_size_bytes:
             return False, "max_file_size_exceeded"
 
@@ -79,6 +87,13 @@ class RateLimiter:
         """
         if now is None:
             now = time.monotonic()
+
+        if (
+            isinstance(size_bytes, bool)
+            or not isinstance(size_bytes, (int, float))
+            or (isinstance(size_bytes, float) and (math.isnan(size_bytes) or math.isinf(size_bytes)))
+        ):
+            return False, "invalid_file_size_type"
 
         if size_bytes > self.max_file_size_bytes:
             return False, "max_file_size_exceeded"

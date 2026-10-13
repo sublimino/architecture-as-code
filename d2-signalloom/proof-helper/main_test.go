@@ -348,6 +348,9 @@ func TestA2AHandlerHealthAndChallengeMethods(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("GET %s returned %d, want 200", path, rec.Code)
 		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("GET %s Content-Type = %q, want application/json", path, ct)
+		}
 
 		// HEAD
 		req = httptest.NewRequest(http.MethodHead, path, nil)
@@ -356,14 +359,31 @@ func TestA2AHandlerHealthAndChallengeMethods(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("HEAD %s returned %d, want 200", path, rec.Code)
 		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("HEAD %s Content-Type = %q, want application/json", path, ct)
+		}
 
-		// POST rejected
+		// POST rejected with Allow: GET, HEAD
 		req = httptest.NewRequest(http.MethodPost, path, nil)
 		rec = httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("POST %s returned %d, want 405", path, rec.Code)
 		}
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
+			t.Errorf("POST %s Allow = %q, want GET, HEAD", path, allow)
+		}
+	}
+
+	// /a2a GET rejected with Allow: POST
+	reqA2AGet := httptest.NewRequest(http.MethodGet, "/a2a", nil)
+	recA2AGet := httptest.NewRecorder()
+	handler.ServeHTTP(recA2AGet, reqA2AGet)
+	if recA2AGet.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET /a2a returned %d, want 405", recA2AGet.Code)
+	}
+	if allow := recA2AGet.Header().Get("Allow"); allow != "POST" {
+		t.Errorf("GET /a2a Allow = %q, want POST", allow)
 	}
 
 	// Challenge GET
@@ -397,5 +417,8 @@ func TestA2AHandlerHealthAndChallengeMethods(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST /challenge returned %d, want 405", rec.Code)
+	}
+	if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Errorf("POST /challenge Allow = %q, want GET, HEAD", allow)
 	}
 }

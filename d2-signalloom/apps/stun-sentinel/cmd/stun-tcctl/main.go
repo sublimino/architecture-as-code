@@ -308,6 +308,7 @@ func newMux(l *tc.Loader, reg *tc.Registry) *http.ServeMux {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		if r.Method != http.MethodHead {
 			fmt.Fprintln(w, "ok")
@@ -397,6 +398,7 @@ func doServe(o *opts) error {
 func triggerHandler(l *tc.Loader, reg *tc.Registry, isolate bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
 			http.Error(w, "POST required", http.StatusMethodNotAllowed)
 			return
 		}

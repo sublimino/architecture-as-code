@@ -69,6 +69,15 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                 return
             if path == "/challenge":
                 body=json.dumps({"instanceNonce":instance}).encode(); self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body); return
+            if path == "/a2a":
+                body = b'{"error":"method not allowed"}'
+                self.send_response(405)
+                self.send_header("Allow", "POST")
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if path not in ("/.well-known/agent-card.json","/.well-known/agent.json","/agent-card.json"): self.send_error(404); return
             self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(card))); self.end_headers(); self.wfile.write(card)
         def do_HEAD(self):
@@ -87,6 +96,14 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 return
+            if path == "/a2a":
+                body = b'{"error":"method not allowed"}'
+                self.send_response(405)
+                self.send_header("Allow", "POST")
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                return
             if path not in ("/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
                 self.send_error(404)
                 return
@@ -96,6 +113,15 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
             self.end_headers()
         def do_POST(self):
             path = self.path.split("?")[0].rstrip("/") or "/"
+            if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
+                body = b'{"error":"method not allowed"}'
+                self.send_response(405)
+                self.send_header("Allow", "GET, HEAD")
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if path != "/a2a": self.send_error(404); return
             raw_len = self.headers.get("Content-Length")
             if raw_len is None: self.send_error(400); return

@@ -480,6 +480,33 @@ def test_ratelimit_negative_size_rejected():
     assert metrics["current_bytes"] == 0
 
 
+def test_ratelimit_scalar_types():
+    limiter = RateLimiter(max_files_per_window=10, max_bytes_per_window=1024)
+    invalid_inputs = [
+        True,
+        False,
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        "100",
+        None,
+        [],
+        {},
+    ]
+    for bad in invalid_inputs:
+        allowed, reason = limiter.check_candidate(bad)  # type: ignore
+        assert not allowed
+        assert reason == "invalid_file_size_type"
+
+        allowed, reason = limiter.record_consumption(bad)  # type: ignore
+        assert not allowed
+        assert reason == "invalid_file_size_type"
+
+    metrics = limiter.get_metrics()
+    assert metrics["current_files"] == 0
+    assert metrics["current_bytes"] == 0
+
+
 def test_open_beneath_rejects_empty_and_null_bytes(temp_root: str):
     dirfd = os.open(temp_root, os.O_RDONLY | os.O_DIRECTORY)
     try:

@@ -21,6 +21,9 @@ func TestHealthEndpoints(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("path %s returned status %d, want 200", path, rec.Code)
 		}
+		if ct := rec.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+			t.Fatalf("path %s returned Content-Type %q, want text/plain; charset=utf-8", path, ct)
+		}
 		if got := strings.TrimSpace(rec.Body.String()); got != "ok" {
 			t.Fatalf("path %s returned body %q, want 'ok'", path, got)
 		}
@@ -68,8 +71,29 @@ func TestHealthAndMetricsMethodNotAllowed(t *testing.T) {
 		if recHead.Code != http.StatusOK {
 			t.Fatalf("HEAD %s expected 200 OK, got %d", path, recHead.Code)
 		}
+		if ct := recHead.Header().Get("Content-Type"); !strings.Contains(ct, "text/plain") {
+			t.Fatalf("HEAD %s unexpected content-type: %s", path, ct)
+		}
 		if recHead.Body.Len() != 0 {
 			t.Fatalf("HEAD %s expected empty body, got %q", path, recHead.Body.String())
+		}
+	}
+}
+
+func TestTriggerHandlerMethodNotAllowed(t *testing.T) {
+	for _, isolate := range []bool{true, false} {
+		handler := triggerHandler(nil, nil, isolate)
+		for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete} {
+			req := httptest.NewRequest(method, "/v1/isolate", nil)
+			rec := httptest.NewRecorder()
+			handler(rec, req)
+
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("%s expected 405 Method Not Allowed, got %d", method, rec.Code)
+			}
+			if rec.Header().Get("Allow") != "POST" {
+				t.Fatalf("%s expected Allow: POST, got %q", method, rec.Header().Get("Allow"))
+			}
 		}
 	}
 }

@@ -25,12 +25,17 @@ else
   C_BOLD=""
 fi
 
+INCLUDE_ALL=0
 KEEP_LOGS=0
 VERBOSE=0
 
 parse_args() {
   while [ $# -gt 0 ]; do
     case "$1" in
+      --all)
+        INCLUDE_ALL=1
+        shift
+        ;;
       --keep-logs)
         KEEP_LOGS=1
         shift
@@ -43,6 +48,7 @@ parse_args() {
         echo "Usage: $0 [options]"
         echo ""
         echo "Options:"
+        echo "  --all          Include all skills including two-axis drift-sweep"
         echo "  --keep-logs    Preserve isolated execution logs in /tmp even on success"
         echo "  -v, --verbose  Print execution output of all skills, not just failures"
         echo "  -h, --help     Display this help message"
@@ -57,7 +63,7 @@ parse_args() {
   done
 }
 
-# The 8 scheduled-run skills specification
+# The canonical Signal Loom scheduled-run skills specification
 # Format: "skill_name|tool_rel_path|description"
 SKILL_SPECS=(
   "cp-sl-drift-reconcile|Tools/drift-audit.sh|GitOps & Cluster Drift Audit"
@@ -67,7 +73,6 @@ SKILL_SPECS=(
   "cp-sl-pyramid-verify|Tools/pyramid-runner.sh|Offline Test Pyramid Battery"
   "cp-sl-worktree-governor|Tools/worktree-audit.sh|Multi-Agent Worktree Governor"
   "cp-sl-eap-evidence-sweep|Tools/evidence-sweep.sh|EAP Compliance Evidence Sweeper"
-  "cp-sl-drift-sweep|Tools/drift-sweep.sh|Two-Axis Codebase Drift & Smell Sweeper"
 )
 
 LOG_DIR=""
@@ -81,6 +86,7 @@ cleanup() {
       kill -TERM "$pid" 2>/dev/null || true
     fi
   done
+  wait 2>/dev/null || true
 
   if [ -n "$LOG_DIR" ] && [ -d "$LOG_DIR" ]; then
     if [ "$KEEP_LOGS" -eq 1 ] || [ "$exit_status" -ne 0 ]; then
@@ -92,7 +98,9 @@ cleanup() {
   exit "$exit_status"
 }
 
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 resolve_skill_tool() {
   local skill_name="$1"
@@ -166,6 +174,10 @@ extract_summary() {
 
 main() {
   parse_args "$@"
+
+  if [ "$INCLUDE_ALL" -eq 1 ]; then
+    SKILL_SPECS+=("cp-sl-drift-sweep|Tools/drift-sweep.sh|Two-Axis Codebase Drift & Smell Sweeper")
+  fi
 
   LOG_DIR=$(mktemp -d /tmp/scheduled-skills-XXXXXX)
 

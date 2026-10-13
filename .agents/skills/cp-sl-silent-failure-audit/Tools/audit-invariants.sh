@@ -55,7 +55,7 @@ if [ -n "$BAD_WAITS" ]; then
   echo "  'wait_rollout <namespace> <deployment>' from scripts/lib/wait.sh."
   FAIL_COUNT=$((FAIL_COUNT + 1))
 else
-  echo "  [PASS] Deployment wait commands: Clean (no un-commented --for=condition=ready on deploy)"
+  echo "  [PASS] Deployment wait commands: Clean (no invalid condition=ready on deployments)"
 fi
 
 # 4. CRI Image Layer check if cluster running

@@ -21,7 +21,7 @@ fi
 
 # 1. Audit Deployments in agent namespace
 echo "Scanning deployments in ${NAMESPACE}..."
-DEPLOYMENTS=$(kubectl get deployments -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.metadata.annotations.kustomize\.toolkit\.fluxcd\.io/reconcile}{"|"}{.metadata.labels.signalloom\.ai/containment-state}{"\n"}{end}' 2>/dev/null || true)
+DEPLOYMENTS=$(kubectl get deployments -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.metadata.annotations.kustomize\.toolkit\.fluxcd\.io/reconcile}{"|"}{.metadata.labels.signalloom\.ai/state}{"|"}{.metadata.labels.signalloom\.io/stunned}{"|"}{.metadata.labels.signalloom\.io/containment-mode}{"\n"}{end}' 2>/dev/null || true)
 
 ACTIVE_COUNT=0
 STUNNED_COUNT=0
@@ -29,9 +29,9 @@ SUSPENDED_COUNT=0
 VIOLATION_COUNT=0
 VIOLATIONS=""
 
-while IFS='|' read -r name reconcile state; do
+while IFS='|' read -r name reconcile state stunned_label containment_mode; do
   [ -z "$name" ] && continue
-  if [ "$state" = "stunned" ]; then
+  if [ "$state" = "stunned" ] || [ "$stunned_label" = "true" ] || [ "$containment_mode" = "frozen" ]; then
     STUNNED_COUNT=$((STUNNED_COUNT + 1))
     if [ "$reconcile" = "disabled" ]; then
       echo "  [STUNNED / SUSPENDED] Deployment: ${name} (Flux reconcile disabled)"

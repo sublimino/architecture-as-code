@@ -867,7 +867,7 @@ test-kpai: ## Run KPAI runtime harness probe tests and contract validation.
 	fi
 
 .PHONY: test-scheduled-skills-parallel
-test-scheduled-skills-parallel: ## Execute all 8 Signal Loom scheduled-run skills concurrently in parallel.
+test-scheduled-skills-parallel: ## Execute Signal Loom scheduled-run skills concurrently in parallel.
 	./scripts/test-scheduled-skills-parallel.sh
 
 ##@ Composable demo lifecycle

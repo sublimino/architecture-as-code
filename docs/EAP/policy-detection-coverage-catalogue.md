@@ -22,7 +22,7 @@ Status key: ✅ bundle exists · 🟡 partial · ❌ no rule yet (gap).
 
 ## Per-stream catalogue
 
-### kubernetes — kube-apiserver audit (NEW, the reference vertical) ❌
+### kubernetes — kube-apiserver audit (NEW, the reference vertical) ✅
 > Coexists with an EXISTING `k8saudit` collector (adapters.go / WebhookReceiver)
 > that projects the same source to **LayerIdentityAuth** for delegation/
 > impersonation tracking — left untouched. This new vertical is the **threat**
@@ -62,32 +62,46 @@ Cross-stream: k8s exec/secret-read + endpoint_host sensitive-file + network_egre
 Covered by `kusari/cloud-signals.yaml` + `iam-change.yaml` (EKS config, IAM
 priv/key, S3 exposure, GuardDuty tamper, console root, cross-account, VPC reject).
 
-### endpoint_host — agentnono (Landlock) ✅ · tetragon/ebpf 🟡
-nono landlock denial covered by `kusari/landlock-denial.yaml`. Tetragon
-(`ebpf` collector, syscall stream) gap: sensitive-file open, unexpected
-`execve`, capability use, ptrace — needs a `tetragon` bundle. Note the
-stun-sentinel also does in-kernel reactive freeze independently of CEL.
+### endpoint_host — agentnono (Landlock) ✅ · sentinel eBPF ✅
+nono landlock denial covered by `kusari/landlock-denial.yaml`. The sentinel eBPF
+endpoint stream is covered by `kusari/endpoint-runtime.yaml` (sensitive-file open,
+unexpected `execve`, capability/ptrace). TWO endpoint_host streams share one
+label contract and every rule source-gates on BOTH: the LIVE stun-sentinel
+(`source: "stun-sentinel"`, in-kernel eBPF, no DaemonSet — Tier-0 reactive freeze
+AND central CEL) and the collector projection (`collectors/ebpf`,
+`source: "sentinel.ebpf.syscall_trace"`, env `COLLECTOR_EBPF_ENDPOINT_MODE`).
+Tetragon is fully removed (no gRPC client, no `cilium/tetragon` dependency, no
+deploy manifests). TWO residuals: (i) live exec-scoping is by the workload
+actor/pod pseudonym because the kernel probe cannot see the service account — a
+trusted live workload is exempted by its actor identity in `allowed_exec_actors`,
+not an SA name; (ii) `capability-or-ptrace` fires only on the collector projection
+until the sentinel probes the ptrace/cap syscalls (deferred to a bpf-toolchain
+build host).
 
-### network_egress — netebpf / awslogs VPC flow 🟡
+### network_egress — netebpf / awslogs VPC flow ✅
 Direct-IP egress, non-cluster resolver, DNS tunnel (high-entropy qname),
-egress to a new ASN/destination. VPC REJECT burst is covered; the live netebpf
-direct-IP/SNI anomalies need a `network_egress` bundle.
+egress to a new ASN/destination. Covered by `kusari/network-egress.yaml`
+(live netebpf direct-IP/SNI anomalies) plus the VPC REJECT burst in the AWS
+bundles.
 
-### identity_authorization — spirea / SaaS login ❌
-SPIRE: SVID issued to an unexpected SPIFFE path; attestation downgrade.
-SaaS login: impossible-travel, new-geo, MFA-absent login, admin role grant.
+### identity_authorization — spirea / SaaS login ✅
+Covered by `kusari/identity-auth.yaml`. SPIRE: SVID issued to an unexpected
+SPIFFE path; attestation-selector downgrade (the spirea collector now projects
+`attestation_selector_type`). SaaS login: impossible-travel, new-geo, MFA-absent
+login, admin role grant.
 
-### application_saas — workspacesaas ❌
-Mass file download, external share of a sensitive doc, OAuth app grant,
-admin-console setting change.
+### application_saas — workspacesaas ✅
+Covered by `kusari/application-saas.yaml`. Mass file download, external share of
+a sensitive doc, OAuth app grant, admin-console setting change.
 
-### gcpaudit — GCP admin activity ❌
-IAM policy binding change, service-account key creation, bucket IAM made
-public, logging sink deletion (GCP analogues of the AWS rules).
+### gcpaudit — GCP admin activity ✅
+Covered by `kusari/gcp-admin.yaml`. IAM policy binding change, service-account
+key creation, bucket IAM made public, logging sink deletion (GCP analogues of
+the AWS rules).
 
-### baoaudit — OpenBao audit ❌
-Root-token use, secret-read burst, policy/mount change, seal/unseal, token
-creation with broad policy.
+### baoaudit — OpenBao audit ✅
+Covered by `kusari/openbao-audit.yaml`. Root-token use, secret-read burst,
+policy/mount change, seal/unseal, token creation with broad policy.
 
 ## Cross-stream correlations (correlation.Engine, tier 3)
 
@@ -96,7 +110,7 @@ Keyed on the resolved actor (identity graph), not a single label:
   network egress, same actor, short window.
 - **Account takeover:** SaaS login anomaly → serviceaccount/token mint (k8s) →
   cloud API access, same resolved identity.
-- **Containment evasion:** landlock/tetragon denial → process-spawn burst →
+- **Containment evasion:** landlock / sentinel eBPF denial → process-spawn burst →
   egress (the redteam_cascade shape already modelled).
 - **Privilege cascade:** RBAC escalation (k8s) → secret read → OpenBao root use.
 
@@ -235,3 +249,28 @@ What is left, ordered by risk:
    the identity-auth `k8saudit` (delegation tracking). Promoting it under one
    `COLLECTOR_K8SAUDIT_MODE` means relocating the delegation path first — a
    separate card, not a drop-in, because it retires a working stream.
+
+### Deferred to a bpf-toolchain build host — sentinel ptrace/cap probing (chunk C)
+
+Closes residual (ii) above: make `capability-or-ptrace` fire on the LIVE
+stun-sentinel stream. **Cannot be done without clang/the bpf hermetic toolchain**
+(`d2-signalloom/apps/stun-sentinel/bpf/build.sh`) — the probe is a bpf2go-generated
+344-byte frozen contract with a BTF-layout test, and new BPF programs will not
+even compile into the Go loader until regenerated. Scoped for a build host:
+
+- `bpf/sentinel_probe.c`: add `SENTINEL_EVT_PTRACE 5` (tracepoint
+  `syscalls/sys_enter_ptrace`) and `SENTINEL_EVT_CAP 6` (kprobe/fentry on
+  `cap_capable` — a kernel function, NOT a syscall tracepoint). Encode the ptrace
+  request/target pid and the capability number into the connect-only fields
+  (`dport`/`family`/`daddr`, unused for these types) so `sizeof(syscall_event_t)`
+  stays 344 and `TestSyscallEventLayoutMatchesBTF` still holds.
+- `pkg/ebpf/loader.go`: attach the two new programs. `pkg/ebpf/event.go`: decode
+  types 5/6 → syscall names `sys_enter_ptrace` / `cap_capable`.
+- `pkg/correlator`: map the two types to `TelemetryObservation.Syscall`; omit
+  `classification` (they are neither file_access nor process_exec — matches the
+  existing tcp_connect handling), so only `capability-or-ptrace` picks them up.
+- `policy/bundles/kusari/endpoint-runtime.yaml`: add `sys_enter_ptrace` to
+  `vars.sensitive_syscalls` (keep `cap_capable`, `ptrace`, `__x64_sys_ptrace` for
+  the collector projection); remove the "collector-only" NOTE on the rule.
+- Regenerate bpf2go objects under clang; run `TestSyscallEventLayoutMatchesBTF`
+  and a live in-kernel verification (ptrace/cap attempt → finding) before closing.

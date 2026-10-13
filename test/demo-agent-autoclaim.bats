@@ -43,10 +43,10 @@ case "${args}" in
     fi
     cat <<JSON
 {"items":[
- {"metadata":{"name":"kagent-k8s-reader-0","labels":{"app.kubernetes.io/name":"kagent-k8s-reader","signalloom.ai/model":"gpt-4o"}},
+ {"metadata":{"name":"kagent-k8s-reader-0","labels":{"app.kubernetes.io/name":"kagent-k8s-reader","signalloom.ai/model":"gpt-4o","signalloom.ai/tenant":"tenant-demo"}},
   "spec":{"serviceAccountName":"k8s-reader"},
   "status":{"phase":"Running","containerStatuses":[{"ready":true}]}},
- {"metadata":{"name":"agent-kusari-abc","annotations":{"signalloom.ai/agent-display-name":"Kusari Agent (stub)"},"labels":{"app.kubernetes.io/name":"kusari-agent","signalloom.ai/agent-name":"kusari-agent",${kusari_model}"signalloom.ai/harness":"go-http"}},
+ {"metadata":{"name":"agent-kusari-abc","annotations":{"signalloom.ai/agent-display-name":"Kusari Agent (stub)"},"labels":{"app.kubernetes.io/name":"kusari-agent","signalloom.ai/agent-name":"kusari-agent",${kusari_model}"signalloom.ai/harness":"go-http","signalloom.ai/tenant":"tenant-demo"}},
   "spec":{"serviceAccountName":"kusari-agent"},
   "status":{"phase":"Running","containerStatuses":[{"ready":true}]}}
 ]}

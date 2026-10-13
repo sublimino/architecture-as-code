@@ -88,7 +88,17 @@ class HealthTest(ControllerServerTestCase):
             self.assertEqual("application/json", response.getheader("Content-Type"))
             connection.close()
 
-    def test_health_method_not_allowed_returns_405_and_allow_header(self):
+    def test_unknown_route_head_is_404_empty_body(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port)
+        connection.request("HEAD", "/nope")
+        response = connection.getresponse()
+        self.assertEqual(404, response.status)
+        self.assertEqual(b"", response.read())
+        self.assertEqual("application/json", response.getheader("Content-Type"))
+        self.assertTrue(int(response.getheader("Content-Length")) > 0)
+        connection.close()
+
+    def test_health_head_method_not_allowed_returns_405_and_empty_body(self):
         for path in ("/health", "/healthz", "/readyz"):
             for method in ("POST", "PUT", "DELETE", "PATCH"):
                 connection = http.client.HTTPConnection("127.0.0.1", self.port)
@@ -100,6 +110,17 @@ class HealthTest(ControllerServerTestCase):
                 body = json.loads(response.read())
                 self.assertEqual({"error": "method not allowed"}, body)
                 connection.close()
+
+    def test_unsupported_method_returns_405_and_suppresses_body_on_head(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port)
+        connection.request("NONSTANDARD", "/health")
+        response = connection.getresponse()
+        self.assertEqual(405, response.status)
+        self.assertEqual("GET, HEAD, POST", response.getheader("Allow"))
+        self.assertEqual("application/json", response.getheader("Content-Type"))
+        body = json.loads(response.read())
+        self.assertEqual({"error": "method not allowed"}, body)
+        connection.close()
 
     def test_threading_http_server_sets_allow_reuse_address(self):
         self.assertTrue(ThreadingHTTPServer.allow_reuse_address)

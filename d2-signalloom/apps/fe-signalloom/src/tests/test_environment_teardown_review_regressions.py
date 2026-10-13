@@ -180,9 +180,16 @@ def test_bounded_http_transport_stops_slow_drip_body():
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.send_header("Content-Length", str(len(err_body)))
                 self.end_headers()
-                self.wfile.write(err_body)
+                if self.command != "HEAD":
+                    self.wfile.write(err_body)
                 return
-            super().send_error(code, message=message, explain=explain)
+            err_body = (message or "Error").encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(err_body)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(err_body)
 
         def log_message(self, *_args):
             pass
@@ -220,9 +227,16 @@ def test_redirect_is_rejected_before_secret_header_can_be_forwarded():
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.send_header("Content-Length", str(len(err_body)))
                 self.end_headers()
-                self.wfile.write(err_body)
+                if self.command != "HEAD":
+                    self.wfile.write(err_body)
                 return
-            super().send_error(code, message=message, explain=explain)
+            err_body = (message or "Error").encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(err_body)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(err_body)
 
         def log_message(self, *_args):
             pass

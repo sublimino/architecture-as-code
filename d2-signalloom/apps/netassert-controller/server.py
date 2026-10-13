@@ -234,6 +234,20 @@ class ControllerHandler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(encoded)
 
+    def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
+        if code == 501:
+            self._json(
+                HTTPStatus.METHOD_NOT_ALLOWED,
+                {"error": "method not allowed"},
+                {"Allow": "GET, HEAD, POST"},
+            )
+            return
+        try:
+            phrase = HTTPStatus(code).phrase
+        except ValueError:
+            phrase = "error"
+        msg = message if message is not None else phrase
+        self._json(code, {"error": msg})
 
     def _drain_body(self) -> None:
         try:

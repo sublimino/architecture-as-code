@@ -269,6 +269,25 @@ class _MockApiServer(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             if send_body:
                 self.wfile.write(body)
+    def send_error(self, code, message=None, explain=None):
+        if code == 501:
+            body = b'{"error": "method not allowed"}'
+            self.send_response(405)
+            self.send_header("Allow", "GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS")
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+            return
+        err_msg = message or "error"
+        body = json.dumps({"error": err_msg}).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def log_message(self, *_args):
         return
@@ -377,5 +396,42 @@ def test_mock_api_server_head_and_content_length(mock_api_server):
         assert resp.read() == b""
         assert resp.headers.get("Content-Length") == cl
         assert resp.headers.get("Content-Type") == "application/json"
+
+    # HEAD on 500 error path
+    import urllib.error
+    req_500 = urllib.request.Request(f"{mock_api_server}/api/error500", method="HEAD")
+    with pytest.raises(urllib.error.HTTPError) as exc_500:
+        urllib.request.urlopen(req_500)
+    assert exc_500.value.code == 500
+    assert exc_500.value.read() == b""
+    assert int(exc_500.value.headers.get("Content-Length")) > 0
+    assert exc_500.value.headers.get("Content-Type") == "application/json"
+
+    # HEAD on 400 error path
+    req_400 = urllib.request.Request(f"{mock_api_server}/api/badrequest", method="HEAD")
+    with pytest.raises(urllib.error.HTTPError) as exc_400:
+        urllib.request.urlopen(req_400)
+    assert exc_400.value.code == 400
+    assert exc_400.value.read() == b""
+    assert int(exc_400.value.headers.get("Content-Length")) > 0
+    assert exc_400.value.headers.get("Content-Type") == "application/json"
+
+    # send_error direct invocation suppresses body on HEAD
+    class _MockWriter:
+        def __init__(self):
+            self.data = b""
+        def write(self, b):
+            self.data += b
+
+    server_handler = _MockApiServer.__new__(_MockApiServer)
+    server_handler.command = "HEAD"
+    server_handler.wfile = _MockWriter()
+    server_handler.send_response = lambda *a, **k: None
+    server_handler.send_header = lambda *a, **k: None
+    server_handler.end_headers = lambda *a, **k: None
+    server_handler.send_error(501)
+    assert server_handler.wfile.data == b""
+    server_handler.send_error(400, "Bad Request")
+    assert server_handler.wfile.data == b""
 
 

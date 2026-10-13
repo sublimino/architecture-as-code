@@ -1479,6 +1479,21 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(encoded)
 
+    def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
+        if code == 501:
+            self._json(
+                HTTPStatus.METHOD_NOT_ALLOWED,
+                {"error": "method not allowed"},
+                extra_headers={"Allow": "GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS"},
+            )
+            return
+        try:
+            phrase = HTTPStatus(code).phrase
+        except ValueError:
+            phrase = "error"
+        msg = message if message is not None else phrase
+        self._json(code, {"error": msg})
+
     def _body(self) -> object:
         try:
             raw_len = self.headers.get("Content-Length", "0")

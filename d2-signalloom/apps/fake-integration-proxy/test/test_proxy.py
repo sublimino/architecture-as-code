@@ -246,6 +246,36 @@ class ProxyTest(ProxyServerTestCase):
         self.assertEqual(b"", resp.read())
         conn.close()
 
+        # Unsupported method invokes send_error and returns 405 JSON
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("NONSTANDARD", "/healthz")
+        resp = conn.getresponse()
+        self.assertEqual(405, resp.status)
+        self.assertEqual("application/json", resp.getheader("Content-Type"))
+        self.assertEqual("GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS", resp.getheader("Allow"))
+        body = json.loads(resp.read().decode())
+        self.assertEqual({"error": "method not allowed"}, body)
+        conn.close()
+
+        # Direct send_error invocation suppresses body on HEAD
+        class _MockWriter:
+            def __init__(self):
+                self.data = b""
+            def write(self, b):
+                self.data += b
+
+        handler = server.ProxyHandler.__new__(server.ProxyHandler)
+        handler.command = "HEAD"
+        handler.wfile = _MockWriter()
+        handler.send_response = lambda *a, **k: None
+        handler.send_header = lambda *a, **k: None
+        handler.end_headers = lambda *a, **k: None
+        handler.send_error(501)
+        self.assertEqual(b"", handler.wfile.data)
+        handler.send_error(400, "Bad Request")
+        self.assertEqual(b"", handler.wfile.data)
+
+
 
 # ─── Agent discovery ─────────────────────────────────────────────────────────
 

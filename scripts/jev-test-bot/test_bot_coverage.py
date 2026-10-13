@@ -63,9 +63,16 @@ class _Shell(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Content-Length", str(len(err_body)))
             self.end_headers()
-            self.wfile.write(err_body)
+            if self.command != "HEAD":
+                self.wfile.write(err_body)
             return
-        super().send_error(code, message=message, explain=explain)
+        err_body = (message or "Error").encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(err_body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(err_body)
 
     def log_message(self, *_args):  # keep the test output clean
         return
@@ -179,4 +186,37 @@ def test_shell_stub_head_and_unsupported_methods(stub_server):
         assert "GET" in allow and "HEAD" in allow
     finally:
         err.close()
+
+
+def test_shell_stub_head_method_not_allowed_has_no_body(stub_server):
+    """HEAD on an unsupported method or error response must suppress body."""
+    import http.client
+    host_port = stub_server.replace("http://", "")
+    conn = http.client.HTTPConnection(host_port)
+    conn.request("NONSTANDARD", "/risk")
+    resp = conn.getresponse()
+    assert resp.status == 405
+    assert resp.getheader("Allow") == "GET, HEAD"
+    assert resp.getheader("Content-Length") == str(len(b"Method Not Allowed\n"))
+    body = resp.read()
+    assert body == b"Method Not Allowed\n"
+    conn.close()
+
+    # Direct invocation of send_error with HEAD command suppresses body
+    class _MockWriter:
+        def __init__(self):
+            self.data = b""
+        def write(self, b):
+            self.data += b
+
+    shell = _Shell.__new__(_Shell)
+    shell.command = "HEAD"
+    shell.wfile = _MockWriter()
+    shell.send_response = lambda *a, **k: None
+    shell.send_header = lambda *a, **k: None
+    shell.end_headers = lambda *a, **k: None
+    shell.send_error(501)
+    assert shell.wfile.data == b""
+    shell.send_error(400, "Bad Request")
+    assert shell.wfile.data == b""
 

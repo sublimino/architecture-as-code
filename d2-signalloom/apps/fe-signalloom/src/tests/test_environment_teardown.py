@@ -202,9 +202,16 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Content-Length", str(len(err_body)))
             self.end_headers()
-            self.wfile.write(err_body)
+            if self.command != "HEAD":
+                self.wfile.write(err_body)
             return
-        super().send_error(code, message=message, explain=explain)
+        err_body = (message or "Error").encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(err_body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(err_body)
 
     def log_message(self, *a):
         pass
@@ -606,3 +613,29 @@ def test_resolve_repo_root_path_builder_unit_test():
     root = resolve_repo_root()
     assert (root / "scripts" / "eap" / "tailscale-eap-env.sh").is_file()
     assert (root / "Makefile").is_file()
+
+
+def test_handler_head_and_error_fidelity(http_server):
+    """Verify _Handler HEAD body suppression, Content-Length, and Allow header."""
+    base_url = http_server(200)
+    import urllib.request
+    import urllib.error
+
+    # GET returns 200
+    req_get = urllib.request.Request(base_url, method="GET")
+    with urllib.request.urlopen(req_get) as resp:
+        assert resp.status == 200
+
+    # HEAD returns 200 with empty body
+    req_head = urllib.request.Request(base_url, method="HEAD")
+    with urllib.request.urlopen(req_head) as resp:
+        assert resp.status == 200
+        assert resp.read() == b""
+
+    # Unsupported method returns 405 with Allow header
+    req_post = urllib.request.Request(base_url, data=b"{}", method="POST")
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req_post)
+    assert exc_info.value.code == 405
+    assert exc_info.value.headers.get("Allow") == "GET, HEAD"
+    assert int(exc_info.value.headers.get("Content-Length")) > 0

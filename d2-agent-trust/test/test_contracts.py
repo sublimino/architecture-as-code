@@ -210,6 +210,67 @@ class A2A(unittest.TestCase):
     urllib.request.urlopen(empty_bearer)
    self.assertEqual(403, empty_err.exception.code)
    empty_err.exception.close()
+
+   oversized_bearer = urllib.request.Request(
+    f'http://127.0.0.1:{s.server_port}/a2a',
+    data=json.dumps(self.request).encode(),
+    headers={'Authorization': 'Bearer ' + ('x' * 16385), 'X-SPIFFE-JWT-SVID': 'good-svid'},
+    method='POST'
+   )
+   with self.assertRaises(urllib.error.HTTPError) as over_err:
+    urllib.request.urlopen(oversized_bearer)
+   self.assertEqual(403, over_err.exception.code)
+   over_err.exception.close()
+
+   oversized_svid = urllib.request.Request(
+    f'http://127.0.0.1:{s.server_port}/a2a',
+    data=json.dumps(self.request).encode(),
+    headers={'Authorization': 'Bearer valid-context', 'X-SPIFFE-JWT-SVID': 's' * 16385},
+    method='POST'
+   )
+   with self.assertRaises(urllib.error.HTTPError) as svid_err:
+    urllib.request.urlopen(oversized_svid)
+   self.assertEqual(403, svid_err.exception.code)
+   svid_err.exception.close()
+  finally:
+   s.shutdown(); th.join(); s.server_close()
+
+ def test_trace_and_chunked_stream_handling(self):
+  import http.client
+  s = serve(self.public, 0, receiver_instance=self.instance)
+  th = threading.Thread(target=s.serve_forever); th.start()
+  try:
+   conn = http.client.HTTPConnection("127.0.0.1", s.server_port)
+   conn.request("TRACE", "/health")
+   resp = conn.getresponse()
+   self.assertEqual(405, resp.status)
+   self.assertEqual("GET, HEAD, OPTIONS", resp.getheader("Allow"))
+   resp.read()
+
+   conn.request("TRACE", "/a2a")
+   resp = conn.getresponse()
+   self.assertEqual(405, resp.status)
+   self.assertEqual("POST, OPTIONS", resp.getheader("Allow"))
+   resp.read()
+
+   conn.request("TRACE", "/unknown-route")
+   resp = conn.getresponse()
+   self.assertEqual(404, resp.status)
+   self.assertIsNone(resp.getheader("Allow"))
+   resp.read()
+
+   conn.request("POST", "/health", body="3\r\nfoo\r\n0\r\n\r\n", headers={"Transfer-Encoding": "chunked"})
+   resp = conn.getresponse()
+   self.assertEqual(405, resp.status)
+   self.assertEqual("GET, HEAD, OPTIONS", resp.getheader("Allow"))
+   resp.read()
+
+   conn.request("POST", "/a2a", body="3\r\nfoo\r\n0\r\n\r\n", headers={"Transfer-Encoding": "chunked"})
+   resp = conn.getresponse()
+   self.assertEqual(400, resp.status)
+   self.assertIsNone(resp.getheader("Allow"))
+   resp.read()
+   conn.close()
   finally:
    s.shutdown(); th.join(); s.server_close()
 
@@ -229,7 +290,9 @@ class Adapter(unittest.TestCase):
    self.assertIn('not a socket', str(non_sock_ctx.exception))
   with patch('adapters.spire_workload_api.os.path.exists',return_value=True), patch('adapters.spire_workload_api.os.stat',return_value=MockStat()):
    with self.assertRaises(RuntimeError): fetch_jwt_svid('a',runner=lambda *_args,**_kw:subprocess.CompletedProcess([],1,'','bad'))
-   with self.assertRaises(RuntimeError): fetch_jwt_svid('a',runner=lambda *_args,**_kw:subprocess.CompletedProcess([],0,'{bad',''))
+   with self.assertRaises(RuntimeError) as parse_err:
+    fetch_jwt_svid('a',runner=lambda *_args,**_kw:subprocess.CompletedProcess([],0,'{bad',''))
+   self.assertIsNotNone(parse_err.exception.__cause__)
    with self.assertRaises(RuntimeError): fetch_jwt_svid('a',runner=lambda *_args,**_kw:subprocess.CompletedProcess([],0,json.dumps({'svids':[{},{}]}),''))
    def mock_timeout(*_args, **_kw): raise subprocess.TimeoutExpired(cmd="spire-agent", timeout=5)
    with self.assertRaises(RuntimeError): fetch_jwt_svid('a',runner=mock_timeout)

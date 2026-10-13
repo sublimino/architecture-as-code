@@ -50,6 +50,7 @@ export class CpaiAdapter extends BaseHarnessAdapter {
       let summary = 'CPAI conversation and agent workflow';
       let lastActivityDate = stat.mtime;
       let cwd = process.env.HOME || '/';
+      const tags = new Set<string>(['cpai', 'opencode', 'controlplane']);
 
       const modelsUsed = new Set<string>();
       let inputTokens = 0;
@@ -65,6 +66,29 @@ export class CpaiAdapter extends BaseHarnessAdapter {
             titleHistory.push(title);
           }
           if (parsed.summary) summary = parsed.summary;
+          if (typeof parsed.cwd === 'string' && parsed.cwd.trim()) {
+            cwd = parsed.cwd.trim();
+          } else if (typeof parsed.working_directory === 'string' && parsed.working_directory.trim()) {
+            cwd = parsed.working_directory.trim();
+          }
+          if (Array.isArray(parsed.subordinate_activities)) {
+            for (const sub of parsed.subordinate_activities) {
+              if (sub && typeof sub === 'object' && typeof sub.name === 'string') {
+                subordinateActivities.push(sub as SubordinateActivity);
+              }
+            }
+          } else if (Array.isArray(parsed.subagents)) {
+            for (const sub of parsed.subagents) {
+              if (sub && typeof sub === 'object' && typeof sub.name === 'string') {
+                subordinateActivities.push(sub as SubordinateActivity);
+              }
+            }
+          }
+          if (Array.isArray(parsed.tags)) {
+            for (const t of parsed.tags) {
+              if (typeof t === 'string' && t.trim()) tags.add(t.trim());
+            }
+          }
           if (parsed.timestamp) {
             const d = new Date(parsed.timestamp);
             if (!isNaN(d.getTime())) lastActivityDate = d;
@@ -117,7 +141,7 @@ export class CpaiAdapter extends BaseHarnessAdapter {
         summary,
         lastLines,
         url: this.getLaunchUrl({ id: sessionId, cwd, hostname } as SessionMetadata),
-        tags: ['cpai', 'opencode', 'controlplane'],
+        tags: Array.from(tags),
         rawLogPath: filePath
       };
     } catch {

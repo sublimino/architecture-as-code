@@ -341,7 +341,7 @@ export class SessionSummarizer {
   }
 
   /**
-   * Cerebras WSE Ultra-Fast Inference (<20ms) with Gemma 4
+   * Cerebras WSE Ultra-Fast Inference (<20ms) with Gemma 4 / Llama 3.1 fallback
    */
   private async runCerebrasGemma4(prompt: string): Promise<{ text: string; usage?: any }> {
     const apiKey = this.cerebrasApiKey || this.resolveCerebrasApiKey();
@@ -349,40 +349,52 @@ export class SessionSummarizer {
       throw new Error('CEREBRAS_API_KEY not found in environment or ~/.hermes/.env');
     }
 
-    const res = await fetch('https://api.cerebras.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gemma-4-31b',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a high-signal AI engineering summarizer. Output a concise 1-2 sentence summary of the session: the core goal, major actions executed, and current status. Be direct and avoid boilerplate.'
+    const candidateModels = ['gemma-4-31b', 'llama3.1-8b'];
+    let lastError: Error | null = null;
+
+    for (const model of candidateModels) {
+      try {
+        const res = await fetch('https://api.cerebras.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
           },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        max_tokens: 150,
-        temperature: 0.2
-      })
-    });
+          signal: AbortSignal.timeout(8000),
+          body: JSON.stringify({
+            model,
+            messages: [
+              {
+                role: 'system',
+                content: 'You are a high-signal AI engineering summarizer. Output a concise 1-2 sentence summary of the session: the core goal, major actions executed, and current status. Be direct and avoid boilerplate.'
+              },
+              {
+                role: 'user',
+                content: prompt
+              }
+            ],
+            max_tokens: 150,
+            temperature: 0.2
+          })
+        });
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Cerebras API returned ${res.status}: ${errText}`);
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`Cerebras API returned ${res.status}: ${errText}`);
+        }
+
+        const data: any = await res.json();
+        const content = data.choices?.[0]?.message?.content?.trim();
+        if (!content) {
+          throw new Error(`Empty response from Cerebras ${model}`);
+        }
+        return { text: content, usage: data.usage };
+      } catch (err: any) {
+        lastError = err;
+      }
     }
 
-    const data: any = await res.json();
-    const content = data.choices?.[0]?.message?.content?.trim();
-    if (!content) {
-      throw new Error('Empty response from Cerebras Gemma 4');
-    }
-    return { text: content, usage: data.usage };
+    throw lastError || new Error('All Cerebras models failed');
   }
 
   /**

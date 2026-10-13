@@ -289,11 +289,7 @@ status without a linked record is "No completion record".
 | [Signal Ingest Request Lifecycle and OPTIONS Parity](Proposal%20—%20Signal%20Ingest%20Request%20Lifecycle%20and%20OPTIONS%20Parity%20%282026-Q4%29.md) | SIGNALINGESTCALLEROPTIONSPARITY | Proposed: Signal ingest subsystems request body lifecycle management, RFC 9110 OPTIONS dispatch parity, and Allow header parity |
 | [Netassert Controller, Olly AuthZ, and SPA Server Request Lifecycle and OPTIONS Parity](Proposal%20—%20Netassert%20Controller,%20Olly%20AuthZ,%20and%20SPA%20Server%20Request%20Lifecycle%20and%20OPTIONS%20Parity%20%282026-Q4%29.md) | NETASSERTAUTHZSPAOPTIONSPARITY | Proposed: Netassert controller, Olly authz HTTP utility, and Jev SPA server RFC 9110 OPTIONS dispatch parity, Allow header completeness, and 204 No Content body omission |
 | [FE Signal Loom Request Lifecycle and OPTIONS Parity](Proposal%20—%20FE%20Signal%20Loom%20Request%20Lifecycle%20and%20OPTIONS%20Parity%20%282026-Q4%29.md) | FESIGNALLOOMOPTIONSPARITY | Proposed: Frontend Signal Loom request body lifecycle management, RFC 9110 OPTIONS dispatch parity, and Allow header parity |
-
-
-
-
-
+| [CPAI, Agent Trust, and Fake Proxy Lifecycle and Stream Desynchronization Defenses](Proposal%20—%20CPAI,%20Agent%20Trust,%20and%20Fake%20Proxy%20Lifecycle%20and%20Stream%20Desynchronization%20Defenses%20%282026-Q4%29.md) | CPAIAGENTTRUSTSTREAMDEFENSES | Proposed: Stream desynchronization defenses, route-specific 501 Allow headers, chunked body draining, and dynamic session attributes |
 | [SLAWS & SLAAT Retest Plan](signalloom/retest-plan-slaws-slaat-permutations.md) | SLRT | Active: one-shot permutation matrix validating AWS telemetry ingest and adversarial defenses |
 | [Agent trust project proposal](agent-trust-project-proposal.md) |  -  | Delivered: [completion audit](agent-trust-completion-audit.md) and [adversarial review](agent-trust-adversarial-review.md) |
 | [Next-Phase Proposals  -  Adversarial Critique](Signal%20Loom%20—%20Next-Phase%20Proposals%20—%20Adversarial%20Critique%20%282026-Q3%29.md) |  -  | Critique of the SLER, SLCD, and AMXD proposals |

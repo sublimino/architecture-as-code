@@ -1490,35 +1490,113 @@ class ProxyHandler(BaseHTTPRequestHandler):
         # Request bodies and headers must never reach stdout/stderr logs.
         return
 
-    def _json(self, status: int, payload: object, extra_headers: dict | None = None) -> None:
-        if status in (204, 205, 304) or payload is None:
-            self.send_response(status)
-            if extra_headers:
-                for k, v in extra_headers.items():
-                    if status in (204, 205, 304) and k.lower() in ("content-type", "content-length"):
-                        continue
-                    self.send_header(k, v)
-            self.end_headers()
+    def _drain_body(self) -> None:
+        if not hasattr(self, "headers") or not self.headers:
             return
-        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        te = self.headers.get("Transfer-Encoding", "").lower()
+        if "chunked" in te:
+            try:
+                total = 0
+                while total <= 1048576:
+                    line = self.rfile.readline(128)
+                    if not line:
+                        break
+                    chunk_len_str = line.split(b";")[0].strip()
+                    if not chunk_len_str:
+                        break
+                    chunk_len = int(chunk_len_str, 16)
+                    if chunk_len == 0:
+                        while True:
+                            trailer = self.rfile.readline(1024)
+                            if not trailer or trailer in (b"\r\n", b"\n", b""):
+                                break
+                        break
+                    total += chunk_len
+                    if total > 1048576:
+                        self.close_connection = True
+                        break
+                    rem = chunk_len
+                    while rem > 0:
+                        b = self.rfile.read(min(rem, 65536))
+                        if not b:
+                            self.close_connection = True
+                            return
+                        rem -= len(b)
+                    self.rfile.readline(4)
+            except Exception:
+                self.close_connection = True
+            return
+
+        try:
+            raw_len = self.headers.get("Content-Length", "0")
+            length = int(raw_len.strip()) if raw_len else 0
+        except (ValueError, TypeError, AttributeError):
+            length = 0
+        if 0 < length <= 1048576:
+            try:
+                rem = length
+                while rem > 0:
+                    b = self.rfile.read(min(rem, 65536))
+                    if not b:
+                        self.close_connection = True
+                        break
+                    rem -= len(b)
+            except (OSError, ValueError):
+                pass
+        elif length > 1048576:
+            self.close_connection = True
+
+    def _json(self, status: int, payload: object, extra_headers: dict | None = None) -> None:
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(encoded)))
         if extra_headers:
             for k, v in extra_headers.items():
+                if status in (204, 205, 304) and k.lower() in ("content-type", "content-length"):
+                    continue
                 self.send_header(k, v)
+        if getattr(self, "close_connection", False):
+            self.send_header("Connection", "close")
+        if status in (204, 205, 304):
+            self.end_headers()
+            return
+        if payload is None:
+            payload = {}
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(encoded)
 
     def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
-        if code == 501:
-            self._json(
-                HTTPStatus.METHOD_NOT_ALLOWED,
-                {"error": "method not allowed"},
-                extra_headers={"Allow": "GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS"},
-            )
+        if code in (405, 501):
+            path = urlparse(getattr(self, "path", "/")).path
+            allow = None
+            if path in ("/health", "/healthz", "/readyz", "/agents", "/crypto-proofs", "/trust-topology", "/network-tests", "/_test/fixtures"):
+                allow = "GET, HEAD, OPTIONS"
+            elif path.startswith("/agents/") and path.endswith("/compliance"):
+                allow = "GET, HEAD, OPTIONS"
+            elif path == "/network-tests/scan":
+                allow = "POST, OPTIONS"
+            elif path.startswith("/agents/") and path.endswith("/stun"):
+                allow = "POST, OPTIONS"
+            elif path == "/_test/requests":
+                allow = "GET, HEAD, DELETE, OPTIONS"
+            elif path.startswith("/_test/fixtures/") and len(path.split("/")) == 5 and path.split("/")[3] in ROUTE_PREFIXES:
+                allow = "PUT, OPTIONS"
+            elif self._business_route(path) is not None:
+                allow = "GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS"
+
+            self._drain_body()
+            if allow is not None:
+                self._json(
+                    HTTPStatus.METHOD_NOT_ALLOWED,
+                    {"error": f"method {getattr(self, 'command', '')} not allowed on {path}"},
+                    extra_headers={"Allow": allow},
+                )
+                return
+            self._json(HTTPStatus.NOT_FOUND, {"error": "unknown route"})
             return
+        self._drain_body()
         try:
             phrase = HTTPStatus(code).phrase
         except ValueError:
@@ -1527,15 +1605,74 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self._json(code, {"error": msg})
 
     def _body(self) -> object:
+        te = self.headers.get("Transfer-Encoding", "").lower() if hasattr(self, "headers") and self.headers else ""
+        if "chunked" in te:
+            try:
+                chunks = bytearray()
+                while len(chunks) <= 1048576:
+                    line = self.rfile.readline(128)
+                    if not line:
+                        break
+                    chunk_len_str = line.split(b";")[0].strip()
+                    if not chunk_len_str:
+                        break
+                    chunk_len = int(chunk_len_str, 16)
+                    if chunk_len == 0:
+                        while True:
+                            trailer = self.rfile.readline(1024)
+                            if not trailer or trailer in (b"\r\n", b"\n", b""):
+                                break
+                        break
+                    if len(chunks) + chunk_len > 1048576:
+                        self.close_connection = True
+                        rem = chunk_len
+                        while rem > 0:
+                            b = self.rfile.read(min(rem, 65536))
+                            if not b:
+                                return None
+                            rem -= len(b)
+                        self.rfile.readline(4)
+                        break
+                    rem = chunk_len
+                    while rem > 0:
+                        b = self.rfile.read(min(rem, 65536))
+                        if not b:
+                            self.close_connection = True
+                            return None
+                        chunks.extend(b)
+                        rem -= len(b)
+                    self.rfile.readline(4)
+                if not chunks:
+                    return None
+                try:
+                    return redact(json.loads(bytes(chunks).decode("utf-8")))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    return "[REDACTED_NON_JSON_BODY]"
+            except Exception:
+                self.close_connection = True
+                return None
+
         try:
-            raw_len = self.headers.get("Content-Length", "0")
+            raw_len = self.headers.get("Content-Length", "0") if hasattr(self, "headers") and self.headers else "0"
             length = int(raw_len.strip()) if raw_len else 0
         except (ValueError, TypeError, AttributeError):
             length = 0
         if length <= 0:
             return None
+        if length > 1048576:
+            self.close_connection = True
+            return None
         try:
-            raw = self.rfile.read(min(length, 1048576))
+            chunks = bytearray()
+            rem = length
+            while rem > 0:
+                b = self.rfile.read(min(rem, 65536))
+                if not b:
+                    self.close_connection = True
+                    break
+                chunks.extend(b)
+                rem -= len(b)
+            raw = bytes(chunks)
         except (OSError, ValueError):
             return None
         if not raw:
@@ -1961,70 +2098,79 @@ class ProxyHandler(BaseHTTPRequestHandler):
             if self.command in ("GET", "HEAD"):
                 self._json(HTTPStatus.OK, {"status": "ok"})
             elif self.command == "OPTIONS":
-                self._body()
+                self._drain_body()
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
+                self._drain_body()
                 self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/agents":
             if self.command in ("GET", "HEAD"):
                 self._handle_agents()
             elif self.command == "OPTIONS":
-                self._body()
+                self._drain_body()
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
+                self._drain_body()
                 self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/crypto-proofs":
             if self.command in ("GET", "HEAD"):
                 self._handle_crypto_proofs()
             elif self.command == "OPTIONS":
-                self._body()
+                self._drain_body()
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
+                self._drain_body()
                 self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/trust-topology":
             if self.command in ("GET", "HEAD"):
                 self._handle_trust_topology()
             elif self.command == "OPTIONS":
-                self._body()
+                self._drain_body()
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
+                self._drain_body()
                 self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/network-tests":
             if self.command in ("GET", "HEAD"):
                 self._handle_network_tests()
             elif self.command == "OPTIONS":
-                self._body()
+                self._drain_body()
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
+                self._drain_body()
                 self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/network-tests/scan":
             if self.command == "POST":
                 self._handle_network_tests_scan()
             elif self.command == "OPTIONS":
-                self._body()
+                self._drain_body()
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "POST, OPTIONS"})
             else:
+                self._drain_body()
                 self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "POST, OPTIONS"})
         elif path.startswith("/agents/") and path.endswith("/compliance"):
             if self.command in ("GET", "HEAD"):
                 agent_id = path.split("/")[2]
                 self._handle_agent_compliance(agent_id, self._requested_namespace())
             elif self.command == "OPTIONS":
-                self._body()
+                self._drain_body()
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
+                self._drain_body()
                 self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path.startswith("/agents/") and path.endswith("/stun"):
             if self.command == "POST":
                 self._handle_agent_stun_gone()
             elif self.command == "OPTIONS":
-                self._body()
+                self._drain_body()
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "POST, OPTIONS"})
             else:
+                self._drain_body()
                 self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "POST, OPTIONS"})
         elif self._handle_control() or self._handle_business():
             return
         else:
+            self._drain_body()
             self._json(HTTPStatus.NOT_FOUND, {"error": "unknown route"})
 
     do_GET = _dispatch
@@ -2034,6 +2180,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
     do_PATCH = _dispatch
     do_DELETE = _dispatch
     do_OPTIONS = _dispatch
+    do_TRACE = lambda self: self.send_error(501)
+    do_CONNECT = lambda self: self.send_error(501)
 
 
 ThreadingHTTPServer.allow_reuse_address = True

@@ -56,8 +56,8 @@ def fetch_jwt_svid(audience: str, *, timeout: float = 5, runner=subprocess.run, 
         if not isinstance(item, dict): raise ValueError("SVID item type")
         spiffe = [item[k] for k in ("spiffeID", "spiffe_id") if k in item]
         tokens = [item[k] for k in ("svid", "jwt_svid", "token") if k in item]
-    except (ValueError, TypeError, json.JSONDecodeError):
-        raise RuntimeError("SPIRE output was not one JSON JWT-SVID") from None
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("SPIRE output was not one JSON JWT-SVID") from exc
     if len(spiffe) != 1 or len(tokens) != 1 or not isinstance(spiffe[0], str) or not isinstance(tokens[0], str) or not _SPIFFE.fullmatch(spiffe[0]) or not _JWT.fullmatch(tokens[0]):
         raise RuntimeError("SPIRE output did not contain exactly one valid JWT-SVID")
     return JwtSvid(spiffe[0], tokens[0])

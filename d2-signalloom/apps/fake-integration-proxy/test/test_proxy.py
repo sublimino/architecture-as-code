@@ -300,15 +300,34 @@ class ProxyTest(ProxyServerTestCase):
         self.assertEqual(b"", resp.read())
         conn.close()
 
-        # Unsupported method invokes send_error and returns 405 JSON
+        # Unsupported method invokes send_error and returns 405 JSON with route-specific Allow
         conn = http.client.HTTPConnection("127.0.0.1", self.port)
         conn.request("NONSTANDARD", "/healthz")
         resp = conn.getresponse()
         self.assertEqual(405, resp.status)
         self.assertEqual("application/json", resp.getheader("Content-Type"))
-        self.assertEqual("GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS", resp.getheader("Allow"))
+        self.assertEqual("GET, HEAD, OPTIONS", resp.getheader("Allow"))
         body = json.loads(resp.read().decode())
-        self.assertEqual({"error": "method not allowed"}, body)
+        self.assertIn("not allowed", body["error"])
+        conn.close()
+
+        # Unsupported method on business route returns 405 with full business Allow
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("NONSTANDARD", "/llm/assistants")
+        resp = conn.getresponse()
+        self.assertEqual(405, resp.status)
+        self.assertEqual("application/json", resp.getheader("Content-Type"))
+        self.assertEqual("GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS", resp.getheader("Allow"))
+        resp.read()
+        conn.close()
+
+        # Unsupported method on unknown route returns 404 without Allow header
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("NONSTANDARD", "/unknown-route-404")
+        resp = conn.getresponse()
+        self.assertEqual(404, resp.status)
+        self.assertIsNone(resp.getheader("Allow"))
+        resp.read()
         conn.close()
 
         # Direct send_error invocation suppresses body on HEAD
@@ -1240,6 +1259,23 @@ class ScanTestCase(ProxyServerTestCase):
             self.assertEqual(204, status)
             self.assertIsNone(body)
             self.assertEqual({"Retry-After": "10"}, headers)
+
+    def test_chunked_and_oversized_body_handling(self):
+        # 1. Chunked transfer encoding is drained cleanly on /network-tests/scan
+        with mock.patch.object(server, "_trigger_netassert_scan", lambda: (200, {"status": "ok"})):
+            connection = http.client.HTTPConnection("127.0.0.1", self.port)
+            connection.request("POST", "/network-tests/scan", body="3\r\nfoo\r\n0\r\n\r\n", headers={"Transfer-Encoding": "chunked"})
+            resp = connection.getresponse()
+            self.assertEqual(200, resp.status)
+            self.assertEqual({"status": "ok"}, json.loads(resp.read().decode()))
+            connection.close()
+
+        # 2. Oversized body on business route marks connection close
+        connection = http.client.HTTPConnection("127.0.0.1", self.port)
+        connection.request("POST", "/llm/assistants", headers={"Content-Length": "2000000"})
+        resp = connection.getresponse()
+        self.assertEqual("close", resp.getheader("Connection"))
+        connection.close()
 
 
 if __name__ == "__main__":

@@ -126,22 +126,77 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
     card = Path(__file__).with_name("agent-card.json").read_bytes(); replay = ReplayStore(); instance = receiver_instance or secrets.token_urlsafe(16)
     class H(BaseHTTPRequestHandler):
         def _drain_body(self):
+            if not hasattr(self, "headers") or not self.headers:
+                return
+            te = self.headers.get("Transfer-Encoding", "").lower()
+            if "chunked" in te:
+                try:
+                    total = 0
+                    while total <= 1048576:
+                        line = self.rfile.readline(128)
+                        if not line:
+                            break
+                        chunk_len_str = line.split(b";")[0].strip()
+                        if not chunk_len_str:
+                            break
+                        chunk_len = int(chunk_len_str, 16)
+                        if chunk_len == 0:
+                            while True:
+                                trailer = self.rfile.readline(1024)
+                                if not trailer or trailer in (b"\r\n", b"\n", b""):
+                                    break
+                            break
+                        total += chunk_len
+                        if total > 1048576:
+                            self.close_connection = True
+                            break
+                        rem = chunk_len
+                        while rem > 0:
+                            b = self.rfile.read(min(rem, 65536))
+                            if not b:
+                                self.close_connection = True
+                                return
+                            rem -= len(b)
+                        self.rfile.readline(4)
+                except Exception:
+                    self.close_connection = True
+                return
+
+            raw_len = self.headers.get("Content-Length")
             try:
-                raw_len = self.headers.get("Content-Length")
-                if raw_len:
-                    length = int(raw_len.strip())
-                    if 0 < length <= 1048576:
-                        self.rfile.read(min(length, 4096))
-            except Exception:
-                pass
+                length = int(raw_len.strip() if isinstance(raw_len, str) else (raw_len or 0))
+            except (ValueError, TypeError):
+                return
+            if 0 < length <= 1048576:
+                try:
+                    rem = length
+                    while rem > 0:
+                        b = self.rfile.read(min(rem, 65536))
+                        if not b:
+                            self.close_connection = True
+                            break
+                        rem -= len(b)
+                except (OSError, ValueError):
+                    pass
+            elif length > 1048576:
+                self.close_connection = True
 
         def _send_json(self, status: int, payload: dict, allow: str | None = None):
-            body = json.dumps(payload, separators=(',', ':')).encode()
             self.send_response(status)
+            if status in (204, 205, 304):
+                if allow:
+                    self.send_header("Allow", allow)
+                if getattr(self, "close_connection", False):
+                    self.send_header("Connection", "close")
+                self.end_headers()
+                return
+            body = json.dumps(payload, separators=(',', ':')).encode()
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             if allow:
                 self.send_header("Allow", allow)
+            if getattr(self, "close_connection", False):
+                self.send_header("Connection", "close")
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(body)
@@ -153,12 +208,16 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                 self.send_response(204)
                 self.send_header("Allow", "GET, HEAD, OPTIONS")
                 self.send_header("Content-Length", "0")
+                if getattr(self, "close_connection", False):
+                    self.send_header("Connection", "close")
                 self.end_headers()
                 return
             if path == "/a2a":
                 self.send_response(204)
                 self.send_header("Allow", "POST, OPTIONS")
                 self.send_header("Content-Length", "0")
+                if getattr(self, "close_connection", False):
+                    self.send_header("Connection", "close")
                 self.end_headers()
                 return
             self._send_json(404, {"error": "not found"})
@@ -225,12 +284,15 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                 self._send_json(400, {"error": "invalid Content-Length"})
                 return
             if length <= 0 or length > 1048576:
+                if length > 1048576:
+                    self.close_connection = True
                 self._drain_body()
                 self._send_json(400, {"error": "Content-Length out of range"})
                 return
             try:
                 raw_body = self.rfile.read(length)
                 if len(raw_body) < length:
+                    self.close_connection = True
                     self._send_json(400, {"error": "truncated request body"})
                     return
                 body = json.loads(raw_body)
@@ -246,12 +308,12 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                     self._send_json(403, {"error": "forbidden"})
                     return
                 context = auth.removeprefix("Bearer ").strip()
-                if not context:
-                    self._send_json(403, {"error": "empty authorization context"})
+                if not context or len(context) > 16384:
+                    self._send_json(403, {"error": "empty or oversized authorization context"})
                     return
                 jwt_svid = self.headers.get("X-SPIFFE-JWT-SVID")
-                if not jwt_svid or not jwt_svid.strip():
-                    self._send_json(403, {"error": "missing SPIFFE JWT-SVID"})
+                if not jwt_svid or not jwt_svid.strip() or len(jwt_svid.strip()) > 16384:
+                    self._send_json(403, {"error": "missing or oversized SPIFFE JWT-SVID"})
                     return
                 jwt_svid = jwt_svid.strip()
                 validator = identity_validator or (lambda token: validate_openbao_identity(openbao_url or "",token,openbao_role,PLANNER))
@@ -272,25 +334,26 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
             self._send_json(404, {"error": "not found"})
         def send_error(self, code: int, message: str | None = None, explain: str | None = None):
             path = getattr(self, "path", "/").split("?")[0].rstrip("/") or "/"
-            allow = None
-            if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
-                allow = "GET, HEAD, OPTIONS"
-                if code == 501:
-                    code = 405
-            elif path == "/a2a":
-                allow = "POST, OPTIONS"
-                if code == 501:
-                    code = 405
-            else:
-                code = 404
-                allow = None
+            if code in (405, 501):
+                if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
+                    self._drain_body()
+                    self._send_json(405, {"error": f"method {getattr(self, 'command', '')} not allowed on {path}"}, allow="GET, HEAD, OPTIONS")
+                    return
+                if path == "/a2a":
+                    self._drain_body()
+                    self._send_json(405, {"error": f"method {getattr(self, 'command', '')} not allowed on {path}"}, allow="POST, OPTIONS")
+                    return
+                self._drain_body()
+                self._send_json(404, {"error": f"no route {getattr(self, 'command', '')} {path}"})
+                return
+            self._drain_body()
             msg = message or self.responses.get(code, ("error", ""))[0]
-            self._send_json(code, {"error": msg}, allow=allow)
+            self._send_json(code, {"error": msg})
         def do_PUT(self): self._handle_unsupported_method()
         def do_DELETE(self): self._handle_unsupported_method()
         def do_PATCH(self): self._handle_unsupported_method()
-        def do_TRACE(self): self._handle_unsupported_method()
-        def do_CONNECT(self): self._handle_unsupported_method()
+        def do_TRACE(self): self.send_error(501)
+        def do_CONNECT(self): self.send_error(501)
         def log_message(self,*_): pass
     class ReusableThreadingHTTPServer(ThreadingHTTPServer):
         allow_reuse_address = True

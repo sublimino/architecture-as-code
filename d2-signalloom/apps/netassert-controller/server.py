@@ -273,6 +273,10 @@ class ControllerHandler(BaseHTTPRequestHandler):
         if not hasattr(self, "headers") or not self.headers:
             return
         te = self.headers.get("Transfer-Encoding", "").lower()
+        has_cl = "content-length" in [k.lower() for k in self.headers.keys()]
+        if ("chunked" in te and has_cl) or (te and has_cl):
+            self.close_connection = True
+            return
         if "chunked" in te:
             try:
                 total = 0
@@ -290,13 +294,17 @@ class ControllerHandler(BaseHTTPRequestHandler):
                         self.close_connection = True
                         break
                     if chunk_len == 0:
-                        while True:
+                        trailer_count = 0
+                        while trailer_count < 32:
                             trailer = self.rfile.readline(1024)
                             if not trailer:
                                 self.close_connection = True
                                 break
                             if trailer in (b"\r\n", b"\n"):
                                 break
+                            trailer_count += 1
+                        else:
+                            self.close_connection = True
                         break
                     total += chunk_len
                     if total > 1048576:

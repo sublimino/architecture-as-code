@@ -29,6 +29,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -236,6 +237,10 @@ func (c *callerKeys) requireAny(scopes []callerScope, next http.HandlerFunc) htt
 		caller, err := c.authenticate(r)
 		if err != nil {
 			slog.Warn("fleet route refused", "path", r.URL.Path, "scope", scopeAttr, "reason", err.Error())
+			if r != nil && r.Body != nil {
+				_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+				_ = r.Body.Close()
+			}
 			w.Header().Set("WWW-Authenticate", `Bearer realm="fleet-manager"`)
 			writeError(w, http.StatusUnauthorized, err.Error())
 			return
@@ -249,6 +254,10 @@ func (c *callerKeys) requireAny(scopes []callerScope, next http.HandlerFunc) htt
 		}
 		if !granted {
 			slog.Warn("fleet route refused", "path", r.URL.Path, "scope", scopeAttr, "caller", caller.name, "reason", "scope not granted")
+			if r != nil && r.Body != nil {
+				_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+				_ = r.Body.Close()
+			}
 			// The single-scope wording is preserved exactly: it is the message
 			// every existing denial test and the denial matrix assert on, and a
 			// route that admits one scope should not describe itself as a choice.

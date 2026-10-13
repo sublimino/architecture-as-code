@@ -459,6 +459,20 @@ class ScanTest(ControllerServerTestCase):
         self.assertTrue(ThreadingHTTPServer.allow_reuse_address)
         self.assertTrue(self.httpd.allow_reuse_address)
 
+    def test_te_cl_conflict_closes_connection(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port)
+        connection.request(
+            "OPTIONS",
+            "/health",
+            headers={
+                "Transfer-Encoding": "chunked",
+                "Content-Length": "10",
+            },
+        )
+        response = connection.getresponse()
+        self.assertEqual("close", response.getheader("Connection"))
+        connection.close()
+
 
 if __name__ == "__main__":
 

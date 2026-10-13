@@ -330,6 +330,42 @@ class ProxyTest(ProxyServerTestCase):
         resp.read()
         conn.close()
 
+    def test_protocol_version_is_http_1_1(self):
+        self.assertEqual("HTTP/1.1", ProxyHandler.protocol_version)
+
+    def test_te_cl_conflict_rejected_with_400(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request(
+            "POST",
+            "/network-tests/scan",
+            body="{}",
+            headers={
+                "Transfer-Encoding": "chunked",
+                "Content-Length": "2",
+            },
+        )
+        resp = conn.getresponse()
+        self.assertEqual(400, resp.status)
+        self.assertEqual("close", resp.getheader("Connection"))
+        body = json.loads(resp.read().decode())
+        self.assertIn("error", body)
+        conn.close()
+
+    def test_get_health_with_body_drains_cleanly_on_keepalive(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("GET", "/health", body="spurious-payload", headers={"Content-Length": "16"})
+        resp1 = conn.getresponse()
+        self.assertEqual(200, resp1.status)
+        resp1.read()
+
+        # Follow-up request on the SAME persistent connection
+        conn.request("GET", "/readyz")
+        resp2 = conn.getresponse()
+        self.assertEqual(200, resp2.status)
+        data = json.loads(resp2.read().decode())
+        self.assertEqual("ok", data["status"])
+        conn.close()
+
         # Direct send_error invocation suppresses body on HEAD
         class _MockWriter:
             def __init__(self):

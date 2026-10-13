@@ -729,6 +729,10 @@ func (p *ProtectedRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if auditNeeded {
 			p.deny(w, r, principal, route, method, "rate_limited", http.StatusTooManyRequests)
 		} else {
+			if r != nil && r.Body != nil {
+				_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+				_ = r.Body.Close()
+			}
 			writeError(w, http.StatusTooManyRequests, "rate_limited")
 		}
 		return
@@ -847,6 +851,10 @@ func (p *ProtectedRouter) applyEnumeration(w http.ResponseWriter, r *http.Reques
 	return true
 }
 func (p *ProtectedRouter) deny(w http.ResponseWriter, r *http.Request, principal Principal, route, method, outcome string, status int) {
+	if r != nil && r.Body != nil {
+		_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+		_ = r.Body.Close()
+	}
 	if err := p.writeAudit(r.Context(), principal, route, method, outcome); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "authorization audit unavailable")
 		return

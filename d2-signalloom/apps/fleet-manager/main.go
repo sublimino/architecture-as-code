@@ -594,7 +594,7 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req ResumeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid resume request body: %v", err))
 		return
 	}

@@ -27,6 +27,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -369,11 +370,19 @@ func (a *StaticBearerAuthenticator) ActingTenantGate(next http.Handler) http.Han
 		acting, code := actingTenant(r)
 		if code != "" {
 			slog.Warn("gateway request refused", "key", k.name, "reason", code)
+			if r != nil && r.Body != nil {
+				_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+				_ = r.Body.Close()
+			}
 			writeError(w, http.StatusBadRequest, code)
 			return
 		}
 		if acting == "*" && !k.grants(PermissionCrossTenantRead) {
 			slog.Warn("gateway request refused", "key", k.name, "reason", "cross_tenant_read_required")
+			if r != nil && r.Body != nil {
+				_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+				_ = r.Body.Close()
+			}
 			writeError(w, http.StatusForbidden, "cross_tenant_read_required")
 			return
 		}

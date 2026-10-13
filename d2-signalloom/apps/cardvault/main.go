@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -85,6 +86,10 @@ func requireAuth(username, password string, next http.HandlerFunc) http.HandlerF
 			return
 		}
 		if username == "" || password == "" {
+			if r != nil && r.Body != nil {
+				_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+				_ = r.Body.Close()
+			}
 			writeJSON(w, r, http.StatusInternalServerError, map[string]string{"error": "authentication credentials unconfigured"})
 			return
 		}
@@ -92,6 +97,10 @@ func requireAuth(username, password string, next http.HandlerFunc) http.HandlerF
 		uMatch := subtle.ConstantTimeCompare([]byte(u), []byte(username))
 		pMatch := subtle.ConstantTimeCompare([]byte(p), []byte(password))
 		if !ok || (uMatch&pMatch) != 1 {
+			if r != nil && r.Body != nil {
+				_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+				_ = r.Body.Close()
+			}
 			w.Header().Set("WWW-Authenticate", `Basic realm="cardvault"`)
 			writeJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
@@ -101,6 +110,12 @@ func requireAuth(username, password string, next http.HandlerFunc) http.HandlerF
 }
 
 func handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
@@ -115,6 +130,12 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
@@ -129,6 +150,12 @@ func handleReadyz(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleListCards(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
@@ -143,6 +170,12 @@ func handleListCards(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGetCard(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
@@ -197,6 +230,10 @@ func headBodySuppressingMiddleware(next http.Handler) http.Handler {
 func pathTraversalGuardMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.RequestURI, "..") || strings.Contains(r.URL.Path, "..") {
+			if r != nil && r.Body != nil {
+				_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+				_ = r.Body.Close()
+			}
 			writeJSON(w, r, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
@@ -257,6 +294,8 @@ func main() {
 		Addr:              ":" + port,
 		Handler:           loggingMiddleware(mux),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 

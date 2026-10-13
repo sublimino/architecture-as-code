@@ -1481,6 +1481,7 @@ class DemoState:
 class ProxyHandler(BaseHTTPRequestHandler):
     state = DemoState()
     server_version = "SignalloomDemoProxy/1.0"
+    protocol_version = "HTTP/1.1"
 
     @property
     def demo_controls_enabled(self) -> bool:
@@ -1490,62 +1491,90 @@ class ProxyHandler(BaseHTTPRequestHandler):
         # Request bodies and headers must never reach stdout/stderr logs.
         return
 
-    def _drain_body(self) -> None:
+    def handle_one_request(self) -> None:
+        try:
+            super().handle_one_request()
+        except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
+            self.close_connection = True
+
+    def _drain_body(self) -> bool:
         if not hasattr(self, "headers") or not self.headers:
-            return
+            return True
         te = self.headers.get("Transfer-Encoding", "").lower()
+        has_cl = "content-length" in [k.lower() for k in self.headers.keys()]
+        if ("chunked" in te and has_cl) or (te and has_cl):
+            self.close_connection = True
+            return False
         if "chunked" in te:
             try:
                 total = 0
+                terminated = False
                 while total <= 1048576:
-                    line = self.rfile.readline(128)
-                    if not line:
+                    line = self.rfile.readline(1024)
+                    if not line or not line.endswith(b"\n"):
                         self.close_connection = True
-                        break
+                        return False
                     chunk_len_str = line.split(b";")[0].strip()
                     if not chunk_len_str or not re.fullmatch(rb"[0-9a-fA-F]+", chunk_len_str):
                         self.close_connection = True
-                        break
-                    chunk_len = int(chunk_len_str, 16)
+                        return False
+                    try:
+                        chunk_len = int(chunk_len_str, 16)
+                    except ValueError:
+                        self.close_connection = True
+                        return False
                     if chunk_len < 0:
                         self.close_connection = True
-                        break
+                        return False
                     if chunk_len == 0:
-                        while True:
+                        trailer_count = 0
+                        while trailer_count < 32:
                             trailer = self.rfile.readline(1024)
-                            if not trailer:
+                            if not trailer or not trailer.endswith(b"\n"):
                                 self.close_connection = True
-                                break
+                                return False
                             if trailer in (b"\r\n", b"\n"):
                                 break
+                            trailer_count += 1
+                        else:
+                            self.close_connection = True
+                            return False
+                        terminated = True
                         break
                     total += chunk_len
                     if total > 1048576:
                         self.close_connection = True
-                        break
+                        return False
                     rem = chunk_len
                     while rem > 0:
                         b = self.rfile.read(min(rem, 65536))
                         if not b:
                             self.close_connection = True
-                            return
+                            return False
                         rem -= len(b)
                     crlf = self.rfile.readline(4)
                     if crlf not in (b"\r\n", b"\n"):
                         self.close_connection = True
-                        break
+                        return False
+                if not terminated:
+                    self.close_connection = True
+                    return False
             except Exception:
                 self.close_connection = True
-            return
+                return False
+            return True
 
+        raw_len = self.headers.get("Content-Length")
+        if raw_len is None:
+            return True
         try:
-            raw_len = self.headers.get("Content-Length", "0")
-            length = int(raw_len.strip()) if raw_len else 0
-        except (ValueError, TypeError, AttributeError):
-            length = 0
+            length = int(raw_len.strip() if isinstance(raw_len, str) else (raw_len or 0))
+        except (ValueError, TypeError):
             self.close_connection = True
+            return False
         if length < 0 or length > 1048576:
             self.close_connection = True
+            return False
         elif 0 < length <= 1048576:
             try:
                 rem = length
@@ -1553,10 +1582,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     b = self.rfile.read(min(rem, 65536))
                     if not b:
                         self.close_connection = True
-                        break
+                        return False
                     rem -= len(b)
             except (OSError, ValueError):
                 self.close_connection = True
+                return False
+        return True
 
     def _json(self, status: int, payload: object, extra_headers: dict | None = None) -> None:
         self.send_response(status)
@@ -1580,6 +1611,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self.wfile.write(encoded)
 
     def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
+        if not self._drain_body():
+            self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+            return
         if code in (405, 501):
             path = urlparse(getattr(self, "path", "/")).path
             allow = None
@@ -1598,7 +1632,6 @@ class ProxyHandler(BaseHTTPRequestHandler):
             elif self._business_route(path) is not None:
                 allow = "GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS"
 
-            self._drain_body()
             if allow is not None:
                 self._json(
                     HTTPStatus.METHOD_NOT_ALLOWED,
@@ -1608,7 +1641,6 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 return
             self._json(HTTPStatus.NOT_FOUND, {"error": "unknown route"})
             return
-        self._drain_body()
         try:
             phrase = HTTPStatus(code).phrase
         except ValueError:
@@ -1987,7 +2019,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
         never be influenced by a caller — the same never-an-arbitrary-probe
         guarantee as before, now enforced at the identity boundary too.
         """
-        self._body()  # drain any body so the client isn't left hanging
+        if not self._drain_body():
+            self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+            return
         res = _trigger_netassert_scan()
         if len(res) == 3:
             status, body, extra_headers = res  # type: ignore[misc]
@@ -2055,7 +2089,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
         410 rather than 404 so a stale caller learns the route moved instead of
         concluding the agent does not exist. Nothing is looked up or patched.
         """
-        self._body()
+        if not self._drain_body():
+            self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+            return
         self._json(HTTPStatus.GONE, {
             "error": "stun moved to the fleet-manager cascade",
             "use": "POST /api/agents/{id}/stun on fe-signalloom",
@@ -2121,84 +2157,97 @@ class ProxyHandler(BaseHTTPRequestHandler):
         return values[0] if values and values[0] else None
 
     def _dispatch(self) -> None:
+        if self.command in ("GET", "HEAD", "OPTIONS") and not self._drain_body():
+            self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+            return
         path = urlparse(self.path).path
         if path in ("/health", "/healthz", "/readyz"):
             if self.command in ("GET", "HEAD"):
                 self._json(HTTPStatus.OK, {"status": "ok"})
             elif self.command == "OPTIONS":
-                self._drain_body()
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
-                self._drain_body()
+                if not self._drain_body():
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return
                 self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/agents":
             if self.command in ("GET", "HEAD"):
                 self._handle_agents()
             elif self.command == "OPTIONS":
-                self._drain_body()
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
-                self._drain_body()
+                if not self._drain_body():
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return
                 self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/crypto-proofs":
             if self.command in ("GET", "HEAD"):
                 self._handle_crypto_proofs()
             elif self.command == "OPTIONS":
-                self._drain_body()
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
-                self._drain_body()
+                if not self._drain_body():
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return
                 self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/trust-topology":
             if self.command in ("GET", "HEAD"):
                 self._handle_trust_topology()
             elif self.command == "OPTIONS":
-                self._drain_body()
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
-                self._drain_body()
+                if not self._drain_body():
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return
                 self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/network-tests":
             if self.command in ("GET", "HEAD"):
                 self._handle_network_tests()
             elif self.command == "OPTIONS":
-                self._drain_body()
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
-                self._drain_body()
+                if not self._drain_body():
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return
                 self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/network-tests/scan":
             if self.command == "POST":
                 self._handle_network_tests_scan()
             elif self.command == "OPTIONS":
-                self._drain_body()
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "POST, OPTIONS"})
             else:
-                self._drain_body()
+                if not self._drain_body():
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return
                 self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "POST, OPTIONS"})
         elif path.startswith("/agents/") and path.endswith("/compliance"):
             if self.command in ("GET", "HEAD"):
                 agent_id = path.split("/")[2]
                 self._handle_agent_compliance(agent_id, self._requested_namespace())
             elif self.command == "OPTIONS":
-                self._drain_body()
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
             else:
-                self._drain_body()
+                if not self._drain_body():
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return
                 self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path.startswith("/agents/") and path.endswith("/stun"):
             if self.command == "POST":
                 self._handle_agent_stun_gone()
             elif self.command == "OPTIONS":
-                self._drain_body()
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "POST, OPTIONS"})
             else:
-                self._drain_body()
+                if not self._drain_body():
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return
                 self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "POST, OPTIONS"})
         elif self._handle_control() or self._handle_business():
             return
         else:
-            self._drain_body()
+            if not self._drain_body():
+                self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                return
             self._json(HTTPStatus.NOT_FOUND, {"error": "unknown route"})
 
     do_GET = _dispatch

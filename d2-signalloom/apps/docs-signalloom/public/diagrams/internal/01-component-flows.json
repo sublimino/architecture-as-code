@@ -57,9 +57,8 @@
       "label": "signal-ingest",
       "sub": "Go · telemetry gateway",
       "kind": "backend",
-      "row": 2,
-      "col": 2,
-      "group": "control"
+      "row": 5,
+      "col": 3
     },
     {
       "id": "pe",
@@ -75,16 +74,15 @@
       "label": "FrostDB",
       "sub": "Observations · findings",
       "kind": "store",
-      "row": 2,
-      "col": 3,
-      "group": "control"
+      "row": 5,
+      "col": 4
     },
     {
       "id": "pg",
       "label": "PostgreSQL",
       "sub": "Claims · audit_events",
       "kind": "store",
-      "row": 3,
+      "row": 4,
       "col": 3,
       "group": "control"
     },
@@ -93,7 +91,7 @@
       "label": "signalloom-warden",
       "sub": "Per-node eBPF + cgroup",
       "kind": "backend",
-      "row": 4,
+      "row": 5,
       "col": 1,
       "group": "enforcement"
     },
@@ -102,7 +100,7 @@
       "label": "OpenBao",
       "sub": "Per-plane tokens",
       "kind": "security",
-      "row": 4,
+      "row": 6,
       "col": 2,
       "group": "identity"
     },
@@ -111,7 +109,7 @@
       "label": "SPIRE",
       "sub": "SVIDs · mTLS mesh",
       "kind": "security",
-      "row": 4,
+      "row": 6,
       "col": 3,
       "group": "identity"
     }

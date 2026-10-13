@@ -29,12 +29,12 @@
       "label": "SPIRE"
     },
     {
-      "id": "gw",
-      "label": "Central gateway"
-    },
-    {
       "id": "warden",
       "label": "Remote warden (pilot cluster)"
+    },
+    {
+      "id": "gw",
+      "label": "Central gateway"
     }
   ],
   "messages": [

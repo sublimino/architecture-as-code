@@ -175,13 +175,69 @@ func resolvePort(intOrStr intstr.IntOrString, portMap map[string]int) (int, stri
 	}
 }
 
+// headResponseWriter suppresses the response body for HEAD requests while
+// preserving headers and status codes according to RFC 9110 Section 6.4.1.
+type headResponseWriter struct {
+	http.ResponseWriter
+	wroteHeader bool
+}
+
+func (w *headResponseWriter) WriteHeader(status int) {
+	w.wroteHeader = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *headResponseWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	return len(b), nil
+}
+
+func (w *headResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// headBodySuppressingMiddleware wraps the handler to ensure no response body
+// is written for any HTTP HEAD request, including on error paths (404, 405, 500).
+func headBodySuppressingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			if _, ok := w.(*headResponseWriter); !ok {
+				w = &headResponseWriter{ResponseWriter: w}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // SyntheticProbeHandler creates an HTTP handler that returns 200 OK for probe requests
 // to prevent kubelet liveness probe timeouts while a container is frozen.
+// It gates methods to GET and HEAD only (returning 405 with Allow header otherwise),
+// and suppresses response bodies on HEAD per RFC 9110 Section 6.4.1.
 func SyntheticProbeHandler(podName, namespace string) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method == http.MethodHead {
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": "Method Not Allowed",
+				"code":  http.StatusMethodNotAllowed,
+			})
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-SignalLoom-Preserved", "true")
 		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodHead {
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":    "frozen",
 			"preserved": true,
@@ -191,6 +247,7 @@ func SyntheticProbeHandler(podName, namespace string) http.Handler {
 			"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
 		})
 	})
+	return headBodySuppressingMiddleware(h)
 }
 
 // Preserve registers and activates liveness probe preservation for the stunned pod.

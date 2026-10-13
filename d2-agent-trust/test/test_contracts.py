@@ -77,17 +77,21 @@ class A2A(unittest.TestCase):
    self.assertEqual(b'', head_chal_resp.read())
    self.assertTrue(getattr(s, 'allow_reuse_address', False))
    for probe in ('/health','/healthz','/readyz','/challenge','/.well-known/agent-card.json'):
-    for m in ('POST', 'PUT', 'DELETE', 'PATCH'):
-     m_req=urllib.request.Request(f'http://127.0.0.1:{s.server_port}{probe}', data=b'{}', method=m)
+    for m in ('POST', 'PUT', 'DELETE', 'PATCH', 'TRACE', 'OPTIONS'):
+     m_req=urllib.request.Request(f'http://127.0.0.1:{s.server_port}{probe}', data=b'{}' if m in ('POST','PUT','PATCH') else None, method=m)
      with self.assertRaises(urllib.error.HTTPError) as m_err: urllib.request.urlopen(m_req)
      self.assertEqual(405, m_err.exception.code)
      self.assertEqual('GET, HEAD', m_err.exception.headers.get('Allow'))
+     self.assertEqual('application/json', m_err.exception.headers.get('Content-Type'))
      m_err.exception.close()
-   for method in ('GET','HEAD','PUT','DELETE','PATCH'):
+   for method in ('GET','HEAD','PUT','DELETE','PATCH','TRACE','OPTIONS'):
     a2a_req=urllib.request.Request(f'http://127.0.0.1:{s.server_port}/a2a', method=method)
     with self.assertRaises(urllib.error.HTTPError) as a2a_err: urllib.request.urlopen(a2a_req)
     self.assertEqual(405, a2a_err.exception.code)
     self.assertEqual('POST', a2a_err.exception.headers.get('Allow'))
+    self.assertEqual('application/json', a2a_err.exception.headers.get('Content-Type'))
+    if method == 'HEAD':
+     self.assertEqual(b'', a2a_err.exception.read())
     a2a_err.exception.close()
    for unknown in ('/unknown', '/api/v1/invalid', '/health/subpath'):
     u_req=urllib.request.Request(f'http://127.0.0.1:{s.server_port}{unknown}', method='HEAD')

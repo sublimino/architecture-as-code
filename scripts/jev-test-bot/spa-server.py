@@ -52,7 +52,28 @@ class SpaHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def send_error(self, code, message=None, explain=None):
+        if code in (405, 501):
+            body = b"This stub serves GET and HEAD only"
+            self.send_response(405)
+            self.send_header("Allow", "GET, HEAD")
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+            return
+        err_msg = message or (self.responses.get(code, ("error",))[0])
+        body = f'{{"error": "{err_msg}", "code": {code}}}\n'.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def do_POST(self):  # noqa: N802 — handler naming is the base class's
         self._send_405()

@@ -158,10 +158,18 @@ func resolvePort(intOrStr intstr.IntOrString, portMap map[string]int) (int, stri
 // syntheticProbeHandler creates an HTTP handler that returns 200 OK for probe requests
 // to prevent kubelet liveness probe timeouts while a container is frozen.
 func syntheticProbeHandler(podName, namespace string) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method == http.MethodHead {
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": "Method Not Allowed",
+				"code":  http.StatusMethodNotAllowed,
+			})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -179,6 +187,7 @@ func syntheticProbeHandler(podName, namespace string) http.Handler {
 			"timestamp": now(),
 		})
 	})
+	return headBodySuppressingMiddleware(h)
 }
 
 // preserve registers and activates liveness probe preservation for the stunned pod.

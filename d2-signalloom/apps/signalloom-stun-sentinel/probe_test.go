@@ -157,6 +157,24 @@ func TestSyntheticProbeHandlerMethodNotAllowed(t *testing.T) {
 		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
 			t.Errorf("method %s Allow = %q; want GET, HEAD", method, allow)
 		}
+		if ctype := rec.Header().Get("Content-Type"); ctype != "application/json" {
+			t.Errorf("method %s Content-Type = %q; want application/json", method, ctype)
+		}
+	}
+
+	// Verify HEAD request on unsupported method suppresses response body
+	headErrReq := httptest.NewRequest(http.MethodHead, "/healthz", nil)
+	headErrReq.Method = "TRACE"
+	headErrRec := httptest.NewRecorder()
+	handler.ServeHTTP(headErrRec, headErrReq)
+	if headErrRec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD TRACE status = %d, want 405", headErrRec.Code)
+	}
+	if allow := headErrRec.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Errorf("HEAD TRACE Allow = %q, want GET, HEAD", allow)
+	}
+	if headErrRec.Body.Len() != 0 {
+		t.Errorf("HEAD TRACE got body %q, want empty", headErrRec.Body.String())
 	}
 }
 

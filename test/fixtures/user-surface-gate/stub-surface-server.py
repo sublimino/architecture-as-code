@@ -64,6 +64,17 @@ class Handler(BaseHTTPRequestHandler):
     def _send_405(self, allow: str):
         self._err(405, "method_not_allowed", f"Method {self.command} not allowed", extra_headers={"Allow": allow})
 
+    def send_error(self, code: int, message: str | None = None, explain: str | None = None):
+        extra_headers = {}
+        if code in (405, 501):
+            path = getattr(self, "path", "/")
+            allowed = self._allowed_methods_for_path(path) if hasattr(self, "_allowed_methods_for_path") else None
+            extra_headers["Allow"] = allowed or "GET, HEAD, POST"
+            if code == 501:
+                code = 405
+        msg = message or self.responses.get(code, ("Error", ""))[0]
+        self._err(code, "http_error", msg, extra_headers=extra_headers)
+
     def _authed(self) -> bool:
         auth = self.headers.get("Authorization", "")
         return auth.strip() == f"Bearer {TOKEN}"

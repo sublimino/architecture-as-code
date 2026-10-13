@@ -162,6 +162,20 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                 self._send_json(405, {"error": "method not allowed"}, allow="POST")
                 return
             self._send_json(404, {"error": "not found"})
+        def send_error(self, code: int, message: str | None = None, explain: str | None = None):
+            allow = None
+            if code in (405, 501):
+                path = getattr(self, "path", "/").split("?")[0].rstrip("/") or "/"
+                if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
+                    allow = "GET, HEAD"
+                elif path == "/a2a":
+                    allow = "POST"
+                else:
+                    allow = "GET, HEAD, POST"
+                if code == 501:
+                    code = 405
+            msg = message or self.responses.get(code, ("error", ""))[0]
+            self._send_json(code, {"error": msg}, allow=allow)
         def do_PUT(self): self._handle_unsupported_method()
         def do_DELETE(self): self._handle_unsupported_method()
         def do_PATCH(self): self._handle_unsupported_method()

@@ -178,4 +178,49 @@ func TestSyntheticProbeHandlerReturns200WithHeaders(t *testing.T) {
 	if body["status"] != "frozen" || body["pod"] != "test-pod" {
 		t.Errorf("unexpected body: %+v", body)
 	}
+
+	// Verify HEAD request suppresses response body
+	headReq := httptest.NewRequest(http.MethodHead, "/healthz", nil)
+	headRec := httptest.NewRecorder()
+	handler.ServeHTTP(headRec, headReq)
+	if headRec.Code != http.StatusOK {
+		t.Fatalf("HEAD status = %d, want 200", headRec.Code)
+	}
+	if val := headRec.Header().Get("X-SignalLoom-Preserved"); val != "true" {
+		t.Errorf("HEAD X-SignalLoom-Preserved = %q, want 'true'", val)
+	}
+	if headRec.Body.Len() != 0 {
+		t.Errorf("HEAD got body %q, want empty", headRec.Body.String())
+	}
+
+	// Verify unsupported methods return 405 Method Not Allowed with Allow header
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodOptions} {
+		mReq := httptest.NewRequest(method, "/healthz", nil)
+		mRec := httptest.NewRecorder()
+		handler.ServeHTTP(mRec, mReq)
+		if mRec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s /healthz got status %d, want 405", method, mRec.Code)
+		}
+		if allow := mRec.Header().Get("Allow"); allow != "GET, HEAD" {
+			t.Errorf("%s Allow header = %q, want 'GET, HEAD'", method, allow)
+		}
+		if ctype := mRec.Header().Get("Content-Type"); ctype != "application/json" {
+			t.Errorf("%s Content-Type = %q, want 'application/json'", method, ctype)
+		}
+	}
+
+	// Verify HEAD request on unsupported method suppresses response body
+	headErrReq := httptest.NewRequest(http.MethodHead, "/healthz", nil)
+	headErrReq.Method = "TRACE"
+	headErrRec := httptest.NewRecorder()
+	handler.ServeHTTP(headErrRec, headErrReq)
+	if headErrRec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD TRACE status = %d, want 405", headErrRec.Code)
+	}
+	if allow := headErrRec.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Errorf("HEAD TRACE Allow = %q, want 'GET, HEAD'", allow)
+	}
+	if headErrRec.Body.Len() != 0 {
+		t.Errorf("HEAD TRACE got body %q, want empty", headErrRec.Body.String())
+	}
 }

@@ -3,16 +3,46 @@ package a2a
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
+// headResponseWriter suppresses response bodies on HEAD requests (RFC 9110 Section 6.4.1).
+type headResponseWriter struct {
+	http.ResponseWriter
+}
+
+func (w *headResponseWriter) Write(b []byte) (int, error) {
+	return len(b), nil
+}
+
+func headBodySuppressingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			w = &headResponseWriter{ResponseWriter: w}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func TestClient_DiscoverCard(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/agent-card.json", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodHead {
+			return
+		}
 		_ = json.NewEncoder(w).Encode(AgentCard{
 			Name:        "test-agent",
 			Description: "A test agent",
@@ -20,7 +50,7 @@ func TestClient_DiscoverCard(t *testing.T) {
 		})
 	})
 
-	server := httptest.NewServer(mux)
+	server := httptest.NewServer(headBodySuppressingMiddleware(mux))
 	defer server.Close()
 
 	client := NewClient()
@@ -90,7 +120,14 @@ func TestClient_GetTask_HTTPError(t *testing.T) {
 }
 
 func TestClient_SendTask_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+			return
+		}
 		resp := JSONRPCResponse{
 			JSONRPC: "2.0",
 			ID:      "task-1",
@@ -100,8 +137,12 @@ func TestClient_SendTask_Success(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodHead {
+			return
+		}
 		_ = json.NewEncoder(w).Encode(resp)
-	}))
+	})))
 	defer server.Close()
 
 	client := NewClient()
@@ -111,5 +152,130 @@ func TestClient_SendTask_Success(t *testing.T) {
 	}
 	if res.Status != "completed" {
 		t.Errorf("expected completed, got %s", res.Status)
+	}
+}
+
+func TestClient_DiscoverCard_MethodGatesAndHEADBodySuppression(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/agent-card.json", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_ = json.NewEncoder(w).Encode(AgentCard{
+			Name:        "test-agent",
+			Description: "A test agent",
+			Version:     "1.0.0",
+		})
+	})
+
+	server := httptest.NewServer(headBodySuppressingMiddleware(mux))
+	defer server.Close()
+
+	// 1. HEAD request returns 200 with matching Content-Type and 0 body bytes
+	headReq, err := http.NewRequestWithContext(context.Background(), http.MethodHead, server.URL+"/.well-known/agent-card.json", nil)
+	if err != nil {
+		t.Fatalf("create HEAD request: %v", err)
+	}
+	headResp, err := http.DefaultClient.Do(headReq)
+	if err != nil {
+		t.Fatalf("HEAD request failed: %v", err)
+	}
+	defer headResp.Body.Close()
+
+	if headResp.StatusCode != http.StatusOK {
+		t.Errorf("HEAD status = %d, want 200", headResp.StatusCode)
+	}
+	if ct := headResp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("HEAD Content-Type = %q, want 'application/json'", ct)
+	}
+	body, err := io.ReadAll(headResp.Body)
+	if err != nil {
+		t.Fatalf("read HEAD body: %v", err)
+	}
+	if len(body) != 0 {
+		t.Errorf("HEAD body length = %d, want 0", len(body))
+	}
+
+	// 2. Unsupported methods return 405 Method Not Allowed with Allow: GET, HEAD
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		req, err := http.NewRequestWithContext(context.Background(), method, server.URL+"/.well-known/agent-card.json", nil)
+		if err != nil {
+			t.Fatalf("create %s request: %v", method, err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s request failed: %v", method, err)
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("%s status = %d, want 405", method, resp.StatusCode)
+		}
+		if allow := resp.Header.Get("Allow"); allow != "GET, HEAD" {
+			t.Errorf("%s Allow header = %q, want 'GET, HEAD'", method, allow)
+		}
+	}
+}
+
+func TestClient_SendTask_MethodGatesAndHEADBodySuppression(t *testing.T) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})))
+	defer server.Close()
+
+	// 1. GET returns 405 Method Not Allowed with Allow: POST
+	getReq, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
+	getResp, err := http.DefaultClient.Do(getReq)
+	if err != nil {
+		t.Fatalf("GET request failed: %v", err)
+	}
+	getResp.Body.Close()
+	if getResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("GET status = %d, want 405", getResp.StatusCode)
+	}
+	if allow := getResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("GET Allow header = %q, want 'POST'", allow)
+	}
+
+	// 2. HEAD returns 405 Method Not Allowed with Allow: POST and 0-byte body
+	headReq, _ := http.NewRequestWithContext(context.Background(), http.MethodHead, server.URL, nil)
+	headResp, err := http.DefaultClient.Do(headReq)
+	if err != nil {
+		t.Fatalf("HEAD request failed: %v", err)
+	}
+	defer headResp.Body.Close()
+	if headResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD status = %d, want 405", headResp.StatusCode)
+	}
+	if allow := headResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("HEAD Allow header = %q, want 'POST'", allow)
+	}
+	body, err := io.ReadAll(headResp.Body)
+	if err != nil {
+		t.Fatalf("read HEAD body: %v", err)
+	}
+	if len(body) != 0 {
+		t.Errorf("HEAD body length = %d, want 0", len(body))
 	}
 }

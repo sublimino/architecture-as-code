@@ -163,3 +163,39 @@ func TestPromoteActor_RespectsAuthenticatedTenantAudit(t *testing.T) {
 		t.Errorf("actor_promoted tenant: want tenant-acme, got %q", promoted[0].TenantID)
 	}
 }
+
+func TestPromoteActor_MethodNotAllowedAndHEADBodySuppression(t *testing.T) {
+	h, _ := newTestHandlers(t)
+
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/v1/actors/some-actor/promote", nil)
+		w := httptest.NewRecorder()
+		h.handlePromoteActor(w, req)
+
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handlePromoteActor got %d, want 405", method, w.Code)
+		}
+		if allow := w.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("%s Allow header = %q, want 'POST'", method, allow)
+		}
+		if w.Body.Len() == 0 {
+			t.Errorf("%s expected error body, got empty", method)
+		}
+	}
+
+	// HEAD request must return 405 with Allow: POST and 0-byte body per RFC 9110 Section 6.4.1
+	headReq := httptest.NewRequest(http.MethodHead, "/api/v1/actors/some-actor/promote", nil)
+	headRec := httptest.NewRecorder()
+	wrappedRec := &headResponseWriter{ResponseWriter: headRec}
+	h.handlePromoteActor(wrappedRec, headReq)
+
+	if headRec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD handlePromoteActor got %d, want 405", headRec.Code)
+	}
+	if allow := headRec.Header().Get("Allow"); allow != "POST" {
+		t.Errorf("HEAD Allow header = %q, want 'POST'", allow)
+	}
+	if headRec.Body.Len() != 0 {
+		t.Errorf("HEAD response body not suppressed: got %d bytes %q", headRec.Body.Len(), headRec.Body.String())
+	}
+}

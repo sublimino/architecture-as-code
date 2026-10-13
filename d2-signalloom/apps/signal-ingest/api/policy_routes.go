@@ -255,6 +255,11 @@ type rateBucketView struct {
 
 // handlePolicyFindings answers GET /api/v1/policy/findings.
 func (h *Handlers) handlePolicyFindings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	req, ok := parsePolicyRead(w, r)
 	if !ok {
 		return
@@ -290,6 +295,11 @@ func (h *Handlers) handlePolicyFindings(w http.ResponseWriter, r *http.Request) 
 // handlePolicyDecisions answers GET /api/v1/policy/decisions, joining each decision to the latest
 // verdict recorded against it.
 func (h *Handlers) handlePolicyDecisions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	req, ok := parsePolicyRead(w, r)
 	if !ok {
 		return
@@ -390,6 +400,11 @@ type reviewRequestBody struct {
 
 // handlePolicyReview answers POST /api/v1/policy/decisions/{id}/review.
 func (h *Handlers) handlePolicyReview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	decisionID := r.PathValue("id")
 	if decisionID == "" {
 		writeError(w, http.StatusBadRequest, "decision id is required")
@@ -510,6 +525,11 @@ func (h *Handlers) handlePolicyReview(w http.ResponseWriter, r *http.Request) {
 // working — raw signal in, findings out, decisions out — so filtering to policy sources here
 // would remove the denominator that makes the other two series mean anything.
 func (h *Handlers) handlePolicyRates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	req, ok := parsePolicyRead(w, r)
 	if !ok {
 		return

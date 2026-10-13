@@ -1139,3 +1139,107 @@ func TestPolicyReads_NeverScanTheWholeStore(t *testing.T) {
 		}
 	}
 }
+
+func TestPolicyRoutes_MethodGatesAndHEADBodySuppression(t *testing.T) {
+	srv, h := policyAPIFixture(t)
+
+	// 1. Policy read routes: handlePolicyFindings, handlePolicyDecisions, handlePolicyRates
+	readRoutes := []struct {
+		name    string
+		path    string
+		handler func(http.ResponseWriter, *http.Request)
+	}{
+		{"findings", "/api/v1/policy/findings", h.handlePolicyFindings},
+		{"decisions", "/api/v1/policy/decisions", h.handlePolicyDecisions},
+		{"rates", "/api/v1/policy/rates", h.handlePolicyRates},
+	}
+
+	for _, rt := range readRoutes {
+		t.Run("read_"+rt.name+"_method_not_allowed", func(t *testing.T) {
+			for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+				req := httptest.NewRequest(method, rt.path, nil)
+				rec := httptest.NewRecorder()
+				rt.handler(rec, req)
+
+				if rec.Code != http.StatusMethodNotAllowed {
+					t.Errorf("%s %s got status %d, want 405", method, rt.path, rec.Code)
+				}
+				if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
+					t.Errorf("%s %s Allow header = %q, want 'GET, HEAD'", method, rt.path, allow)
+				}
+				if rec.Body.Len() == 0 {
+					t.Errorf("%s %s expected error body, got empty", method, rt.path)
+				}
+			}
+		})
+
+		t.Run("read_"+rt.name+"_head_suppressed_via_router", func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodHead, rt.path, nil)
+			req.Header.Set("Authorization", "Bearer "+policyReaderToken)
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("HEAD %s got status %d, want 200 (body: %s)", rt.path, rec.Code, rec.Body.String())
+			}
+			if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+				t.Errorf("HEAD %s Content-Type = %q, want 'application/json'", rt.path, ct)
+			}
+			if rec.Body.Len() != 0 {
+				t.Errorf("HEAD %s body length = %d, want 0", rt.path, rec.Body.Len())
+			}
+		})
+	}
+
+	// 2. Policy review route: handlePolicyReview
+	reviewPath := "/api/v1/policy/decisions/dec-1/review"
+	t.Run("review_method_not_allowed", func(t *testing.T) {
+		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+			req := httptest.NewRequest(method, reviewPath, nil)
+			rec := httptest.NewRecorder()
+			h.handlePolicyReview(rec, req)
+
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s handlePolicyReview got status %d, want 405", method, rec.Code)
+			}
+			if allow := rec.Header().Get("Allow"); allow != "POST" {
+				t.Errorf("%s handlePolicyReview Allow header = %q, want 'POST'", method, allow)
+			}
+			if rec.Body.Len() == 0 {
+				t.Errorf("%s handlePolicyReview expected error body, got empty", method)
+			}
+		}
+	})
+
+	t.Run("review_head_suppressed_handler", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodHead, reviewPath, nil)
+		rec := httptest.NewRecorder()
+		wrapped := &headResponseWriter{ResponseWriter: rec}
+		h.handlePolicyReview(wrapped, req)
+
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("HEAD handlePolicyReview got status %d, want 405", rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("HEAD handlePolicyReview Allow header = %q, want 'POST'", allow)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("HEAD handlePolicyReview body length = %d, want 0", rec.Body.Len())
+		}
+	})
+
+	t.Run("review_head_suppressed_via_router", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodHead, reviewPath, nil)
+		req.Header.Set("Authorization", "Bearer "+policyReviewerToken)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden && rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("HEAD %s got status %d, want 403 or 405", reviewPath, rec.Code)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("HEAD %s body length = %d, want 0", reviewPath, rec.Body.Len())
+		}
+	})
+}
+

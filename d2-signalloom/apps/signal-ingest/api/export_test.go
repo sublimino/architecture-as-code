@@ -18,6 +18,9 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	for _, route := range h.routeDefinitions(nil) {
 		handler := route.handler
 		mux.HandleFunc(route.pattern, func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodHead {
+				w = &headResponseWriter{ResponseWriter: w}
+			}
 			ctx := r.Context()
 			if _, ok := PrincipalFromContext(ctx); !ok {
 				if tc, ok := TenantContextFromContext(ctx); ok && tc.TenantID != "" {

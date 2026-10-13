@@ -12,6 +12,11 @@ import (
 )
 
 func (h *Handlers) handlePromoteActor(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	id, err := actorIDFromPath(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "actor id is required")

@@ -163,9 +163,6 @@ func syntheticProbeHandler(podName, namespace string) http.Handler {
 			w.Header().Set("Allow", "GET, HEAD")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
-			if r.Method == http.MethodHead {
-				return
-			}
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"error": "Method Not Allowed",
 				"code":  http.StatusMethodNotAllowed,

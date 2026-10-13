@@ -145,7 +145,7 @@ func TestSyntheticProbeHandlerHEADSuppressesBody(t *testing.T) {
 
 func TestSyntheticProbeHandlerMethodNotAllowed(t *testing.T) {
 	handler := syntheticProbeHandler("agent-cardvault", "fe-signalloom-agents")
-	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, "TRACE"} {
 		req := httptest.NewRequest(method, "/healthz", nil)
 		rec := httptest.NewRecorder()
 
@@ -162,19 +162,38 @@ func TestSyntheticProbeHandlerMethodNotAllowed(t *testing.T) {
 		}
 	}
 
-	// Verify HEAD request on unsupported method suppresses response body
-	headErrReq := httptest.NewRequest(http.MethodHead, "/healthz", nil)
-	headErrReq.Method = "TRACE"
-	headErrRec := httptest.NewRecorder()
-	handler.ServeHTTP(headErrRec, headErrReq)
-	if headErrRec.Code != http.StatusMethodNotAllowed {
-		t.Errorf("HEAD TRACE status = %d, want 405", headErrRec.Code)
+	// Verify HEAD request on non-existent path suppresses response body (RFC 9110 Section 6.4.1)
+	mux := http.NewServeMux()
+	mux.Handle("/healthz", handler)
+	wrappedMux := headBodySuppressingMiddleware(mux)
+
+	head404Req := httptest.NewRequest(http.MethodHead, "/nonexistent", nil)
+	head404Rec := httptest.NewRecorder()
+	wrappedMux.ServeHTTP(head404Rec, head404Req)
+	if head404Rec.Code != http.StatusNotFound {
+		t.Errorf("HEAD /nonexistent status = %d, want 404", head404Rec.Code)
 	}
-	if allow := headErrRec.Header().Get("Allow"); allow != "GET, HEAD" {
-		t.Errorf("HEAD TRACE Allow = %q, want GET, HEAD", allow)
+	if head404Rec.Body.Len() != 0 {
+		t.Errorf("HEAD /nonexistent got body %q, want empty", head404Rec.Body.String())
 	}
-	if headErrRec.Body.Len() != 0 {
-		t.Errorf("HEAD TRACE got body %q, want empty", headErrRec.Body.String())
+
+	// Verify HEAD request on route returning 405 suppresses response body
+	postOnlyHandler := headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = w.Write([]byte(`{"error":"Method Not Allowed"}`))
+			return
+		}
+	}))
+	head405Req := httptest.NewRequest(http.MethodHead, "/submit", nil)
+	head405Rec := httptest.NewRecorder()
+	postOnlyHandler.ServeHTTP(head405Rec, head405Req)
+	if head405Rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD /submit status = %d, want 405", head405Rec.Code)
+	}
+	if head405Rec.Body.Len() != 0 {
+		t.Errorf("HEAD /submit got body %q, want empty", head405Rec.Body.String())
 	}
 }
 

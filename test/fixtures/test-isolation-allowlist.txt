@@ -64,6 +64,9 @@ test/federation-bao-role-glob.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCA
 test/federation-bao-role-glob.bats:TMP:/tmp/gopath  # overridable: ${GOPATH:-/tmp/gopath}
 test/tombstone-mutation-check.bats:TMP:/tmp/gocache  # overridable: ${GOCACHE:-/tmp/gocache}
 test/tombstone-mutation-check.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCACHE:-/tmp/gomodcache}
+test/agent-identity-binding-vap.bats:TMP:/tmp/gocache  # overridable: ${GOCACHE:-/tmp/gocache}
+test/agent-identity-binding-vap.bats:TMP:/tmp/gomodcache  # overridable: ${GOMODCACHE:-/tmp/gomodcache}
+test/agent-identity-binding-vap.bats:TMP:/tmp/gopath  # overridable: ${GOPATH:-/tmp/gopath}
 d2-signalloom/test/netassert-gitops.bats:PORT:18082  # static assertion: grep for scan URL in runner script
 
 # --- Go: fleet-manager -----------------------------------------------------

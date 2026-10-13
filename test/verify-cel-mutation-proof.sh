@@ -19,19 +19,25 @@
 # Run: test/verify-cel-mutation-proof.sh      (~90s, needs docker, go, uv, bats)
 
 set -o pipefail
-cd "$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)" || exit 1
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT" || exit 1
 
-TARGET=test/../scripts/verify-cel.sh
-BACKUP="$(mktemp "${TMPDIR:-/tmp}/verify-cel.orig.XXXXXX")" || exit 1
-cp "${TARGET}" "${BACKUP}" || exit 1
-restore() { cp "${BACKUP}" "${TARGET}"; }
-trap 'restore; rm -f "${BACKUP}"' EXIT INT TERM
+TARGET="scripts/verify-cel.sh"
+
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
+
+ms_guard_init verify-cel "${TARGET}"
+trap ms_guard_on_exit EXIT INT TERM
+
+restore() { ms_guard_restore; }
 
 failures=0
 mutants=0
 
 # mutate OLD NEW — exact-string replacement, first occurrence, must match.
 mutate() {
+	ms_guard_arm "$1"
 	OLD="$1" NEW="$2" TARGET="${TARGET}" python3 -c '
 import os, sys
 p = os.environ["TARGET"]

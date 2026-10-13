@@ -48,7 +48,6 @@ set -eo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PE="$ROOT/d2-signalloom/apps/policy-engine"
 SI="$ROOT/d2-signalloom/apps/signal-ingest"
-BAK="$(mktemp -d "${TMPDIR:-/tmp}/j2-mutation-proof.XXXXXX")"
 
 # The files any mutant may touch. Backed up before anything is changed.
 TARGETS=(
@@ -59,49 +58,19 @@ TARGETS=(
   "$SI/pkg/fair/engine.go"
 )
 
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${ROOT}/test/helpers/mutation-sentinel.bash"
+
+ms_guard_init verify-cel-money-chaos "${TARGETS[@]}"
+trap ms_guard_on_exit EXIT INT TERM
+
 declare -a SURVIVORS=()
 declare -a KILLED=()
 declare -a MISSING=()
 declare -a BLIND=()
 
-cleanup() {
-  local rc=$?
-  for f in "${TARGETS[@]}"; do
-    local name
-    name="$(echo "$f" | tr '/' '_')"
-    if [ -f "$BAK/$name" ]; then
-      cp "$BAK/$name" "$f"
-    fi
-  done
-  # Prove the restore worked rather than assuming it. A mutation proof that
-  # leaves a mutant behind has poisoned every suite that runs after it.
-  local drift=0
-  for f in "${TARGETS[@]}"; do
-    local name
-    name="$(echo "$f" | tr '/' '_')"
-    if ! cmp -s "$BAK/$name" "$f"; then
-      echo "FATAL: $f does NOT match its backup after restore" >&2
-      drift=1
-    fi
-  done
-  rm -rf "$BAK"
-  if [ "$drift" -ne 0 ]; then
-    exit 90
-  fi
-  exit "$rc"
-}
-trap cleanup EXIT INT TERM
-
-for f in "${TARGETS[@]}"; do
-  [ -f "$f" ] || { echo "missing target $f" >&2; exit 2; }
-  cp "$f" "$BAK/$(echo "$f" | tr '/' '_')"
-done
-echo "backups in $BAK"
-
 restore_all() {
-  for f in "${TARGETS[@]}"; do
-    cp "$BAK/$(echo "$f" | tr '/' '_')" "$f"
-  done
+  ms_guard_restore
 }
 
 # apply <file> <python-mutation-body>
@@ -110,6 +79,7 @@ restore_all() {
 # look exactly like a surviving mutant.
 apply() {
   local file="$1" body="$2"
+  ms_guard_arm "$file"
   MUT_FILE="$file" python3 -c "$body"
 }
 

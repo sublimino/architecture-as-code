@@ -7,12 +7,27 @@ setup() {
   root="$(cd "${BATS_TEST_FILENAME%/*}/.." && pwd)"
   app_dir="$root/d2-signalloom/apps/triage-ci-worker"
   infra_dir="$root/d2-signalloom/infra/agent-swarm/triage-ci-worker"
+  local gopath="${GOPATH:-}"
+  if [ "$gopath" = "/usr/local/src/gocode" ] || [ -z "$gopath" ]; then
+    gopath=/tmp/gopath
+  fi
+  export GOPATH="$gopath"
+  export GOCACHE="${GOCACHE:-/tmp/gocache}"
+  export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+  export GONOSUMDB="*"
+  export CGO_ENABLED=0
+  export PATH="/home/linuxbrew/.linuxbrew/bin:/usr/bin:$PATH"
+  mkdir -p "$GOPATH" "$GOCACHE" "$GOMODCACHE"
 }
 
 # -- Structure --
 
 @test "triage-ci-worker: main.go exists" {
   [[ -f "$app_dir/main.go" ]]
+}
+
+@test "triage-ci-worker: main_test.go exists" {
+  [[ -f "$app_dir/main_test.go" ]]
 }
 
 @test "triage-ci-worker: parser.go exists" {

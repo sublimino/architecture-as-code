@@ -27,7 +27,6 @@ set -eo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
-BACKUP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/offline-mutation-proof.XXXXXX")"
 MUTATED_FILES=(
 	"Makefile"
 	"scripts/offline-deps.sh"
@@ -36,66 +35,23 @@ MUTATED_FILES=(
 	"test/offline-install-boundary.bats"
 )
 
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
+
+ms_guard_init offline-install "${MUTATED_FILES[@]}"
+trap ms_guard_on_exit EXIT INT TERM
+
 PROVEN=0
 UNPROVEN=()
 
-backup_all() {
-	local f
-	for f in "${MUTATED_FILES[@]}"; do
-		mkdir -p "${BACKUP_DIR}/$(dirname "${f}")"
-		cp -p "${f}" "${BACKUP_DIR}/${f}"
-	done
-	( cd "${BACKUP_DIR}" && find . -type f -exec sha256sum {} + ) | sort > "${BACKUP_DIR}/.sums"
-}
-
-restore_all() {
-	local f
-	for f in "${MUTATED_FILES[@]}"; do
-		cp -p "${BACKUP_DIR}/${f}" "${f}"
-	done
-}
-
-verify_restored() {
-	local f ok=0
-	for f in "${MUTATED_FILES[@]}"; do
-		if ! cmp -s "${BACKUP_DIR}/${f}" "${f}"; then
-			echo "RESTORE FAILED: ${f} does not match its backup at ${BACKUP_DIR}/${f}" >&2
-			ok=1
-		fi
-		# Modes as well as bytes. cmp is blind to permissions, and the first run
-		# of this proof stripped the executable bit off two scripts while every
-		# content comparison passed -- an invisible mutation residue. Compared via
-		# a test -x round trip rather than stat, which takes different flags on
-		# BSD and GNU.
-		if [ -x "${BACKUP_DIR}/${f}" ] && [ ! -x "${f}" ]; then
-			echo "RESTORE FAILED: ${f} lost its executable bit" >&2
-			ok=1
-		fi
-		if [ ! -x "${BACKUP_DIR}/${f}" ] && [ -x "${f}" ]; then
-			echo "RESTORE FAILED: ${f} gained an executable bit" >&2
-			ok=1
-		fi
-	done
-	return "${ok}"
-}
-
-cleanup() {
-	local rc=$?
-	restore_all || true
-	if verify_restored; then
-		rm -rf "${BACKUP_DIR}"
-	else
-		echo "Backups retained at ${BACKUP_DIR}" >&2
-		rc=1
-	fi
-	exit "${rc}"
-}
-trap cleanup EXIT INT TERM
+backup_all() { :; }
+restore_all() { ms_guard_restore; }
 
 # Literal first-occurrence replacement. Writes to a temp file and moves it into
 # place: never `sed -i`, which needs an argument on BSD and does not on GNU.
 subst() {
 	local f="$1" old="$2" new="$3" tmp
+	ms_guard_arm "${f}"
 	tmp="$(mktemp "${TMPDIR:-/tmp}/offline-mut.XXXXXX")"
 	awk -v old="${old}" -v new="${new}" '
 		BEGIN { done = 0 }
@@ -123,6 +79,7 @@ subst() {
 
 jq_edit() {
 	local f="$1" filter="$2" tmp
+	ms_guard_arm "${f}"
 	tmp="$(mktemp "${TMPDIR:-/tmp}/offline-mut.XXXXXX")"
 	jq "${filter}" "${f}" > "${tmp}"
 	cat "${tmp}" > "${f}"
@@ -171,7 +128,7 @@ expect_red() {
 BOUNDARY=test/offline-install-boundary.bats
 COUNTS=test/offline-count-contract.bats
 
-echo "=== offline mutation proof: backing up ${#MUTATED_FILES[@]} files to ${BACKUP_DIR} ==="
+echo "=== offline mutation proof: backing up ${#MUTATED_FILES[@]} files to ${MS_BACKUP_DIR} ==="
 backup_all
 
 echo ""
@@ -319,7 +276,7 @@ restore_all
 echo ""
 echo "--- restoring and re-proving both suites are GREEN"
 restore_all
-verify_restored
+ms_guard_verify
 bats "${BOUNDARY}" > /dev/null
 bats "${COUNTS}" > /dev/null
 echo "ok both suites green after restoration, all files byte-identical to backup"

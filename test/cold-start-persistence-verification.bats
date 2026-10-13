@@ -6,6 +6,12 @@ setup_file() {
   export REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
 }
 
+have_cluster() {
+  command -v kubectl >/dev/null 2>&1 || return 1
+  kubectl get nodes >/dev/null 2>&1 || return 1
+  return 0
+}
+
 @test "cold start: kind cluster configuration specifies hostPath volume mounts" {
   [ -f "${REPO_ROOT}/.kind/config.yaml" ] || [ -f "${REPO_ROOT}/deploy/kind-config.yaml" ] || [ -f "${REPO_ROOT}/Makefile" ]
 }
@@ -21,6 +27,7 @@ setup_file() {
 }
 
 @test "live reconciliation: postgresql pod is running and accepting connections" {
+  have_cluster || skip "live cluster not available"
   run kubectl exec -n inf-signalloom deploy/postgresql -- pg_isready -U postgres -h 127.0.0.1 2>/dev/null
   [ "$status" -eq 0 ]
   run kubectl exec -n backend pod/postgres -- pg_isready -U postgres -h 127.0.0.1 2>/dev/null
@@ -28,6 +35,7 @@ setup_file() {
 }
 
 @test "live reconciliation: openbao pod is running and unsealed" {
+  have_cluster || skip "live cluster not available"
   run kubectl exec -n inf-bao deploy/openbao -c openbao -- sh -c 'BAO_ADDR=http://127.0.0.1:8200 bao status -format=json' 2>/dev/null
   [ "$status" -eq 0 ]
   run python3 -c 'import json, sys; d=json.loads(sys.stdin.read()); sys.exit(0 if d.get("sealed") is False else 1)' <<<"$output"
@@ -35,6 +43,7 @@ setup_file() {
 }
 
 @test "live reconciliation: flux resourcesets are all in Ready condition" {
+  have_cluster || skip "live cluster not available"
   run kubectl get resourcesets -A -o jsonpath='{range .items[*]}{.metadata.name}:{.status.conditions[?(@.type=="Ready")].status}{" "}{end}' 2>/dev/null
   [ "$status" -eq 0 ]
   [ -n "$output" ]
@@ -42,6 +51,7 @@ setup_file() {
 }
 
 @test "live reconciliation: gateway api listener is active and responsive" {
+  have_cluster || skip "live cluster not available"
   run kubectl get gateway -n ingress -o jsonpath='{.items[*].status.conditions[?(@.type=="Programmed")].status}' 2>/dev/null
   [ "$status" -eq 0 ]
   [ -n "$output" ]

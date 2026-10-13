@@ -512,7 +512,7 @@ func TestEvaluateObservationFiresEndpointRulesOnLiveStunSentinelStream(t *testin
 
 	t.Run("NEGATIVE: a non-sensitive file open produces no endpoint finding", func(t *testing.T) {
 		body := `{"tenant_id":"kusari","observation":{"id":"s4","timestamp":"2026-10-04T08:00:00Z",` + layerSrc +
-			`,"labels":{"classification":"file_access","target":"/tmp/scratch.log","syscall":"sys_enter_openat"}}}`
+			`,"labels":{"classification":"file_access","target":"/var/log/scratch.log","syscall":"sys_enter_openat"}}}`
 		if endpointRuleFired(t, body, "sensitive-file-open") {
 			t.Error("sensitive-file-open fired on a non-sensitive target; the membership gate is not holding")
 		}

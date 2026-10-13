@@ -301,14 +301,15 @@ func TestAccountsFromEnv_PerAccountBufferDir(t *testing.T) {
 			"tenant_id": "tenant-alpha"
 		}
 	]`
+	dir := t.TempDir()
 	t.Setenv(EnvAccounts, raw)
-	t.Setenv(EnvBufferDir, "/tmp/custom-buffer")
+	t.Setenv(EnvBufferDir, dir)
 
 	cfgs, err := AccountsFromEnv()
 	if err != nil {
 		t.Fatalf("AccountsFromEnv: %v", err)
 	}
-	want := filepath.Join("/tmp/custom-buffer", "111111111111")
+	want := filepath.Join(dir, "111111111111")
 	if cfgs[0].BufferDir != want {
 		t.Errorf("BufferDir = %q, want %q", cfgs[0].BufferDir, want)
 	}

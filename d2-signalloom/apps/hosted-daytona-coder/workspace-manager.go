@@ -10,11 +10,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -24,14 +28,16 @@ import (
 
 // WorkspaceRequest is the wire format for POST /workspaces.
 type WorkspaceRequest struct {
-	PVC    string `json:"pvc"`
-	Branch string `json:"branch"`
-	User   string `json:"user"`
+	PVC      string `json:"pvc"`
+	Branch   string `json:"branch"`
+	User     string `json:"user"`
+	TenantID string `json:"tenant_id,omitempty"`
 }
 
 // WorkspaceResponse is the wire format returned by the workspace manager.
 type WorkspaceResponse struct {
 	WorkspaceID    string `json:"workspace_id"`
+	TenantID       string `json:"tenant_id,omitempty"`
 	Status         string `json:"status"`
 	SSHUrl         string `json:"ssh_url,omitempty"`
 	VSCodeUrl      string `json:"vscode_url,omitempty"`
@@ -44,6 +50,55 @@ type WorkspaceResponse struct {
 // ErrorResponse is a standard error envelope.
 type ErrorResponse struct {
 	Error string `json:"error"`
+}
+
+var (
+	pvcRegex  = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
+	userRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`)
+)
+
+func validatePVC(pvc string) error {
+	pvc = strings.TrimSpace(pvc)
+	if pvc == "" {
+		return errors.New("pvc is required")
+	}
+	if len(pvc) > 253 {
+		return errors.New("pvc must be 253 characters or fewer")
+	}
+	if strings.Contains(pvc, "..") || strings.Contains(pvc, "/") || !pvcRegex.MatchString(pvc) {
+		return errors.New("pvc must be a valid DNS subdomain name")
+	}
+	return nil
+}
+
+func validateUser(user string) error {
+	user = strings.TrimSpace(user)
+	if user == "" {
+		return errors.New("user is required")
+	}
+	if len(user) > 63 {
+		return errors.New("user must be 63 characters or fewer")
+	}
+	if strings.Contains(user, "..") || strings.Contains(user, "/") || !userRegex.MatchString(user) {
+		return errors.New("user must be an alphanumeric identifier without path traversal")
+	}
+	return nil
+}
+
+func extractTenant(r *http.Request) (string, error) {
+	headerTenant := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+	queryTenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	if queryTenant == "" {
+		queryTenant = strings.TrimSpace(r.URL.Query().Get("tenant_id"))
+	}
+
+	if headerTenant != "" && queryTenant != "" && headerTenant != queryTenant {
+		return "", fmt.Errorf("conflicting tenant in header (%s) and query (%s)", headerTenant, queryTenant)
+	}
+	if headerTenant != "" {
+		return headerTenant, nil
+	}
+	return queryTenant, nil
 }
 
 // WorkspaceManager tracks active workspaces.
@@ -109,19 +164,35 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	})
 
 	mux.HandleFunc("POST /workspaces", func(w http.ResponseWriter, r *http.Request) {
+		tenant, err := extractTenant(r)
+		if err != nil {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+
 		var req WorkspaceRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 			return
 		}
 
-		if req.PVC == "" {
-			writeError(w, http.StatusBadRequest, "pvc is required")
+		if err := validatePVC(req.PVC); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if req.User == "" {
-			writeError(w, http.StatusBadRequest, "user is required")
+		if err := validateUser(req.User); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
+		}
+
+		if tenant != "" {
+			if req.TenantID != "" && req.TenantID != tenant {
+				writeError(w, http.StatusForbidden, fmt.Sprintf("cross-tenant operation forbidden: authenticated tenant %q cannot operate on %q", tenant, req.TenantID))
+				return
+			}
+			req.TenantID = tenant
+		} else if req.TenantID == "" {
+			req.TenantID = "default"
 		}
 
 		ws := mgr.Create(req)
@@ -132,8 +203,14 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	})
 
 	mux.HandleFunc("GET /workspaces/{id}", func(w http.ResponseWriter, r *http.Request) {
+		tenant, err := extractTenant(r)
+		if err != nil {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+
 		id := r.PathValue("id")
-		ws, ok := mgr.Get(id)
+		ws, ok := mgr.Get(id, tenant)
 		if !ok {
 			writeError(w, http.StatusNotFound, "workspace not found: "+id)
 			return
@@ -143,8 +220,19 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	})
 
 	mux.HandleFunc("DELETE /workspaces/{id}", func(w http.ResponseWriter, r *http.Request) {
+		tenant, err := extractTenant(r)
+		if err != nil {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+
 		id := r.PathValue("id")
-		if !mgr.Delete(id) {
+		deleted, delErr := mgr.Delete(id, tenant)
+		if delErr != nil {
+			writeError(w, http.StatusForbidden, delErr.Error())
+			return
+		}
+		if !deleted {
 			writeError(w, http.StatusNotFound, "workspace not found: "+id)
 			return
 		}
@@ -152,8 +240,14 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	})
 
 	mux.HandleFunc("GET /workspaces", func(w http.ResponseWriter, r *http.Request) {
+		tenant, err := extractTenant(r)
+		if err != nil {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(mgr.List())
+		json.NewEncoder(w).Encode(mgr.List(tenant))
 	})
 
 	return mux
@@ -169,8 +263,14 @@ func (m *WorkspaceManager) Create(req WorkspaceRequest) *WorkspaceResponse {
 	id := uuid.New().String()[:8]
 	podName := fmt.Sprintf("daytona-ws-%s", id)
 
+	tenantID := req.TenantID
+	if tenantID == "" {
+		tenantID = "default"
+	}
+
 	ws := &WorkspaceResponse{
 		WorkspaceID:    id,
+		TenantID:       tenantID,
 		Status:         "provisioning",
 		PodName:        podName,
 		SSHUrl:         fmt.Sprintf("ssh://%s.%s.svc.cluster.local:2222", podName, m.namespace),
@@ -183,6 +283,7 @@ func (m *WorkspaceManager) Create(req WorkspaceRequest) *WorkspaceResponse {
 
 	slog.Info("workspace created",
 		"workspace_id", id,
+		"tenant_id", tenantID,
 		"pod", podName,
 		"pvc", req.PVC,
 		"user", req.User,
@@ -204,33 +305,45 @@ func (m *WorkspaceManager) Create(req WorkspaceRequest) *WorkspaceResponse {
 	return ws
 }
 
-// Get returns a workspace by ID.
-func (m *WorkspaceManager) Get(id string) (*WorkspaceResponse, bool) {
+// Get returns a workspace by ID, ensuring tenant isolation.
+func (m *WorkspaceManager) Get(id, tenant string) (*WorkspaceResponse, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	ws, ok := m.workspaces[id]
-	return ws, ok
+	if !ok {
+		return nil, false
+	}
+	if tenant != "" && tenant != "*" && ws.TenantID != "" && ws.TenantID != tenant {
+		return nil, false
+	}
+	return ws, true
 }
 
-// Delete removes a workspace. In production this deletes the K8s pod.
-func (m *WorkspaceManager) Delete(id string) bool {
+// Delete removes a workspace, ensuring tenant isolation.
+func (m *WorkspaceManager) Delete(id, tenant string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.workspaces[id]; !ok {
-		return false
+	ws, ok := m.workspaces[id]
+	if !ok {
+		return false, nil
+	}
+	if tenant != "" && tenant != "*" && ws.TenantID != "" && ws.TenantID != tenant {
+		return false, fmt.Errorf("cross-tenant delete forbidden: authenticated tenant %q cannot delete workspace belonging to %q", tenant, ws.TenantID)
 	}
 	delete(m.workspaces, id)
-	slog.Info("workspace deleted", "workspace_id", id)
-	return true
+	slog.Info("workspace deleted", "workspace_id", id, "tenant_id", ws.TenantID)
+	return true, nil
 }
 
-// List returns all active workspaces.
-func (m *WorkspaceManager) List() []*WorkspaceResponse {
+// List returns active workspaces filtered by tenant if provided.
+func (m *WorkspaceManager) List(tenant string) []*WorkspaceResponse {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	result := make([]*WorkspaceResponse, 0, len(m.workspaces))
 	for _, ws := range m.workspaces {
-		result = append(result, ws)
+		if tenant == "" || tenant == "*" || ws.TenantID == tenant {
+			result = append(result, ws)
+		}
 	}
 	return result
 }

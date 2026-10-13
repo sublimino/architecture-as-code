@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -130,13 +131,13 @@ func makeSummarizeHandler(llmEndpoint, model string) http.HandlerFunc {
 		}
 
 		var payload diffPayload
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&payload); err != nil {
 			slog.Error("failed to decode payload", "error", err)
 			http.Error(w, "bad request: invalid JSON", http.StatusBadRequest)
 			return
 		}
 
-		if payload.Diff == "" {
+		if strings.TrimSpace(payload.Diff) == "" {
 			http.Error(w, "bad request: empty diff", http.StatusBadRequest)
 			return
 		}
@@ -199,12 +200,12 @@ func callLLM(ctx context.Context, client *http.Client, endpoint, model, diff str
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return "", 0, fmt.Errorf("LLM returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var llmResp llmResponse
-	if err := json.NewDecoder(resp.Body).Decode(&llmResp); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&llmResp); err != nil {
 		return "", 0, fmt.Errorf("decode LLM response: %w", err)
 	}
 

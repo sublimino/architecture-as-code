@@ -239,3 +239,23 @@ func TestServer_RequesterValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestProdDeployGateHeadUnmatchedRoutes(t *testing.T) {
+	secret := []byte("secret-key-32-bytes-long-here!!")
+	srv := NewServer(secret, "", 10*time.Minute)
+	mux := newMux(srv)
+
+	for _, path := range []string{"/unknown", "/api/v1/invalid", "/health/subpath"} {
+		req := httptest.NewRequest(http.MethodHead, path, nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("HEAD %s status = %d, want 404", path, rec.Code)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("HEAD %s body length = %d, want 0", path, rec.Body.Len())
+		}
+	}
+}
+

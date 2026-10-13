@@ -57,119 +57,111 @@ def verify_and_authorize(context, public_key, request, peer_spiffe, replay, now=
 def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, openbao_role="agent-trust-planner", receiver_instance=None):
     card=Path(__file__).with_name("agent-card.json").read_bytes(); replay=ReplayStore(); instance=receiver_instance or secrets.token_urlsafe(16)
     class H(BaseHTTPRequestHandler):
+        def _send_json(self, status: int, payload: dict, allow: str | None = None):
+            body = json.dumps(payload, separators=(',', ':')).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            if allow:
+                self.send_header("Allow", allow)
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+
         def do_GET(self):
             path = self.path.split("?")[0].rstrip("/") or "/"
             if path in ("/health", "/healthz", "/readyz"):
-                body = b'{"status":"ok"}'
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                self._send_json(200, {"status": "ok"})
                 return
             if path == "/challenge":
-                body=json.dumps({"instanceNonce":instance}).encode(); self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body); return
-            if path == "/a2a":
-                body = b'{"error":"method not allowed"}'
-                self.send_response(405)
-                self.send_header("Allow", "POST")
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-                return
-            if path not in ("/.well-known/agent-card.json","/.well-known/agent.json","/agent-card.json"): self.send_error(404); return
-            self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(card))); self.end_headers(); self.wfile.write(card)
-        def do_HEAD(self):
-            path = self.path.split("?")[0].rstrip("/") or "/"
-            if path in ("/health", "/healthz", "/readyz"):
-                body = b'{"status":"ok"}'
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                return
-            if path == "/challenge":
-                body = json.dumps({"instanceNonce": instance}).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
+                self._send_json(200, {"instanceNonce": instance})
                 return
             if path == "/a2a":
-                body = b'{"error":"method not allowed"}'
-                self.send_response(405)
-                self.send_header("Allow", "POST")
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
+                self._send_json(405, {"error": "method not allowed"}, allow="POST")
                 return
             if path not in ("/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
-                self.send_error(404)
+                self._send_json(404, {"error": "not found"})
                 return
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(card)))
             self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(card)
+
+        def do_HEAD(self):
+            path = self.path.split("?")[0].rstrip("/") or "/"
+            if path in ("/health", "/healthz", "/readyz"):
+                self._send_json(200, {"status": "ok"})
+                return
+            if path == "/challenge":
+                self._send_json(200, {"instanceNonce": instance})
+                return
+            if path == "/a2a":
+                self._send_json(405, {"error": "method not allowed"}, allow="POST")
+                return
+            if path not in ("/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
+                self._send_json(404, {"error": "not found"})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(card)))
+            self.end_headers()
+
         def do_POST(self):
             path = self.path.split("?")[0].rstrip("/") or "/"
             if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
-                body = b'{"error":"method not allowed"}'
-                self.send_response(405)
-                self.send_header("Allow", "GET, HEAD")
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                self._send_json(405, {"error": "method not allowed"}, allow="GET, HEAD")
                 return
-            if path != "/a2a": self.send_error(404); return
+            if path != "/a2a":
+                self._send_json(404, {"error": "not found"})
+                return
             raw_len = self.headers.get("Content-Length")
-            if raw_len is None: self.send_error(400); return
+            if raw_len is None:
+                self._send_json(400, {"error": "missing Content-Length"})
+                return
             try:
                 length = int(raw_len.strip())
             except ValueError:
-                self.send_error(400); return
-            if length <= 0 or length > 1048576: self.send_error(400); return
+                self._send_json(400, {"error": "invalid Content-Length"})
+                return
+            if length <= 0 or length > 1048576:
+                self._send_json(400, {"error": "Content-Length out of range"})
+                return
             try:
                 raw_body = self.rfile.read(length)
                 body = json.loads(raw_body)
             except (ValueError, json.JSONDecodeError):
-                self.send_error(400); return
-            if not isinstance(body, dict): self.send_error(400); return
+                self._send_json(400, {"error": "invalid JSON"})
+                return
+            if not isinstance(body, dict):
+                self._send_json(400, {"error": "body must be an object"})
+                return
             try:
                 auth = self.headers.get("Authorization", "")
-                if not auth.startswith("Bearer "): self.send_error(403); return
+                if not auth.startswith("Bearer "):
+                    self._send_json(403, {"error": "forbidden"})
+                    return
                 context = auth.removeprefix("Bearer ").strip()
                 jwt_svid = self.headers.get("X-SPIFFE-JWT-SVID")
-                if not jwt_svid: self.send_error(403); return
+                if not jwt_svid:
+                    self._send_json(403, {"error": "missing SPIFFE JWT-SVID"})
+                    return
                 validator = identity_validator or (lambda token: validate_openbao_identity(openbao_url or "",token,openbao_role,PLANNER))
                 decision = verify_and_authorize(context, public_key, body, validator(jwt_svid), replay, receiver_instance=instance)
-                resp_data = json.dumps(decision).encode()
-                self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(resp_data))); self.end_headers(); self.wfile.write(resp_data)
-            except (KeyError, ValueError, AttributeError, PermissionError): self.send_error(403)
+                self._send_json(200, decision)
+            except (KeyError, ValueError, AttributeError, PermissionError):
+                self._send_json(403, {"error": "forbidden"})
+
         def _handle_unsupported_method(self):
             path = self.path.split("?")[0].rstrip("/") or "/"
             if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
-                body = b'{"error":"method not allowed"}'
-                self.send_response(405)
-                self.send_header("Allow", "GET, HEAD")
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                if self.command != "HEAD":
-                    self.wfile.write(body)
+                self._send_json(405, {"error": "method not allowed"}, allow="GET, HEAD")
                 return
             if path == "/a2a":
-                body = b'{"error":"method not allowed"}'
-                self.send_response(405)
-                self.send_header("Allow", "POST")
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                if self.command != "HEAD":
-                    self.wfile.write(body)
+                self._send_json(405, {"error": "method not allowed"}, allow="POST")
                 return
-            self.send_error(404)
+            self._send_json(404, {"error": "not found"})
         def do_PUT(self): self._handle_unsupported_method()
         def do_DELETE(self): self._handle_unsupported_method()
         def do_PATCH(self): self._handle_unsupported_method()

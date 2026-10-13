@@ -89,6 +89,13 @@ class A2A(unittest.TestCase):
     self.assertEqual(405, a2a_err.exception.code)
     self.assertEqual('POST', a2a_err.exception.headers.get('Allow'))
     a2a_err.exception.close()
+   for unknown in ('/unknown', '/api/v1/invalid', '/health/subpath'):
+    u_req=urllib.request.Request(f'http://127.0.0.1:{s.server_port}{unknown}', method='HEAD')
+    with self.assertRaises(urllib.error.HTTPError) as u_err: urllib.request.urlopen(u_req)
+    self.assertEqual(404, u_err.exception.code)
+    self.assertEqual('application/json', u_err.exception.headers.get('Content-Type'))
+    self.assertEqual(b'', u_err.exception.read())
+    u_err.exception.close()
   finally: s.shutdown(); th.join(); s.server_close()
  def test_http_uses_validator_not_claimed_identity_header(self):
   def validator(token):

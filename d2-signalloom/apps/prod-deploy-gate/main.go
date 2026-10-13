@@ -93,6 +93,27 @@ func writeJSON(w http.ResponseWriter, r *http.Request, status int, v any) {
 }
 
 
+// headResponseWriter suppresses response bodies for HTTP HEAD requests (RFC 9110 Section 6.4.1).
+type headResponseWriter struct {
+	http.ResponseWriter
+}
+
+func (w *headResponseWriter) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
+// headBodySuppressingMiddleware wraps an http.Handler and suppresses the response body
+// when the request method is HEAD, in compliance with RFC 9110 Section 6.4.1.
+func headBodySuppressingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			next.ServeHTTP(&headResponseWriter{ResponseWriter: w}, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/gate/request", s.handleGateRequest)
 	mux.HandleFunc("/gate/approve", s.handleGateApprove)
@@ -100,6 +121,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/health", handleHealthz)
 	mux.HandleFunc("/healthz", handleHealthz)
 	mux.HandleFunc("/readyz", handleReadyz)
+}
+
+func newMux(srv *Server) http.Handler {
+	mux := http.NewServeMux()
+	srv.registerRoutes(mux)
+	return headBodySuppressingMiddleware(mux)
 }
 
 func (s *Server) PruneExpired(now time.Time) int {
@@ -343,8 +370,7 @@ func main() {
 
 	srv := NewServer([]byte(hmacSecret), webhookURL, gateTTL)
 
-	mux := http.NewServeMux()
-	srv.registerRoutes(mux)
+	mux := newMux(srv)
 
 	httpSrv := &http.Server{
 		Addr:              ":" + port,

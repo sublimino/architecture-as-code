@@ -11,7 +11,7 @@ from typing import Annotated, Any
 
 import httpx
 from fastapi import APIRouter, Depends, Header, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from api_compat import APIError, Principal, authenticated_principal
 from ingest_client import ingest_headers
@@ -30,7 +30,7 @@ async def _proxy_telemetry(
     headers: dict[str, str] | None = None,
     content: bytes | None = None,
     params: dict[str, Any] | None = None,
-) -> JSONResponse:
+) -> Response:
     """Forward a request to the signal-ingest coding agent telemetry service."""
     req_headers = headers or {}
     try:
@@ -40,11 +40,13 @@ async def _proxy_telemetry(
             resp = await client.request(
                 method, path, headers=req_headers, content=content, params=params
             )
-            try:
-                body = resp.json()
-            except Exception:
-                body = {"raw": resp.text}
-            return JSONResponse(status_code=resp.status_code, content=body)
+            if resp.status_code in (204, 205, 304) or not resp.content or method == "HEAD":
+                body = None
+            else:
+                try:
+                    body = resp.json()
+                except Exception:
+                    body = {"raw": resp.text}
     except httpx.ConnectError as exc:
         logger.warning("signal-ingest service unreachable at %s", _SIGNAL_INGEST_URL)
         raise APIError(
@@ -55,11 +57,37 @@ async def _proxy_telemetry(
         raise APIError(
             504, "upstream_timeout", "signal-ingest request timed out"
         ) from exc
+    except httpx.RemoteProtocolError as exc:
+        logger.warning("signal-ingest closed the connection: %s %s", method, path)
+        raise APIError(
+            502, "upstream_unavailable", "signal-ingest closed the connection without a response (restarting?)"
+        ) from exc
+    except APIError:
+        raise
     except Exception as exc:
         logger.exception("signal-ingest proxy error: %s %s", method, path)
         raise APIError(
             502, "upstream_unavailable", "signal-ingest proxy error"
         ) from exc
+
+    # Forward headers per RFC 9110
+    from collections.abc import Mapping
+
+    forwarded_headers: dict[str, str] = {}
+    resp_headers_map: dict[str, str] = {}
+    headers_obj = getattr(resp, "headers", None)
+    if isinstance(headers_obj, Mapping):
+        resp_headers_map = {str(k).lower(): str(v) for k, v in headers_obj.items()}
+    for header_key in ("allow", "etag", "location", "x-tenant-id", "retry-after", "x-request-id"):
+        if header_key in resp_headers_map:
+            forwarded_headers[header_key] = resp_headers_map[header_key]
+
+    if resp.status_code in (204, 205, 304) or method == "HEAD" or body is None:
+        if "content-type" in resp_headers_map and resp.status_code not in (204, 205, 304):
+            forwarded_headers["content-type"] = resp_headers_map["content-type"]
+        return Response(status_code=resp.status_code, content=b"", headers=forwarded_headers)
+
+    return JSONResponse(status_code=resp.status_code, content=body, headers=forwarded_headers)
 
 
 # Telemetry is per-tenant data with no cross-tenant view, so every route acts for the caller's own
@@ -81,7 +109,7 @@ async def ingest_coding_agent_telemetry(
     request: Request,
     principal: Annotated[Principal, Depends(authenticated_principal)],
     x_signalloom_contract: Annotated[str | None, Header()] = None,
-) -> JSONResponse:
+) -> Response:
     """Ingest CodingAgentTelemetry event, validating closed-world schema and isolating by tenant."""
     headers = _telemetry_headers(principal, True, x_signalloom_contract)
     body = await request.body()
@@ -94,12 +122,13 @@ async def ingest_coding_agent_telemetry(
 async def list_coding_agent_telemetry(
     request: Request,
     principal: Annotated[Principal, Depends(authenticated_principal)],
-) -> JSONResponse:
+) -> Response:
     """List stored coding agent telemetry records for the authenticated tenant."""
     headers = _telemetry_headers(principal, False)
     params = dict(request.query_params)
+    method = request.method if request and getattr(request, "method", None) else "GET"
     return await _proxy_telemetry(
-        "GET", "/api/v1/telemetry/coding-agents", headers=headers, params=params
+        method, "/api/v1/telemetry/coding-agents", headers=headers, params=params
     )
 
 
@@ -107,12 +136,13 @@ async def list_coding_agent_telemetry(
 async def get_coding_agent_aggregate(
     request: Request,
     principal: Annotated[Principal, Depends(authenticated_principal)],
-) -> JSONResponse:
+) -> Response:
     """Get k-anonymity (k=5) protected aggregate metrics for coding agents."""
     headers = _telemetry_headers(principal, False)
     params = dict(request.query_params)
+    method = request.method if request and getattr(request, "method", None) else "GET"
     return await _proxy_telemetry(
-        "GET", "/api/v1/telemetry/coding-agents/aggregate", headers=headers, params=params
+        method, "/api/v1/telemetry/coding-agents/aggregate", headers=headers, params=params
     )
 
 
@@ -120,7 +150,7 @@ async def get_coding_agent_aggregate(
 async def evaluate_coding_agent_ordering(
     request: Request,
     principal: Annotated[Principal, Depends(authenticated_principal)],
-) -> JSONResponse:
+) -> Response:
     """Evaluate cross-workstation causal ordering with clock-skew bounds."""
     headers = _telemetry_headers(principal, True)
     body = await request.body()

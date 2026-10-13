@@ -194,22 +194,39 @@ func TestDispatchObservation(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/observations" {
-			http.NotFound(w, r)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"error":"not found"}`))
+			}
 			return
 		}
 		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"error":"method not allowed"}`))
+			}
 			return
 		}
 		authHeader := r.Header.Get("Authorization")
 		if authHeader != "Bearer "+testIngestToken {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			}
 			return
 		}
 
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			http.Error(w, "bad request", http.StatusBadRequest)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"error":"bad request"}`))
+			}
 			return
 		}
 
@@ -218,15 +235,52 @@ func TestDispatchObservation(t *testing.T) {
 		// rejects with 400, so it certified a contract that never existed.
 		var batch []ingestObservation
 		if err := json.Unmarshal(body, &batch); err != nil || len(batch) != 1 {
-			http.Error(w, "invalid json", http.StatusBadRequest)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"error":"invalid json"}`))
+			}
 			return
 		}
 
 		receivedRequest.Store(&batch[0])
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"status":"created"}`))
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"status":"created"}`))
+		}
 	}))
 	defer server.Close()
+
+	// Verify HEAD and GET method gating on mock server
+	headResp, err := http.Head(server.URL + "/api/v1/observations")
+	if err != nil {
+		t.Fatalf("HEAD /api/v1/observations failed: %v", err)
+	}
+	defer headResp.Body.Close()
+	if headResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 on HEAD /api/v1/observations, got %d", headResp.StatusCode)
+	}
+	if allow := headResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow 'POST', got '%s'", allow)
+	}
+	headBytes, _ := io.ReadAll(headResp.Body)
+	if len(headBytes) != 0 {
+		t.Errorf("expected 0 body bytes on HEAD /api/v1/observations, got %d", len(headBytes))
+	}
+
+	getResp, err := http.Get(server.URL + "/api/v1/observations")
+	if err != nil {
+		t.Fatalf("GET /api/v1/observations failed: %v", err)
+	}
+	defer getResp.Body.Close()
+	if getResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 on GET /api/v1/observations, got %d", getResp.StatusCode)
+	}
+	getBytes, _ := io.ReadAll(getResp.Body)
+	if len(getBytes) == 0 {
+		t.Errorf("expected non-empty body on GET 405 response")
+	}
 
 	mgr := NewSentinelProbeManager(nil, server.URL, nil, WithBearerToken(testIngestToken))
 
@@ -246,7 +300,7 @@ func TestDispatchObservation(t *testing.T) {
 		},
 	}
 
-	err := mgr.dispatchObservation(testObs)
+	err = mgr.dispatchObservation(testObs)
 	if err != nil {
 		t.Fatalf("dispatchObservation failed: %v", err)
 	}

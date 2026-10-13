@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,11 +20,23 @@ import (
 // queueing ~16 calls per stun and ~14 per recover: (30 - 10) x 200 ms = 4 s.
 // Containment latency must not be set by a client-side default.
 
-func fakeAPIServer(t *testing.T) string {
+func newFakeAPIServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				fmt.Fprint(w, `{"kind":"Status","apiVersion":"v1","status":"Failure","message":"method not allowed","reason":"MethodNotAllowed","code":405}`)
+			}
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"apiVersion":"v1","kind":"Pod","metadata":{"name":"agent-kusari","namespace":"fe-signalloom-agents"}}`)
+		w.WriteHeader(http.StatusOK)
+		if r.Method != http.MethodHead {
+			fmt.Fprint(w, `{"apiVersion":"v1","kind":"Pod","metadata":{"name":"agent-kusari","namespace":"fe-signalloom-agents"}}`)
+		}
 	}))
 	t.Cleanup(srv.Close)
 	kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
@@ -36,7 +49,42 @@ current-context: fake
 `, srv.URL)), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	return srv, kubeconfig
+}
+
+func fakeAPIServer(t *testing.T) string {
+	t.Helper()
+	_, kubeconfig := newFakeAPIServer(t)
 	return kubeconfig
+}
+
+func TestFakeAPIServerMethodGatingAndHEAD(t *testing.T) {
+	srv, _ := newFakeAPIServer(t)
+
+	headResp, err := http.Head(srv.URL + "/api/v1/namespaces/fe-signalloom-agents/pods/agent-kusari")
+	if err != nil {
+		t.Fatalf("HEAD request failed: %v", err)
+	}
+	defer headResp.Body.Close()
+	if headResp.StatusCode != http.StatusOK {
+		t.Errorf("HEAD status = %d, want 200", headResp.StatusCode)
+	}
+	headBytes, _ := io.ReadAll(headResp.Body)
+	if len(headBytes) != 0 {
+		t.Errorf("HEAD response had body length %d, want 0", len(headBytes))
+	}
+
+	postResp, err := http.Post(srv.URL+"/api/v1/namespaces/fe-signalloom-agents/pods/agent-kusari", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST request failed: %v", err)
+	}
+	defer postResp.Body.Close()
+	if postResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("POST status = %d, want 405", postResp.StatusCode)
+	}
+	if allow := postResp.Header.Get("Allow"); allow != "GET, HEAD" {
+		t.Errorf("POST Allow header = %q, want 'GET, HEAD'", allow)
+	}
 }
 
 func TestTheContainmentClientIsNotThrottledByClientGoDefaults(t *testing.T) {

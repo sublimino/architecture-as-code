@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -55,13 +56,85 @@ func TestRejectedInputs(t *testing.T) {
 
 func TestResolveSaltPrefersOpenBao(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/secret/data/signalloom/eap" || r.Header.Get("X-Vault-Token") != "tok" {
-			http.Error(w, "denied", http.StatusForbidden)
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+			}
 			return
 		}
-		_, _ = w.Write([]byte(`{"data":{"data":{"salt":"` + PilotSalt + `"}}}`))
+		if r.URL.Path != "/v1/secret/data/signalloom/eap" || r.Header.Get("X-Vault-Token") != "tok" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["permission denied"]}`))
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"data":{"data":{"salt":"` + PilotSalt + `"}}}`))
+		}
 	}))
 	defer srv.Close()
+
+	// Verify HEAD request body suppression and status parity
+	headReq, err := http.NewRequestWithContext(context.Background(), http.MethodHead, srv.URL+"/v1/secret/data/signalloom/eap", nil)
+	if err != nil {
+		t.Fatalf("failed to create HEAD request: %v", err)
+	}
+	headReq.Header.Set("X-Vault-Token", "tok")
+	headResp, err := srv.Client().Do(headReq)
+	if err != nil {
+		t.Fatalf("HEAD request failed: %v", err)
+	}
+	defer headResp.Body.Close()
+	if headResp.StatusCode != http.StatusOK {
+		t.Errorf("HEAD status = %d; want %d", headResp.StatusCode, http.StatusOK)
+	}
+	headBytes, _ := io.ReadAll(headResp.Body)
+	if len(headBytes) != 0 {
+		t.Errorf("HEAD response had body length %d; want 0", len(headBytes))
+	}
+
+	// Verify HEAD with bad token returns 403 with 0 body bytes
+	headBadReq, err := http.NewRequestWithContext(context.Background(), http.MethodHead, srv.URL+"/v1/secret/data/signalloom/eap", nil)
+	if err != nil {
+		t.Fatalf("failed to create bad HEAD request: %v", err)
+	}
+	headBadReq.Header.Set("X-Vault-Token", "bad")
+	headBadResp, err := srv.Client().Do(headBadReq)
+	if err != nil {
+		t.Fatalf("bad HEAD request failed: %v", err)
+	}
+	defer headBadResp.Body.Close()
+	if headBadResp.StatusCode != http.StatusForbidden {
+		t.Errorf("bad HEAD status = %d; want %d", headBadResp.StatusCode, http.StatusForbidden)
+	}
+	badHeadBytes, _ := io.ReadAll(headBadResp.Body)
+	if len(badHeadBytes) != 0 {
+		t.Errorf("bad HEAD response had body length %d; want 0", len(badHeadBytes))
+	}
+
+	// Verify POST method rejection
+	postReq, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/v1/secret/data/signalloom/eap", nil)
+	if err != nil {
+		t.Fatalf("failed to create POST request: %v", err)
+	}
+	postResp, err := srv.Client().Do(postReq)
+	if err != nil {
+		t.Fatalf("POST request failed: %v", err)
+	}
+	defer postResp.Body.Close()
+	if postResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("POST status = %d; want 405", postResp.StatusCode)
+	}
+	if allow := postResp.Header.Get("Allow"); allow != "GET, HEAD" {
+		t.Errorf("POST Allow header = %q; want %q", allow, "GET, HEAD")
+	}
 
 	salt, err := ResolveSalt(context.Background(), srv.Client(),
 		env(map[string]string{"BAO_ADDR": srv.URL, "BAO_TOKEN": "tok", "SIGNAL_LOOM_EAP_SALT": "env"}))

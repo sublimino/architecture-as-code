@@ -38,13 +38,25 @@ test.describe('SLSI Design Partner Appliance Acceptance Journey', () => {
   test.beforeAll(async () => {
     // Spin up an ephemeral SSE mock server for streaming assertions
     sseServer = createHttpServer((req, res) => {
+      const isHead = req.method === 'HEAD'
+      const isGet = req.method === 'GET'
+
       if (req.url === '/api/v1/telemetry/stream') {
+        if (!isGet && !isHead) {
+          res.writeHead(405, { 'Allow': 'GET, HEAD', 'Content-Type': 'text/plain; charset=utf-8' })
+          res.end(isHead ? '' : 'Method Not Allowed\n')
+          return
+        }
         res.writeHead(200, {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache, no-transform',
           Connection: 'keep-alive',
           'Access-Control-Allow-Origin': '*',
         })
+        if (isHead) {
+          res.end()
+          return
+        }
         res.write(': connected\n\n')
 
         const telemetryPayload = {
@@ -63,37 +75,55 @@ test.describe('SLSI Design Partner Appliance Acceptance Journey', () => {
 
         req.on('close', () => clearInterval(timer))
       } else if (req.url === '/api/v1/appliance/snapshots') {
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(
-          JSON.stringify({
-            tenant_id: 'acme-corp',
-            snapshots: [
-              {
-                timestamp: '1791852800000',
-                manifest: '/opt/tenants/acme-corp/snapshots/1791852800000/manifest.json',
-                mode: '0700',
-                manifestMode: '0600',
-                postgresPreserved: true,
-                openbaoPreserved: true,
-                rollbackTriggered: false,
-              },
-            ],
-          }),
-        )
+        if (!isGet && !isHead) {
+          res.writeHead(405, { 'Allow': 'GET, HEAD', 'Content-Type': 'application/json' })
+          res.end(isHead ? '' : JSON.stringify({ error: 'Method Not Allowed' }))
+          return
+        }
+        const body = JSON.stringify({
+          tenant_id: 'acme-corp',
+          snapshots: [
+            {
+              timestamp: '1791852800000',
+              manifest: '/opt/tenants/acme-corp/snapshots/1791852800000/manifest.json',
+              mode: '0700',
+              manifestMode: '0600',
+              postgresPreserved: true,
+              openbaoPreserved: true,
+              rollbackTriggered: false,
+            },
+          ],
+        })
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        })
+        res.end(isHead ? '' : body)
       } else if (req.url === '/api/v1/appliance/rollback-report') {
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(
-          JSON.stringify({
-            status: 'rolled_back',
-            exit_code: 1,
-            restored_snapshot: '1791852800000',
-            reverted_flux_gitops: true,
-            message: 'Health probe failure triggered automated rollback to snapshot 1791852800000',
-          }),
-        )
+        if (!isGet && !isHead) {
+          res.writeHead(405, { 'Allow': 'GET, HEAD', 'Content-Type': 'application/json' })
+          res.end(isHead ? '' : JSON.stringify({ error: 'Method Not Allowed' }))
+          return
+        }
+        const body = JSON.stringify({
+          status: 'rolled_back',
+          exit_code: 1,
+          restored_snapshot: '1791852800000',
+          reverted_flux_gitops: true,
+          message: 'Health probe failure triggered automated rollback to snapshot 1791852800000',
+        })
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        })
+        res.end(isHead ? '' : body)
       } else {
-        res.writeHead(200, { 'Content-Type': 'text/html' })
-        res.end(`<!doctype html>
+        if (!isGet && !isHead) {
+          res.writeHead(405, { 'Allow': 'GET, HEAD', 'Content-Type': 'text/plain; charset=utf-8' })
+          res.end(isHead ? '' : 'Method Not Allowed\n')
+          return
+        }
+        const html = `<!doctype html>
 <html>
   <head><title>SLSI Appliance Acceptance</title></head>
   <body>
@@ -111,7 +141,12 @@ test.describe('SLSI Design Partner Appliance Acceptance Journey', () => {
       });
     </script>
   </body>
-</html>`)
+</html>`
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Content-Length': Buffer.byteLength(html),
+        })
+        res.end(isHead ? '' : html)
       }
     })
 
@@ -325,6 +360,40 @@ test.describe('SLSI Design Partner Appliance Acceptance Journey', () => {
     expect(rollbackData.status).toBe('rolled_back')
     expect(rollbackData.exit_code).toBe(1)
     expect(rollbackData.reverted_flux_gitops).toBe(true)
+  })
+
+  test('enforces RFC 9110 HTTP method gates and HEAD body suppression across appliance routes', async ({ request }) => {
+    // 1. HEAD /api/v1/appliance/snapshots returns 200, Content-Length, and empty body
+    const headSnap = await request.head(`http://127.0.0.1:${ssePort}/api/v1/appliance/snapshots`)
+    expect(headSnap.status()).toBe(200)
+    expect(Number(headSnap.headers()['content-length'])).toBeGreaterThan(0)
+    expect(await headSnap.text()).toBe('')
+
+    // 2. POST /api/v1/appliance/snapshots returns 405 with Allow header
+    const postSnap = await request.post(`http://127.0.0.1:${ssePort}/api/v1/appliance/snapshots`, { data: {} })
+    expect(postSnap.status()).toBe(405)
+    expect(postSnap.headers()['allow']).toBe('GET, HEAD')
+
+    // 3. HEAD /api/v1/appliance/rollback-report returns 200, Content-Length, and empty body
+    const headRollback = await request.head(`http://127.0.0.1:${ssePort}/api/v1/appliance/rollback-report`)
+    expect(headRollback.status()).toBe(200)
+    expect(Number(headRollback.headers()['content-length'])).toBeGreaterThan(0)
+    expect(await headRollback.text()).toBe('')
+
+    // 4. POST /api/v1/appliance/rollback-report returns 405 with Allow header
+    const postRollback = await request.post(`http://127.0.0.1:${ssePort}/api/v1/appliance/rollback-report`, { data: {} })
+    expect(postRollback.status()).toBe(405)
+    expect(postRollback.headers()['allow']).toBe('GET, HEAD')
+
+    // 5. HEAD /api/v1/telemetry/stream returns 200 and empty body
+    const headStream = await request.head(`http://127.0.0.1:${ssePort}/api/v1/telemetry/stream`)
+    expect(headStream.status()).toBe(200)
+    expect(await headStream.text()).toBe('')
+
+    // 6. POST /api/v1/telemetry/stream returns 405 with Allow header
+    const postStream = await request.post(`http://127.0.0.1:${ssePort}/api/v1/telemetry/stream`, { data: {} })
+    expect(postStream.status()).toBe(405)
+    expect(postStream.headers()['allow']).toBe('GET, HEAD')
   })
 })
 

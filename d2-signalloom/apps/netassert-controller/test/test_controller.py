@@ -54,6 +54,11 @@ class HealthTest(ControllerServerTestCase):
         self.assertEqual(200, status)
         self.assertEqual({"status": "ok"}, body)
 
+    def test_readyz_returns_ok(self):
+        status, body = self.request("GET", "/readyz")
+        self.assertEqual(200, status)
+        self.assertEqual({"status": "ok"}, body)
+
     def test_malformed_content_length_drains_safely(self):
         connection = http.client.HTTPConnection("127.0.0.1", self.port)
         connection.request("GET", "/health", headers={"Content-Length": "invalid-len"})

@@ -79,10 +79,7 @@ func appraiseHandler(clock func() time.Time) http.HandlerFunc {
 	}
 }
 
-func main() {
-	port := flag.Int("port", 8094, "HTTP port for factory appraiser")
-	flag.Parse()
-
+func newMux(clock func() time.Time) *http.ServeMux {
 	mux := http.NewServeMux()
 	healthHandler := func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -91,7 +88,7 @@ func main() {
 	mux.HandleFunc("GET /healthz", healthHandler)
 	mux.HandleFunc("GET /readyz", healthHandler)
 	mux.HandleFunc("GET /health", healthHandler)
-	mux.HandleFunc("POST /api/v1/factory/appraise", appraiseHandler(func() time.Time { return time.Now().UTC() }))
+	mux.HandleFunc("POST /api/v1/factory/appraise", appraiseHandler(clock))
 	mux.HandleFunc("POST /api/v1/factory/validate-promotion", func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
 		var req struct {
@@ -119,7 +116,20 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "approved", "message": "Promotion contract satisfied"})
 	})
+	return mux
+}
+
+func main() {
+	port := flag.Int("port", 8094, "HTTP port for factory appraiser")
+	flag.Parse()
+
+	mux := newMux(func() time.Time { return time.Now().UTC() })
 
 	slog.Info("factory-appraiser listening", "port", *port)
-	_ = http.ListenAndServe(fmt.Sprintf(":%d", *port), mux)
+	srv := &http.Server{
+		Addr:              fmt.Sprintf(":%d", *port),
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	_ = srv.ListenAndServe()
 }

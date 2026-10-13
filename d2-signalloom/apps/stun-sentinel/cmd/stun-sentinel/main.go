@@ -572,6 +572,7 @@ const containmentRequestTimeout = 5 * time.Second
 
 func (s *server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/healthz", s.handleHealth)
 	mux.HandleFunc("/readyz", s.handleHealth)
 	mux.Handle("/stun", http.TimeoutHandler(requireBearer(s.freezeValidate, s.handleStun), containmentRequestTimeout, `{"error":"containment request exceeded the server-side deadline"}`))

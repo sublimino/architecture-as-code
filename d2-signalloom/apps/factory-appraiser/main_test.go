@@ -162,3 +162,23 @@ func TestAppraiseHandlerRejectsOversizedBody(t *testing.T) {
 		t.Fatalf("want 400 for oversized payload, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestHealthProbes(t *testing.T) {
+	mux := newMux(func() time.Time { return fixedNow })
+	for _, path := range []string{"/health", "/healthz", "/readyz"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("path %s returned status %d, want 200", path, rec.Code)
+		}
+		var resp map[string]string
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("path %s returned invalid json: %v", path, err)
+		}
+		if resp["status"] != "ok" {
+			t.Fatalf("path %s status = %q, want 'ok'", path, resp["status"])
+		}
+	}
+}

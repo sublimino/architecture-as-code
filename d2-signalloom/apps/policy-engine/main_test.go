@@ -8,6 +8,22 @@ import (
 	"testing"
 )
 
+func TestHealth(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	handleHealthz(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var body map[string]string
+	json.NewDecoder(w.Body).Decode(&body)
+	if body["status"] != "ok" {
+		t.Fatalf("expected status ok, got %q", body["status"])
+	}
+}
+
 func TestHealthz(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	w := httptest.NewRecorder()

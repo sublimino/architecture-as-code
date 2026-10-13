@@ -364,7 +364,7 @@ func TestStunRefusesWhenNoTokenConfigured(t *testing.T) {
 // daemon unhealthy and containment capacity disappears.
 func TestHealthRoutesStayOpen(t *testing.T) {
 	srv, _ := newTestServer(t, t.TempDir(), "freeze-token", "resume-token")
-	for _, path := range []string{"/healthz", "/readyz"} {
+	for _, path := range []string{"/health", "/healthz", "/readyz"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		srv.routes().ServeHTTP(rec, req)

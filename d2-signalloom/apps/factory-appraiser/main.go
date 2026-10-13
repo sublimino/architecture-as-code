@@ -38,6 +38,7 @@ func appraiseHandler(clock func() time.Time) http.HandlerFunc {
 
 		var req appraiseRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]string{
 				"error":  "malformed_request",
@@ -47,6 +48,7 @@ func appraiseHandler(clock func() time.Time) http.HandlerFunc {
 		}
 
 		if len(req.Candidates) == 0 {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnprocessableEntity)
 			_ = json.NewEncoder(w).Encode(map[string]string{
 				"error": "insufficient_input",
@@ -92,8 +94,11 @@ func newMux(clock func() time.Time) *http.ServeMux {
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	}
 	mux.HandleFunc("GET /healthz", healthHandler)
+	mux.HandleFunc("HEAD /healthz", healthHandler)
 	mux.HandleFunc("GET /readyz", healthHandler)
+	mux.HandleFunc("HEAD /readyz", healthHandler)
 	mux.HandleFunc("GET /health", healthHandler)
+	mux.HandleFunc("HEAD /health", healthHandler)
 	mux.HandleFunc("POST /api/v1/factory/appraise", appraiseHandler(clock))
 	mux.HandleFunc("POST /api/v1/factory/validate-promotion", func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 4<<20)

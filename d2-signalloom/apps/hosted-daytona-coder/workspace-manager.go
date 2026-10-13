@@ -194,8 +194,11 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 	}
 	mux.HandleFunc("GET /health", healthHandler)
+	mux.HandleFunc("HEAD /health", healthHandler)
 	mux.HandleFunc("GET /healthz", healthHandler)
+	mux.HandleFunc("HEAD /healthz", healthHandler)
 	mux.HandleFunc("GET /readyz", healthHandler)
+	mux.HandleFunc("HEAD /readyz", healthHandler)
 
 	mux.HandleFunc("POST /workspaces", func(w http.ResponseWriter, r *http.Request) {
 		tenant, err := extractTenant(r)
@@ -245,7 +248,7 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 		json.NewEncoder(w).Encode(ws)
 	})
 
-	mux.HandleFunc("GET /workspaces/{id}", func(w http.ResponseWriter, r *http.Request) {
+	getWorkspaceHandler := func(w http.ResponseWriter, r *http.Request) {
 		tenant, err := extractTenant(r)
 		if err != nil {
 			writeError(w, http.StatusForbidden, err.Error())
@@ -264,7 +267,9 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 			return
 		}
 		json.NewEncoder(w).Encode(ws)
-	})
+	}
+	mux.HandleFunc("GET /workspaces/{id}", getWorkspaceHandler)
+	mux.HandleFunc("HEAD /workspaces/{id}", getWorkspaceHandler)
 
 	mux.HandleFunc("DELETE /workspaces/{id}", func(w http.ResponseWriter, r *http.Request) {
 		tenant, err := extractTenant(r)
@@ -286,7 +291,7 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	mux.HandleFunc("GET /workspaces", func(w http.ResponseWriter, r *http.Request) {
+	listWorkspacesHandler := func(w http.ResponseWriter, r *http.Request) {
 		tenant, err := extractTenant(r)
 		if err != nil {
 			writeError(w, http.StatusForbidden, err.Error())
@@ -299,7 +304,9 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 			return
 		}
 		json.NewEncoder(w).Encode(mgr.List(tenant))
-	})
+	}
+	mux.HandleFunc("GET /workspaces", listWorkspacesHandler)
+	mux.HandleFunc("HEAD /workspaces", listWorkspacesHandler)
 
 	return mux
 }

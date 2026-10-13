@@ -85,19 +85,24 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	}
-	mux.HandleFunc("GET /health", healthHandler)
-	mux.HandleFunc("GET /healthz", healthHandler)
-	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+	readyHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodHead {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
-	})
+	}
+	mux.HandleFunc("GET /health", healthHandler)
+	mux.HandleFunc("HEAD /health", healthHandler)
+	mux.HandleFunc("GET /healthz", healthHandler)
+	mux.HandleFunc("HEAD /healthz", healthHandler)
+	mux.HandleFunc("GET /readyz", readyHandler)
+	mux.HandleFunc("HEAD /readyz", readyHandler)
 	mux.HandleFunc("POST /api/v1/workspace/poll", s.handlePoll)
 	mux.HandleFunc("POST /api/v1/workspace/stun", s.handleStun)
 	mux.HandleFunc("GET /api/v1/workspace/status", s.handleStatus)
+	mux.HandleFunc("HEAD /api/v1/workspace/status", s.handleStatus)
 }
 
 func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {

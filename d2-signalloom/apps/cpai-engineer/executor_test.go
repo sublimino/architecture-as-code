@@ -206,6 +206,16 @@ func TestHealthEndpoint(t *testing.T) {
 		if body["status"] != "healthy" {
 			t.Errorf("%s: expected status 'healthy', got %q", path, body["status"])
 		}
+
+		headReq := httptest.NewRequest("HEAD", path, nil)
+		headW := httptest.NewRecorder()
+		srv.ServeHTTP(headW, headReq)
+		if headW.Code != http.StatusOK {
+			t.Errorf("HEAD %s: expected 200, got %d", path, headW.Code)
+		}
+		if headW.Body.Len() != 0 {
+			t.Errorf("HEAD %s: expected empty body, got %d bytes", path, headW.Body.Len())
+		}
 	}
 }
 
@@ -335,6 +345,62 @@ func TestGetTasksList(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&tasks)
 	if len(tasks) != 0 {
 		t.Errorf("expected empty list, got %d", len(tasks))
+	}
+
+	headReq := httptest.NewRequest("HEAD", "/tasks", nil)
+	headW := httptest.NewRecorder()
+	srv.ServeHTTP(headW, headReq)
+	if headW.Code != http.StatusOK {
+		t.Errorf("HEAD /tasks: expected 200, got %d", headW.Code)
+	}
+	if headW.Body.Len() != 0 {
+		t.Errorf("HEAD /tasks: expected empty body, got %d bytes", headW.Body.Len())
+	}
+}
+
+func TestGetTask_HEAD(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewSessionStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("NewSessionStore: %v", err)
+	}
+	defer store.Close()
+
+	task := &TaskResponse{
+		TaskID:    "task-head-test",
+		Status:    "completed",
+		Commits:   []string{"abc1234"},
+		CreatedAt: "2026-01-01T00:00:00Z",
+		UpdatedAt: "2026-01-01T01:00:00Z",
+	}
+	if err := store.Insert(task, "https://github.com/test/repo", "main", "fix it"); err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+
+	nono := NewNonoWrapper("strict")
+	executor := NewExecutor(dir, nono, store)
+	srv := newServer(executor, store)
+
+	// GET check
+	getReq := httptest.NewRequest("GET", "/tasks/"+task.TaskID, nil)
+	getW := httptest.NewRecorder()
+	srv.ServeHTTP(getW, getReq)
+	if getW.Code != http.StatusOK {
+		t.Fatalf("GET /tasks/%s: expected 200, got %d", task.TaskID, getW.Code)
+	}
+
+	// HEAD check
+	headReq := httptest.NewRequest("HEAD", "/tasks/"+task.TaskID, nil)
+	headW := httptest.NewRecorder()
+	srv.ServeHTTP(headW, headReq)
+	if headW.Code != http.StatusOK {
+		t.Fatalf("HEAD /tasks/%s: expected 200, got %d", task.TaskID, headW.Code)
+	}
+	if headW.Body.Len() != 0 {
+		t.Errorf("HEAD /tasks/%s: expected empty body, got %d bytes", task.TaskID, headW.Body.Len())
+	}
+	if ct := headW.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("HEAD /tasks/%s: expected Content-Type application/json, got %q", task.TaskID, ct)
 	}
 }
 

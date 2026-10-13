@@ -107,8 +107,11 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 	}
 	mux.HandleFunc("GET /health", healthHandler)
+	mux.HandleFunc("HEAD /health", healthHandler)
 	mux.HandleFunc("GET /healthz", healthHandler)
+	mux.HandleFunc("HEAD /healthz", healthHandler)
 	mux.HandleFunc("GET /readyz", healthHandler)
+	mux.HandleFunc("HEAD /readyz", healthHandler)
 
 	mux.HandleFunc("POST /tasks", func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -141,7 +144,7 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 		json.NewEncoder(w).Encode(task)
 	})
 
-	mux.HandleFunc("GET /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
+	getTaskHandler := func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if id == "" {
 			writeError(w, http.StatusBadRequest, "task id required")
@@ -160,9 +163,11 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 			return
 		}
 		json.NewEncoder(w).Encode(task)
-	})
+	}
+	mux.HandleFunc("GET /tasks/{id}", getTaskHandler)
+	mux.HandleFunc("HEAD /tasks/{id}", getTaskHandler)
 
-	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
+	listTasksHandler := func(w http.ResponseWriter, r *http.Request) {
 		tasks, err := store.List(50)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to list tasks")
@@ -174,12 +179,16 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 			return
 		}
 		json.NewEncoder(w).Encode(tasks)
-	})
+	}
+	mux.HandleFunc("GET /tasks", listTasksHandler)
+	mux.HandleFunc("HEAD /tasks", listTasksHandler)
 
-	mux.HandleFunc("GET /.well-known/agent-card.json", func(w http.ResponseWriter, r *http.Request) {
+	agentCardHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		http.ServeFile(w, r, ".well-known/agent-card.json")
-	})
+	}
+	mux.HandleFunc("GET /.well-known/agent-card.json", agentCardHandler)
+	mux.HandleFunc("HEAD /.well-known/agent-card.json", agentCardHandler)
 
 	return withLogging(mux)
 }

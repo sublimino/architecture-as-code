@@ -206,3 +206,29 @@ func TestValidationErrors_ContentTypeJSON(t *testing.T) {
 		t.Fatalf("want Content-Type application/json, got %q", ct)
 	}
 }
+
+func TestAppraiseErrors_ContentTypeJSON(t *testing.T) {
+	mux := newMux(func() time.Time { return fixedNow })
+
+	for _, tc := range []struct {
+		name string
+		body string
+		want int
+	}{
+		{"malformed_json", `{invalid`, http.StatusBadRequest},
+		{"empty_candidates", `{"candidates":[]}`, http.StatusUnprocessableEntity},
+		{"negative_stale_ttl", `{"stale_ttl_minutes": -5, "candidates":[{"candidate_id":"c1"}]}`, http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/factory/appraise", bytes.NewBufferString(tc.body))
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Fatalf("want status %d, got %d: %s", tc.want, rec.Code, rec.Body.String())
+			}
+			if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+				t.Fatalf("want Content-Type application/json, got %q", ct)
+			}
+		})
+	}
+}

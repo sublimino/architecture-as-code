@@ -69,10 +69,22 @@ func TestClient_DiscoverCard(t *testing.T) {
 func TestClient_DiscoverCard_Non200(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/agent-card.json", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "agent card not found"})
 	})
 
-	server := httptest.NewServer(mux)
+	server := httptest.NewServer(headBodySuppressingMiddleware(mux))
 	defer server.Close()
 
 	client := NewClient()
@@ -86,10 +98,21 @@ func TestClient_DiscoverCard_Non200(t *testing.T) {
 }
 
 func TestClient_SendTask_HTTPError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
+		if r.Method == http.MethodHead {
+			return
+		}
 		_, _ = w.Write([]byte("internal server error"))
-	}))
+	})))
 	defer server.Close()
 
 	client := NewClient()
@@ -103,10 +126,21 @@ func TestClient_SendTask_HTTPError(t *testing.T) {
 }
 
 func TestClient_GetTask_HTTPError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
+		if r.Method == http.MethodHead {
+			return
+		}
 		_, _ = w.Write([]byte("bad gateway"))
-	}))
+	})))
 	defer server.Close()
 
 	client := NewClient()
@@ -277,5 +311,141 @@ func TestClient_SendTask_MethodGatesAndHEADBodySuppression(t *testing.T) {
 	}
 	if len(body) != 0 {
 		t.Errorf("HEAD body length = %d, want 0", len(body))
+	}
+}
+
+func TestClient_GetTask_Success(t *testing.T) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+			return
+		}
+		resp := JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      "task-1",
+			Result: TaskResult{
+				TaskID: "task-1",
+				Status: "completed",
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	})))
+	defer server.Close()
+
+	client := NewClient()
+	res, err := client.GetTask(context.Background(), server.URL, "task-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Status != "completed" {
+		t.Errorf("expected completed, got %s", res.Status)
+	}
+	if res.TaskID != "task-1" {
+		t.Errorf("expected task-1, got %s", res.TaskID)
+	}
+}
+
+func TestClient_GetTask_MethodGatesAndHEADBodySuppression(t *testing.T) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})))
+	defer server.Close()
+
+	// 1. GET returns 405 Method Not Allowed with Allow: POST
+	getReq, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
+	getResp, err := http.DefaultClient.Do(getReq)
+	if err != nil {
+		t.Fatalf("GET request failed: %v", err)
+	}
+	getResp.Body.Close()
+	if getResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("GET status = %d, want 405", getResp.StatusCode)
+	}
+	if allow := getResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("GET Allow header = %q, want 'POST'", allow)
+	}
+
+	// 2. HEAD returns 405 Method Not Allowed with Allow: POST and 0-byte body
+	headReq, _ := http.NewRequestWithContext(context.Background(), http.MethodHead, server.URL, nil)
+	headResp, err := http.DefaultClient.Do(headReq)
+	if err != nil {
+		t.Fatalf("HEAD request failed: %v", err)
+	}
+	defer headResp.Body.Close()
+	if headResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD status = %d, want 405", headResp.StatusCode)
+	}
+	if allow := headResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("HEAD Allow header = %q, want 'POST'", allow)
+	}
+	body, err := io.ReadAll(headResp.Body)
+	if err != nil {
+		t.Fatalf("read HEAD body: %v", err)
+	}
+	if len(body) != 0 {
+		t.Errorf("HEAD body length = %d, want 0", len(body))
+	}
+}
+
+func TestClient_MockServersHEADBodySuppressionAcrossStatuses(t *testing.T) {
+	statusCodes := []int{
+		http.StatusOK,
+		http.StatusBadRequest,
+		http.StatusNotFound,
+		http.StatusMethodNotAllowed,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+	}
+
+	for _, status := range statusCodes {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(status)
+				_ = json.NewEncoder(w).Encode(map[string]any{"status": status, "msg": "response text"})
+			})))
+			defer server.Close()
+
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodHead, server.URL, nil)
+			if err != nil {
+				t.Fatalf("create HEAD request: %v", err)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("HEAD request failed: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != status {
+				t.Errorf("status = %d, want %d", resp.StatusCode, status)
+			}
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("read body: %v", err)
+			}
+			if len(body) != 0 {
+				t.Errorf("status %d HEAD body length = %d, want 0", status, len(body))
+			}
+		})
 	}
 }

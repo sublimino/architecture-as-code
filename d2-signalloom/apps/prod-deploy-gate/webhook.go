@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -26,6 +27,10 @@ type ApprovalCard struct {
 
 // SendApprovalCard dispatches an approval card to the configured webhook URL.
 func SendApprovalCard(ctx context.Context, webhookURL string, card ApprovalCard) error {
+	if strings.TrimSpace(webhookURL) == "" {
+		return fmt.Errorf("empty webhook URL")
+	}
+
 	body, err := json.Marshal(card)
 	if err != nil {
 		return fmt.Errorf("marshal approval card: %w", err)

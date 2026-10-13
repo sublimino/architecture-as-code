@@ -327,4 +327,43 @@ func TestHandleTopology_HEADAndMethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestRoutes_HEADErrorBodySuppression(t *testing.T) {
+	s := newTestServer(t)
+	handler := s.routes()
+
+	tests := []struct {
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{"health", "/health", http.StatusOK},
+		{"healthz", "/healthz", http.StatusOK},
+		{"readyz", "/readyz", http.StatusOK},
+		{"topology", "/api/v1/fleet/topology", http.StatusOK},
+		{"policies", "/api/v1/fleet/policies", http.StatusOK},
+		{"unauth_deploy", "/api/v1/fleet/deploy", http.StatusUnauthorized},
+		{"unauth_stun", "/api/v1/fleet/stun/agent-1", http.StatusUnauthorized},
+		{"unauth_resume", "/api/v1/fleet/resume", http.StatusUnauthorized},
+		{"unauth_scan", "/api/v1/fleet/scan", http.StatusUnauthorized},
+		{"unauth_recover", "/api/v1/fleet/recover", http.StatusUnauthorized},
+		{"unauth_reset", "/api/v1/fleet/reset", http.StatusUnauthorized},
+		{"not_found", "/api/v1/fleet/unknown-route-404", http.StatusNotFound},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodHead, tc.path, nil)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+
+			if w.Code != tc.wantStatus {
+				t.Errorf("HEAD %s: got status %d, want %d", tc.path, w.Code, tc.wantStatus)
+			}
+			if w.Body.Len() != 0 {
+				t.Errorf("HEAD %s: got %d body bytes (%q), want 0 bytes", tc.path, w.Body.Len(), w.Body.String())
+			}
+		})
+	}
+}
+
 

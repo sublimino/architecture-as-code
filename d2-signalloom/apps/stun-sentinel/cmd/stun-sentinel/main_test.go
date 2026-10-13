@@ -1007,6 +1007,9 @@ func TestSnapshotAndStunMethodGates(t *testing.T) {
 			if rec.Header().Get("Allow") != "POST" {
 				t.Errorf("%s %s Allow = %q, want 'POST'", method, tgt.path, rec.Header().Get("Allow"))
 			}
+			if method == http.MethodHead && rec.Body.Len() != 0 {
+				t.Errorf("HEAD %s (405): want empty body, got %d bytes: %s", tgt.path, rec.Body.Len(), rec.Body.String())
+			}
 		}
 	}
 
@@ -1027,6 +1030,28 @@ func TestSnapshotAndStunMethodGates(t *testing.T) {
 	}
 	if recPost.Header().Get("Allow") != "GET, HEAD" {
 		t.Errorf("POST /quarantine/snapshots Allow = %q, want 'GET, HEAD'", recPost.Header().Get("Allow"))
+	}
+
+	// 3. Unauthenticated HEAD to /stun, /resume, /quarantine/prune returns 401 with 0 body bytes
+	for _, path := range []string{"/stun", "/resume", "/quarantine/prune"} {
+		rec401 := httptest.NewRecorder()
+		routes.ServeHTTP(rec401, httptest.NewRequest(http.MethodHead, path, nil))
+		if rec401.Code != http.StatusUnauthorized {
+			t.Errorf("HEAD %s unauthenticated status = %d, want 401", path, rec401.Code)
+		}
+		if rec401.Body.Len() != 0 {
+			t.Errorf("HEAD %s unauthenticated body len = %d, want 0", path, rec401.Body.Len())
+		}
+	}
+
+	// 4. HEAD /quarantine/snapshots/unknown-id returns 404 with 0 body bytes
+	rec404 := httptest.NewRecorder()
+	routes.ServeHTTP(rec404, httptest.NewRequest(http.MethodHead, "/quarantine/snapshots/non-existent-snap-999", nil))
+	if rec404.Code != http.StatusNotFound {
+		t.Errorf("HEAD /quarantine/snapshots/non-existent-snap-999 status = %d, want 404", rec404.Code)
+	}
+	if rec404.Body.Len() != 0 {
+		t.Errorf("HEAD /quarantine/snapshots/non-existent-snap-999 body len = %d, want 0", rec404.Body.Len())
 	}
 }
 

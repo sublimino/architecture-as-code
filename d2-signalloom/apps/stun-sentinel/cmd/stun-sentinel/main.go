@@ -165,7 +165,7 @@ func (s *server) exclusionFilter() *filter.Filter {
 // Running, or a cgroup that turns out to hold the sentinel's own process. It
 // runs after bearer authentication so the policy cannot be probed anonymously.
 // Returns false after writing the refusal.
-func (s *server) exclusionGate(w http.ResponseWriter, podUID, podName, namespace, phase string) bool {
+func (s *server) exclusionGate(w http.ResponseWriter, r *http.Request, podUID, podName, namespace, phase string) bool {
 	f := s.exclusionFilter()
 	target := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: namespace, UID: types.UID(podUID)},
@@ -173,7 +173,7 @@ func (s *server) exclusionGate(w http.ResponseWriter, podUID, podName, namespace
 	}
 	if d := f.Evaluate(target); d.Excluded {
 		f.AuditSkip(target, d)
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": filter.ErrExcluded.Error(), "skipped": true, "reason": d.Reason, "detail": d.Detail})
+		writeJSON(w, r, http.StatusForbidden, map[string]any{"error": filter.ErrExcluded.Error(), "skipped": true, "reason": d.Reason, "detail": d.Detail})
 		return false
 	}
 	// Phase is optional on the wire; when the caller knows it, a pod that is
@@ -181,7 +181,7 @@ func (s *server) exclusionGate(w http.ResponseWriter, podUID, podName, namespace
 	// frozen half-way through runtime setup.
 	if phase != "" {
 		if err := f.CheckFreezable(target); err != nil {
-			writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "skipped": true, "reason": filter.ReasonNotRunning})
+			writeJSON(w, r, http.StatusConflict, map[string]any{"error": err.Error(), "skipped": true, "reason": filter.ReasonNotRunning})
 			return false
 		}
 	}
@@ -189,7 +189,7 @@ func (s *server) exclusionGate(w http.ResponseWriter, podUID, podName, namespace
 		pids, _ := cgroup.ListProcs(cgPath)
 		if d := f.ContainsSelf(s.freezer.Root(), cgPath, pids); d.Excluded {
 			f.AuditSkip(target, d)
-			writeJSON(w, http.StatusForbidden, map[string]any{"error": filter.ErrExcluded.Error(), "skipped": true, "reason": d.Reason, "detail": d.Detail})
+			writeJSON(w, r, http.StatusForbidden, map[string]any{"error": filter.ErrExcluded.Error(), "skipped": true, "reason": d.Reason, "detail": d.Detail})
 			return false
 		}
 	}
@@ -230,9 +230,12 @@ func quarantineObservationFrom(m *quarantine.QuarantineManifest, pids []int) tel
 	}
 }
 
-func writeJSON(w http.ResponseWriter, status int, body any) {
+func writeJSON(w http.ResponseWriter, r *http.Request, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	if r != nil && r.Method == http.MethodHead {
+		return
+	}
 	_ = json.NewEncoder(w).Encode(body)
 }
 
@@ -285,7 +288,7 @@ func statusFor(err error) int {
 func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
 		return
 	}
 	var req struct {
@@ -298,10 +301,10 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 		Phase string `json:"phase"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "malformed body: " + err.Error()})
+		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "malformed body: " + err.Error()})
 		return
 	}
-	if !s.exclusionGate(w, req.PodUID, req.PodName, req.Namespace, req.Phase) {
+	if !s.exclusionGate(w, r, req.PodUID, req.PodName, req.Namespace, req.Phase) {
 		return
 	}
 	credential := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -318,7 +321,7 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 	obs := observationFrom(res, req.PodName, req.Namespace)
 	if err != nil {
 		_ = s.emitter.StunExecutionHaltFailed(obs, err.Error())
-		writeJSON(w, statusFor(err), map[string]any{"error": err.Error(), "result": res})
+		writeJSON(w, r, statusFor(err), map[string]any{"error": err.Error(), "result": res})
 		return
 	}
 	_ = s.emitter.StunExecutionHalted(obs)
@@ -333,13 +336,13 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, res)
+	writeJSON(w, r, http.StatusOK, res)
 }
 
 func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
 		return
 	}
 	var req struct {
@@ -352,7 +355,7 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 		TokenString    string            `json:"token_string,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "malformed body: " + err.Error()})
+		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "malformed body: " + err.Error()})
 		return
 	}
 	// The governance credential travels in a header or request body
@@ -388,7 +391,7 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 		}
 		vRes, err := auth.VerifyResumeToken(token, target, s.keyRegistry, s.policy, time.Now().UTC())
 		if err != nil {
-			writeJSON(w, statusFor(err), map[string]any{
+			writeJSON(w, r, statusFor(err), map[string]any{
 				"error":     fmt.Sprintf("resume token verification failed: %v", err),
 				"error_tag": err.Error(),
 			})
@@ -401,14 +404,14 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 		if s.replayLedger != nil {
 			isRetry, cachedOps, repErr := s.replayLedger.CheckAndRecord(token.TokenID, req.IdempotencyKey, operatorIDs, time.Now().UTC())
 			if repErr != nil {
-				writeJSON(w, statusFor(repErr), map[string]any{
+				writeJSON(w, r, statusFor(repErr), map[string]any{
 					"error": fmt.Sprintf("replay protection: %v", repErr),
 				})
 				return
 			}
 			if isRetry {
 				// Idempotent retry: do not re-unfreeze cgroup, return cached state
-				writeJSON(w, http.StatusOK, map[string]any{
+				writeJSON(w, r, http.StatusOK, map[string]any{
 					"pod_uid":      req.PodUID,
 					"cgroup_path":  "",
 					"frozen":       false,
@@ -431,7 +434,7 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 
 	res, err := s.freezer.UnfreezePod(req.PodUID, credToValidate)
 	if err != nil {
-		writeJSON(w, statusFor(err), map[string]any{"error": err.Error(), "result": res})
+		writeJSON(w, r, statusFor(err), map[string]any{"error": err.Error(), "result": res})
 		return
 	}
 
@@ -456,45 +459,35 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 	if len(operatorIDs) > 0 {
 		respBody["operator_id"] = operatorIDs[0]
 	}
-	writeJSON(w, http.StatusOK, respBody)
+	writeJSON(w, r, http.StatusOK, respBody)
 }
 
 func (s *server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET required"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "GET required"})
 		return
 	}
 	if s.capturer == nil {
-		if r.Method == http.MethodHead {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		writeJSON(w, http.StatusOK, []*quarantine.QuarantineManifest{})
+		writeJSON(w, r, http.StatusOK, []*quarantine.QuarantineManifest{})
 		return
 	}
 	snapshots, err := s.capturer.ListSnapshots()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, r, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	if r.Method == http.MethodHead {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	writeJSON(w, http.StatusOK, snapshots)
+	writeJSON(w, r, http.StatusOK, snapshots)
 }
 
 func (s *server) handleGetSnapshot(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET required"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "GET required"})
 		return
 	}
 	if s.capturer == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "snapshot capturer not configured"})
+		writeJSON(w, r, http.StatusNotFound, map[string]string{"error": "snapshot capturer not configured"})
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/quarantine/snapshots/")
@@ -505,36 +498,31 @@ func (s *server) handleGetSnapshot(w http.ResponseWriter, r *http.Request) {
 	snapshot, err := s.capturer.GetSnapshot(id)
 	if err != nil {
 		if errors.Is(err, quarantine.ErrSnapshotNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "snapshot not found"})
+			writeJSON(w, r, http.StatusNotFound, map[string]string{"error": "snapshot not found"})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, r, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	if r.Method == http.MethodHead {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	writeJSON(w, http.StatusOK, snapshot)
+	writeJSON(w, r, http.StatusOK, snapshot)
 }
 
 func (s *server) handlePruneSnapshots(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
 		return
 	}
 	if s.capturer == nil {
-		writeJSON(w, http.StatusOK, &quarantine.PruneResult{})
+		writeJSON(w, r, http.StatusOK, &quarantine.PruneResult{})
 		return
 	}
 	res, err := s.capturer.Prune()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, r, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, res)
+	writeJSON(w, r, http.StatusOK, res)
 }
 
 // handleHealth proves the daemon can write the host cgroup hierarchy. A
@@ -544,16 +532,11 @@ func (s *server) handlePruneSnapshots(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 	if err := s.freezer.HealthCheck(); err != nil {
-		if r.Method == http.MethodHead {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+		writeJSON(w, r, http.StatusServiceUnavailable, map[string]any{
 			"status":       "unhealthy",
 			"cgroup_root":  s.freezer.Root(),
 			"cgroup_write": false,
@@ -565,12 +548,7 @@ func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if s.keyRegistry != nil {
 		keyCount = len(s.keyRegistry.AllKeys())
 	}
-	if r.Method == http.MethodHead {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	writeJSON(w, r, http.StatusOK, map[string]any{
 		"status":                 "ok",
 		"cgroup_root":            s.freezer.Root(),
 		"cgroup_write":           true,
@@ -584,7 +562,7 @@ func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
 func requireBearer(validate cgroup.CredentialValidator, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if validate == nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "no credential validator configured"})
+			writeJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "no credential validator configured"})
 			return
 		}
 		// The credential travels in a header, never in the URL.
@@ -598,7 +576,7 @@ func requireBearer(validate cgroup.CredentialValidator, next http.HandlerFunc) h
 			token = strings.TrimSpace(authHeader)
 		}
 		if !validate(token) {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "governance credential required"})
+			writeJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "governance credential required"})
 			return
 		}
 		next(w, r)

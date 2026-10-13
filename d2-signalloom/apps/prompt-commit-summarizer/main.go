@@ -111,7 +111,11 @@ func main() {
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		if r.Method != http.MethodHead {
+			fmt.Fprintln(w, "method not allowed")
+		}
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -135,12 +139,20 @@ func makeSummarizeHandler(llmEndpoint, model string) http.HandlerFunc {
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
-			http.NotFound(w, r)
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusNotFound)
+			if r.Method != http.MethodHead {
+				fmt.Fprintln(w, "404 page not found")
+			}
 			return
 		}
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", "POST")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				fmt.Fprintln(w, "method not allowed")
+			}
 			return
 		}
 
@@ -184,9 +196,14 @@ func makeSummarizeHandler(llmEndpoint, model string) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }
+
 
 func callLLM(ctx context.Context, client *http.Client, endpoint, model, diff string) (string, float64, error) {
 	reqBody := llmRequest{

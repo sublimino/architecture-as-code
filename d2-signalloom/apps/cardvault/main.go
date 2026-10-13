@@ -49,10 +49,13 @@ var cards = []Card{
 	},
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
+func writeJSON(w http.ResponseWriter, r *http.Request, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	if r != nil && r.Method == http.MethodHead {
+		return
+	}
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 type loggingResponseWriter struct {
@@ -82,7 +85,7 @@ func requireAuth(username, password string, next http.HandlerFunc) http.HandlerF
 		pMatch := subtle.ConstantTimeCompare([]byte(p), []byte(password))
 		if !ok || (uMatch&pMatch) != 1 {
 			w.Header().Set("WWW-Authenticate", `Basic realm="cardvault"`)
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			writeJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
 		next(w, r)
@@ -92,49 +95,34 @@ func requireAuth(username, password string, next http.HandlerFunc) http.HandlerF
 func handleHealthz(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	if r.Method == http.MethodHead {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, r, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func handleReadyz(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	if r.Method == http.MethodHead {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	writeJSON(w, r, http.StatusOK, map[string]string{"status": "ready"})
 }
 
 func handleListCards(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	if r.Method == http.MethodHead {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	writeJSON(w, http.StatusOK, cards)
+	writeJSON(w, r, http.StatusOK, cards)
 }
 
 func handleGetCard(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/api/v1/cards/")
@@ -144,22 +132,13 @@ func handleGetCard(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, c := range cards {
 		if c.ID == id {
-			if r.Method == http.MethodHead {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-			writeJSON(w, http.StatusOK, c)
+			writeJSON(w, r, http.StatusOK, c)
 			return
 		}
 	}
-	if r.Method == http.MethodHead {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	writeJSON(w, http.StatusNotFound, map[string]string{"error": "card not found"})
+	writeJSON(w, r, http.StatusNotFound, map[string]string{"error": "card not found"})
 }
+
 
 func newMux(username, password string) *http.ServeMux {
 	mux := http.NewServeMux()

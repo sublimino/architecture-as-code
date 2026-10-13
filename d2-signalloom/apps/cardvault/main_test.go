@@ -337,3 +337,28 @@ func TestCardvaultHeadRequests(t *testing.T) {
 	}
 }
 
+func TestCardvaultHeadUnauthenticated(t *testing.T) {
+	srv := newTestServer("u", "p")
+	defer srv.Close()
+
+	for _, ep := range []string{"/api/v1/cards", "/api/v1/cards/card-001"} {
+		req, err := http.NewRequest(http.MethodHead, srv.URL+ep, nil)
+		if err != nil {
+			t.Fatalf("NewRequest: %v", err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("HEAD %s: %v", ep, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("HEAD %s without auth: want 401, got %d", ep, resp.StatusCode)
+		}
+		if len(body) != 0 {
+			t.Errorf("HEAD %s without auth: want empty body, got %d bytes: %q", ep, len(body), string(body))
+		}
+	}
+}
+
+

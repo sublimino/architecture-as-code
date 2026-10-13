@@ -171,9 +171,13 @@ func TestServer_MethodGates(t *testing.T) {
 			if w.Header().Get("Allow") != "POST" {
 				t.Errorf("%s %s: want Allow: POST, got %q", method, path, w.Header().Get("Allow"))
 			}
+			if method == http.MethodHead && w.Body.Len() != 0 {
+				t.Errorf("HEAD %s: want empty body, got %d bytes: %s", path, w.Body.Len(), w.Body.String())
+			}
 		}
 	}
 }
+
 
 func TestServer_GetGateHeadMethod(t *testing.T) {
 	secret := []byte("secret-key-32-bytes-long-here!!")

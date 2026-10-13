@@ -83,11 +83,15 @@ func NewServer(hmacSecret []byte, webhookURL string, gateTTL time.Duration) *Ser
 	}
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
+func writeJSON(w http.ResponseWriter, r *http.Request, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	if r != nil && r.Method == http.MethodHead {
+		return
+	}
+	_ = json.NewEncoder(w).Encode(v)
 }
+
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/gate/request", s.handleGateRequest)
@@ -127,20 +131,20 @@ func (s *Server) startJanitor(ctx context.Context, interval time.Duration) {
 func (s *Server) handleGateRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req GateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
 
 	req.Requester = strings.TrimSpace(req.Requester)
 	if req.Requester == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "requester required for audit trail"})
+		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "requester required for audit trail"})
 		return
 	}
 
@@ -152,7 +156,7 @@ func (s *Server) handleGateRequest(w http.ResponseWriter, r *http.Request) {
 	token, err := GenerateToken(s.hmacSecret, requestID, s.gateTTL)
 	if err != nil {
 		slog.Error("failed to generate token", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "token generation failed"})
+		writeJSON(w, r, http.StatusInternalServerError, map[string]string{"error": "token generation failed"})
 		return
 	}
 
@@ -191,7 +195,7 @@ func (s *Server) handleGateRequest(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("gate request created", "request_id", requestID, "requester", req.Requester, "description", req.Description)
 
-	writeJSON(w, http.StatusAccepted, GateResponse{
+	writeJSON(w, r, http.StatusAccepted, GateResponse{
 		RequestID: requestID,
 		Status:    "pending",
 		ExpiresAt: expiresAt.Format(time.RFC3339),
@@ -201,13 +205,13 @@ func (s *Server) handleGateRequest(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetGate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 
 	requestID := strings.TrimPrefix(r.URL.Path, "/gate/")
 	if requestID == "" || requestID == r.URL.Path {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "request ID required"})
+		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "request ID required"})
 		return
 	}
 
@@ -228,46 +232,41 @@ func (s *Server) handleGetGate(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "gate request not found or expired"})
+		writeJSON(w, r, http.StatusNotFound, map[string]string{"error": "gate request not found or expired"})
 		return
 	}
 
-	if r.Method == http.MethodHead {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, r, http.StatusOK, resp)
 }
 
 func (s *Server) handleGateApprove(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req ApproveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
 
 	if req.Token == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "token required"})
+		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "token required"})
 		return
 	}
 
 	if strings.TrimSpace(req.Approver) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "approver required for HITL audit trail"})
+		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "approver required for HITL audit trail"})
 		return
 	}
 
 	requestID, err := ValidateToken(s.hmacSecret, req.Token)
 	if err != nil {
 		slog.Warn("token validation failed", "error", err)
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": fmt.Sprintf("token validation failed: %v", err)})
+		writeJSON(w, r, http.StatusForbidden, map[string]string{"error": fmt.Sprintf("token validation failed: %v", err)})
 		return
 	}
 
@@ -282,13 +281,13 @@ func (s *Server) handleGateApprove(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "gate request not found or already resolved"})
+		writeJSON(w, r, http.StatusNotFound, map[string]string{"error": "gate request not found or already resolved"})
 		return
 	}
 
 	slog.Info("gate approved", "request_id", requestID, "approver", req.Approver)
 
-	writeJSON(w, http.StatusOK, ApproveResponse{
+	writeJSON(w, r, http.StatusOK, ApproveResponse{
 		RequestID: requestID,
 		Status:    "approved",
 		Approver:  req.Approver,
@@ -298,30 +297,21 @@ func (s *Server) handleGateApprove(w http.ResponseWriter, r *http.Request) {
 func handleHealthz(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method == http.MethodHead {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, r, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func handleReadyz(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method == http.MethodHead {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	writeJSON(w, r, http.StatusOK, map[string]string{"status": "ready"})
 }
+
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))

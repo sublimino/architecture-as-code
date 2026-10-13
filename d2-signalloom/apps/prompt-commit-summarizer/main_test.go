@@ -58,6 +58,27 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestSummarizeHandlerMethodGatesAndHead(t *testing.T) {
+	mux := newRouter("http://mock-llm", "test-model")
+
+	for _, method := range []string{"GET", "HEAD", "PUT", "DELETE"} {
+		req := httptest.NewRequest(method, "/", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected 405 for %s /, got %d", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST" {
+			t.Fatalf("expected Allow: POST for %s /, got %q", method, allow)
+		}
+		if method == "HEAD" && rec.Body.Len() != 0 {
+			t.Fatalf("expected empty body for HEAD /, got %d bytes: %q", rec.Body.Len(), rec.Body.String())
+		}
+	}
+}
+
+
 func TestSummarizeHandlerPathIsolation(t *testing.T) {
 	handler := makeSummarizeHandler("http://mock-llm", "test-model")
 

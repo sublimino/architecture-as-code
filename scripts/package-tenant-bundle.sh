@@ -920,6 +920,56 @@ walk_oci_closure() {
   return "${SLSI_VERIFY_EXIT_VERIFIED}"
 }
 
+prune_oci_closure() {
+  local oci_dir="$1"
+  local index_file="${oci_dir}/index.json"
+  local blobs_dir="${oci_dir}/blobs/sha256"
+
+  [[ -f "${index_file}" && -d "${blobs_dir}" ]] || return 0
+
+  declare -A reachable=()
+  declare -A seen=()
+  local queue=()
+
+  while IFS= read -r d; do
+    [[ -n "$d" ]] || continue
+    local h="${d#sha256:}"
+    reachable["$h"]=1
+    queue+=("$h")
+  done < <(jq -r '.manifests[]?.digest // empty' "${index_file}")
+
+  local q_idx=0
+  while [[ $q_idx -lt ${#queue[@]} ]]; do
+    local cur="${queue[$q_idx]}"
+    q_idx=$((q_idx + 1))
+    [[ -z "${seen["$cur"]:-}" ]] || continue
+    seen["$cur"]=1
+
+    local blob_path="${blobs_dir}/${cur}"
+    [[ -f "${blob_path}" ]] || continue
+
+    while IFS= read -r child_digest; do
+      [[ -n "$child_digest" ]] || continue
+      local child_h="${child_digest#sha256:}"
+      reachable["$child_h"]=1
+      [[ -n "${seen["$child_h"]:-}" ]] || queue+=("$child_h")
+    done < <(jq -r '(.manifests[]?.digest // empty), (.config?.digest // empty), (.layers[]?.digest // empty)' "${blob_path}" 2>/dev/null || true)
+  done
+
+  local pruned=0
+  for f in "${blobs_dir}"/*; do
+    [[ -f "$f" ]] || continue
+    local b="$(basename "$f")"
+    if [[ -z "${reachable["$b"]:-}" ]]; then
+      rm -f "$f"
+      pruned=$((pruned + 1))
+    fi
+  done
+  if [[ $pruned -gt 0 ]]; then
+    log "Pruned ${pruned} unreferenced orphan blob(s) from ${blobs_dir}"
+  fi
+}
+
 verify_offline_images() {
   local images_dir="${BUNDLE_DIR}/images"
   local oci_dir="${images_dir}/oci"
@@ -1281,6 +1331,9 @@ EOF
     fi
     i=$((i + 1))
   done
+
+  # Prune unreferenced orphan blobs prior to promotion
+  prune_oci_closure "${staging_oci}"
 
   # Atomically promote staging OCI layout
   rm -rf "${oci_dir}.old"
@@ -1657,7 +1710,8 @@ stage_osd_1_first_party_images() {
 
     if [[ "${digest}" == sha256:* ]]; then
       log "OSD-1: ${w} -> ${digest} (source-id ${stag})"
-      "${crane_bin}" pull --format=oci --annotate-ref "${repo}@${digest}" "${oci_dir}"
+      local pull_ref="${registry}/${ns}/signalloom/apps/${w}@${digest}"
+      "${crane_bin}" pull --format=oci --annotate-ref "${pull_ref}" "${oci_dir}"
       hash="${digest#sha256:}"
       blob="${oci_dir}/blobs/sha256/${hash}"
       if [[ -f "${blob}" ]]; then
@@ -1747,16 +1801,27 @@ stage_osd_1_first_party_images() {
   local tmp_index
   tmp_index="$(mktemp -t slsi-osd1-index.XXXXXX)"
   jq --slurpfile recs "${tmp_recs}" '
-    ([$recs[0][] | select(.digest | startswith("sha256:")) | {
-        mediaType: "application/vnd.oci.image.index.v1+json",
-        size: (if .sizeBytes > 0 then .sizeBytes else 1 end),
-        digest: .digest,
-        annotations: {"org.opencontainers.image.ref.name": .ref}
-      }]) as $new
+    . as $root
+    | ($recs[0] | map(.ref | split("@")[0])) as $updated_repos
+    | ([$recs[0][] | select(.digest | startswith("sha256:")) | . as $r |
+        (($root.manifests // []) | map(select(.digest == $r.digest))[0]) as $existing |
+        {
+          mediaType: ($existing.mediaType // "application/vnd.oci.image.index.v1+json"),
+          size: (if ($existing.size // 0) > 0 then $existing.size elif .sizeBytes > 0 then .sizeBytes else 1 end),
+          digest: .digest,
+          annotations: (($existing.annotations // {}) + {"org.opencontainers.image.ref.name": .ref})
+        }
+      ]) as $new
     | ($new | map(.digest)) as $newd
     | .schemaVersion = 2
     | .mediaType = "application/vnd.oci.image.index.v1+json"
-    | .manifests = (((.manifests // []) | map(. as $m | select(($newd | index($m.digest)) == null))) + $new)
+    | .manifests = (((.manifests // []) | map(. as $m |
+        select(
+          (($newd | index($m.digest)) == null) and
+          (($m.annotations["org.opencontainers.image.ref.name"] // "") as $an |
+           ($updated_repos | any(. as $p | $an | startswith($p + "@"))) | not)
+        )
+      )) + $new)
   ' "${oci_dir}/index.json" > "${tmp_index}"
   mv -f "${tmp_index}" "${oci_dir}/index.json"
   cp "${oci_dir}/index.json" "${images_dir}/index.json"
@@ -1769,6 +1834,7 @@ stage_osd_1_first_party_images() {
   # closureVerified reports what the walk actually found rather than being
   # assumed: on a skeleton bundle whose blobs were never fetched the walk is
   # inconclusive, and saying so is the honest answer.
+  prune_oci_closure "${oci_dir}"
   local walk_rc=0
   walk_oci_closure "${oci_dir}" || walk_rc=$?
   local closure_verified="true"

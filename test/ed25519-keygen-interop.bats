@@ -24,8 +24,11 @@
 setup() {
   repo="$BATS_TEST_DIRNAME/.."
   tmp="$(mktemp -d)"
+  export PATH="/home/linuxbrew/.linuxbrew/bin:/usr/bin:$PATH"
+  export GOPATH="/tmp/gopath"
   export GOCACHE="${GOCACHE:-/tmp/gocache}"
   export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+  export GONOSUMDB="*"
   export CGO_ENABLED=0
   export LC_ALL=C
   export LANG=C

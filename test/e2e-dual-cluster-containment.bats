@@ -89,7 +89,7 @@ setup_file() {
     export K_HUB="${KUBECTL} --context ${HUB_CONTEXT}"
     export K_DB="${KUBECTL} --context ${DB_CONTEXT}"
 
-    EVIDENCE_DIR="${EVIDENCE_DIR:-${HOME}/kusari-e2e/$(date +%Y%m%d-%H%M%S)}"
+    EVIDENCE_DIR="${EVIDENCE_DIR:-${BATS_FILE_TMPDIR:-/tmp}/kusari-e2e/$(date +%Y%m%d-%H%M%S)}"
     export EVIDENCE_DIR
     mkdir -p "${EVIDENCE_DIR}"
     chmod 0750 "${EVIDENCE_DIR}"

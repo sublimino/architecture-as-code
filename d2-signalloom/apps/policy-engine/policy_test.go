@@ -520,6 +520,28 @@ func TestHTTPEndpoints(t *testing.T) {
 	if err != nil || conflictResp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403 Forbidden on conflicting header and query tenant, got code=%d err=%v", conflictResp.StatusCode, err)
 	}
+
+	// 7. Conflicting header and query tenant_id parameter must be rejected with HTTP 403 Forbidden
+	conflictReq2, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/policies?tenant_id=tenant-foreign", nil)
+	conflictReq2.Header.Set("X-Tenant-ID", "tenant-test")
+	conflictResp2, err := client.Do(conflictReq2)
+	if err != nil || conflictResp2.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden on conflicting header and query tenant_id, got code=%d err=%v", conflictResp2.StatusCode, err)
+	}
+
+	// 8. Conflicting query parameters ?tenant= and ?tenant_id= must be rejected with HTTP 403 Forbidden
+	conflictReq3, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/policies?tenant=tenant-a&tenant_id=tenant-b", nil)
+	conflictResp3, err := client.Do(conflictReq3)
+	if err != nil || conflictResp3.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden on conflicting query tenant and tenant_id, got code=%d err=%v", conflictResp3.StatusCode, err)
+	}
+
+	// 9. Valid standalone query parameter ?tenant_id= must resolve with HTTP 200 OK
+	okReq, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/policies?tenant_id=tenant-test", nil)
+	okResp, err := client.Do(okReq)
+	if err != nil || okResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK on valid query tenant_id, got code=%d err=%v", okResp.StatusCode, err)
+	}
 }
 
 // TestConcurrentEvaluations verifies thread-safety and zero memory leakage under concurrency.

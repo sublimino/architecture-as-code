@@ -22,14 +22,26 @@ func NewPolicyEngineHandlers(store *PolicyStore, celEngine *CELEngine) *PolicyEn
 
 func extractTenant(r *http.Request) (string, error) {
 	headerTenant := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
-	queryTenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
-	if headerTenant != "" && queryTenant != "" && headerTenant != queryTenant {
-		return "", fmt.Errorf("cross-tenant mismatch: authenticated header %q does not match query tenant %q", headerTenant, queryTenant)
+	q := r.URL.Query()
+	queryTenant := strings.TrimSpace(q.Get("tenant"))
+	queryTenantID := strings.TrimSpace(q.Get("tenant_id"))
+
+	if queryTenant != "" && queryTenantID != "" && queryTenant != queryTenantID {
+		return "", fmt.Errorf("cross-tenant mismatch: query tenant %q does not match query tenant_id %q", queryTenant, queryTenantID)
+	}
+
+	effectiveQuery := queryTenant
+	if effectiveQuery == "" {
+		effectiveQuery = queryTenantID
+	}
+
+	if headerTenant != "" && effectiveQuery != "" && headerTenant != effectiveQuery {
+		return "", fmt.Errorf("cross-tenant mismatch: authenticated header %q does not match query tenant %q", headerTenant, effectiveQuery)
 	}
 	if headerTenant != "" {
 		return headerTenant, nil
 	}
-	return queryTenant, nil
+	return effectiveQuery, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

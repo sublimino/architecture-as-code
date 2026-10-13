@@ -68,18 +68,20 @@ async def proxy_policy_engine(
                     f"Malformed JSON request body: {exc}",
                 )
             if tenant_id and isinstance(parsed_json, dict):
-                body_tenant = parsed_json.get("tenant_id") or parsed_json.get("tenant")
-                if body_tenant and body_tenant != tenant_id:
-                    logger.warning(
-                        "Rejecting cross-tenant body in policy-engine proxy: authenticated=%s payload=%s",
-                        tenant_id,
-                        body_tenant,
-                    )
-                    return _error_response(
-                        403,
-                        "cross_tenant_forbidden",
-                        f"cross-tenant operation forbidden: authenticated tenant '{tenant_id}' cannot operate on '{body_tenant}'",
-                    )
+                for key in ("tenant_id", "tenant"):
+                    val = parsed_json.get(key)
+                    if val and val != tenant_id:
+                        logger.warning(
+                            "Rejecting cross-tenant body in policy-engine proxy: authenticated=%s payload key=%s val=%s",
+                            tenant_id,
+                            key,
+                            val,
+                        )
+                        return _error_response(
+                            403,
+                            "cross_tenant_forbidden",
+                            f"cross-tenant operation forbidden: authenticated tenant '{tenant_id}' cannot operate on '{val}'",
+                        )
             body_bytes = raw_body
 
     headers: dict[str, str] = {
@@ -97,19 +99,24 @@ async def proxy_policy_engine(
 
     params = dict(request.query_params)
     if tenant_id:
-        param_tenant = params.get("tenant") or params.get("tenant_id")
-        if param_tenant and param_tenant != tenant_id:
-            logger.warning(
-                "Rejecting cross-tenant query param in policy-engine proxy: authenticated=%s query=%s",
-                tenant_id,
-                param_tenant,
-            )
-            return _error_response(
-                403,
-                "cross_tenant_forbidden",
-                f"cross-tenant operation forbidden: authenticated tenant '{tenant_id}' cannot operate on '{param_tenant}'",
-            )
+        for key in ("tenant", "tenant_id"):
+            for val in request.query_params.getlist(key):
+                val_clean = val.strip()
+                if val_clean and val_clean != tenant_id:
+                    logger.warning(
+                        "Rejecting cross-tenant query param in policy-engine proxy: authenticated=%s query key=%s val=%s",
+                        tenant_id,
+                        key,
+                        val_clean,
+                    )
+                    return _error_response(
+                        403,
+                        "cross_tenant_forbidden",
+                        f"cross-tenant operation forbidden: authenticated tenant '{tenant_id}' cannot operate on '{val_clean}'",
+                    )
         params["tenant"] = tenant_id
+        if "tenant_id" in params:
+            params["tenant_id"] = tenant_id
 
     try:
         async with httpx.AsyncClient(

@@ -2617,3 +2617,35 @@ def test_policy_routes_reject_cross_tenant_payload(client):
     )
     assert resp_scan.status_code == 403, resp_scan.text
     assert resp_scan.json()["error"]["code"] == "cross_tenant_forbidden"
+
+    # 6. Combined query parameters where one matches but the other is foreign
+    resp_q_comb = client.get(
+        f"/api/v1/compliance/frameworks?tenant={TENANT_A}&tenant_id={TENANT_B}",
+        headers=bearer(ALICE),
+    )
+    assert resp_q_comb.status_code == 403, resp_q_comb.text
+    assert resp_q_comb.json()["error"]["code"] == "cross_tenant_forbidden"
+
+    resp_q_comb2 = client.get(
+        f"/api/v1/compliance/frameworks?tenant_id={TENANT_A}&tenant={TENANT_B}",
+        headers=bearer(ALICE),
+    )
+    assert resp_q_comb2.status_code == 403, resp_q_comb2.text
+    assert resp_q_comb2.json()["error"]["code"] == "cross_tenant_forbidden"
+
+    # 7. Repeated query parameters
+    resp_q_rep = client.get(
+        f"/api/v1/compliance/frameworks?tenant={TENANT_A}&tenant={TENANT_B}",
+        headers=bearer(ALICE),
+    )
+    assert resp_q_rep.status_code == 403, resp_q_rep.text
+    assert resp_q_rep.json()["error"]["code"] == "cross_tenant_forbidden"
+
+    # 8. Mutating proxy body containing both matching and foreign tenant keys
+    resp_scan_comb = client.post(
+        "/api/v1/compliance/scan",
+        headers=bearer(ALICE),
+        json={"tenant_id": TENANT_A, "tenant": TENANT_B, "frameworks": ["nist-800-53"]},
+    )
+    assert resp_scan_comb.status_code == 403, resp_scan_comb.text
+    assert resp_scan_comb.json()["error"]["code"] == "cross_tenant_forbidden"

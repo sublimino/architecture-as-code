@@ -271,6 +271,13 @@ if ! grep -q "${CRANE_VERSION}" <<<"$(crane version 2>/dev/null)"; then
   install_from_tarball "https://github.com/google/go-containerregistry/releases/download/v${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz" crane crane
 fi
 
+# ── nono 0.80.0 ───────────────────────────────────────────────────────
+NONO_VERSION="0.80.0"
+if ! grep -q "${NONO_VERSION}" <<<"$(nono --version 2>/dev/null)"; then
+  log "installing nono ${NONO_VERSION}"
+  install_from_tarball "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/nono-v${NONO_VERSION}-x86_64-unknown-linux-gnu.tar.gz" nono nono
+fi
+
 # ── cosign 3.0.6 (matches local dev; needs --signing-config for key-only, no-tlog
 # signing, the non-deprecated replacement for --tlog-upload=false). The version
 # is load-bearing: 3.0.6 always stores a key-based signature as a sigstore-bundle

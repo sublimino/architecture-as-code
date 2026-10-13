@@ -1026,7 +1026,7 @@ I am stopping. The commit stays `d79c34cd`. The card closes green with no P1-4 c
 **Created:** 2026-10-13 01:50:00+01:00
 **Last Updated:** 2026-10-13 01:50:00+01:00
 **Status:** Completed
-**Commit:** pending on `integration/slsi-v0.1.0`.
+**Commit:** `707dbf10` on `integration/slsi-v0.1.0`.
 
 ##### Ingress Mode Matrix Verification
 

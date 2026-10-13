@@ -215,3 +215,130 @@ async def test_demo_runner_main_asgi_raw_head_body_suppression():
     assert len(body_messages) >= 1
     for bm in body_messages:
         assert bm.get("body", b"") == b"", f"leaked body bytes on HEAD: {bm}"
+
+
+def test_options_method_on_main_app_routes():
+    """Verify RFC 9110 Section 9.3.7 OPTIONS discovery across main app endpoints."""
+    client = TestClient(app)
+    # Probes and health routes
+    for path in ("/api/health", "/health", "/healthz", "/livez"):
+        resp = client.options(path)
+        assert resp.status_code == 204, f"OPTIONS {path} status {resp.status_code} != 204"
+        assert resp.content == b"", f"OPTIONS {path} leaked body: {resp.content!r}"
+        assert resp.headers.get("content-length") == "0"
+        allow = resp.headers.get("allow", "")
+        for m in ("GET", "HEAD", "OPTIONS"):
+            assert m in allow, f"OPTIONS {path} missing {m} in Allow: {allow}"
+
+    # Router GET routes
+    resp_agents = client.options("/api/v1/agents")
+    assert resp_agents.status_code == 204
+    assert resp_agents.content == b""
+    assert "GET" in resp_agents.headers.get("allow", "")
+    assert "OPTIONS" in resp_agents.headers.get("allow", "")
+
+    # Router POST-only routes
+    resp_trans = client.options("/api/v1/agents/test-agent/transition")
+    assert resp_trans.status_code == 204
+    assert resp_trans.content == b""
+    assert resp_trans.headers.get("allow") == "POST, OPTIONS"
+
+    # Nonexistent path returns 404
+    resp_404 = client.options("/api/nonexistent/missing")
+    assert resp_404.status_code == 404
+
+
+def test_options_method_on_runner_app_routes():
+    """Verify RFC 9110 Section 9.3.7 OPTIONS discovery on demo runner."""
+    client = TestClient(runner_app)
+    for path in ("/health", "/healthz", "/readyz"):
+        resp = client.options(path)
+        assert resp.status_code == 204, f"OPTIONS {path} status {resp.status_code} != 204"
+        assert resp.content == b""
+        assert resp.headers.get("content-length") == "0"
+        allow = resp.headers.get("allow", "")
+        assert "GET" in allow and "HEAD" in allow and "OPTIONS" in allow
+
+    # POST-only runner route
+    resp_run = client.options("/api/demo/supercred/runs")
+    assert resp_run.status_code == 204
+    assert resp_run.content == b""
+    assert resp_run.headers.get("allow") == "POST, OPTIONS"
+
+    # Nonexistent route
+    resp_404 = client.options("/api/nonexistent")
+    assert resp_404.status_code == 404
+
+
+def test_runner_app_405_allow_header_includes_options_and_get():
+    """Verify demo-runner 405 Method Not Allowed includes complete Allow header including OPTIONS and GET."""
+    client = TestClient(runner_app)
+    # Regression test for former bug where POST /health returned Allow: HEAD omitting GET
+    resp_post = client.post("/health")
+    assert resp_post.status_code == 405
+    allow_health = resp_post.headers.get("allow", "")
+    assert "GET" in allow_health, f"POST /health missing GET in Allow: {allow_health}"
+    assert "HEAD" in allow_health, f"POST /health missing HEAD in Allow: {allow_health}"
+    assert "OPTIONS" in allow_health, f"POST /health missing OPTIONS in Allow: {allow_health}"
+
+    # POST-only route called with GET
+    resp_get = client.get("/api/demo/supercred/runs")
+    assert resp_get.status_code == 405
+    allow_runs = resp_get.headers.get("allow", "")
+    assert "POST" in allow_runs
+    assert "OPTIONS" in allow_runs
+
+
+def test_main_app_405_allow_header_includes_options():
+    """Verify main portal 405 Method Not Allowed synthesizes complete Allow headers with OPTIONS."""
+    client = TestClient(app)
+    resp_post = client.post("/api/health")
+    assert resp_post.status_code == 405
+    allow = resp_post.headers.get("allow", "")
+    assert "GET" in allow
+    assert "HEAD" in allow
+    assert "OPTIONS" in allow
+
+    resp_get_trans = client.get("/api/v1/agents/test-agent/transition")
+    assert resp_get_trans.status_code == 405
+    allow_trans = resp_get_trans.headers.get("allow", "")
+    assert "POST" in allow_trans
+    assert "OPTIONS" in allow_trans
+
+
+@pytest.mark.anyio
+async def test_asgi_raw_options_body_draining():
+    """Verify that inbound request bodies sent with OPTIONS are fully drained."""
+    received_frames = []
+    scope = {
+        "type": "http",
+        "method": "OPTIONS",
+        "path": "/health",
+        "raw_path": b"/health",
+        "headers": [],
+        "query_string": b"",
+    }
+
+    frames = [
+        {"type": "http.request", "body": b"chunk-1", "more_body": True},
+        {"type": "http.request", "body": b"chunk-2", "more_body": False},
+    ]
+
+    async def receive():
+        frame = frames.pop(0)
+        received_frames.append(frame)
+        return frame
+
+    messages = []
+
+    async def send(message):
+        messages.append(message)
+
+    await runner_app(scope, receive, send)
+
+    assert len(received_frames) == 2, "OPTIONS middleware did not drain request body"
+    start_msg = next(m for m in messages if m["type"] == "http.response.start")
+    assert start_msg["status"] == 204
+    body_msg = next(m for m in messages if m["type"] == "http.response.body")
+    assert body_msg["body"] == b""
+

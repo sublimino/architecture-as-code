@@ -71,7 +71,7 @@ def test_health_and_probe_head_and_methods():
             assert res_head.content == b""
             res_post = client.post(path)
             assert res_post.status_code == 405
-            assert res_post.headers.get("allow") in ("GET, HEAD", "HEAD, GET")
+            assert res_post.headers.get("allow") in ("GET, HEAD", "HEAD, GET", "GET, HEAD, OPTIONS")
 
 
 def test_readyz_requires_postgresql_but_tolerates_redis_degradation():

@@ -14,56 +14,28 @@ from fastapi.responses import JSONResponse
 
 from api_compat import install_api_exception_handlers
 from demo_runner import _ENV_AUDIT_SINK, _audit_sink_url, install_demo_runner_api
-
-class HeadBodySuppressingMiddleware:
-    """Suppress response body bytes on HTTP HEAD requests per RFC 9110 Section 6.4.1.
-
-    Also ensures RFC 9110 Section 9.3.2 GET and HEAD parity by dispatching HEAD
-    requests to matching GET handlers across all APIRouters, which otherwise
-    return 405 Method Not Allowed when methods=["GET"] is configured without HEAD.
-    """
-
-    def __init__(self, app):
-        self.app = app
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and scope.get("method") == "HEAD":
-            head_scope = dict(scope)
-            head_scope["method"] = "GET"
-
-            async def wrapped_send(message):
-                if message["type"] == "http.response.body":
-                    message = dict(message)
-                    message["body"] = b""
-                await send(message)
-
-            await self.app(head_scope, receive, wrapped_send)
-            return
-        await self.app(scope, receive, send)
+from request_lifecycle import HeadBodySuppressingMiddleware, RequestLifecycleMiddleware
 
 
 app = FastAPI(title="Signal Loom SuperCred Demo Runner", version="0.1.0")
 install_demo_runner_api(app)
 install_api_exception_handlers(app)
-app.add_middleware(HeadBodySuppressingMiddleware)
+app.add_middleware(RequestLifecycleMiddleware)
 
 
 @app.get("/health")
-@app.head("/health", include_in_schema=False)
 async def health() -> dict[str, str]:
     """A cheap liveness probe for the standalone demo runner."""
     return {"status": "ok"}
 
 
 @app.get("/healthz")
-@app.head("/healthz", include_in_schema=False)
 async def healthz() -> dict[str, str]:
     """A cheap liveness probe for the standalone demo runner."""
     return {"status": "ok"}
 
 
 @app.get("/readyz")
-@app.head("/readyz", include_in_schema=False)
 async def readyz() -> JSONResponse:
     """Ready when the process can answer requests AND record what it is asked to do.
 

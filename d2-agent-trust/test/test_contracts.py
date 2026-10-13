@@ -41,6 +41,8 @@ class A2A(unittest.TestCase):
   for change in cases:
     with self.assertRaises(PermissionError): verify_and_authorize(self.context(**change),self.public,self.request,PLANNER,ReplayStore(),self.now,receiver_instance=self.instance)
   with self.assertRaises(PermissionError): verify_and_authorize(self.context(),self.public,{'action':'triage.analyze','resource':'case/mutated'},PLANNER,ReplayStore(),self.now,receiver_instance=self.instance)
+  with self.assertRaises(PermissionError): verify_and_authorize(self.context(),self.public,"not-a-dict",PLANNER,ReplayStore(),self.now,receiver_instance=self.instance)
+  with self.assertRaises(PermissionError): verify_and_authorize(self.context(),self.public,[1,2,3],PLANNER,ReplayStore(),self.now,receiver_instance=self.instance)
   with self.assertRaises(PermissionError): verify_and_authorize(self.context(),self.public,self.request,'spiffe://bad',ReplayStore(),self.now,receiver_instance=self.instance)
   replay=ReplayStore(); verify_and_authorize(self.context(),self.public,self.request,PLANNER,replay,self.now,receiver_instance=self.instance)
   with self.assertRaises(PermissionError): verify_and_authorize(self.context(),self.public,self.request,PLANNER,replay,self.now,receiver_instance=self.instance)
@@ -76,6 +78,9 @@ class A2A(unittest.TestCase):
    bad=urllib.request.Request(url,data=json.dumps(self.request).encode(),headers={'Authorization':'Bearer '+self.context(nbf=now-1,exp=now+30,jti='bad'),'X-SPIFFE-JWT-SVID':'bad-svid','X-Authenticated-SPIFFE-ID':PLANNER},method='POST')
    with self.assertRaises(urllib.error.HTTPError) as denied: urllib.request.urlopen(bad)
    denied.exception.close()
+   bad_body=urllib.request.Request(url,data=b'[]',headers={'Authorization':'Bearer '+c,'X-SPIFFE-JWT-SVID':'good-svid'},method='POST')
+   with self.assertRaises(urllib.error.HTTPError) as err_body: urllib.request.urlopen(bad_body)
+   self.assertEqual(400,err_body.exception.code); err_body.exception.close()
   finally: s.shutdown(); th.join(); s.server_close()
   restarted=serve(self.public,0,identity_validator=validator,receiver_instance='post-restart'); restarted_thread=threading.Thread(target=restarted.serve_forever); restarted_thread.start()
   try:

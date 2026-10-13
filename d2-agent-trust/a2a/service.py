@@ -43,6 +43,7 @@ def authenticate_spiffe_via_openbao(audience, openbao_url, role, expected_spiffe
     return validate_openbao_identity(openbao_url,svid.token,role,expected_spiffe,opener)
 def verify_and_authorize(context, public_key, request, peer_spiffe, replay, now=None, *, receiver_instance):
     now=time.time() if now is None else now
+    if not isinstance(request, dict): raise PermissionError("malformed request payload")
     try:
         h,p,s=context.split("."); claims=json.loads(_unb64(p)); valid=json.loads(_unb64(h)).get("alg")=="RS256"
         with tempfile.NamedTemporaryFile() as f:
@@ -64,13 +65,21 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
         def do_POST(self):
             if self.path != "/a2a": self.send_error(404); return
             try:
-                length=int(self.headers["Content-Length"]); body=json.loads(self.rfile.read(length))
-                context=self.headers["Authorization"].removeprefix("Bearer ")
-                jwt_svid=self.headers["X-SPIFFE-JWT-SVID"]
-                validator=identity_validator or (lambda token: validate_openbao_identity(openbao_url or "",token,openbao_role,PLANNER))
-                decision=verify_and_authorize(context, public_key, body, validator(jwt_svid), replay, receiver_instance=instance)
-                resp_data=json.dumps(decision).encode()
+                raw_len = self.headers.get("Content-Length")
+                if raw_len is None: self.send_error(400); return
+                length = int(raw_len)
+                if length <= 0 or length > 1048576: self.send_error(400); return
+                body = json.loads(self.rfile.read(length))
+                if not isinstance(body, dict): self.send_error(400); return
+                auth = self.headers.get("Authorization", "")
+                if not auth.startswith("Bearer "): self.send_error(403); return
+                context = auth.removeprefix("Bearer ")
+                jwt_svid = self.headers.get("X-SPIFFE-JWT-SVID")
+                if not jwt_svid: self.send_error(403); return
+                validator = identity_validator or (lambda token: validate_openbao_identity(openbao_url or "",token,openbao_role,PLANNER))
+                decision = verify_and_authorize(context, public_key, body, validator(jwt_svid), replay, receiver_instance=instance)
+                resp_data = json.dumps(decision).encode()
                 self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(resp_data))); self.end_headers(); self.wfile.write(resp_data)
-            except (KeyError, ValueError, PermissionError): self.send_error(403)
+            except (KeyError, ValueError, AttributeError, PermissionError): self.send_error(403)
         def log_message(self,*_): pass
     return ThreadingHTTPServer(("127.0.0.1",port),H)

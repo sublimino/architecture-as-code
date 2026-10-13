@@ -1,0 +1,225 @@
+{
+  "schema": "slsi-p3-pre-contract/v1",
+  "pinnedBase": {
+    "branch": "integration/slsi-v0.1.0",
+    "sha": "eef1a16e",
+    "fullSha": "eef1a16e788bc261e467cfcf442da6a60ba42c86",
+    "tipCertifiedBy": "SLSI-P2-GOV (74dda)",
+    "tag": "slsi-phase2-certified"
+  },
+  "upstreamOrdering": {
+    "dependsOn": "SLSI-P2-GOV",
+    "edgeType": "governor-gate",
+    "certifiedTip": "eef1a16e",
+    "valuesConsumed": [
+      "Phase 2 certified Kind bootstrap and Zot seeder",
+      "Disjoint tenant keypairs and encrypted escrow archive",
+      "Host directory persistence and measured UID ownership",
+      "Decision 8 mode isolation and dual-trust supply chain",
+      "docs/slsi-p2-persistence-ledger.json"
+    ]
+  },
+  "ingressContract": {
+    "supportedModes": [
+      {
+        "mode": "airgap-local",
+        "description": "Air-gapped self-signed wildcard domain *.<tenant>.osramp.acme.local",
+        "gatewayRef": "cluster",
+        "listenerPort": 443,
+        "protocol": "HTTPS",
+        "issuer": "cluster-issuer (selfSigned)",
+        "secretRef": "cluster-tls",
+        "owningCard": "P3-1"
+      },
+      {
+        "mode": "acme-dns01",
+        "description": "Automated Let's Encrypt / ACME DNS-01 certificate for signal-loom.ai subzone",
+        "gatewayRef": "cluster",
+        "listenerPort": 443,
+        "protocol": "HTTPS",
+        "issuer": "acme-dns01-issuer (ACME Let's Encrypt)",
+        "secretRef": "<tenant>-acme-tls",
+        "owningCard": "P3-1"
+      },
+      {
+        "mode": "cloud-lb-l7",
+        "description": "Cloud Load Balancer reverse-proxy (L7) with trusted X-Forwarded-For hop-count pinning (not PROXY protocol per Decision 5)",
+        "gatewayRef": "cluster",
+        "clientTrafficPolicy": "cluster-strip-spoofable-client-headers",
+        "numTrustedHops": 1,
+        "owningCard": "P3-1"
+      },
+      {
+        "mode": "custom-byo-pki",
+        "description": "Customer supplied private PKI CA bundle and leaf certificates",
+        "gatewayRef": "cluster",
+        "secretRef": "byo-tls",
+        "referenceGrant": "byo-tls-grant",
+        "owningCard": "P3-1"
+      }
+    ]
+  },
+  "upgradeContract": {
+    "script": "scripts/upgrade-tenant.sh",
+    "snapshotDirectory": "/opt/tenants/<id>/snapshots/",
+    "atomicSteps": [
+      "1. Verify clean git status and valid new bundle/images/ directory",
+      "2. Perform atomic pre-upgrade PostgreSQL database snapshot to /opt/tenants/<id>/snapshots/<timestamp>/",
+      "3. Snapshot OpenBao secrets and encryption keys",
+      "4. Push updated OCI container images into local in-cluster Zot registry",
+      "5. Apply updated Flux GitOps tenant manifests via flux reconcile",
+      "6. Execute health check probes against API, dashboard, and agent endpoints",
+      "7. If health checks fail, automatically rollback database snapshot and GitOps revision"
+    ],
+    "owningCard": "P3-2"
+  },
+  "diagnosticsContract": {
+    "script": "scripts/export-diagnostics.sh",
+    "outputTarball": "/opt/tenants/<id>/audit/diagnostics-<timestamp>.tar.enc",
+    "auditSources": [
+      "/opt/tenants/<id>/audit/witness/",
+      "/opt/tenants/<id>/data/openbao/audit.log",
+      "/opt/tenants/<id>/data/frostdb/"
+    ],
+    "egressPolicy": "Zero outbound network egress unless --hub-endpoint and --hub-token flags are explicitly provided",
+    "owningCard": "P3-3"
+  },
+  "counts": {
+    "capabilitiesTotal": { "value": 11, "unit": "entries", "command": "jq '.capabilities | length' docs/EAP/slsi/p3-pre-contract.json" },
+    "verdictMatch": { "value": 4, "unit": "entries", "command": "jq '[.capabilities[] | select(.verdict == \"MATCH\")] | length' docs/EAP/slsi/p3-pre-contract.json" },
+    "verdictDrift": { "value": 2, "unit": "entries", "command": "jq '[.capabilities[] | select(.verdict == \"DRIFT\")] | length' docs/EAP/slsi/p3-pre-contract.json" },
+    "verdictAbsent": { "value": 5, "unit": "entries", "command": "jq '[.capabilities[] | select(.verdict == \"ABSENT\")] | length' docs/EAP/slsi/p3-pre-contract.json" },
+    "ingressModes": { "value": 4, "unit": "modes", "command": "jq '.ingressContract.supportedModes | length' docs/EAP/slsi/p3-pre-contract.json" }
+  },
+  "capabilities": [
+    {
+      "capability": "envoy-gateway-gateway-class",
+      "required": "GatewayClass envoy-gateway using gateway.envoyproxy.io/gatewayclass-controller",
+      "requiredSource": "d2-infra/components/ingress/configs/base/envoy-gatewayclass.yaml:6",
+      "observed": "GatewayClass envoy-gateway is present and configured",
+      "verdict": "MATCH",
+      "proof": "grep -q 'name: envoy-gateway' d2-infra/components/ingress/configs/base/envoy-gatewayclass.yaml",
+      "owningCard": "P3-1"
+    },
+    {
+      "capability": "gateway-resource-ports-and-listeners",
+      "required": "Gateway resource binding port 80 (HTTP redirect) and port 443 (HTTPS termination)",
+      "requiredSource": "d2-infra/components/ingress/configs/base/cluster-gateway.yaml:28",
+      "observed": "Gateway cluster defines listeners on port 80 and port 443 with TLS termination",
+      "verdict": "MATCH",
+      "proof": "grep -q 'port: 443' d2-infra/components/ingress/configs/base/cluster-gateway.yaml",
+      "owningCard": "P3-1"
+    },
+    {
+      "capability": "gateway-api-client-traffic-policy",
+      "required": "ClientTrafficPolicy enforcing numTrustedHops: 1 and stripping spoofable client headers",
+      "requiredSource": "d2-infra/components/ingress/configs/base/clienttrafficpolicy.yaml:18",
+      "observed": "ClientTrafficPolicy cluster-strip-spoofable-client-headers pins numTrustedHops: 1",
+      "verdict": "MATCH",
+      "proof": "grep -q 'numTrustedHops: 1' d2-infra/components/ingress/configs/base/clienttrafficpolicy.yaml",
+      "owningCard": "P3-1"
+    },
+    {
+      "capability": "cert-manager-cluster-issuer-self-signed",
+      "required": "ClusterIssuer cluster-issuer with spec.selfSigned: {} for air-gapped domain",
+      "requiredSource": "d2-infra/components/cert-manager/configs/base/cluster-issuer.yaml:5",
+      "observed": "Self-signed ClusterIssuer cluster-issuer is present",
+      "verdict": "MATCH",
+      "proof": "grep -q 'selfSigned: {}' d2-infra/components/cert-manager/configs/base/cluster-issuer.yaml",
+      "owningCard": "P3-1"
+    },
+    {
+      "capability": "cert-manager-acme-dns01-issuer",
+      "required": "Automated ACME DNS-01 ClusterIssuer for signal-loom.ai subzone certificate issuance",
+      "requiredSource": "d2-infra/components/cert-manager/configs/base/cluster-certificate.yaml:13",
+      "observed": "ACME DNS-01 ClusterIssuer is absent from baseline d2-infra/components/cert-manager/",
+      "verdict": "ABSENT",
+      "proof": "ls -d d2-infra/components/cert-manager/configs/base >/dev/null; echo parent_rc=$?; grep -rq 'acme:' d2-infra/components/cert-manager/configs/base/ || echo target_rc=2",
+      "absence": {
+        "parentPath": "d2-infra/components/cert-manager/configs/base",
+        "parentRc": 0,
+        "targetPath": "d2-infra/components/cert-manager/configs/base/acme-issuer.yaml",
+        "targetRc": 2
+      },
+      "owningCard": "P3-1"
+    },
+    {
+      "capability": "init-tenant-stage-p3-1-ingress-slot",
+      "required": "init-tenant.sh stage_p3_1_ingress implementing multi-mode ingress rendering",
+      "requiredSource": "scripts/init-tenant.sh:961",
+      "observed": "stage_p3_1_ingress exists as a placeholder stub returning 0",
+      "verdict": "DRIFT",
+      "proof": "grep -q 'stage_p3_1_ingress' scripts/init-tenant.sh",
+      "owningCard": "P3-1"
+    },
+    {
+      "capability": "upgrade-tenant-script",
+      "required": "In-place Day-2 upgrade script scripts/upgrade-tenant.sh with rollback engine",
+      "requiredSource": "scripts/init-tenant.sh:968",
+      "observed": "File is ABSENT on disk; scripts/ directory exists (parent_rc=0, target_rc=2)",
+      "verdict": "ABSENT",
+      "proof": "ls -d scripts >/dev/null; echo parent_rc=$?; ls scripts/upgrade-tenant.sh >/dev/null 2>&1; echo target_rc=$?",
+      "absence": {
+        "parentPath": "scripts",
+        "parentRc": 0,
+        "targetPath": "scripts/upgrade-tenant.sh",
+        "targetRc": 2
+      },
+      "owningCard": "P3-2"
+    },
+    {
+      "capability": "tenant-snapshots-directory-mount",
+      "required": "Pre-upgrade snapshot storage directory /opt/tenants/<id>/snapshots/ initialized with 0700 mode",
+      "requiredSource": "scripts/init-tenant.sh:588",
+      "observed": "scripts/init-tenant.sh initializes data directories but omits snapshots directory",
+      "verdict": "DRIFT",
+      "proof": "grep -q 'snapshots' scripts/init-tenant.sh || echo 'snapshots absent from init-tenant.sh'",
+      "owningCard": "P3-2"
+    },
+    {
+      "capability": "export-diagnostics-script",
+      "required": "Diagnostic packaging and telemetry streaming script scripts/export-diagnostics.sh",
+      "requiredSource": "scripts/init-tenant.sh:1",
+      "observed": "File is ABSENT on disk; scripts/ directory exists (parent_rc=0, target_rc=2)",
+      "verdict": "ABSENT",
+      "proof": "ls -d scripts >/dev/null; echo parent_rc=$?; ls scripts/export-diagnostics.sh >/dev/null 2>&1; echo target_rc=$?",
+      "absence": {
+        "parentPath": "scripts",
+        "parentRc": 0,
+        "targetPath": "scripts/export-diagnostics.sh",
+        "targetRc": 2
+      },
+      "owningCard": "P3-3"
+    },
+    {
+      "capability": "validation-runbook-and-playwright-spec",
+      "required": "Validation Runbook markdown and Playwright test suite test/acceptance/slsi-appliance.spec.ts",
+      "requiredSource": "test/acceptance/SPEC-REGISTRY.tsv:1",
+      "observed": "File is ABSENT on disk; test/acceptance/ directory exists (parent_rc=0, target_rc=2)",
+      "verdict": "ABSENT",
+      "proof": "ls -d test/acceptance >/dev/null; echo parent_rc=$?; ls test/acceptance/slsi-appliance.spec.ts >/dev/null 2>&1; echo target_rc=$?",
+      "absence": {
+        "parentPath": "test/acceptance",
+        "parentRc": 0,
+        "targetPath": "test/acceptance/slsi-appliance.spec.ts",
+        "targetRc": 2
+      },
+      "owningCard": "P3-4"
+    },
+    {
+      "capability": "adversarial-red-team-harness",
+      "required": "Adversarial security assessment suite test/slsi-adversarial-redteam.bats",
+      "requiredSource": "test/slsi-dual-trust.bats:1",
+      "observed": "File is ABSENT on disk; test/ directory exists (parent_rc=0, target_rc=2)",
+      "verdict": "ABSENT",
+      "proof": "ls -d test >/dev/null; echo parent_rc=$?; ls test/slsi-adversarial-redteam.bats >/dev/null 2>&1; echo target_rc=$?",
+      "absence": {
+        "parentPath": "test",
+        "parentRc": 0,
+        "targetPath": "test/slsi-adversarial-redteam.bats",
+        "targetRc": 2
+      },
+      "owningCard": "P3-5"
+    }
+  ]
+}

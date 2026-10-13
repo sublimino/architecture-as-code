@@ -3,58 +3,58 @@
     {
       "id": "sl-drift-reconcile",
       "cron": "*/30 * * * *",
-      "prompt": "/cp-sl-drift-reconcile\n\nRun scheduled GitOps and cluster drift reconciliation for #partner-signal-loom.\n1. Verify Flux Kustomization and ResourceSet statuses.\n2. Assert JSON6902 patch indexes in tenants/local/kustomization.yaml target OCIRepositories.\n3. Scan for unresolved ${VAR} tokens in applied cluster manifests.\n4. Reconcile if safe; report brief with any manual override drift.",
+      "prompt": "/sl-drift-reconcile\n\nRun scheduled GitOps and cluster drift reconciliation for #partner-signal-loom.\n1. Verify Flux Kustomization and ResourceSet statuses.\n2. Assert JSON6902 patch indexes in tenants/local/kustomization.yaml target OCIRepositories.\n3. Scan for unresolved ${VAR} tokens in applied cluster manifests.\n4. Reconcile if safe; report brief with any manual override drift.",
       "createdAt": 1789236000000,
-      "skill": "cp-sl-drift-reconcile"
+      "skill": "sl-drift-reconcile"
     },
     {
       "id": "sl-portforward-supervisor",
       "cron": "*/15 * * * *",
-      "prompt": "/cp-sl-portforward-supervisor\n\nSupervise Signal Loom ingress, durable port-forwarding, and in-pod backend proxies.\n1. Verify systemd unit signalloom-portforward.service status.\n2. Probe http://localhost:5173/ and Envoy Gateway https://localhost:18443/.\n3. Auto-recover broken SPDY streams after pod rollouts.\n4. Execute in-pod curl check against /fleet-api/v1/fleet/topology and /api/v1/health.",
+      "prompt": "/sl-portforward-supervisor\n\nSupervise Signal Loom ingress, durable port-forwarding, and in-pod backend proxies.\n1. Verify systemd unit signalloom-portforward.service status.\n2. Probe http://localhost:5173/ and Envoy Gateway https://localhost:18443/.\n3. Auto-recover broken SPDY streams after pod rollouts.\n4. Execute in-pod curl check against /fleet-api/v1/fleet/topology and /api/v1/health.",
       "createdAt": 1789236000000,
-      "skill": "cp-sl-portforward-supervisor"
+      "skill": "sl-portforward-supervisor"
     },
     {
       "id": "sl-silent-failure-audit",
       "cron": "0 */4 * * *",
-      "prompt": "/cp-sl-silent-failure-audit\n\nExecute scheduled audit of the 17 Signal Loom silent failure invariants.\n1. Assert CRI image layers present via crictl (not containerd ctr metadata).\n2. Verify PostgreSQL audit_events constraint permits all AST-emitted dotted names.\n3. Verify zero collisions between nginx proxy locations and React Router App.tsx routes.\n4. Verify POOL_IMPORTERS connection pool binding invariant.\n5. Scan BATS test outputs for silent # skip masks.",
+      "prompt": "/sl-silent-failure-audit\n\nExecute scheduled audit of the 17 Signal Loom silent failure invariants.\n1. Assert CRI image layers present via crictl (not containerd ctr metadata).\n2. Verify PostgreSQL audit_events constraint permits all AST-emitted dotted names.\n3. Verify zero collisions between nginx proxy locations and React Router App.tsx routes.\n4. Verify POOL_IMPORTERS connection pool binding invariant.\n5. Scan BATS test outputs for silent # skip masks.",
       "createdAt": 1789236000000,
-      "skill": "cp-sl-silent-failure-audit"
+      "skill": "sl-silent-failure-audit"
     },
     {
       "id": "sl-containment-guard",
       "cron": "*/15 * * * *",
-      "prompt": "/cp-sl-containment-guard\n\nEnforce agent stun, containment, and GitOps suspension integrity.\n1. Enforce kustomize.toolkit.fluxcd.io/reconcile: disabled on all stunned agent deployments.\n2. Verify H1 forensic preservation contract (liveness probe kill suppression).\n3. Audit Fleet Manager in-memory DAG state sync with GET /api/v1/fleet/topology.\n4. Assert telemetry monitor agent (agent-monitor) immunity.",
+      "prompt": "/sl-containment-guard\n\nEnforce agent stun, containment, and GitOps suspension integrity.\n1. Enforce kustomize.toolkit.fluxcd.io/reconcile: disabled on all stunned agent deployments.\n2. Verify H1 forensic preservation contract (liveness probe kill suppression).\n3. Audit Fleet Manager in-memory DAG state sync with GET /api/v1/fleet/topology.\n4. Assert telemetry monitor agent (agent-monitor) immunity.",
       "createdAt": 1789236000000,
-      "skill": "cp-sl-containment-guard"
+      "skill": "sl-containment-guard"
     },
     {
       "id": "sl-pyramid-verify",
       "cron": "0 3 * * *",
-      "prompt": "/cp-sl-pyramid-verify\n\nExecute the offline test pyramid and contract drift verification.\n1. Run make docs-lint across all documentation.\n2. Run make test-all-offline (Go unit tests, Vitest suites, Python API tests).\n3. Verify zero schema drift between initdb migrations and discovery-portal-bootstrap.sql.\n4. Assert empirical mutation test falsifiability.",
+      "prompt": "/sl-pyramid-verify\n\nExecute the offline test pyramid and contract drift verification.\n1. Run make docs-lint across all documentation.\n2. Run make test-all-offline (Go unit tests, Vitest suites, Python API tests).\n3. Verify zero schema drift between initdb migrations and discovery-portal-bootstrap.sql.\n4. Assert empirical mutation test falsifiability.",
       "createdAt": 1789236000000,
-      "skill": "cp-sl-pyramid-verify"
+      "skill": "sl-pyramid-verify"
     },
     {
       "id": "sl-worktree-governor",
       "cron": "0 */6 * * *",
-      "prompt": "/cp-sl-worktree-governor\n\nGovern multi-agent worktrees and Kanban controller leases.\n1. Scan all worktrees under ~/src/.worktrees/ and ~/.cline/worktrees/.\n2. Isolate and preserve worktrees with uncommitted files or unpushed commits.\n3. Audit Kanban controller leases via kanban-check.sh doctor --repo .\n4. Identify safe merge-complete candidates for pruning.",
+      "prompt": "/sl-worktree-governor\n\nGovern multi-agent worktrees and Kanban controller leases.\n1. Scan all worktrees under ~/src/.worktrees/ and ~/.cline/worktrees/.\n2. Isolate and preserve worktrees with uncommitted files or unpushed commits.\n3. Audit Kanban controller leases via kanban-check.sh doctor --repo .\n4. Identify safe merge-complete candidates for pruning.",
       "createdAt": 1789236000000,
-      "skill": "cp-sl-worktree-governor"
+      "skill": "sl-worktree-governor"
     },
     {
       "id": "sl-eap-evidence-sweep",
       "cron": "0 6 * * *",
-      "prompt": "/cp-sl-eap-evidence-sweep\n\nAudit compliance and supply chain evidence for EAP design partners.\n1. Verify Cosign signatures, SLSA provenance, and SPDX SBOMs in docs/signalloom/evidence/.\n2. Audit PostgreSQL audit_events continuous non-zero row growth.\n3. Validate NetAssert network policy boundary proofs.\n4. Deliver verified evidence pack ledger for stakeholder and diligence review.",
+      "prompt": "/sl-eap-evidence-sweep\n\nAudit compliance and supply chain evidence for EAP design partners.\n1. Verify Cosign signatures, SLSA provenance, and SPDX SBOMs in docs/signalloom/evidence/.\n2. Audit PostgreSQL audit_events continuous non-zero row growth.\n3. Validate NetAssert network policy boundary proofs.\n4. Deliver verified evidence pack ledger for stakeholder and diligence review.",
       "createdAt": 1789236000000,
-      "skill": "cp-sl-eap-evidence-sweep"
+      "skill": "sl-eap-evidence-sweep"
     },
     {
       "id": "sl-drift-sweep",
       "cron": "0 4 * * 1",
-      "prompt": "/cp-sl-drift-sweep\n\nRun two-axis codebase drift, Fowler code-smell, and proposal-sprawl sweep for #partner-signal-loom.\n1. Run Tools/drift-sweep.sh to evaluate Axis A (Standards & Fowler Code Smells) and Axis B (Spec & Proposal Fidelity).\n2. By default (PAUSE_FOR_APPROVAL), present the Two-Axis Report and Cleanup Job Manifest and pause for user sign-off.\n3. When invoked with --auto or /goal, execute Phases 2-4 in isolated worktrees with fail->fix mutation proofs and rebase/merge onto the active branch.",
+      "prompt": "/sl-drift-sweep\n\nRun two-axis codebase drift, Fowler code-smell, and proposal-sprawl sweep for #partner-signal-loom.\n1. Run Tools/drift-sweep.sh to evaluate Axis A (Standards & Fowler Code Smells) and Axis B (Spec & Proposal Fidelity).\n2. By default (PAUSE_FOR_APPROVAL), present the Two-Axis Report and Cleanup Job Manifest and pause for user sign-off.\n3. When invoked with --auto or /goal, execute Phases 2-4 in isolated worktrees with fail->fix mutation proofs and rebase/merge onto the active branch.",
       "createdAt": 1789236000000,
-      "skill": "cp-sl-drift-sweep"
+      "skill": "sl-drift-sweep"
     }
   ]
 }

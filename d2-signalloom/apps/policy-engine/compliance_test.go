@@ -217,6 +217,12 @@ func TestComplianceScan_MethodNotAllowed(t *testing.T) {
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", w.Code)
 	}
+	if allow := w.Header().Get("Allow"); allow != "POST" {
+		t.Fatalf("expected Allow: POST, got %q", allow)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("expected Content-Type: application/json, got %q", ct)
+	}
 }
 
 func TestComplianceScan_EmptyBody(t *testing.T) {

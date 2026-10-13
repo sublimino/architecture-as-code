@@ -238,7 +238,8 @@ func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleTopology(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -293,11 +294,16 @@ func (s *server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	json.NewEncoder(w).Encode(resp)
 }
 
 func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -421,6 +427,7 @@ func writeCascadeResult(w http.ResponseWriter, result *CascadeResult) {
 
 func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -511,6 +518,7 @@ func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -658,6 +666,7 @@ type DeployResponse struct {
 
 func (s *server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -729,6 +738,7 @@ func (s *server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleScan(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -742,6 +752,7 @@ func (s *server) handleScan(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -759,7 +770,8 @@ func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
 // open. The two workload patterns are exact: neither ends in a slash, so the
 // list route cannot become a prefix handler that shadows the report route.
 func (s *server) handlePolicies(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -767,6 +779,10 @@ func (s *server) handlePolicies(w http.ResponseWriter, r *http.Request) {
 		s.policyEngine = NewPolicyEngine(s.dag, s.orchestrator, nil)
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	json.NewEncoder(w).Encode(map[string]any{
 		"policies": s.policyEngine.Policies(),
 		"count":    len(s.policyEngine.Policies()),
@@ -775,6 +791,7 @@ func (s *server) handlePolicies(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}

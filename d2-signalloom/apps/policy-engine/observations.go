@@ -60,6 +60,7 @@ func NewObservationHandlers(store *PolicyStore, evaluator obscel.Evaluator) *Obs
 // drain loop, not to a read-only dry-run surface.
 func (h *ObservationHandlers) HandleEvaluateObservation(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}

@@ -762,6 +762,42 @@ func TestRemoteStunStateHandlerValidation(t *testing.T) {
 		})
 	}
 
+	t.Run("HEAD and method gates", func(t *testing.T) {
+		// HEAD on state returns 200 with empty body
+		headResp := call(t, http.HandlerFunc(s.handleRemoteStunState), http.MethodHead, "/api/v1/fleet/stun-state?cluster_id=cluster-a", "")
+		if headResp.Code != http.StatusOK {
+			t.Fatalf("HEAD state status = %d, want 200", headResp.Code)
+		}
+		if headResp.Body.Len() != 0 {
+			t.Fatalf("HEAD state body length = %d, want 0", headResp.Body.Len())
+		}
+		if ct := headResp.Header().Get("Content-Type"); ct != "application/json" {
+			t.Fatalf("HEAD state Content-Type = %q, want application/json", ct)
+		}
+
+		// Non-GET/HEAD on state returns 405 with Allow: GET, HEAD
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+			bad := call(t, http.HandlerFunc(s.handleRemoteStunState), method, "/api/v1/fleet/stun-state?cluster_id=cluster-a", "")
+			if bad.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("%s state status = %d, want 405", method, bad.Code)
+			}
+			if allow := bad.Header().Get("Allow"); allow != "GET, HEAD" {
+				t.Fatalf("%s state Allow = %q, want GET, HEAD", method, allow)
+			}
+		}
+
+		// Non-POST on ack returns 405 with Allow: POST
+		for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete} {
+			bad := call(t, http.HandlerFunc(s.handleRemoteStunAck), method, "/api/v1/fleet/stun-state/ack", "")
+			if bad.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("%s ack status = %d, want 405", method, bad.Code)
+			}
+			if allow := bad.Header().Get("Allow"); allow != "POST" {
+				t.Fatalf("%s ack Allow = %q, want POST", method, allow)
+			}
+		}
+	})
+
 	stunned := mustAckRemoteStun(t, store, record.ID, RemoteStunned)
 	conflictBody := fmt.Sprintf(
 		`{"id":%q,"state":"stunned","node":"node-a","at":"2026-10-04T10:02:00Z"}`,

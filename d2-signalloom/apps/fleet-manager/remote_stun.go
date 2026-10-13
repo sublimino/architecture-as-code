@@ -746,7 +746,8 @@ type RemoteStunAckRequest struct {
 // cluster_id is mandatory because defaulting to all clusters would hand one
 // remote cluster another cluster's containment and release instructions.
 func (s *server) handleRemoteStunState(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -778,6 +779,9 @@ func (s *server) handleRemoteStunState(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
 	_ = json.NewEncoder(w).Encode(RemoteStunStateResponse{
 		Records: records,
 		Count:   len(records),
@@ -787,6 +791,7 @@ func (s *server) handleRemoteStunState(w http.ResponseWriter, r *http.Request) {
 // handleRemoteStunAck validates and records one warden acknowledgement.
 func (s *server) handleRemoteStunAck(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}

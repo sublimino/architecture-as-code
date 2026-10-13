@@ -686,8 +686,9 @@ func TestWorkloadHandlersRejectMissingRegistryAndWrongMethod(t *testing.T) {
 		method   string
 		path     string
 		body     string
-		wantCode int
-		wantText string
+		wantCode  int
+		wantText  string
+		wantAllow string
 	}{
 		{
 			name:     "report nil registry",
@@ -709,22 +710,33 @@ func TestWorkloadHandlersRejectMissingRegistryAndWrongMethod(t *testing.T) {
 			wantText: "workload registry is not configured",
 		},
 		{
-			name:     "report wrong method",
-			server:   &server{workloads: NewWorkloadRegistry(DefaultFleetReportInterval, func() time.Time { return now })},
-			handler:  func(s *server) http.HandlerFunc { return s.handleWorkloadReport },
-			method:   http.MethodGet,
-			path:     "/api/v1/fleet/workloads/report",
-			wantCode: http.StatusMethodNotAllowed,
-			wantText: "method not allowed",
+			name:      "report wrong method",
+			server:    &server{workloads: NewWorkloadRegistry(DefaultFleetReportInterval, func() time.Time { return now })},
+			handler:   func(s *server) http.HandlerFunc { return s.handleWorkloadReport },
+			method:    http.MethodGet,
+			path:      "/api/v1/fleet/workloads/report",
+			wantCode:  http.StatusMethodNotAllowed,
+			wantText:  "method not allowed",
+			wantAllow: "POST",
 		},
 		{
-			name:     "list wrong method",
+			name:      "list wrong method",
+			server:    &server{workloads: NewWorkloadRegistry(DefaultFleetReportInterval, func() time.Time { return now })},
+			handler:   func(s *server) http.HandlerFunc { return s.handleWorkloads },
+			method:    http.MethodPost,
+			path:      "/api/v1/fleet/workloads",
+			wantCode:  http.StatusMethodNotAllowed,
+			wantText:  "method not allowed",
+			wantAllow: "GET, HEAD",
+		},
+		{
+			name:     "list HEAD returns 200 with empty body",
 			server:   &server{workloads: NewWorkloadRegistry(DefaultFleetReportInterval, func() time.Time { return now })},
 			handler:  func(s *server) http.HandlerFunc { return s.handleWorkloads },
-			method:   http.MethodPost,
+			method:   http.MethodHead,
 			path:     "/api/v1/fleet/workloads",
-			wantCode: http.StatusMethodNotAllowed,
-			wantText: "method not allowed",
+			wantCode: http.StatusOK,
+			wantText: "",
 		},
 	}
 
@@ -734,8 +746,14 @@ func TestWorkloadHandlersRejectMissingRegistryAndWrongMethod(t *testing.T) {
 			if w.Code != test.wantCode {
 				t.Fatalf("status = %d, want %d; body=%s", w.Code, test.wantCode, w.Body.String())
 			}
-			if !strings.Contains(w.Body.String(), test.wantText) {
+			if test.wantText != "" && !strings.Contains(w.Body.String(), test.wantText) {
 				t.Fatalf("body %q does not contain %q", w.Body.String(), test.wantText)
+			}
+			if test.method == http.MethodHead && w.Body.Len() != 0 {
+				t.Fatalf("HEAD response had body %q, want empty", w.Body.String())
+			}
+			if test.wantAllow != "" && w.Header().Get("Allow") != test.wantAllow {
+				t.Fatalf("Allow header = %q, want %q", w.Header().Get("Allow"), test.wantAllow)
 			}
 		})
 	}

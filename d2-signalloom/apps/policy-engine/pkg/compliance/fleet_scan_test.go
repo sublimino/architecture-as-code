@@ -536,6 +536,12 @@ func TestHandleScanFleet_HTTP(t *testing.T) {
 	if getRec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405 Method Not Allowed, got %d", getRec.Code)
 	}
+	if allow := getRec.Header().Get("Allow"); allow != "POST" {
+		t.Fatalf("expected Allow: POST, got %q", allow)
+	}
+	if ct := getRec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("expected Content-Type: application/json, got %q", ct)
+	}
 
 	// Test POST valid request
 	body, err := json.Marshal(FleetScanRequest{})

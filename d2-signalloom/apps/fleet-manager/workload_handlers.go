@@ -73,6 +73,7 @@ func fleetReportIntervalFrom(raw string) (time.Duration, error) {
 // that missing dependency observable instead of turning it into a panic.
 func (s *server) handleWorkloadReport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -167,7 +168,8 @@ func writeWorkloadDecodeError(w http.ResponseWriter, err error) {
 // optional because the portal merges workloads across clusters, while wardens
 // only report snapshots and never call this read endpoint.
 func (s *server) handleWorkloads(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -193,6 +195,9 @@ func (s *server) handleWorkloads(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
 	_ = json.NewEncoder(w).Encode(WorkloadListResponse{
 		Workloads: workloads,
 		Count:     len(workloads),

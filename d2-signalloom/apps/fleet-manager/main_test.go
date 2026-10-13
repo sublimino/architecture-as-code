@@ -80,6 +80,19 @@ func TestHandleTopology_MethodNotAllowed(t *testing.T) {
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", w.Code)
 	}
+	if allow := w.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Fatalf("expected Allow: GET, HEAD, got %q", allow)
+	}
+
+	headReq := httptest.NewRequest(http.MethodHead, "/api/v1/fleet/topology", nil)
+	headW := httptest.NewRecorder()
+	s.handleTopology(headW, headReq)
+	if headW.Code != http.StatusOK {
+		t.Fatalf("HEAD expected 200, got %d", headW.Code)
+	}
+	if headW.Body.Len() != 0 {
+		t.Fatalf("HEAD expected empty body, got %d bytes", headW.Body.Len())
+	}
 }
 
 func TestHandleStun_Success(t *testing.T) {
@@ -141,6 +154,9 @@ func TestHandleStun_MethodNotAllowed(t *testing.T) {
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", w.Code)
+	}
+	if allow := w.Header().Get("Allow"); allow != "POST" {
+		t.Fatalf("expected Allow: POST, got %q", allow)
 	}
 }
 
@@ -228,4 +244,87 @@ func TestHandleDeploy_MethodNotAllowed(t *testing.T) {
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", w.Code)
 	}
+	if allow := w.Header().Get("Allow"); allow != "POST" {
+		t.Fatalf("expected Allow: POST, got %q", allow)
+	}
 }
+
+func TestHandlePolicies_HEADAndMethodNotAllowed(t *testing.T) {
+	s := newTestServer(t)
+
+	headReq := httptest.NewRequest(http.MethodHead, "/api/v1/fleet/policies", nil)
+	headW := httptest.NewRecorder()
+	s.handlePolicies(headW, headReq)
+	if headW.Code != http.StatusOK {
+		t.Fatalf("HEAD expected 200, got %d", headW.Code)
+	}
+	if headW.Body.Len() != 0 {
+		t.Fatalf("HEAD expected empty body, got %d bytes", headW.Body.Len())
+	}
+
+	postReq := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/policies", nil)
+	postW := httptest.NewRecorder()
+	s.handlePolicies(postW, postReq)
+	if postW.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST expected 405, got %d", postW.Code)
+	}
+	if allow := postW.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Fatalf("expected Allow: GET, HEAD, got %q", allow)
+	}
+}
+
+func TestHandleMutating_MethodNotAllowed(t *testing.T) {
+	s := newTestServer(t)
+
+	routes := []struct {
+		name    string
+		handler http.HandlerFunc
+		path    string
+	}{
+		{"recover", s.handleRecover, "/api/v1/fleet/recover"},
+		{"resume", s.handleResume, "/api/v1/fleet/resume"},
+		{"scan", s.handleScan, "/api/v1/fleet/scan"},
+		{"reset", s.handleReset, "/api/v1/fleet/reset"},
+		{"policyEvaluate", s.handlePolicyEvaluate, "/api/v1/fleet/policies/evaluate"},
+	}
+
+	for _, rt := range routes {
+		t.Run(rt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, rt.path, nil)
+			w := httptest.NewRecorder()
+			rt.handler(w, req)
+			if w.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("%s expected 405, got %d", rt.name, w.Code)
+			}
+			if allow := w.Header().Get("Allow"); allow != "POST" {
+				t.Fatalf("%s expected Allow: POST, got %q", rt.name, allow)
+			}
+		})
+	}
+}
+
+func TestHandleTopology_HEADAndMethodNotAllowed(t *testing.T) {
+	s := newTestServer(t)
+
+	headReq := httptest.NewRequest(http.MethodHead, "/api/v1/fleet/topology", nil)
+	headW := httptest.NewRecorder()
+	s.handleTopology(headW, headReq)
+	if headW.Code != http.StatusOK {
+		t.Fatalf("HEAD expected 200, got %d", headW.Code)
+	}
+	if headW.Body.Len() != 0 {
+		t.Fatalf("HEAD expected empty body, got %d bytes", headW.Body.Len())
+	}
+
+	postReq := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/topology", nil)
+	postW := httptest.NewRecorder()
+	s.handleTopology(postW, postReq)
+	if postW.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST expected 405, got %d", postW.Code)
+	}
+	if allow := postW.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Fatalf("expected Allow: GET, HEAD, got %q", allow)
+	}
+}
+
+

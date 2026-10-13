@@ -702,3 +702,18 @@ func TestMethodNotAllowed_ProbesAndMetrics(t *testing.T) {
 	}
 }
 
+func TestMethodNotAllowed_HandleValidate(t *testing.T) {
+	server := webhook.NewWebhookServer(nil, "signalloom.demo")
+	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/validate", nil)
+		rec := httptest.NewRecorder()
+		server.HandleValidate(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("HandleValidate %s expected 405 Method Not Allowed, got %d", method, rec.Code)
+		}
+		if rec.Header().Get("Allow") != "POST" {
+			t.Errorf("HandleValidate %s expected Allow: POST, got %q", method, rec.Header().Get("Allow"))
+		}
+	}
+}
+

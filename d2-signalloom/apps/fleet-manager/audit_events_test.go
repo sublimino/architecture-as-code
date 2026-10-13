@@ -183,6 +183,31 @@ func TestHandleAuditEvents_HTTPContract(t *testing.T) {
 	if rrPost.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 Method Not Allowed, got %d", rrPost.Code)
 	}
+	if allow := rrPost.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Errorf("expected Allow: GET, HEAD, got %q", allow)
+	}
+
+	// 4. HEAD support
+	reqHead := httptest.NewRequest(http.MethodHead, "/api/v1/fleet/audit/events", nil)
+	rrHead := httptest.NewRecorder()
+	s.handleAuditEvents(rrHead, reqHead)
+	if rrHead.Code != http.StatusOK {
+		t.Errorf("expected 200 OK on HEAD, got %d", rrHead.Code)
+	}
+	if rrHead.Body.Len() != 0 {
+		t.Errorf("expected empty body on HEAD, got %d bytes", rrHead.Body.Len())
+	}
+
+	// 5. Stream method not allowed
+	reqStreamPost := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/audit/stream", nil)
+	rrStreamPost := httptest.NewRecorder()
+	s.handleAuditStream(rrStreamPost, reqStreamPost)
+	if rrStreamPost.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 Method Not Allowed on stream POST, got %d", rrStreamPost.Code)
+	}
+	if allow := rrStreamPost.Header().Get("Allow"); allow != "GET" {
+		t.Errorf("expected Allow: GET on stream, got %q", allow)
+	}
 }
 
 func TestHandleAuditStream_SSEStreaming(t *testing.T) {

@@ -318,6 +318,7 @@ func (s *WebhookServer) HandleValidate(w http.ResponseWriter, r *http.Request) {
 	timestamp := start.UTC().Format(time.RFC3339)
 
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}

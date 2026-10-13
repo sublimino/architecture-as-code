@@ -558,6 +558,9 @@ func TestEvaluateObservationRequestValidation(t *testing.T) {
 			if w.Code != tc.want {
 				t.Fatalf("got %d want %d: %s", w.Code, tc.want, w.Body.String())
 			}
+			if tc.want == http.StatusMethodNotAllowed && w.Header().Get("Allow") != "POST" {
+				t.Fatalf("Allow header = %q, want POST", w.Header().Get("Allow"))
+			}
 		})
 	}
 }

@@ -22,18 +22,20 @@ flowchart TD
   RUNNER --> PYRAMID["cp-sl-pyramid-verify<br/>(Offline Test Pyramid)"]
   RUNNER --> GOV["cp-sl-worktree-governor<br/>(Multi-Agent Worktrees)"]
   RUNNER --> SWEEP["cp-sl-eap-evidence-sweep<br/>(EAP Compliance Evidence)"]
+  RUNNER --> DSWEEP["cp-sl-drift-sweep<br/>(Two-Axis Drift & Smell Sweep)"]
 
   DRIFT --> CLUSTER["Kind Cluster / Flux Control Plane"]
   INGRESS --> CLUSTER
   GUARD --> CLUSTER
   SWEEP --> EVIDENCE["Evidence Store<br/>(docs/signalloom/evidence/)"]
   PYRAMID --> REPO["Local Repository & Contracts"]
+  DSWEEP --> REPO
   GOV --> WORKTREES["Worktree Storage<br/>(~/src/.worktrees/)"]
 ```
 
 ## Skill Catalog
 
-The table lists the seven scheduled-run skills.
+The table lists the eight scheduled-run skills.
 
 | Skill Name | Cadence | Trigger Phrase | Primary Invariants Checked |
 |---|---|---|---|
@@ -44,6 +46,7 @@ The table lists the seven scheduled-run skills.
 | `cp-sl-pyramid-verify` | `0 3 * * *` | `/cp-sl-pyramid-verify` | Documentation linting, Vitest suites, Go controller tests, schema sync |
 | `cp-sl-worktree-governor` | `0 */6 * * *` | `/cp-sl-worktree-governor` | Dirty worktrees preservation, branch divergence, Kanban controller leases |
 | `cp-sl-eap-evidence-sweep` | `0 6 * * *` | `/cp-sl-eap-evidence-sweep` | Cosign signatures, SLSA provenance, SPDX SBOMs, audit row continuity |
+| `cp-sl-drift-sweep` | `0 4 * * *` | `/cp-sl-drift-sweep` | Two-axis Standards and Spec review, boilerplate deduplication, proposal sprawl |
 
 ## Skill Details
 
@@ -55,7 +58,7 @@ It detects unexpanded `${VAR}` tokens in applied manifests.
 
 Executable tool:
 ```bash
-bash ~/.andy_sync/confExt/skills/cp-sl-drift-reconcile/Tools/drift-audit.sh
+bash .agents/skills/cp-sl-drift-reconcile/Tools/drift-audit.sh
 ```
 
 ### 2. `cp-sl-portforward-supervisor`
@@ -66,7 +69,7 @@ It executes in-pod diagnostics across `/fleet-api/v1/fleet/topology` and `/api/v
 
 Executable tool:
 ```bash
-bash ~/.andy_sync/confExt/skills/cp-sl-portforward-supervisor/Tools/portforward-check.sh
+bash .agents/skills/cp-sl-portforward-supervisor/Tools/portforward-check.sh
 ```
 
 ### 3. `cp-sl-silent-failure-audit`
@@ -78,7 +81,7 @@ It verifies that no nginx proxy prefix shadows React Router paths in `App.tsx`.
 
 Executable tool:
 ```bash
-bash ~/.andy_sync/confExt/skills/cp-sl-silent-failure-audit/Tools/audit-invariants.sh
+bash .agents/skills/cp-sl-silent-failure-audit/Tools/audit-invariants.sh
 ```
 
 ### 4. `cp-sl-containment-guard`
@@ -90,7 +93,7 @@ It confirms that Fleet Manager in-memory DAG state matches live topology endpoin
 
 Executable tool:
 ```bash
-bash ~/.andy_sync/confExt/skills/cp-sl-containment-guard/Tools/check-containment.sh
+bash .agents/skills/cp-sl-containment-guard/Tools/check-containment.sh
 ```
 
 ### 5. `cp-sl-pyramid-verify`
@@ -102,7 +105,7 @@ It asserts zero drift between database migrations and `discovery-portal-bootstra
 
 Executable tool:
 ```bash
-bash ~/.andy_sync/confExt/skills/cp-sl-pyramid-verify/Tools/pyramid-runner.sh
+bash .agents/skills/cp-sl-pyramid-verify/Tools/pyramid-runner.sh
 ```
 
 ### 6. `cp-sl-worktree-governor`
@@ -113,7 +116,7 @@ It runs `scripts/kanban-check.sh doctor --repo .` to clear stale controller leas
 
 Executable tool:
 ```bash
-bash ~/.andy_sync/confExt/skills/cp-sl-worktree-governor/Tools/worktree-audit.sh
+bash .agents/skills/cp-sl-worktree-governor/Tools/worktree-audit.sh
 ```
 
 ### 7. `cp-sl-eap-evidence-sweep`
@@ -124,7 +127,35 @@ It verifies that the PostgreSQL `audit_events` table maintains active row insert
 
 Executable tool:
 ```bash
-bash ~/.andy_sync/confExt/skills/cp-sl-eap-evidence-sweep/Tools/evidence-sweep.sh
+bash .agents/skills/cp-sl-eap-evidence-sweep/Tools/evidence-sweep.sh
+```
+
+### 8. `cp-sl-drift-sweep`
+
+Audits repository history across the Standards and Spec review axes.
+It detects duplicated HTTP lifecycle boilerplate, file churn hotspots, and micro-proposal sprawl.
+It pauses after generating the Cleanup Job Manifest unless `--auto` or `/goal` is set.
+When approved or in `--auto` mode, it dispatches isolated worktree subagents with mutation proofs.
+
+Executable tool:
+```bash
+bash .agents/skills/cp-sl-drift-sweep/Tools/drift-sweep.sh
+```
+
+## Concurrent Test Execution
+
+The repository provides a parallel runner that executes all eight skills concurrently.
+It captures isolated logs, reports an aggregated status table, and exits non-zero if any
+invariant check fails:
+
+```bash
+make test-scheduled-skills-parallel
+```
+
+The script can also run directly:
+
+```bash
+./scripts/test-scheduled-skills-parallel.sh
 ```
 
 ## Scheduler Configuration

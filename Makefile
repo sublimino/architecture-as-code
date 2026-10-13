@@ -866,6 +866,10 @@ test-kpai: ## Run KPAI runtime harness probe tests and contract validation.
 		systemd-run --user --wait --collect --pipe -p NoNewPrivileges=yes --setenv=NONO_CAP_FILE="/tmp/.nono-test.json" bash -c 'export PATH=/home/linuxbrew/.linuxbrew/bin:$$PATH && touch /tmp/.nono-test.json && cd "$(CURDIR)" && bun test test/unit/kpai-harness-contract.test.ts test/unit/kpai-harness-execution.test.ts'; \
 	fi
 
+.PHONY: test-scheduled-skills-parallel
+test-scheduled-skills-parallel: ## Execute all 8 Signal Loom scheduled-run skills concurrently in parallel.
+	GOTOOLCHAIN=local ./scripts/test-scheduled-skills-parallel.sh
+
 ##@ Composable demo lifecycle
 
 .PHONY: demo-bao-up demo-bao-test-config demo-bao-test demo-bao-down

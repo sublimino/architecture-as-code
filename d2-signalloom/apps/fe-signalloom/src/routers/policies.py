@@ -83,6 +83,14 @@ async def evaluate_policies(
     except Exception as exc:
         return _error_response(400, "invalid_json", f"Malformed JSON request body: {exc}")
 
+    body_tenant = body.get("tenant_id")
+    if body_tenant and body_tenant != tenant_id:
+        return _error_response(
+            403,
+            "cross_tenant_forbidden",
+            f"Cannot evaluate policies for foreign tenant {body_tenant}",
+        )
+
     # If single expression provided directly in request
     single_expr = body.get("expression") or body.get("cel_expression")
     if single_expr:
@@ -185,6 +193,14 @@ async def register_bundle(
     except Exception as exc:
         return _error_response(400, "invalid_json", f"Malformed JSON request body: {exc}")
 
+    body_tenant = body.get("tenant_id")
+    if body_tenant and body_tenant != principal.tenant:
+        return _error_response(
+            403,
+            "cross_tenant_forbidden",
+            f"Cannot register bundle for foreign tenant {body_tenant}",
+        )
+
     rules = body.get("rules", [])
     if not rules:
         return _error_response(400, "empty_bundle", "At least one policy rule is required in bundle")
@@ -241,6 +257,14 @@ async def rollback_bundle(
         return _error_response(400, "invalid_json", f"Malformed JSON request body: {exc}")
     if not isinstance(body, dict):
         return _error_response(400, "invalid_json", "Request body must be a JSON object")
+
+    body_tenant = body.get("tenant_id")
+    if body_tenant and body_tenant != principal.tenant:
+        return _error_response(
+            403,
+            "cross_tenant_forbidden",
+            f"Cannot rollback bundle for foreign tenant {body_tenant}",
+        )
     # The policy-engine requires both (handlers.go HandleRollback); checking
     # here keeps a request it would reject out of the audit trail.
     for field in ("framework_id", "target_version"):

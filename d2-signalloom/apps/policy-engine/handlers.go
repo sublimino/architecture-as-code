@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -63,6 +64,10 @@ func (h *PolicyEngineHandlers) HandleEvaluatePolicies(w http.ResponseWriter, r *
 	}
 
 	tenantID := extractTenant(r)
+	if tenantID != "" && req.TenantID != "" && req.TenantID != tenantID {
+		writeError(w, http.StatusForbidden, fmt.Sprintf("cross-tenant mismatch: authenticated tenant %q does not match request tenant %q", tenantID, req.TenantID))
+		return
+	}
 	if req.TenantID == "" {
 		req.TenantID = tenantID
 	}
@@ -147,6 +152,10 @@ func (h *PolicyEngineHandlers) HandleRegisterBundle(w http.ResponseWriter, r *ht
 	}
 
 	tenantID := extractTenant(r)
+	if tenantID != "" && bundle.TenantID != "" && bundle.TenantID != tenantID {
+		writeError(w, http.StatusForbidden, fmt.Sprintf("cross-tenant mismatch: authenticated tenant %q does not match bundle tenant %q", tenantID, bundle.TenantID))
+		return
+	}
 	if bundle.TenantID == "" {
 		bundle.TenantID = tenantID
 	}
@@ -177,6 +186,10 @@ func (h *PolicyEngineHandlers) HandleRollback(w http.ResponseWriter, r *http.Req
 	}
 
 	tenantID := extractTenant(r)
+	if tenantID != "" && req.TenantID != "" && req.TenantID != tenantID {
+		writeError(w, http.StatusForbidden, fmt.Sprintf("cross-tenant mismatch: authenticated tenant %q does not match rollback tenant %q", tenantID, req.TenantID))
+		return
+	}
 	if req.TenantID == "" {
 		req.TenantID = tenantID
 	}

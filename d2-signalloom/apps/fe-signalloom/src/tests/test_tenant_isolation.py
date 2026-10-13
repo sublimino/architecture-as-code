@@ -2449,6 +2449,7 @@ ATTACK_MANIFEST: frozenset[str] = frozenset({
     "test_the_policy_scan_path_does_filter_the_same_governance_tables",
     "test_rbac_correlation_routes_are_not_tenant_scoped_at_all",
     "test_demo_runs_are_a_global_singleton_readable_by_every_tenant",
+    "test_policy_routes_reject_cross_tenant_payload",
     # EAPR-P2-1: in-memory tenant binding of the five EAP routers
     "test_every_eap_route_is_bound_to_the_callers_tenant",
     "test_no_eap_route_is_exempted_from_the_tenant_sweep",
@@ -2553,3 +2554,42 @@ def test_demo_runs_are_a_global_singleton_readable_by_every_tenant(client, monke
     # tenant's run" and "no run", which this one cannot do because it never
     # asks.
     assert response.status_code == 404, response.text
+
+
+def test_policy_routes_reject_cross_tenant_payload(client):
+    """Verify evaluate, bundles, and rollback reject foreign tenant in request payload with 403."""
+    # 1. Evaluate
+    resp_eval = client.post(
+        "/api/v1/policies/evaluate",
+        headers=bearer(ALICE),
+        json={"expression": "true", "tenant_id": TENANT_B},
+    )
+    assert resp_eval.status_code == 403, resp_eval.text
+    assert resp_eval.json()["error"]["code"] == "cross_tenant_forbidden"
+
+    # 2. Bundles
+    resp_bundle = client.post(
+        "/api/v1/policies/bundles",
+        headers=bearer(ALICE),
+        json={
+            "framework_id": "test-fw",
+            "version": "v1.0.0",
+            "tenant_id": TENANT_B,
+            "rules": [{"id": "r1", "cel_expression": "true"}],
+        },
+    )
+    assert resp_bundle.status_code == 403, resp_bundle.text
+    assert resp_bundle.json()["error"]["code"] == "cross_tenant_forbidden"
+
+    # 3. Rollback
+    resp_rb = client.post(
+        "/api/v1/policies/rollback",
+        headers=bearer(ALICE),
+        json={
+            "framework_id": "test-fw",
+            "target_version": "v1.0.0",
+            "tenant_id": TENANT_B,
+        },
+    )
+    assert resp_rb.status_code == 403, resp_rb.text
+    assert resp_rb.json()["error"]["code"] == "cross_tenant_forbidden"

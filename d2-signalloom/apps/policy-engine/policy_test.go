@@ -470,6 +470,48 @@ func TestHTTPEndpoints(t *testing.T) {
 	if restored.Version != "v1.0.0" {
 		t.Fatalf("expected rollback to v1.0.0, got %s", restored.Version)
 	}
+
+	// 5. Cross-tenant mismatch attempts must be rejected with HTTP 403 Forbidden
+	crossBundle := bundle
+	crossBundle.TenantID = "tenant-foreign"
+	crossBundleBody, _ := json.Marshal(crossBundle)
+	crossReq, _ := http.NewRequest(http.MethodPost, server.URL+"/api/v1/policies/bundles", bytes.NewReader(crossBundleBody))
+	crossReq.Header.Set("X-Tenant-ID", "tenant-test")
+	crossReq.Header.Set("Content-Type", "application/json")
+	crossResp, err := client.Do(crossReq)
+	if err != nil || crossResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden on cross-tenant bundle registration, got code=%d err=%v", crossResp.StatusCode, err)
+	}
+
+	crossEvalReq := EvaluatePoliciesRequest{
+		TenantID:    "tenant-foreign",
+		FrameworkID: "finos-aigf",
+		Agent: map[string]any{
+			"model": "gpt-4o",
+		},
+	}
+	crossEvalBody, _ := json.Marshal(crossEvalReq)
+	crossEvalHttpReq, _ := http.NewRequest(http.MethodPost, server.URL+"/api/v1/policies/evaluate", bytes.NewReader(crossEvalBody))
+	crossEvalHttpReq.Header.Set("X-Tenant-ID", "tenant-test")
+	crossEvalHttpReq.Header.Set("Content-Type", "application/json")
+	crossEvalResp, err := client.Do(crossEvalHttpReq)
+	if err != nil || crossEvalResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden on cross-tenant evaluation, got code=%d err=%v", crossEvalResp.StatusCode, err)
+	}
+
+	crossRbReq := RollbackRequest{
+		TenantID:      "tenant-foreign",
+		FrameworkID:   "finos-aigf",
+		TargetVersion: "v1.0.0",
+	}
+	crossRbBody, _ := json.Marshal(crossRbReq)
+	crossRbHttpReq, _ := http.NewRequest(http.MethodPost, server.URL+"/api/v1/policies/rollback", bytes.NewReader(crossRbBody))
+	crossRbHttpReq.Header.Set("X-Tenant-ID", "tenant-test")
+	crossRbHttpReq.Header.Set("Content-Type", "application/json")
+	crossRbResp, err := client.Do(crossRbHttpReq)
+	if err != nil || crossRbResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden on cross-tenant rollback, got code=%d err=%v", crossRbResp.StatusCode, err)
+	}
 }
 
 // TestConcurrentEvaluations verifies thread-safety and zero memory leakage under concurrency.

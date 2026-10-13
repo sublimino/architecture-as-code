@@ -442,3 +442,69 @@ func TestStream(t *testing.T) {
 	}
 }
 
+// TestCorrelate_RespectsAuthenticatedTenantAudit verifies correlation and actor creation events use caller's tenant.
+func TestCorrelate_RespectsAuthenticatedTenantAudit(t *testing.T) {
+	fake := audit.NewFakeWriter()
+	h, mux := newTestHandlersWithAudit(t, fake)
+
+	obs := []model.Observation{
+		{ID: "c-1", Layer: model.LayerNetworkEgress, Source: "src", ActorHint: "bot-acme"},
+		{ID: "c-2", Layer: model.LayerBehavioural, Source: "src", ActorHint: "bot-acme"},
+	}
+	h.Store.Append(context.Background(), obs)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/correlate", nil)
+	req = req.WithContext(WithTenantContext(req.Context(), TenantContext{
+		TenantID:  "tenant-acme",
+		Principal: "user-acme",
+	}))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("correlate: want 200, got %d", w.Code)
+	}
+
+	corrEvents := fake.EventsByType(audit.EventCorrelationRun)
+	if len(corrEvents) != 1 {
+		t.Fatalf("want 1 correlation_run event, got %d", len(corrEvents))
+	}
+	if corrEvents[0].TenantID != "tenant-acme" {
+		t.Errorf("correlation_run tenant: want tenant-acme, got %q", corrEvents[0].TenantID)
+	}
+
+	actorEvents := fake.EventsByType(audit.EventActorCreated)
+	if len(actorEvents) == 0 {
+		t.Fatal("want at least 1 actor_created event, got 0")
+	}
+	if actorEvents[0].TenantID != "tenant-acme" {
+		t.Errorf("actor_created tenant: want tenant-acme, got %q", actorEvents[0].TenantID)
+	}
+}
+
+// TestSeed_RespectsAuthenticatedTenantAudit verifies seed emits collector_run with caller's tenant.
+func TestSeed_RespectsAuthenticatedTenantAudit(t *testing.T) {
+	fake := audit.NewFakeWriter()
+	_, mux := newTestHandlersWithAudit(t, fake)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/collectors/seed", nil)
+	req = req.WithContext(WithTenantContext(req.Context(), TenantContext{
+		TenantID:  "tenant-acme",
+		Principal: "user-acme",
+	}))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("seed: want 201, got %d", w.Code)
+	}
+
+	collectorEvents := fake.EventsByType(audit.EventCollectorRun)
+	if len(collectorEvents) != 1 {
+		t.Fatalf("want 1 collector_run event, got %d", len(collectorEvents))
+	}
+	if collectorEvents[0].TenantID != "tenant-acme" {
+		t.Errorf("collector_run tenant: want tenant-acme, got %q", collectorEvents[0].TenantID)
+	}
+}
+

@@ -649,9 +649,10 @@ func (h *Handlers) handleCorrelate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Audit: correlation_run
+	tenantID := resolveAuditTenant(r)
 	detail, _ := json.Marshal(map[string]any{"actors_discovered": len(actors)})
 	if auditErr := h.Audit.WriteAuditEvent(r.Context(), audit.Event{
-		TenantID:  "tenant-demo",
+		TenantID:  tenantID,
 		EventType: audit.EventCorrelationRun,
 		Detail:    detail,
 	}); auditErr != nil {
@@ -667,7 +668,7 @@ func (h *Handlers) handleCorrelate(w http.ResponseWriter, r *http.Request) {
 			"evidence":   len(a.EvidenceChain),
 		})
 		if auditErr := h.Audit.WriteAuditEvent(r.Context(), audit.Event{
-			TenantID:  "tenant-demo",
+			TenantID:  tenantID,
 			EventType: audit.EventActorCreated,
 			ActorID:   a.ID,
 			Detail:    actorDetail,
@@ -738,9 +739,10 @@ func (h *Handlers) handleSeed(w http.ResponseWriter, r *http.Request) {
 	slog.Info("fixtures seeded", "count", len(obs))
 
 	// Audit: collector_run
+	tenantID := resolveAuditTenant(r)
 	seedDetail, _ := json.Marshal(map[string]any{"observations_seeded": len(obs)})
 	if auditErr := h.Audit.WriteAuditEvent(r.Context(), audit.Event{
-		TenantID:  "tenant-demo",
+		TenantID:  tenantID,
 		EventType: audit.EventCollectorRun,
 		Detail:    seedDetail,
 	}); auditErr != nil {

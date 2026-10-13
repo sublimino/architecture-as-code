@@ -124,3 +124,42 @@ func TestPromoteActor_AuditFailureFailsClosed(t *testing.T) {
 		t.Errorf("promote should fail closed on audit error: want 503, got %d, body: %s", w.Code, w.Body.String())
 	}
 }
+
+// TestPromoteActor_RespectsAuthenticatedTenantAudit verifies promote emits actor_promoted with caller's tenant.
+func TestPromoteActor_RespectsAuthenticatedTenantAudit(t *testing.T) {
+	fake := audit.NewFakeWriter()
+	h, mux := newTestHandlersWithAudit(t, fake)
+
+	obs := []model.Observation{
+		{ID: "p-1", Layer: model.LayerNetworkEgress, Source: "src", ActorHint: "bot-acme"},
+		{ID: "p-2", Layer: model.LayerIdentityAuth, Source: "other", ActorHint: "bot-acme"},
+	}
+	h.Store.Append(context.Background(), obs)
+
+	actors, err := h.Engine.Correlate(context.Background())
+	if err != nil || len(actors) == 0 {
+		t.Fatalf("correlate setup failed: err=%v, count=%d", err, len(actors))
+	}
+	fake.Reset()
+
+	actorID := actors[0].ID
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/actors/"+actorID+"/promote", nil)
+	req = req.WithContext(WithTenantContext(req.Context(), TenantContext{
+		TenantID:  "tenant-acme",
+		Principal: "user-acme",
+	}))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("promote: want 200, got %d", w.Code)
+	}
+
+	promoted := fake.EventsByType(audit.EventActorPromoted)
+	if len(promoted) != 1 {
+		t.Fatalf("want 1 actor_promoted event, got %d", len(promoted))
+	}
+	if promoted[0].TenantID != "tenant-acme" {
+		t.Errorf("actor_promoted tenant: want tenant-acme, got %q", promoted[0].TenantID)
+	}
+}

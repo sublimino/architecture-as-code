@@ -676,7 +676,7 @@ function workloadToClaimAgent(w: DiscoveryWorkload): AgentResponse {
     name: w.name,
     type: 'Discovered Workload',
     owner: w.owner || 'unassigned',
-    tenant_id: (w as any).tenant_id || (isDemoMode() ? 'tenant-demo' : 'default'),
+    tenant_id: w.tenant_id || (isDemoMode() ? 'tenant-demo' : 'default'),
     lifecycle_state: w.status === 'governed' ? 'governed' : 'discovered',
     last_transition_at: w.last_seen_at || new Date().toISOString(),
     last_transition_by: 'system',

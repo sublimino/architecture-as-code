@@ -377,7 +377,7 @@ unregistered_from() {
 	# every result. Under bats that aborted the assignment. `|| true` is safe here
 	# only because the very next line asserts the output is non-empty -- that
 	# assertion is what stops a tolerated exit code from hiding an empty scan.
-	dirs="$(find "$root" \( -name node_modules -o -name .git -o -name test_helper -o -name .claude -o -name .worktrees \) -prune -o -type d -name test -print 2>/dev/null || true)"
+	dirs="$(find "$root" \( -name node_modules -o -name .git -o -name test_helper -o -name .claude -o -name .worktrees -o -name .cache \) -prune -o -type d -name test -print 2>/dev/null || true)"
 
 	# Assert the mechanism: discovery finding nothing would make every assertion
 	# below pass over an empty set -- a guard against vacuous passes, passing
@@ -681,6 +681,11 @@ $(sed 's/#.*//' "$runner")"
 	#                             is gated on that manifest existing. Its
 	#                             self-contained sibling slsi-bundle-osd.bats IS
 	#                             registered in signalloom-eap-pr.yaml.
+	#   slsi-*.bats (Phase 2 & 3) - SLSI Phase 2 & 3 acceptance, persistence,
+	#                             bootstrap, ingress, and adversarial suites
+	#                             owned by the SLSI programme and ledger.
+	#   diagram-focus.bats        - offline architecture diagram focus gate
+	#                             enforcing DIAGRAMS.md.
 	local root_excluded="supercred-images.bats
 supercred-fleet-deploy.bats
 e2e-dual-cluster-containment.bats
@@ -725,6 +730,16 @@ tombstone-mutation-check.bats
 warden-cutover.bats
 slsi-airgap-bundle.bats
 slsi-bundle-manifest.bats
+slsi-adversarial-redteam.bats
+slsi-bootstrap-persistence.bats
+slsi-diagnostics-bundler.bats
+slsi-dual-trust.bats
+slsi-host-mounts.bats
+slsi-ingress-modes.bats
+slsi-tenant-keys.bats
+slsi-upgrade-rollback.bats
+slsi-zot-preload.bats
+diagram-focus.bats
 impl-agent-log.bats
 acceptance-demo-mode-honesty.bats
 applicability-chaos.bats

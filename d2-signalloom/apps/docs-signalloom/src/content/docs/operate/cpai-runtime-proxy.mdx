@@ -57,7 +57,7 @@ make demo-cpai-up
 Verify that the proxy deployment is ready:
 
 ```bash
-kubectl rollout status deployment/cpai-proxy -n cpai
+kubectl rollout status deployment/cpai-runtime -n cpai
 ```
 
 ## Configure Client Applications
@@ -68,7 +68,7 @@ Connect any agent framework to CPAI by setting standard OpenAI environment varia
 
 | Variable | Description | Example Value |
 | :--- | :--- | :--- |
-| `OPENAI_BASE_URL` | CPAI proxy ingress endpoint | `http://cpai-proxy.cpai.svc.cluster.local:8080/v1` |
+| `OPENAI_BASE_URL` | CPAI proxy ingress endpoint | `http://cpai-runtime.cpai.svc.cluster.local:8080/v1` |
 | `OPENAI_API_KEY` | Scoped agent credential token | `sk-cpai-agent-01-token` |
 | `MODEL_NAME` | Upstream model identifier | `gemini-2.5-flash` |
 
@@ -139,7 +139,7 @@ The proxy returns an OpenAI-compliant completion object:
 To view real-time proxy traffic and attribution logs:
 
 ```bash
-kubectl logs -n cpai -l app=cpai-proxy -f
+kubectl logs -n cpai -l app.kubernetes.io/name=cpai-runtime -f
 ```
 
 Every log entry records the calling SPIFFE identity, model name, status code, and latency.

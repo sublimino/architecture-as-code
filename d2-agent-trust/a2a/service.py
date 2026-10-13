@@ -1,5 +1,5 @@
 """A2A receiver: SPIRE identity is authenticated separately from signed context."""
-import base64, hashlib, json, secrets, subprocess, tempfile, time, urllib.request
+import base64, hashlib, json, math, re, secrets, subprocess, tempfile, time, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from adapters.spire_workload_api import fetch_jwt_svid
@@ -7,10 +7,13 @@ from adapters.spire_workload_api import fetch_jwt_svid
 ISSUER = "signalloom-platform-authz"; AUDIENCE = "agent-trust-triage"
 PLANNER = "spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/planner"
 TRIAGE = "spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/triage"
+_JWT = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
+_ROLE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
 def _b64(v): return base64.urlsafe_b64encode(v).rstrip(b"=").decode()
 def _unb64(v): return base64.urlsafe_b64decode(v + "=" * (-len(v) % 4))
 def request_hash(request): return hashlib.sha256(json.dumps(request, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-def valid_resource(resource): return isinstance(resource,str) and len(resource) <= 128 and __import__('re').fullmatch(r"case/[A-Za-z0-9_-]+",resource)
+def valid_resource(resource): return isinstance(resource,str) and len(resource) <= 128 and re.fullmatch(r"case/[A-Za-z0-9_-]+",resource)
 def mint_authorization_context_fixture(private_key, claims):
     """Deterministic platform authorization-context fixture, never a SPIFFE proof."""
     h = _b64(b'{"alg":"RS256","typ":"JWT"}'); p = _b64(json.dumps(claims, sort_keys=True, separators=(",", ":")).encode())
@@ -20,42 +23,88 @@ class ReplayStore:
     """Bounded, expiry-aware replay cache; saturation fails closed."""
     def __init__(self, max_entries=10000): self.seen={}; self.max_entries=max_entries
     def consume(self, jti, expires_at=None, now=None):
-        now=time.time() if now is None else now
-        self.seen={key: expiry for key,expiry in self.seen.items() if expiry > now}
-        if not isinstance(jti,str) or not jti or jti in self.seen: return False
-        if not isinstance(expires_at,(int,float)) or expires_at <= now or len(self.seen) >= self.max_entries: return False
-        self.seen[jti]=expires_at; return True
+        now = time.time() if now is None else now
+        if isinstance(now, bool) or not isinstance(now, (int, float)) or not math.isfinite(now) or now <= 0:
+            return False
+        self.seen = {key: expiry for key, expiry in self.seen.items() if expiry > now}
+        if not isinstance(jti, str) or not (0 < len(jti) <= 512) or jti in self.seen:
+            return False
+        if isinstance(expires_at, bool) or not isinstance(expires_at, (int, float)) or not math.isfinite(expires_at) or expires_at <= now or len(self.seen) >= self.max_entries:
+            return False
+        self.seen[jti] = expires_at
+        return True
 def validate_openbao_identity(url, jwt_svid, role, expected_spiffe, opener=urllib.request.urlopen):
     """Real code seam: OpenBao JWT login validates a SPIRE JWT-SVID exact role."""
-    req=urllib.request.Request(f"{url.rstrip('/')}/v1/auth/jwt/login", data=json.dumps({"role":role,"jwt":jwt_svid}).encode(), headers={"Content-Type":"application/json"}, method="POST")
-    try: response=json.loads(opener(req, timeout=5).read())
+    if not isinstance(url, str) or not (url.startswith("http://") or url.startswith("https://")):
+        raise PermissionError("invalid OpenBao URL")
+    if not isinstance(role, str) or not _ROLE.fullmatch(role):
+        raise PermissionError("invalid OpenBao role")
+    if not isinstance(jwt_svid, str) or not _JWT.fullmatch(jwt_svid):
+        raise PermissionError("invalid JWT-SVID format")
+    req = urllib.request.Request(f"{url.rstrip('/')}/v1/auth/jwt/login", data=json.dumps({"role":role,"jwt":jwt_svid}).encode(), headers={"Content-Type":"application/json"}, method="POST")
+    try: response = json.loads(opener(req, timeout=5).read())
     except Exception as exc: raise PermissionError("OpenBao JWT validation failed") from exc
-    auth=response.get("auth",{})
+    auth = response.get("auth",{})
     if not isinstance(auth.get("client_token"),str) or not auth["client_token"]: raise PermissionError("OpenBao did not authenticate JWT-SVID")
-    try: subject=json.loads(_unb64(jwt_svid.split('.')[1])).get("sub")
+    try:
+        parts = jwt_svid.split('.')
+        if len(parts) != 3: raise ValueError("malformed JWT")
+        subject = json.loads(_unb64(parts[1])).get("sub")
     except Exception as exc: raise PermissionError("JWT-SVID subject unreadable") from exc
     if subject != expected_spiffe: raise PermissionError("OpenBao identity scope")
     return expected_spiffe
 def authenticate_spiffe_via_openbao(audience, openbao_url, role, expected_spiffe, *, fetcher=fetch_jwt_svid, opener=urllib.request.urlopen):
     """Live integration seam: Workload API JWT-SVID then OpenBao exact-role login."""
-    svid=fetcher(audience)
+    svid = fetcher(audience)
     if svid.spiffe_id != expected_spiffe: raise PermissionError("Workload API SPIFFE mismatch")
-    return validate_openbao_identity(openbao_url,svid.token,role,expected_spiffe,opener)
+    return validate_openbao_identity(openbao_url, svid.token, role, expected_spiffe, opener)
 def verify_and_authorize(context, public_key, request, peer_spiffe, replay, now=None, *, receiver_instance):
-    now=time.time() if now is None else now
+    now = time.time() if now is None else now
+    if isinstance(now, bool) or not isinstance(now, (int, float)) or not math.isfinite(now) or now <= 0:
+        raise PermissionError("invalid current time")
     if not isinstance(request, dict): raise PermissionError("malformed request payload")
+    if not isinstance(context, str) or not context: raise PermissionError("missing authorization context")
+    parts = context.split(".")
+    if len(parts) != 3: raise PermissionError("malformed authorization context")
+    h, p, s = parts
     try:
-        h,p,s=context.split("."); claims=json.loads(_unb64(p)); valid=json.loads(_unb64(h)).get("alg")=="RS256"
+        header = json.loads(_unb64(h))
+        claims = json.loads(_unb64(p))
+        if not isinstance(header, dict) or not isinstance(claims, dict):
+            raise PermissionError("malformed authorization context")
+        if header.get("alg") != "RS256" or header.get("typ") != "JWT":
+            raise PermissionError("invalid header algorithm or type")
         with tempfile.NamedTemporaryFile() as f:
-            f.write(_unb64(s)); f.flush(); valid &= subprocess.run(["openssl","dgst","-sha256","-verify",public_key,"-signature",f.name],input=f"{h}.{p}".encode(),capture_output=True,timeout=5.0).returncode==0
-    except Exception as exc: raise PermissionError("malformed authorization context") from exc
-    required={"iss":ISSUER,"aud":AUDIENCE,"actor":PLANNER,"receiver":TRIAGE,"instance":receiver_instance,"tenant":"acme","project":"payments","action":request.get("action"),"resource":request.get("resource"),"requestHash":request_hash(request)}
-    if not valid or not valid_resource(request.get("resource")) or request.get("action") != "triage.analyze" or any(claims.get(k)!=v for k,v in required.items()): raise PermissionError("authorization context scope")
-    if peer_spiffe != PLANNER or peer_spiffe != claims["actor"]: raise PermissionError("authenticated peer mismatch")
-    if not (claims.get("nbf",now+1)<=now<claims.get("exp",0)) or not replay.consume(claims.get("jti"),claims.get("exp"),now): raise PermissionError("authorization context time/replay")
-    return {"caller":peer_spiffe,"receiver":TRIAGE,"decision":"allow"}
+            f.write(_unb64(s))
+            f.flush()
+            res = subprocess.run(["openssl","dgst","-sha256","-verify",public_key,"-signature",f.name],input=f"{h}.{p}".encode(),capture_output=True,timeout=5.0)
+            if res.returncode != 0:
+                raise PermissionError("signature verification failed")
+    except PermissionError:
+        raise
+    except Exception as exc:
+        raise PermissionError("malformed authorization context") from exc
+    required = {
+        "iss": ISSUER, "aud": AUDIENCE, "actor": PLANNER, "receiver": TRIAGE,
+        "instance": receiver_instance, "tenant": "acme", "project": "payments",
+        "action": request.get("action"), "resource": request.get("resource"),
+        "requestHash": request_hash(request)
+    }
+    if not valid_resource(request.get("resource")) or request.get("action") != "triage.analyze" or any(claims.get(k) != v for k, v in required.items()):
+        raise PermissionError("authorization context scope")
+    if peer_spiffe != PLANNER or peer_spiffe != claims.get("actor"):
+        raise PermissionError("authenticated peer mismatch")
+    nbf = claims.get("nbf")
+    exp = claims.get("exp")
+    if isinstance(nbf, bool) or not isinstance(nbf, (int, float)) or not math.isfinite(nbf) or nbf <= 0:
+        raise PermissionError("authorization context time/replay")
+    if isinstance(exp, bool) or not isinstance(exp, (int, float)) or not math.isfinite(exp) or exp <= 0:
+        raise PermissionError("authorization context time/replay")
+    if not (nbf <= now < exp) or not replay.consume(claims.get("jti"), exp, now):
+        raise PermissionError("authorization context time/replay")
+    return {"caller": peer_spiffe, "receiver": TRIAGE, "decision": "allow"}
 def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, openbao_role="agent-trust-planner", receiver_instance=None):
-    card=Path(__file__).with_name("agent-card.json").read_bytes(); replay=ReplayStore(); instance=receiver_instance or secrets.token_urlsafe(16)
+    card = Path(__file__).with_name("agent-card.json").read_bytes(); replay = ReplayStore(); instance = receiver_instance or secrets.token_urlsafe(16)
     class H(BaseHTTPRequestHandler):
         def _send_json(self, status: int, payload: dict, allow: str | None = None):
             body = json.dumps(payload, separators=(',', ':')).encode()
@@ -130,6 +179,9 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                 return
             try:
                 raw_body = self.rfile.read(length)
+                if len(raw_body) < length:
+                    self._send_json(400, {"error": "truncated request body"})
+                    return
                 body = json.loads(raw_body)
             except (ValueError, json.JSONDecodeError):
                 self._send_json(400, {"error": "invalid JSON"})
@@ -143,10 +195,14 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                     self._send_json(403, {"error": "forbidden"})
                     return
                 context = auth.removeprefix("Bearer ").strip()
+                if not context:
+                    self._send_json(403, {"error": "empty authorization context"})
+                    return
                 jwt_svid = self.headers.get("X-SPIFFE-JWT-SVID")
-                if not jwt_svid:
+                if not jwt_svid or not jwt_svid.strip():
                     self._send_json(403, {"error": "missing SPIFFE JWT-SVID"})
                     return
+                jwt_svid = jwt_svid.strip()
                 validator = identity_validator or (lambda token: validate_openbao_identity(openbao_url or "",token,openbao_role,PLANNER))
                 decision = verify_and_authorize(context, public_key, body, validator(jwt_svid), replay, receiver_instance=instance)
                 self._send_json(200, decision)
@@ -163,23 +219,27 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                 return
             self._send_json(404, {"error": "not found"})
         def send_error(self, code: int, message: str | None = None, explain: str | None = None):
+            path = getattr(self, "path", "/").split("?")[0].rstrip("/") or "/"
             allow = None
-            if code in (405, 501):
-                path = getattr(self, "path", "/").split("?")[0].rstrip("/") or "/"
-                if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
-                    allow = "GET, HEAD"
-                elif path == "/a2a":
-                    allow = "POST"
-                else:
-                    allow = "GET, HEAD, POST"
+            if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
+                allow = "GET, HEAD"
                 if code == 501:
                     code = 405
+            elif path == "/a2a":
+                allow = "POST"
+                if code == 501:
+                    code = 405
+            else:
+                code = 404
+                allow = None
             msg = message or self.responses.get(code, ("error", ""))[0]
             self._send_json(code, {"error": msg}, allow=allow)
         def do_PUT(self): self._handle_unsupported_method()
         def do_DELETE(self): self._handle_unsupported_method()
         def do_PATCH(self): self._handle_unsupported_method()
         def do_OPTIONS(self): self._handle_unsupported_method()
+        def do_TRACE(self): self._handle_unsupported_method()
+        def do_CONNECT(self): self._handle_unsupported_method()
         def log_message(self,*_): pass
     class ReusableThreadingHTTPServer(ThreadingHTTPServer):
         allow_reuse_address = True

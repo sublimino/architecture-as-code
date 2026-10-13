@@ -140,6 +140,58 @@ class A2A(unittest.TestCase):
   class S: spiffe_id=PLANNER; token=svid
   self.assertEqual(PLANNER,authenticate_spiffe_via_openbao('openbao-supercredential','http://bao','agent-trust-planner',PLANNER,fetcher=lambda _aud:S(),opener=lambda *_args,**_kw:R()))
 
+ def test_adversarial_timestamp_and_replay_attacks(self):
+  cases = [
+    {'exp': float('inf')}, {'exp': float('nan')}, {'exp': True}, {'exp': False},
+    {'nbf': float('nan')}, {'nbf': True}, {'nbf': False}, {'nbf': -1}, {'nbf': 1002, 'exp': 1001},
+    {'jti': 'x' * 513},
+  ]
+  for change in cases:
+   with self.assertRaises(PermissionError):
+    verify_and_authorize(self.context(**change), self.public, self.request, PLANNER, ReplayStore(), self.now, receiver_instance=self.instance)
+  replay = ReplayStore(max_entries=10)
+  for bad_exp in (float('inf'), float('nan'), True, False, 999, -1):
+   self.assertFalse(replay.consume('token-1', expires_at=bad_exp, now=1000))
+  for bad_now in (float('inf'), float('nan'), True, False, -1, 0):
+   self.assertFalse(replay.consume('token-2', expires_at=1005, now=bad_now))
+  self.assertFalse(replay.consume('', expires_at=1005, now=1000))
+  self.assertFalse(replay.consume('a' * 513, expires_at=1005, now=1000))
+  self.assertFalse(replay.consume(12345, expires_at=1005, now=1000))
+
+ def test_openbao_identity_validation_bounds(self):
+  svid = 'x.' + base64.urlsafe_b64encode(json.dumps({'sub': PLANNER}).encode()).rstrip(b'=').decode() + '.z'
+  with self.assertRaises(PermissionError):
+   validate_openbao_identity('file:///etc/passwd', svid, 'agent-trust-planner', PLANNER)
+  with self.assertRaises(PermissionError):
+   validate_openbao_identity('http://bao', 'not-a-jwt', 'agent-trust-planner', PLANNER)
+  with self.assertRaises(PermissionError):
+   validate_openbao_identity('http://bao', svid, 'role/injection', PLANNER)
+
+ def test_unmatched_route_and_empty_auth_handling(self):
+  s = serve(self.public, 0, receiver_instance=self.instance)
+  th = threading.Thread(target=s.serve_forever); th.start()
+  try:
+   for method in ('TRACE', 'OPTIONS', 'PUT', 'DELETE', 'PATCH'):
+    req = urllib.request.Request(f'http://127.0.0.1:{s.server_port}/unmatched-path-404', method=method)
+    with self.assertRaises(urllib.error.HTTPError) as err:
+     urllib.request.urlopen(req)
+    self.assertEqual(404, err.exception.code)
+    self.assertIsNone(err.exception.headers.get('Allow'))
+    err.exception.close()
+
+   empty_bearer = urllib.request.Request(
+    f'http://127.0.0.1:{s.server_port}/a2a',
+    data=json.dumps(self.request).encode(),
+    headers={'Authorization': 'Bearer   ', 'X-SPIFFE-JWT-SVID': 'good-svid'},
+    method='POST'
+   )
+   with self.assertRaises(urllib.error.HTTPError) as empty_err:
+    urllib.request.urlopen(empty_bearer)
+   self.assertEqual(403, empty_err.exception.code)
+   empty_err.exception.close()
+  finally:
+   s.shutdown(); th.join(); s.server_close()
+
 class Adapter(unittest.TestCase):
  def test_fetches_one_svid_and_fails_closed(self):
   result=subprocess.CompletedProcess([],0,json.dumps({'svids':[{'spiffeID':PLANNER,'svid':'a.b.c'}]}),'')
@@ -150,4 +202,9 @@ class Adapter(unittest.TestCase):
    with self.assertRaises(RuntimeError): fetch_jwt_svid('a',runner=lambda *_args,**_kw:subprocess.CompletedProcess([],0,json.dumps({'svids':[{},{}]}),''))
    def mock_timeout(*_args, **_kw): raise subprocess.TimeoutExpired(cmd="spire-agent", timeout=5)
    with self.assertRaises(RuntimeError): fetch_jwt_svid('a',runner=mock_timeout)
+   with self.assertRaises(RuntimeError) as err_ctx:
+    fetch_jwt_svid('openbao-supercredential', runner=lambda *_a, **_k: subprocess.CompletedProcess([], 1, '', 'connection refused: /run/spire/sockets/agent.sock'))
+   self.assertIn('connection refused', str(err_ctx.exception))
   with self.assertRaises(ValueError): fetch_jwt_svid('bad audience')
+  for bad_timeout in (True, False, float('nan'), float('inf'), 0, -1, 31):
+   with self.assertRaises(ValueError): fetch_jwt_svid('openbao-supercredential', timeout=bad_timeout)

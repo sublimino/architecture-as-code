@@ -759,10 +759,27 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 	// so the engine prunes it; de-duplication and the limit are applied as rows arrive, and
 	// the scan stops as soon as the page is full.
 	//
-	// Scoping now runs BEFORE de-duplication rather than after. The two commute: scoping is a
-	// pure function of the row, and the duplicates this collapses are copies of one
-	// observation written by a pre-Deduper segment, so they carry the same tenant label. Doing
-	// it in this order is what keeps `seen` bounded by the page instead of by the store.
+	// Scoping now runs BEFORE de-duplication rather than after. That is not just cheaper, it is
+	// the correct order: the two commute only for a cross-tenant read.
+	//
+	// One observation ID can carry two tenant labels. Observation.ID is a hash of the evidence
+	// reference and tenancy is not an input to it; the label is stamped separately and
+	// afterwards by collectors.BindTenant, from collector configuration (awslogs runs one
+	// instance per account). Two instances over overlapping evidence therefore mint the same ID
+	// under two tenants, and the write-side Deduper cannot stop it — it is keyed by ID alone and
+	// is per-instance.
+	//
+	// With both copies present, dedupe-first keeps whichever was stored first (DedupeByID keeps
+	// the first occurrence) and scoping then discards it for the other tenant, which loses a row
+	// it is entitled to see. Scope-first prunes the other tenant's copy in the engine and returns
+	// this caller its own. The reverse direction is safe: the pushed-down predicate admits only
+	// rows carrying the caller's tenant and the dedupe only removes, so the result is always a
+	// subset of the caller's own rows and no reordering can disclose another tenant's.
+	//
+	// Pinned by TestQueryObservations_ScopeBeforeDedupeKeepsEachTenantsOwnCopy,
+	// TestQueryObservations_ScopeBeforeDedupeReturnsNoOtherTenantsRows and
+	// TestQueryObservations_CrossTenantReadIsOrderIndependent. Doing it in this order is also
+	// what keeps `seen` bounded by the page instead of by the store.
 	tenant, all := observationReadScope(r)
 	limit := q.Limit
 	q.Limit = 0

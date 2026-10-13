@@ -17,7 +17,26 @@ import (
 // a column nothing writes.
 const TenantLabelKey = "tenant_id"
 
-// MinAggregateGroupSize enforces k-anonymity (small-cell suppression floor) for grouped/statistical queries.
+// MinAggregateGroupSize enforces k-anonymity (small-cell suppression floor) on aggregates whose
+// groups are cohorts of data subjects.
+//
+// The unit is distinct data subjects, not rows. The one enforcement site in the repository is
+// codingagent.(*MemoryStore).Aggregate, which counts distinct Subject + ":" + SessionID keys and
+// refuses below the floor; api.Handlers.handleAggregateCodingAgentTelemetry surfaces that as HTTP
+// 422. What makes it a disclosure channel there is that the response publishes measured
+// per-cohort quantities (TotalTokensIn, TotalStepCount, TotalElapsedS) beside GroupSize, so a
+// cohort of one attributes those figures to one identifiable developer.
+//
+// ObservationStats is deliberately OUTSIDE this class and applies no floor — the same as before
+// it became a real grouped query. Its group keys are the closed schema enums model.Layer and
+// model.FidelityTier, it counts rows rather than people, and it attributes no measured quantity
+// to a group, so there is no cohort for a floor to protect. Note that
+// docs/signalloom/sldp-p5-3-proof.md:55 claims the floor covers "any statistical or grouped
+// queries"; that is broader than the code has ever been and is a documentation overclaim, not a
+// defect here. The reasoning and the permission caveat behind it are recorded in full in
+// api/store_stats_anonymity_floor_test.go, which pins the decision with
+// TestStoreStats_ReportsTrueCountsBelowTheAnonymityFloor and
+// TestObservationStats_HasNoSubjectDerivedGroupKey.
 const MinAggregateGroupSize = 5
 
 // ErrGroupSizeBelowAnonymityFloor is returned when aggregate cohort size is smaller than MinAggregateGroupSize.
@@ -98,6 +117,13 @@ type SignalStore interface {
 
 // ObservationStats is the summary GET /api/v1/store/stats reports. Counts are over rows, not
 // over distinct IDs, matching what the handler reported before it was bounded.
+//
+// It groups by two closed schema enums and by nothing else, which is the whole reason
+// MinAggregateGroupSize is not applied to it. Adding a group key derived from an actor,
+// principal, session or pseudonym would make each group a cohort of data subjects and move this
+// type into the floor's class — silently, because every existing test would still pass. Do not
+// add one without revisiting the decision recorded on MinAggregateGroupSize above.
+// TestObservationStats_HasNoSubjectDerivedGroupKey fails if the shape changes.
 type ObservationStats struct {
 	Total         int
 	ByLayer       map[string]int

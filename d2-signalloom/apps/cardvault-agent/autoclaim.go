@@ -41,8 +41,11 @@ func (a *agent) autoClaim(spiffeID, baoToken string) error {
 		return fmt.Errorf("encode claim request: %w", err)
 	}
 
-	url := strings.TrimRight(a.claimURL, "/") + "/api/v1/agents/claim"
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	urlStr := strings.TrimRight(a.claimURL, "/") + "/api/v1/agents/claim"
+	if err := validateEndpointURL(urlStr, "Claim endpoint"); err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, urlStr, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("create claim request: %w", err)
 	}
@@ -52,7 +55,10 @@ func (a *agent) autoClaim(spiffeID, baoToken string) error {
 	if err != nil {
 		return fmt.Errorf("claim API request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+	}()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {

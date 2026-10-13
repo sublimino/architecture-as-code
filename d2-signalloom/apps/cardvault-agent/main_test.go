@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -344,5 +345,74 @@ func TestCombinedOutputExecution(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "agent-ok") {
 		t.Fatalf("expected agent-ok in output, got %q", string(out))
+	}
+}
+
+func TestEndpointURLValidationAndEntryFlags(t *testing.T) {
+	// 1. Direct validation of validateEndpointURL
+	badURLs := []string{
+		"",
+		"   ",
+		"ftp://openbao:8200",
+		"file:///etc/passwd",
+		"gopher://example.com",
+		"http://",
+		"https://",
+		"://bad-url",
+	}
+	for _, bad := range badURLs {
+		if err := validateEndpointURL(bad, "test endpoint"); err == nil {
+			t.Errorf("expected validateEndpointURL(%q) to fail, got nil", bad)
+		}
+	}
+
+	goodURLs := []string{
+		"http://localhost:8200",
+		"https://vault.corp.internal/v1",
+		"http://10.96.0.1:8080",
+	}
+	for _, good := range goodURLs {
+		if err := validateEndpointURL(good, "test endpoint"); err != nil {
+			t.Errorf("expected validateEndpointURL(%q) to pass, got %v", good, err)
+		}
+	}
+
+	// 2. entry() flag validation rejection
+	var stdout, stderr bytes.Buffer
+	code := entry([]string{"-bao-addr", "ftp://bad-vault"}, &stdout, &stderr)
+	if code != 64 {
+		t.Errorf("expected exit code 64 for bad bao-addr, got %d", code)
+	}
+
+	stderr.Reset()
+	code = entry([]string{"-cardvault-url", "file:///bad-cardvault"}, &stdout, &stderr)
+	if code != 64 {
+		t.Errorf("expected exit code 64 for bad cardvault-url, got %d", code)
+	}
+
+	stderr.Reset()
+	code = entry([]string{"-claim-url", "invalid-claim"}, &stdout, &stderr)
+	if code != 64 {
+		t.Errorf("expected exit code 64 for bad claim-url, got %d", code)
+	}
+
+	// 3. Method validation failure paths in agent
+	a := &agent{
+		baoAddr:      "file:///bad",
+		cardvaultURL: "gopher://bad",
+		claimURL:     "ftp://bad",
+		client:       defaultHTTPClient(),
+	}
+	if _, _, err := a.login("jwt"); err == nil {
+		t.Errorf("expected error on login with bad baoAddr, got nil")
+	}
+	if _, _, err := a.readCredentials("token"); err == nil {
+		t.Errorf("expected error on readCredentials with bad baoAddr, got nil")
+	}
+	if _, err := a.accessCardvault("u", "p"); err == nil {
+		t.Errorf("expected error on accessCardvault with bad cardvaultURL, got nil")
+	}
+	if err := a.autoClaim("spiffe", "token"); err == nil {
+		t.Errorf("expected error on autoClaim with bad claimURL, got nil")
 	}
 }

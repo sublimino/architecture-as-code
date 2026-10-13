@@ -242,3 +242,29 @@ func TestHealthReportsFleetStunFailures(t *testing.T) {
 		t.Fatalf("fleet_stun_failures = %d, want 3 (body %s)", resp.FleetStunFailures, w.Body.String())
 	}
 }
+
+func TestHealthHandlerOPTIONSRequests(t *testing.T) {
+	srv := &HealthServer{
+		addr:         ":8081",
+		dryRun:       false,
+		cgroupDriver: "systemd",
+		tcReady:      func() bool { return true },
+	}
+	handler := srv.Handler()
+
+	for _, endpoint := range []string{"/healthz", "/health", "/readyz", "/metrics", "/captures"} {
+		req := httptest.NewRequest(http.MethodOptions, endpoint, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNoContent {
+			t.Errorf("OPTIONS %s status = %d, want 204", endpoint, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("OPTIONS %s Allow = %q, want 'GET, HEAD, OPTIONS'", endpoint, allow)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("OPTIONS %s expected 0 body bytes, got %d", endpoint, rec.Body.Len())
+		}
+	}
+}

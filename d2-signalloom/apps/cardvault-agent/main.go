@@ -9,11 +9,30 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 )
+
+func validateEndpointURL(raw, name string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return fmt.Errorf("%s must not be empty", name)
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return fmt.Errorf("invalid %s URL: %w", name, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("invalid %s URL scheme %q: must be http or https", name, u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("invalid %s URL: host must not be empty", name)
+	}
+	return nil
+}
 
 const (
 	spireAgentBin = "/usr/local/bin/spire-agent"
@@ -130,6 +149,21 @@ func entry(args []string, stdout, stderr io.Writer) int {
 
 	if err := fs.Parse(args); err != nil {
 		return 64
+	}
+
+	if err := validateEndpointURL(*baoAddr, "OpenBao address"); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 64
+	}
+	if err := validateEndpointURL(*cardvaultURL, "Cardvault URL"); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 64
+	}
+	if *claimURL != "" {
+		if err := validateEndpointURL(*claimURL, "Claim URL"); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 64
+		}
 	}
 
 	app := &agent{
@@ -272,8 +306,11 @@ func (a *agent) login(jwt string) (string, time.Duration, error) {
 		return "", 0, fmt.Errorf("encode login request: %w", err)
 	}
 
-	url := strings.TrimRight(a.baoAddr, "/") + "/v1/auth/jwt/login"
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	urlStr := strings.TrimRight(a.baoAddr, "/") + "/v1/auth/jwt/login"
+	if err := validateEndpointURL(urlStr, "OpenBao login endpoint"); err != nil {
+		return "", 0, err
+	}
+	req, err := http.NewRequest(http.MethodPost, urlStr, bytes.NewReader(payload))
 	if err != nil {
 		return "", 0, fmt.Errorf("create login request: %w", err)
 	}
@@ -283,7 +320,10 @@ func (a *agent) login(jwt string) (string, time.Duration, error) {
 	if err != nil {
 		return "", 0, fmt.Errorf("OpenBao login: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+	}()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -310,8 +350,11 @@ func (a *agent) login(jwt string) (string, time.Duration, error) {
 
 // readCredentials fetches username/password from OpenBao KV v2.
 func (a *agent) readCredentials(token string) (string, string, error) {
-	url := strings.TrimRight(a.baoAddr, "/") + "/v1/kv/data/signalloom/cardvault-agent"
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	urlStr := strings.TrimRight(a.baoAddr, "/") + "/v1/kv/data/signalloom/cardvault-agent"
+	if err := validateEndpointURL(urlStr, "OpenBao KV endpoint"); err != nil {
+		return "", "", err
+	}
+	req, err := http.NewRequest(http.MethodGet, urlStr, nil)
 	if err != nil {
 		return "", "", fmt.Errorf("create KV request: %w", err)
 	}
@@ -321,7 +364,10 @@ func (a *agent) readCredentials(token string) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("OpenBao KV read: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+	}()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -353,8 +399,11 @@ func (a *agent) readCredentials(token string) (string, string, error) {
 
 // accessCardvault calls the cardvault API with Basic Auth.
 func (a *agent) accessCardvault(username, password string) ([]card, error) {
-	url := strings.TrimRight(a.cardvaultURL, "/") + "/api/v1/cards"
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	urlStr := strings.TrimRight(a.cardvaultURL, "/") + "/api/v1/cards"
+	if err := validateEndpointURL(urlStr, "Cardvault endpoint"); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodGet, urlStr, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create cardvault request: %w", err)
 	}
@@ -364,7 +413,10 @@ func (a *agent) accessCardvault(username, password string) ([]card, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cardvault request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+	}()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {

@@ -27,6 +27,13 @@
 bats_require_minimum_version 1.5.0
 
 setup() {
+	export PATH="/home/linuxbrew/.linuxbrew/bin:/usr/bin:$PATH"
+	export GOPATH="/tmp/gopath"
+	export GOCACHE="${GOCACHE:-/tmp/gocache}"
+	export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+	export GONOSUMDB="*"
+	mkdir -p "$GOPATH" "$GOCACHE" "$GOMODCACHE"
+
 	REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 	POLICIES="$REPO_ROOT/d2-osramp-fleet/tenants/base/policies.yaml"
 	FM_KUST="$REPO_ROOT/d2-signalloom/apps/fleet-manager/base/kustomization.yaml"
@@ -141,7 +148,8 @@ binding_field() {
 }
 
 @test "the policy's own CEL rejects a pod spoofing a registered agent's identity label" {
-	run env CGO_ENABLED=0 go test -C "$REPO_ROOT/d2-signalloom/apps/fleet-manager" \
+	run env CGO_ENABLED=0 GOPATH="$GOPATH" GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" GONOSUMDB="*" \
+		go test -C "$REPO_ROOT/d2-signalloom/apps/fleet-manager" \
 		-count=1 -run '^TestIdentityBindingVAP_' .
 	[ "$status" -eq 0 ]
 	echo "$output" | grep -q "^ok"

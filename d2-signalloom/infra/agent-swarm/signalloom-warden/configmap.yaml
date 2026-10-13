@@ -57,6 +57,7 @@ data:
   SENTINEL_TENANT_MAP: |
     fe-signalloom-agents/agent-cardvault=controlplane
     fe-signalloom-agents/agent-nono-evidenced=tenant-demo
+    fe-signalloom-agents/agent-nono-kusari=tenant-demo
     fe-signalloom-agents/agent-standard-baseline=tenant-demo
     fe-signalloom-agents/cpai-engineer=controlplane
     fe-signalloom-agents/hosted-daytona-coder=controlplane

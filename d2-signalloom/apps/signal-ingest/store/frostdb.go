@@ -693,12 +693,57 @@ func (f *FrostDBStore) ScanObservations(ctx context.Context, q Query, fn func(o 
 	}
 }
 
-// ObservationStats aggregates in the engine and returns only the totals.
+// ObservationStats tallies a three-column projection, one Arrow record at a time.
 //
-// One grouped query does all of it: count and max(timestamp) grouped by (layer, fidelity).
-// The result is one row per distinct pair — a couple of dozen at most, against a table of
-// millions — so the totals cross the interface instead of the rows. byLayer, byFidelity, the
-// grand total and the last ingestion all derive from that one result.
+// It deliberately does NOT push a grouped aggregation down into the engine, and that is a
+// correctness requirement rather than a preference. A grouped aggregation over string group-by
+// columns makes the engine merge one per-block result against another, and FrostDB's merge
+// compares two cursors by type-switching on the first array then asserting the second to the
+// same concrete type:
+//
+//	pqarrow/arrowutils/merge.go:125   arr2 := c2.r.Column(sc.Index).(*array.String)
+//
+// The two sources do not agree on that type. A rotated block comes back from Parquet as
+// *array.String; the un-rotated active block is still held in Arrow builders and comes back as
+// *array.Binary. A store holding both — which every long-lived store does, between rotations —
+// therefore panics inside the engine with "interface conversion: arrow.Array is *array.Binary,
+// not *array.String" as soon as the merge heap happens to compare a row from one against a row
+// from the other. Whether it does is a function of how the heap drains, so the same store
+// answers some calls and fails others: measured 18/20 failures live, and 9/50 against a
+// two-block fixture offline. A homogeneous store (all active, or all rotated) never fails.
+// See TestFrostDBStore_ObservationStats_SpansRotatedAndActiveBlocks.
+//
+// The engine-side fix is not available to us: the panic is inside FrostDB, between the per-block
+// scans and this callback, so stringAt's String/Binary/Dictionary tolerance never gets to run.
+//
+// What this costs, stated plainly: the engine no longer reduces rows to groups, so this reads one
+// row per match instead of one row per distinct (layer, fidelity) pair. What it does not do is
+// accumulate them. Peak memory is one Arrow record plus a group map bounded by the number of
+// distinct pairs — at most len(InScopeLayers) x 4 fidelity tiers, a couple of dozen entries —
+// never the result set. That is the same streaming shape ScanIDs and ScanObservations already
+// use, and it is specifically NOT a return to materialising the store, which is the OOM this
+// store was changed to avoid. The filter is still pushed down, and only three of the ~20 columns
+// are projected, so the bytes scanned are a fraction of a full row read.
+// statsQueryBuilder builds the read ObservationStats executes.
+//
+// It is a named seam so a test can assert on the plan rather than on the panic, which is the only
+// deterministic way to pin this defect: the heterogeneous encoding is deterministic, but whether
+// the engine's merge heap ever compares the two encodings is scheduling-dependent, so asserting
+// "the query succeeds" catches the regression only most of the time. Asserting "the plan contains
+// no aggregation" catches it every time. See
+// TestFrostDBStore_StatsQueryPlan_PushesNoStringGroupBy.
+func (f *FrostDBStore) statsQueryBuilder(q Query) (query.Builder, error) {
+	filter, err := buildFilter(q, f.pseudonymiser)
+	if err != nil {
+		return nil, fmt.Errorf("frostdb: build filter: %w", err)
+	}
+	builder := f.engine.ScanTable(tableName)
+	if filter != nil {
+		builder = builder.Filter(filter)
+	}
+	return builder.Project(colRef(colTimestamp), colRef(colLayer), colRef(colFidelity)), nil
+}
+
 func (f *FrostDBStore) ObservationStats(ctx context.Context, q Query) (ObservationStats, error) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
@@ -711,65 +756,39 @@ func (f *FrostDBStore) ObservationStats(ctx context.Context, q Query) (Observati
 
 	out := ObservationStats{ByLayer: map[string]int{}, ByFidelity: map[string]int{}}
 
-	filter, err := buildFilter(q, f.pseudonymiser)
+	builder, err := f.statsQueryBuilder(q)
 	if err != nil {
-		return out, fmt.Errorf("frostdb: build filter: %w", err)
+		return out, err
 	}
-	builder := f.engine.ScanTable(tableName)
-	if filter != nil {
-		builder = builder.Filter(filter)
-	}
-	builder = builder.Aggregate(
-		[]*logicalplan.AggregationFunction{
-			// Counted over timestamp, not id: FrostDB refuses an aggregation whose
-			// expression is not Int64/Uint64/Float64, and id is a string column. Every row
-			// carries a timestamp — Append writes it unconditionally — so counting non-null
-			// timestamps is counting rows. The contract suite asserts this equals a
-			// QueryRange tally, against both implementations.
-			logicalplan.Count(colRef(colTimestamp)),
-			logicalplan.Max(colRef(colTimestamp)),
-		},
-		[]logicalplan.Expr{colRef(colLayer), colRef(colFidelity)},
-	)
 
 	execErr := builder.Execute(ctx, func(_ context.Context, r arrow.Record) error {
 		cols := map[string]int{}
 		for i, fld := range r.Schema().Fields() {
 			cols[fld.Name] = i
 		}
-		// Aggregate output column names are engine-chosen (count(id), max(timestamp)), so
-		// they are located by suffix rather than assumed. A rename upstream must fail loudly
-		// here rather than silently reporting zero observations.
-		countIdx, maxIdx := -1, -1
-		for name, i := range cols {
-			switch {
-			case strings.HasPrefix(name, "count("):
-				countIdx = i
-			case strings.HasPrefix(name, "max("):
-				maxIdx = i
-			}
-		}
-		if countIdx < 0 {
-			return errors.New("frostdb: observation stats: aggregate result has no count column")
+		// The timestamp column is what makes a row a row: Append writes it unconditionally, so
+		// counting rows in this projection is counting observations. Its absence means the
+		// projection did not return what was asked for, which must fail loudly rather than
+		// silently report zero observations.
+		tsIdx, hasTimestamp := cols[colTimestamp]
+		if !hasTimestamp {
+			return errors.New("frostdb: observation stats: projection has no timestamp column")
 		}
 		layerIdx, hasLayer := cols[colLayer]
 		fidelityIdx, hasFidelity := cols[colFidelity]
 
 		for i := 0; i < int(r.NumRows()); i++ {
-			n := int(int64At(r.Column(countIdx), i))
-			out.Total += n
+			out.Total++
 			if hasLayer {
-				out.ByLayer[stringAt(r.Column(layerIdx), i)] += n
+				out.ByLayer[stringAt(r.Column(layerIdx), i)]++
 			}
 			if hasFidelity {
-				out.ByFidelity[stringAt(r.Column(fidelityIdx), i)] += n
+				out.ByFidelity[stringAt(r.Column(fidelityIdx), i)]++
 			}
-			if maxIdx >= 0 {
-				ts := time.Unix(0, int64At(r.Column(maxIdx), i)).UTC()
-				if out.LastIngestion == nil || ts.After(*out.LastIngestion) {
-					t := ts
-					out.LastIngestion = &t
-				}
+			ts := time.Unix(0, int64At(r.Column(tsIdx), i)).UTC()
+			if out.LastIngestion == nil || ts.After(*out.LastIngestion) {
+				t := ts
+				out.LastIngestion = &t
 			}
 		}
 		return nil

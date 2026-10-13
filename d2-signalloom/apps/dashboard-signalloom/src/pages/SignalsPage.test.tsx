@@ -84,7 +84,7 @@ const observations: Array<SignalObservation & { raw?: string }> = [
     timestamp: '2026-10-05T09:04:00Z',
     layer: 'network_egress',
     fidelity: 'strong',
-    source: 'ebpf-socket-sentinel',
+    source: 'sentinel.ebpf.socket_trace',
     confidence: 0.82,
     actor_hint: 'actor-7f3a',
     raw_evidence_ref: 'blob://evidence/obs-1',
@@ -97,7 +97,7 @@ const observations: Array<SignalObservation & { raw?: string }> = [
     timestamp: '2026-10-05T09:02:00Z',
     layer: 'endpoint_host',
     fidelity: 'definitive',
-    source: 'tetragon',
+    source: 'stun-sentinel',
     confidence: 0.95,
     actor_hint: 'actor-2c91',
     raw_evidence_ref: 'blob://evidence/obs-2',
@@ -178,9 +178,9 @@ const decisions: PolicyDecision[] = [
 ]
 
 const rates: IngestRateBucket[] = [
-  { bucket_start: '2026-10-05T09:00:00Z', layer: 'network_egress', source: 'ebpf-socket-sentinel', count: 4 },
-  { bucket_start: '2026-10-05T09:00:00Z', layer: 'endpoint_host', source: 'tetragon', count: 2 },
-  { bucket_start: '2026-10-05T09:01:00Z', layer: 'network_egress', source: 'ebpf-socket-sentinel', count: 6 },
+  { bucket_start: '2026-10-05T09:00:00Z', layer: 'network_egress', source: 'sentinel.ebpf.socket_trace', count: 4 },
+  { bucket_start: '2026-10-05T09:00:00Z', layer: 'endpoint_host', source: 'stun-sentinel', count: 2 },
+  { bucket_start: '2026-10-05T09:01:00Z', layer: 'network_egress', source: 'sentinel.ebpf.socket_trace', count: 6 },
   { bucket_start: '2026-10-05T09:01:00Z', layer: 'cloud_control_plane', source: 'aws-cloudtrail', count: 1 },
 ]
 
@@ -302,7 +302,7 @@ describe('SignalsPage', () => {
 
   it('renders a per-source table with a count and a last-seen time', async () => {
     await renderLoaded()
-    const row = screen.getByTestId('source-row-ebpf-socket-sentinel')
+    const row = screen.getByTestId('source-row-sentinel.ebpf.socket_trace')
     expect(within(row).getByTestId('source-count')).toHaveTextContent('10')
     expect(within(row).getByTestId('source-last-seen')).not.toBeEmptyDOMElement()
   })
@@ -312,7 +312,7 @@ describe('SignalsPage', () => {
     const items = screen.getAllByTestId('observation-item')
     expect(items).toHaveLength(2)
     expect(within(items[0]).getByTestId('observation-layer')).toHaveTextContent('Network/Egress')
-    expect(within(items[0]).getByTestId('observation-source')).toHaveTextContent('ebpf-socket-sentinel')
+    expect(within(items[0]).getByTestId('observation-source')).toHaveTextContent('sentinel.ebpf.socket_trace')
     expect(within(items[0]).getByTestId('observation-actor')).toHaveTextContent('actor-7f3a')
     expect(
       within(items[0]).getByText('Egress to an unapproved destination was denied'),
@@ -650,21 +650,21 @@ describe('SignalsPage', () => {
     // Initially both observations shown
     expect(screen.getAllByTestId('observation-item')).toHaveLength(2)
 
-    // Toggle exclude sentinel noise (obs-1 has source 'ebpf-socket-sentinel')
+    // Toggle exclude sentinel noise (obs-1 has source 'sentinel.ebpf.socket_trace')
     const sentinelToggle = screen.getByTestId('feed-exclude-sentinel-toggle')
     await user.click(sentinelToggle)
 
-    // Only obs-2 (tetragon) survives
+    // Only obs-2 (stun-sentinel) survives
     await waitFor(() => {
       const items = screen.getAllByTestId('observation-item')
       expect(items).toHaveLength(1)
-      expect(within(items[0]).getByTestId('observation-source')).toHaveTextContent('tetragon')
+      expect(within(items[0]).getByTestId('observation-source')).toHaveTextContent('stun-sentinel')
     })
 
     // Search input
     const searchInput = screen.getByTestId('feed-toolbar-search')
     await user.clear(searchInput)
-    await user.type(searchInput, 'tetragon')
+    await user.type(searchInput, 'stun-sentinel')
     expect(screen.getAllByTestId('observation-item')).toHaveLength(1)
 
     // Clear filters

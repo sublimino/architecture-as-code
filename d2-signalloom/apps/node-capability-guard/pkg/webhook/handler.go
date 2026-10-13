@@ -322,7 +322,7 @@ func (s *WebhookServer) HandleValidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 	if err != nil {
 		http.Error(w, "read error", http.StatusBadRequest)
 		return

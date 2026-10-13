@@ -60,6 +60,26 @@ class ProxyTest(ProxyServerTestCase):
     def setUp(self):
         self.request("DELETE", "/_test/requests")
 
+    def test_health_and_healthz_return_ok(self):
+        for path in ("/health", "/healthz"):
+            status, body = self.request("GET", path)
+            self.assertEqual(200, status)
+            self.assertEqual({"status": "ok"}, body)
+
+    def test_malformed_content_length_handled_safely(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port)
+        connection.request("POST", "/llm/assistants", "not-read", {"Content-Length": "invalid-len"})
+        response = connection.getresponse()
+        self.assertEqual(200, response.status)
+        connection.close()
+
+    def test_negative_content_length_handled_safely(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port)
+        connection.request("POST", "/llm/assistants", "", {"Content-Length": "-10"})
+        response = connection.getresponse()
+        self.assertEqual(200, response.status)
+        connection.close()
+
     def test_all_route_groups_return_deterministic_fixtures(self):
         for path in ("/llm/assistants", "/crm/contacts", "/notification/messages", "/outbound-reporting/reports"):
             status, first = self.request("POST", path, {"name": "demo"})

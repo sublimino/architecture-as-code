@@ -26,7 +26,7 @@ func (a *agent) autoClaim(spiffeID, baoToken string) error {
 		SpiffeID:  spiffeID,
 		AgentType: "cardvault",
 		BaoToken:  baoToken,
-		ClaimedAt: time.Now().UTC().Format(time.RFC3339),
+		ClaimedAt: a.clock().UTC().Format(time.RFC3339),
 	})
 	if err != nil {
 		return fmt.Errorf("encode claim request: %w", err)

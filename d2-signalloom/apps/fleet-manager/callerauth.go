@@ -174,7 +174,11 @@ func (c *callerKeys) authenticate(r *http.Request) (*callerKey, error) {
 	if len(values) != 1 || !strings.HasPrefix(values[0], "Bearer ") {
 		return nil, errNoCredential
 	}
-	presented := sha256.Sum256([]byte(strings.TrimPrefix(values[0], "Bearer ")))
+	token := strings.TrimSpace(strings.TrimPrefix(values[0], "Bearer "))
+	if token == "" {
+		return nil, errNoCredential
+	}
+	presented := sha256.Sum256([]byte(token))
 	var match *callerKey
 	if c != nil {
 		for i := range c.keys {

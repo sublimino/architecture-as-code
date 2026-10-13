@@ -132,3 +132,34 @@ func TestAutoClaimNetworkError(t *testing.T) {
 		t.Fatal("expected error on network failure")
 	}
 }
+
+func TestAutoClaimUsesMockClock(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&body)
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"status":"claimed"}`))
+	}))
+	defer srv.Close()
+
+	fixedTime := time.Date(2026, time.October, 13, 12, 0, 0, 0, time.UTC)
+	app := &agent{
+		claimURL: srv.URL,
+		client:   srv.Client(),
+		now:      func() time.Time { return fixedTime },
+	}
+
+	err := app.autoClaim("spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent", "tok")
+	if err != nil {
+		t.Fatalf("autoClaim: %v", err)
+	}
+
+	claimedAt, ok := body["claimed_at"].(string)
+	if !ok {
+		t.Fatalf("expected string claimed_at in payload, got %v", body["claimed_at"])
+	}
+	expected := fixedTime.Format(time.RFC3339)
+	if claimedAt != expected {
+		t.Errorf("claimed_at: got %q, want %q", claimedAt, expected)
+	}
+}

@@ -29,6 +29,14 @@ func errnoString(err error) string {
 			return "EPERM"
 		case syscall.ENOENT:
 			return "ENOENT"
+		case syscall.ECONNREFUSED:
+			return "ECONNREFUSED"
+		case syscall.ENETUNREACH:
+			return "ENETUNREACH"
+		case syscall.ETIMEDOUT:
+			return "ETIMEDOUT"
+		case syscall.EEXIST:
+			return "EEXIST"
 		default:
 			return errno.Error()
 		}
@@ -99,7 +107,11 @@ func probeMetadataExfil() ProbeResult {
 	resp, err := client.Get("http://169.254.169.254/latest/meta-data/")
 	if err != nil {
 		r.Result = "blocked"
-		r.Errno = "ENETUNREACH"
+		s := errnoString(err)
+		if s == "" {
+			s = "ENETUNREACH"
+		}
+		r.Errno = s
 		r.LandlockEnforced = true
 		return r
 	}

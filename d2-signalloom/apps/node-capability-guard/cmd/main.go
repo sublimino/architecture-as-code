@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/node-capability-guard/pkg/webhook"
 )
@@ -48,17 +49,24 @@ func main() {
 	http.HandleFunc("/validate", server.HandleValidate)
 	http.HandleFunc("/metrics", webhook.HandleMetrics)
 	http.HandleFunc("/healthz", webhook.HandleHealthz)
+	http.HandleFunc("/readyz", webhook.HandleHealthz)
+	http.HandleFunc("/health", webhook.HandleHealthz)
 
 	addr := fmt.Sprintf(":%d", *port)
 	log.Printf("node-capability-guard listening on %s (trust-domain=%s)", addr, *trustDomain)
 
+	srv := &http.Server{
+		Addr:              addr,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
 	if *tlsCert != "" && *tlsKey != "" {
-		if err := http.ListenAndServeTLS(addr, *tlsCert, *tlsKey, nil); err != nil {
+		if err := srv.ListenAndServeTLS(*tlsCert, *tlsKey); err != nil {
 			log.Fatalf("failed to serve TLS: %v", err)
 		}
 	} else {
 		log.Printf("WARN: running without TLS (test mode)")
-		if err := http.ListenAndServe(addr, nil); err != nil {
+		if err := srv.ListenAndServe(); err != nil {
 			log.Fatalf("failed to serve HTTP: %v", err)
 		}
 	}

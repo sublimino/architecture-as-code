@@ -1476,8 +1476,17 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
     def _body(self) -> object:
-        length = int(self.headers.get("Content-Length", "0"))
-        raw = self.rfile.read(length) if length else b""
+        try:
+            raw_len = self.headers.get("Content-Length", "0")
+            length = int(raw_len.strip()) if raw_len else 0
+        except (ValueError, TypeError, AttributeError):
+            length = 0
+        if length <= 0:
+            return None
+        try:
+            raw = self.rfile.read(min(length, 1048576))
+        except (OSError, ValueError):
+            return None
         if not raw:
             return None
         try:
@@ -1866,7 +1875,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
     def _dispatch(self) -> None:
         path = urlparse(self.path).path
-        if path == "/health" and self.command == "GET":
+        if path in ("/health", "/healthz") and self.command == "GET":
             self._json(HTTPStatus.OK, {"status": "ok"})
         elif path == "/agents" and self.command == "GET":
             self._handle_agents()

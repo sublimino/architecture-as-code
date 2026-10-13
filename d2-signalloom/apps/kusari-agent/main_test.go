@@ -369,9 +369,11 @@ func TestStatsEndpoint(t *testing.T) {
 
 func TestHealthz(t *testing.T) {
 	a, _ := testAgent(t, "http://127.0.0.1:1", 5)
-	rec, body := get(t, a.routes(), "/healthz")
-	if rec.Code != http.StatusOK || body["status"] != "ok" {
-		t.Fatalf("healthz = %d %q", rec.Code, rec.Body.String())
+	for _, path := range []string{"/health", "/healthz", "/readyz"} {
+		rec, body := get(t, a.routes(), path)
+		if rec.Code != http.StatusOK || body["status"] != "ok" {
+			t.Fatalf("%s = %d %q", path, rec.Code, rec.Body.String())
+		}
 	}
 }
 

@@ -11,7 +11,7 @@ import (
 // Allow header naming the one method it accepts (RFC 9110 §15.5.6).
 func TestReadOnlyRoutesRejectWritesWithAllowHeader(t *testing.T) {
 	a, _ := testAgent(t, "http://127.0.0.1:1", 5)
-	for _, path := range []string{"/quote", "/", "/stats", "/healthz"} {
+	for _, path := range []string{"/quote", "/", "/stats", "/health", "/healthz", "/readyz"} {
 		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
 			rec := httptest.NewRecorder()
 			a.routes().ServeHTTP(rec, httptest.NewRequest(method, path, nil))

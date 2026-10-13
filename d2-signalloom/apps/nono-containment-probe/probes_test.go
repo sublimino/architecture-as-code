@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -166,5 +167,28 @@ func TestRunAllProbesReturnsExpectedCount(t *testing.T) {
 			t.Errorf("duplicate probe name: %q", r.Probe)
 		}
 		seen[r.Probe] = true
+	}
+}
+
+func TestErrnoString(t *testing.T) {
+	cases := []struct {
+		err      error
+		expected string
+	}{
+		{syscall.EACCES, "EACCES"},
+		{syscall.EPERM, "EPERM"},
+		{syscall.ENOENT, "ENOENT"},
+		{syscall.ECONNREFUSED, "ECONNREFUSED"},
+		{syscall.ENETUNREACH, "ENETUNREACH"},
+		{syscall.ETIMEDOUT, "ETIMEDOUT"},
+		{syscall.EEXIST, "EEXIST"},
+		{nil, ""},
+	}
+
+	for _, tc := range cases {
+		got := errnoString(tc.err)
+		if got != tc.expected {
+			t.Errorf("errnoString(%v): got %q, want %q", tc.err, got, tc.expected)
+		}
 	}
 }

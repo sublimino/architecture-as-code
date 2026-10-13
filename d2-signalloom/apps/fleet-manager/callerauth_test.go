@@ -279,3 +279,33 @@ func TestTheE2ETeardownRecoveryLeavesEveryOtherStunnedAgentStunned(t *testing.T)
 		t.Fatalf("kusari was not recovered: %v", client.calls)
 	}
 }
+
+func TestAuthenticateToleratesBearerWhitespace(t *testing.T) {
+	s := newTestServer(t)
+	s.callerKeys = testCallerKeys(t)
+
+	// Test leading/trailing spaces inside Bearer token
+	for _, authHeader := range []string{
+		"Bearer   " + sentinelKey,
+		"Bearer " + sentinelKey + "   ",
+		"Bearer  " + sentinelKey + "  ",
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/stun/agent-test", strings.NewReader(sentinelStunBody))
+		req.Header.Set("Authorization", authHeader)
+		caller, err := s.callerKeys.authenticate(req)
+		if err != nil {
+			t.Fatalf("authHeader %q failed: %v", authHeader, err)
+		}
+		if caller.name != "stun-sentinel" {
+			t.Fatalf("expected caller stun-sentinel, got %q", caller.name)
+		}
+	}
+
+	// Test whitespace-only token fails with errNoCredential
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/fleet/stun/agent-test", strings.NewReader(sentinelStunBody))
+	req.Header.Set("Authorization", "Bearer    ")
+	_, err := s.callerKeys.authenticate(req)
+	if err != errNoCredential {
+		t.Fatalf("expected errNoCredential for whitespace-only token, got %v", err)
+	}
+}

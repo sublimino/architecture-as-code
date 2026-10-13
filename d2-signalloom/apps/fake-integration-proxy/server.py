@@ -1846,28 +1846,37 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if not self.demo_controls_enabled:
             self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return True
-        if path == "/_test/requests" and self.command == "GET":
-            self._json(HTTPStatus.OK, {"requests": self.state.get_requests()})
+        if path == "/_test/requests":
+            if self.command in ("GET", "HEAD"):
+                self._json(HTTPStatus.OK, {"requests": self.state.get_requests()})
+                return True
+            if self.command == "DELETE":
+                self.state.reset_requests()
+                self._json(HTTPStatus.OK, {"requests": []})
+                return True
+            self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, DELETE"})
             return True
-        if path == "/_test/requests" and self.command == "DELETE":
-            self.state.reset_requests()
-            self._json(HTTPStatus.OK, {"requests": []})
-            return True
-        if path == "/_test/fixtures" and self.command == "GET":
-            self._json(HTTPStatus.OK, {"fixtures": self.state.get_fixtures()})
+        if path == "/_test/fixtures":
+            if self.command in ("GET", "HEAD"):
+                self._json(HTTPStatus.OK, {"fixtures": self.state.get_fixtures()})
+                return True
+            self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD"})
             return True
         parts = path.split("/")
-        if len(parts) == 5 and parts[:3] == ["", "_test", "fixtures"] and self.command == "PUT":
+        if len(parts) == 5 and parts[:3] == ["", "_test", "fixtures"]:
             category, name = parts[3], parts[4]
             if category not in ROUTE_PREFIXES or not name:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
                 return True
-            body = self._body()
-            if body is None:
-                self._json(HTTPStatus.BAD_REQUEST, {"error": "fixture body is required"})
+            if self.command == "PUT":
+                body = self._body()
+                if body is None:
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "fixture body is required"})
+                    return True
+                self.state.put_fixture(category, name, body)
+                self._json(HTTPStatus.OK, {"category": category, "name": name, "fixture": body})
                 return True
-            self.state.put_fixture(category, name, body)
-            self._json(HTTPStatus.OK, {"category": category, "name": name, "fixture": body})
+            self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "PUT"})
             return True
         self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
         return True

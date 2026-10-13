@@ -183,6 +183,69 @@ class ProxyTest(ProxyServerTestCase):
         finally:
             os.environ["SIGNALLOOM_DEMO_PROFILE"] = old
 
+    def test_control_routes_head_and_method_not_allowed_parity(self):
+        # /_test/requests: GET, HEAD, DELETE allowed; others 405 with Allow: GET, HEAD, DELETE
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("HEAD", "/_test/requests")
+        resp = conn.getresponse()
+        self.assertEqual(200, resp.status)
+        self.assertEqual("application/json", resp.getheader("Content-Type"))
+        self.assertEqual(b"", resp.read())
+        conn.close()
+
+        for verb in ("POST", "PUT", "PATCH", "OPTIONS"):
+            conn = http.client.HTTPConnection("127.0.0.1", self.port)
+            conn.request(verb, "/_test/requests")
+            resp = conn.getresponse()
+            self.assertEqual(405, resp.status)
+            self.assertEqual("GET, HEAD, DELETE", resp.getheader("Allow"))
+            self.assertEqual("application/json", resp.getheader("Content-Type"))
+            body = json.loads(resp.read().decode())
+            self.assertEqual({"error": "method not allowed"}, body)
+            conn.close()
+
+        # /_test/fixtures: GET, HEAD allowed; others 405 with Allow: GET, HEAD
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("HEAD", "/_test/fixtures")
+        resp = conn.getresponse()
+        self.assertEqual(200, resp.status)
+        self.assertEqual("application/json", resp.getheader("Content-Type"))
+        self.assertEqual(b"", resp.read())
+        conn.close()
+
+        for verb in ("POST", "DELETE", "PUT", "PATCH", "OPTIONS"):
+            conn = http.client.HTTPConnection("127.0.0.1", self.port)
+            conn.request(verb, "/_test/fixtures")
+            resp = conn.getresponse()
+            self.assertEqual(405, resp.status)
+            self.assertEqual("GET, HEAD", resp.getheader("Allow"))
+            self.assertEqual("application/json", resp.getheader("Content-Type"))
+            body = json.loads(resp.read().decode())
+            self.assertEqual({"error": "method not allowed"}, body)
+            conn.close()
+
+        # /_test/fixtures/<category>/<name>: PUT allowed; others 405 with Allow: PUT
+        for verb in ("GET", "POST", "DELETE", "PATCH", "OPTIONS"):
+            conn = http.client.HTTPConnection("127.0.0.1", self.port)
+            conn.request(verb, "/_test/fixtures/crm/sample")
+            resp = conn.getresponse()
+            self.assertEqual(405, resp.status)
+            self.assertEqual("PUT", resp.getheader("Allow"))
+            self.assertEqual("application/json", resp.getheader("Content-Type"))
+            body = json.loads(resp.read().decode())
+            self.assertEqual({"error": "method not allowed"}, body)
+            conn.close()
+
+        # HEAD on /_test/fixtures/<category>/<name> returns 405 with empty body
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("HEAD", "/_test/fixtures/crm/sample")
+        resp = conn.getresponse()
+        self.assertEqual(405, resp.status)
+        self.assertEqual("PUT", resp.getheader("Allow"))
+        self.assertEqual("application/json", resp.getheader("Content-Type"))
+        self.assertEqual(b"", resp.read())
+        conn.close()
+
 
 # ─── Agent discovery ─────────────────────────────────────────────────────────
 

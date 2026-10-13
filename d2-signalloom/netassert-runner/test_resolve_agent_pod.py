@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import subprocess
@@ -6,6 +7,7 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).with_name("resolve-agent-pod.sh")
@@ -81,11 +83,14 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def send_error(self, code, message=None, explain=None):
         if code == 501:
+            body = b"method not allowed"
             self.send_response(405)
             self.send_header("Allow", "GET, HEAD")
             self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(b"method not allowed")
+            if self.command != "HEAD":
+                self.wfile.write(body)
             return
         super().send_error(code, message, explain)
 
@@ -223,7 +228,7 @@ class ResolverTest(unittest.TestCase):
             self.assertEqual(b"", resp.read())
             self.assertEqual("application/json", resp.headers.get("Content-Type"))
 
-        # Verify POST returns 405 with Allow header
+        # Verify POST returns 405 with Allow header, Content-Type, Content-Length, and body
         req_post = urllib.request.Request(f"http://127.0.0.1:{port}{AGENT_URL}", method="POST")
         try:
             with urllib.request.urlopen(req_post) as resp:
@@ -231,7 +236,25 @@ class ResolverTest(unittest.TestCase):
         except urllib.error.HTTPError as exc:
             self.assertEqual(405, exc.code)
             self.assertEqual("GET, HEAD", exc.headers.get("Allow"))
+            self.assertEqual("text/plain; charset=utf-8", exc.headers.get("Content-Type"))
+            self.assertEqual("18", exc.headers.get("Content-Length"))
+            self.assertEqual(b"method not allowed", exc.read())
             exc.close()
+
+        # Verify HEAD suppresses body when send_error(501) executes
+        mock_handler = mock.MagicMock(spec=ApiHandler)
+        mock_handler.command = "HEAD"
+        mock_wfile = io.BytesIO()
+        mock_handler.wfile = mock_wfile
+        ApiHandler.send_error(mock_handler, 501)
+        mock_handler.send_response.assert_called_once_with(405)
+        mock_handler.send_header.assert_has_calls([
+            mock.call("Allow", "GET, HEAD"),
+            mock.call("Content-Type", "text/plain; charset=utf-8"),
+            mock.call("Content-Length", "18"),
+        ])
+        mock_handler.end_headers.assert_called_once()
+        self.assertEqual(b"", mock_wfile.getvalue())
 
 
 if __name__ == "__main__":

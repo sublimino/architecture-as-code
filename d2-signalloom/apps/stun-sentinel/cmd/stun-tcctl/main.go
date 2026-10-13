@@ -299,7 +299,42 @@ func doMetrics(o *opts) error {
 	return nil
 }
 
-func newMux(l *tc.Loader, reg *tc.Registry) *http.ServeMux {
+type headResponseWriter struct {
+	http.ResponseWriter
+	wroteHeader bool
+}
+
+func (w *headResponseWriter) WriteHeader(status int) {
+	w.wroteHeader = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *headResponseWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	// Per RFC 9110 Section 6.4.1, responses to HEAD requests MUST NOT contain
+	// a message body, regardless of status code.
+	return len(b), nil
+}
+
+func (w *headResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func headBodySuppressingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			next.ServeHTTP(&headResponseWriter{ResponseWriter: w}, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func newMux(l *tc.Loader, reg *tc.Registry) http.Handler {
 	mux := http.NewServeMux()
 
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -349,7 +384,7 @@ func newMux(l *tc.Loader, reg *tc.Registry) *http.ServeMux {
 		mux.HandleFunc("/v1/release", triggerHandler(l, reg, false))
 	}
 
-	return mux
+	return headBodySuppressingMiddleware(mux)
 }
 
 func doServe(o *opts) error {
@@ -399,12 +434,20 @@ func triggerHandler(l *tc.Loader, reg *tc.Registry, isolate bool) http.HandlerFu
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", "POST")
+			if r.Method == http.MethodHead {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
 			http.Error(w, "POST required", http.StatusMethodNotAllowed)
 			return
 		}
 		iface := r.URL.Query().Get("interface")
 		ipStr := r.URL.Query().Get("ip")
 		if iface == "" {
+			if r.Method == http.MethodHead {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
 			http.Error(w, "interface query parameter required", http.StatusBadRequest)
 			return
 		}
@@ -416,35 +459,47 @@ func triggerHandler(l *tc.Loader, reg *tc.Registry, isolate bool) http.HandlerFu
 		if isolate {
 			if err := l.Attach(iface); err != nil && !errors.Is(err, tc.ErrNotVeth) {
 				w.WriteHeader(http.StatusInternalServerError)
-				_ = enc.Encode(map[string]any{"error": err.Error()})
+				if r.Method != http.MethodHead {
+					_ = enc.Encode(map[string]any{"error": err.Error()})
+				}
 				return
 			} else if errors.Is(err, tc.ErrNotVeth) {
 				w.WriteHeader(http.StatusForbidden)
-				_ = enc.Encode(map[string]any{"error": err.Error()})
+				if r.Method != http.MethodHead {
+					_ = enc.Encode(map[string]any{"error": err.Error()})
+				}
 				return
 			}
 			elapsed, err := l.Isolate(iface, ip)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
-				_ = enc.Encode(map[string]any{"error": err.Error(), "elapsed_ms": ms(elapsed)})
+				if r.Method != http.MethodHead {
+					_ = enc.Encode(map[string]any{"error": err.Error(), "elapsed_ms": ms(elapsed)})
+				}
 				return
 			}
 			reg.ObserveIsolationDuration(iface, elapsed)
 			reg.SetIsolated(iface, true)
-			_ = enc.Encode(map[string]any{
-				"action": "isolate", "interface": iface, "ip": ipStr,
-				"elapsed_ms": ms(elapsed), "under_100ms": elapsed < 100*time.Millisecond,
-			})
+			if r.Method != http.MethodHead {
+				_ = enc.Encode(map[string]any{
+					"action": "isolate", "interface": iface, "ip": ipStr,
+					"elapsed_ms": ms(elapsed), "under_100ms": elapsed < 100*time.Millisecond,
+				})
+			}
 			return
 		}
 
 		if err := l.Release(iface, ip); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			_ = enc.Encode(map[string]any{"error": err.Error()})
+			if r.Method != http.MethodHead {
+				_ = enc.Encode(map[string]any{"error": err.Error()})
+			}
 			return
 		}
 		reg.SetIsolated(iface, false)
-		_ = enc.Encode(map[string]any{"action": "release", "interface": iface, "ip": ipStr})
+		if r.Method != http.MethodHead {
+			_ = enc.Encode(map[string]any{"action": "release", "interface": iface, "ip": ipStr})
+		}
 	}
 }
 

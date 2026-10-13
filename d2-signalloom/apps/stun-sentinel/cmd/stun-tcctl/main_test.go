@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel/pkg/tc"
 )
 
 func TestHealthEndpoints(t *testing.T) {
@@ -94,7 +96,32 @@ func TestTriggerHandlerMethodNotAllowed(t *testing.T) {
 			if rec.Header().Get("Allow") != "POST" {
 				t.Fatalf("%s expected Allow: POST, got %q", method, rec.Header().Get("Allow"))
 			}
+			if method == http.MethodHead && rec.Body.Len() != 0 {
+				t.Fatalf("%s expected empty body on 405 Method Not Allowed, got %d bytes: %q", method, rec.Body.Len(), rec.Body.String())
+			}
 		}
 	}
 }
+
+func TestMuxTriggerRoutesHEAD(t *testing.T) {
+	mux := newMux(&tc.Loader{}, tc.NewRegistry())
+
+	// HEAD /v1/isolate and /v1/release on the mux should return 405 with empty body
+	for _, path := range []string{"/v1/isolate", "/v1/release"} {
+		req := httptest.NewRequest(http.MethodHead, path, nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("HEAD %s returned status %d, want 405", path, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST" {
+			t.Fatalf("HEAD %s returned Allow %q, want POST", path, allow)
+		}
+		if rec.Body.Len() != 0 {
+			t.Fatalf("HEAD %s returned body %q, want empty body", path, rec.Body.String())
+		}
+	}
+}
+
 

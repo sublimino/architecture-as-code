@@ -27,16 +27,24 @@ setup() {
   ! grep -rnE "/metadata/(labels|annotations)/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+" "${REPO_ROOT}/d2-osramp-fleet"
 }
 
-@test "Fake integration proxy stun handler specifies fieldManager=flux-client-side-apply" {
+@test "Fleet manager stun cascade and proxy specify fieldManager=flux-client-side-apply" {
+  local fleet_enforce="${REPO_ROOT}/d2-signalloom/apps/fleet-manager/enforcement.go"
+  local fleet_client="${REPO_ROOT}/d2-signalloom/apps/fleet-manager/k8sclient.go"
   local proxy_server="${REPO_ROOT}/d2-signalloom/apps/fake-integration-proxy/server.py"
+  [ -f "$fleet_enforce" ]
+  [ -f "$fleet_client" ]
   [ -f "$proxy_server" ]
+  run grep -F 'PodPatchFieldManager = "flux-client-side-apply"' "$fleet_enforce"
+  [ "$status" -eq 0 ]
+  run grep -F 'FieldManager: PodPatchFieldManager' "$fleet_client"
+  [ "$status" -eq 0 ]
+  run grep -F 'StunnedLabel = "signalloom.io/stunned"' "$fleet_enforce"
+  [ "$status" -eq 0 ]
+  run grep -F 'ContainmentModeLabel = "signalloom.io/containment-mode"' "$fleet_enforce"
+  [ "$status" -eq 0 ]
   run grep -F 'field_manager: str = "flux-client-side-apply"' "$proxy_server"
   [ "$status" -eq 0 ]
   run grep -F 'fieldManager=' "$proxy_server"
-  [ "$status" -eq 0 ]
-  run grep -F 'signalloom.io/stunned' "$proxy_server"
-  [ "$status" -eq 0 ]
-  run grep -F 'signalloom.io/containment-mode' "$proxy_server"
   [ "$status" -eq 0 ]
 }
 
@@ -56,6 +64,7 @@ setup() {
     "${REPO_ROOT}/scripts/supercred-demo.sh"
     "${REPO_ROOT}/scripts/supercred-fleet-demo.sh"
     "${REPO_ROOT}/scripts/swarm-fleet-demo.sh"
+    "${REPO_ROOT}/scripts/test-flux-drift-ignore.sh"
   )
   for s in "${scripts[@]}"; do
     [ -f "$s" ]

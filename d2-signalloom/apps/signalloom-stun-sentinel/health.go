@@ -76,6 +76,7 @@ func (h *HealthServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	livenessHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
@@ -100,11 +101,15 @@ func (h *HealthServer) Handler() http.Handler {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodHead {
+			return
+		}
 		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	readinessHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
@@ -139,6 +144,9 @@ func (h *HealthServer) Handler() http.Handler {
 		} else {
 			w.WriteHeader(http.StatusOK)
 		}
+		if r.Method == http.MethodHead {
+			return
+		}
 		_ = json.NewEncoder(w).Encode(resp)
 	})
 
@@ -155,6 +163,7 @@ func (h *HealthServer) Handler() http.Handler {
 // /captures/<id>/<artifact> for the served artifact set only.
 func (h *HealthServer) serveCaptures(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -169,6 +178,9 @@ func (h *HealthServer) serveCaptures(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="signalloom-warden-captures"`)
 		}
 		w.WriteHeader(status)
+		if r.Method == http.MethodHead {
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": code})
 		return
 	}
@@ -180,6 +192,10 @@ func (h *HealthServer) serveCaptures(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"kind": captureKind, "captures": ids})
 		return
 	}
@@ -194,6 +210,10 @@ func (h *HealthServer) serveCaptures(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Cache-Control", "no-store")
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	_, _ = w.Write(body)
 }
 
@@ -273,6 +293,7 @@ func parseCIDRList(list string) ([]*net.IPNet, error) {
 // serveMetrics writes Prometheus text exposition without a client library.
 func (h *HealthServer) serveMetrics(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -281,6 +302,10 @@ func (h *HealthServer) serveMetrics(w http.ResponseWriter, r *http.Request) {
 		n = h.frozenUnlabelled()
 	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	fmt.Fprintf(w, "# HELP sentinel_frozen_unlabelled_pods Pods whose cgroup.events reports frozen 1 with no stun label and no owner stun record.\n")
 	fmt.Fprintf(w, "# TYPE sentinel_frozen_unlabelled_pods gauge\n")
 	fmt.Fprintf(w, "sentinel_frozen_unlabelled_pods %d\n", n)

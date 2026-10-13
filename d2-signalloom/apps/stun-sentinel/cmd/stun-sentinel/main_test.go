@@ -978,3 +978,52 @@ func TestRequireBearerWhitespaceTrimming(t *testing.T) {
 	}
 }
 
+func TestSnapshotAndStunMethodGates(t *testing.T) {
+	root := t.TempDir()
+	srv, _ := newTestServer(t, root, "test-freeze", "test-resume")
+	routes := srv.routes()
+
+	// 1. Authenticated /stun, /resume, /quarantine/prune reject GET/HEAD with 405 and Allow: POST
+	targets := []struct {
+		path  string
+		token string
+	}{
+		{"/stun", "test-freeze"},
+		{"/resume", "test-resume"},
+		{"/quarantine/prune", "test-freeze"},
+	}
+	for _, tgt := range targets {
+		for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete} {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(method, tgt.path, nil)
+			req.Header.Set("Authorization", "Bearer "+tgt.token)
+			routes.ServeHTTP(rec, req)
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s = %d, want 405", method, tgt.path, rec.Code)
+			}
+			if rec.Header().Get("Allow") != "POST" {
+				t.Errorf("%s %s Allow = %q, want 'POST'", method, tgt.path, rec.Header().Get("Allow"))
+			}
+		}
+	}
+
+	// 2. /quarantine/snapshots supports HEAD and rejects POST with 405 Allow: GET, HEAD
+	rec := httptest.NewRecorder()
+	routes.ServeHTTP(rec, httptest.NewRequest(http.MethodHead, "/quarantine/snapshots", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("HEAD /quarantine/snapshots status = %d, want 200", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("HEAD /quarantine/snapshots body len = %d, want 0", rec.Body.Len())
+	}
+
+	recPost := httptest.NewRecorder()
+	routes.ServeHTTP(recPost, httptest.NewRequest(http.MethodPost, "/quarantine/snapshots", nil))
+	if recPost.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST /quarantine/snapshots status = %d, want 405", recPost.Code)
+	}
+	if recPost.Header().Get("Allow") != "GET, HEAD" {
+		t.Errorf("POST /quarantine/snapshots Allow = %q, want 'GET, HEAD'", recPost.Header().Get("Allow"))
+	}
+}
+

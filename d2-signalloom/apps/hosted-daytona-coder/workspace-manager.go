@@ -187,6 +187,10 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 	}
 	mux.HandleFunc("GET /health", healthHandler)
@@ -255,6 +259,10 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		json.NewEncoder(w).Encode(ws)
 	})
 
@@ -286,6 +294,10 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		json.NewEncoder(w).Encode(mgr.List(tenant))
 	})
 

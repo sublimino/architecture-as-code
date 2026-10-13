@@ -126,6 +126,7 @@ func (s *Server) startJanitor(ctx context.Context, interval time.Duration) {
 
 func (s *Server) handleGateRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
@@ -241,6 +242,7 @@ func (s *Server) handleGetGate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGateApprove(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
@@ -299,6 +301,7 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	if r.Method == http.MethodHead {
 		w.WriteHeader(http.StatusOK)
 		return
@@ -312,6 +315,7 @@ func handleReadyz(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	if r.Method == http.MethodHead {
 		w.WriteHeader(http.StatusOK)
 		return

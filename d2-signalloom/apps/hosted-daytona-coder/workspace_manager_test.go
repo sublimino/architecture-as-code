@@ -31,6 +31,16 @@ func TestHealth(t *testing.T) {
 		if body["status"] != "healthy" {
 			t.Fatalf("path %s expected healthy, got %s", path, body["status"])
 		}
+
+		headReq := httptest.NewRequest("HEAD", path, nil)
+		headRec := httptest.NewRecorder()
+		srv.ServeHTTP(headRec, headReq)
+		if headRec.Code != http.StatusOK {
+			t.Fatalf("HEAD path %s expected status 200, got %d", path, headRec.Code)
+		}
+		if headRec.Body.Len() != 0 {
+			t.Fatalf("HEAD path %s expected empty body, got %d bytes", path, headRec.Body.Len())
+		}
 	}
 }
 
@@ -82,6 +92,30 @@ func TestWorkspaceCreationAndRetrieval(t *testing.T) {
 	}
 	if fetched.WorkspaceID != created.WorkspaceID {
 		t.Fatalf("expected workspace ID %s, got %s", created.WorkspaceID, fetched.WorkspaceID)
+	}
+
+	// Test HEAD on workspace ID
+	headReq := httptest.NewRequest("HEAD", "/workspaces/"+created.WorkspaceID, nil)
+	headReq.Header.Set("X-Tenant-ID", "tenant-1")
+	headRec := httptest.NewRecorder()
+	srv.ServeHTTP(headRec, headReq)
+	if headRec.Code != http.StatusOK {
+		t.Fatalf("HEAD /workspaces/{id} expected 200, got %d", headRec.Code)
+	}
+	if headRec.Body.Len() != 0 {
+		t.Fatalf("HEAD /workspaces/{id} expected empty body, got %d bytes", headRec.Body.Len())
+	}
+
+	// Test HEAD on /workspaces list
+	headListReq := httptest.NewRequest("HEAD", "/workspaces", nil)
+	headListReq.Header.Set("X-Tenant-ID", "tenant-1")
+	headListRec := httptest.NewRecorder()
+	srv.ServeHTTP(headListRec, headListReq)
+	if headListRec.Code != http.StatusOK {
+		t.Fatalf("HEAD /workspaces expected 200, got %d", headListRec.Code)
+	}
+	if headListRec.Body.Len() != 0 {
+		t.Fatalf("HEAD /workspaces expected empty body, got %d bytes", headListRec.Body.Len())
 	}
 }
 

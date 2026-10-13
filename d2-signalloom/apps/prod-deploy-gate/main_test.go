@@ -140,6 +140,9 @@ func TestServer_HealthEndpoints(t *testing.T) {
 		if w.Body.Len() != 0 {
 			t.Errorf("HEAD probe %s: want empty body, got %d bytes", path, w.Body.Len())
 		}
+		if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("HEAD probe %s: want Content-Type application/json, got %q", path, ct)
+		}
 
 		// POST rejected
 		req = httptest.NewRequest(http.MethodPost, path, nil)
@@ -147,6 +150,27 @@ func TestServer_HealthEndpoints(t *testing.T) {
 		mux.ServeHTTP(w, req)
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Errorf("POST probe %s: want 405, got %d", path, w.Code)
+		}
+	}
+}
+
+func TestServer_MethodGates(t *testing.T) {
+	secret := []byte("secret-key-32-bytes-long-here!!")
+	srv := NewServer(secret, "", 10*time.Minute)
+	mux := http.NewServeMux()
+	srv.registerRoutes(mux)
+
+	for _, path := range []string{"/gate/request", "/gate/approve"} {
+		for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete} {
+			req := httptest.NewRequest(method, path, nil)
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, req)
+			if w.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s: want 405, got %d", method, path, w.Code)
+			}
+			if w.Header().Get("Allow") != "POST" {
+				t.Errorf("%s %s: want Allow: POST, got %q", method, path, w.Header().Get("Allow"))
+			}
 		}
 	}
 }

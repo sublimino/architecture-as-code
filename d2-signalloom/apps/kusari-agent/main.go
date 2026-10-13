@@ -456,6 +456,11 @@ func getOnly(h http.HandlerFunc) http.HandlerFunc {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET only"})
 			return
 		}
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		h(w, r)
 	}
 }

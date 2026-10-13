@@ -76,12 +76,43 @@ func TestHealthHandlerRejectsNonGetMethods(t *testing.T) {
 	}
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/healthz", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
+	for _, endpoint := range []string{"/healthz", "/health", "/readyz", "/metrics", "/captures"} {
+		req := httptest.NewRequest(http.MethodPost, endpoint, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Errorf("POST /healthz status = %d, want 405", rec.Code)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("POST %s status = %d, want 405", endpoint, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
+			t.Errorf("POST %s Allow = %q, want 'GET, HEAD'", endpoint, allow)
+		}
+	}
+}
+
+func TestHealthHandlerHEADRequests(t *testing.T) {
+	srv := &HealthServer{
+		addr:         ":8081",
+		dryRun:       false,
+		cgroupDriver: "systemd",
+		tcReady:      func() bool { return true },
+	}
+	handler := srv.Handler()
+
+	for _, endpoint := range []string{"/healthz", "/health", "/readyz", "/metrics"} {
+		req := httptest.NewRequest(http.MethodHead, endpoint, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("HEAD %s status = %d, want 200", endpoint, rec.Code)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("HEAD %s wrote body: %s", endpoint, rec.Body.String())
+		}
+		if ct := rec.Header().Get("Content-Type"); ct == "" {
+			t.Errorf("HEAD %s missing Content-Type header", endpoint)
+		}
 	}
 }
 

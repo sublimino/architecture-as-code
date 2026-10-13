@@ -284,6 +284,7 @@ func statusFor(err error) int {
 
 func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
 		return
 	}
@@ -337,6 +338,7 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
 		return
 	}
@@ -458,11 +460,17 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET required"})
 		return
 	}
 	if s.capturer == nil {
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		writeJSON(w, http.StatusOK, []*quarantine.QuarantineManifest{})
 		return
 	}
@@ -471,11 +479,17 @@ func (s *server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	writeJSON(w, http.StatusOK, snapshots)
 }
 
 func (s *server) handleGetSnapshot(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET required"})
 		return
 	}
@@ -497,11 +511,17 @@ func (s *server) handleGetSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	writeJSON(w, http.StatusOK, snapshot)
 }
 
 func (s *server) handlePruneSnapshots(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
 		return
 	}
@@ -556,6 +576,7 @@ func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"operator_keys_enrolled": keyCount,
 	})
 }
+
 
 // requireBearer makes a handler unreachable without a valid governance credential.
 func requireBearer(validate cgroup.CredentialValidator, next http.HandlerFunc) http.HandlerFunc {

@@ -30,12 +30,21 @@ func TestReadOnlyRoutesRejectWritesWithAllowHeader(t *testing.T) {
 
 func TestReadOnlyRoutesAcceptHEAD(t *testing.T) {
 	a, _ := testAgent(t, "http://127.0.0.1:1", 5)
-	for _, path := range []string{"/health", "/healthz", "/readyz"} {
+	for _, path := range []string{"/quote", "/", "/stats", "/health", "/healthz", "/readyz"} {
 		rec := httptest.NewRecorder()
 		a.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodHead, path, nil))
 		if rec.Code != http.StatusOK {
 			t.Errorf("HEAD %s = %d, want 200", path, rec.Code)
 		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("HEAD %s wrote body: %q", path, rec.Body.String())
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("HEAD %s Content-Type = %q, want application/json", path, ct)
+		}
+	}
+	if a.requests.Load() != 0 {
+		t.Fatal("HEAD requests counted towards requests count or hostile cadence")
 	}
 }
 

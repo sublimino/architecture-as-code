@@ -130,6 +130,7 @@ func (h *Handlers) handleAuditWebhook(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) handleNonoAudit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}

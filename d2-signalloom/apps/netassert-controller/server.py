@@ -30,7 +30,7 @@ import ssl
 import sys
 import time
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as _ThreadingHTTPServer
 from urllib import error, request
 from urllib.parse import quote, urlparse
 
@@ -38,6 +38,13 @@ NETASSERT_JOB_NAME = "netassert-run"
 NETASSERT_JOB_NAMESPACE = "fe-signalloom"
 NETASSERT_RUNNER_SERVICE_ACCOUNT = "netassert-runner"
 NETASSERT_RUNNER_IMAGE = os.environ.get("NETASSERT_RUNNER_IMAGE", "netassert-runner:local")
+
+
+class ThreadingHTTPServer(_ThreadingHTTPServer):
+    """Threaded HTTP server configured with socket address reuse."""
+
+    allow_reuse_address = True
+
 NETASSERT_ACTIVE_DEADLINE_SECONDS = 300
 NETASSERT_CONFIGMAP_NAME = "netassert-signalloom-config"
 NETASSERT_TAP_MARKER = "----NETASSERT-TAP-RESULTS----"
@@ -215,14 +222,18 @@ class ControllerHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         return
 
-    def _json(self, status: int, payload: object) -> None:
+    def _json(self, status: int, payload: object, headers: dict[str, str] | None = None) -> None:
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(encoded)))
+        if headers:
+            for k, v in headers.items():
+                self.send_header(k, v)
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(encoded)
+
 
     def _drain_body(self) -> None:
         try:
@@ -306,10 +317,26 @@ class ControllerHandler(BaseHTTPRequestHandler):
 
     def _dispatch(self) -> None:
         path = urlparse(self.path).path
-        if path in ("/health", "/healthz", "/readyz") and self.command in ("GET", "HEAD"):
-            self._json(HTTPStatus.OK, {"status": "ok"})
-        elif path == "/scan" and self.command == "POST":
-            self._handle_scan()
+        if path in ("/health", "/healthz", "/readyz"):
+            if self.command in ("GET", "HEAD"):
+                self._json(HTTPStatus.OK, {"status": "ok"})
+            else:
+                self._drain_body()
+                self._json(
+                    HTTPStatus.METHOD_NOT_ALLOWED,
+                    {"error": "method not allowed"},
+                    {"Allow": "GET, HEAD"},
+                )
+        elif path == "/scan":
+            if self.command == "POST":
+                self._handle_scan()
+            else:
+                self._drain_body()
+                self._json(
+                    HTTPStatus.METHOD_NOT_ALLOWED,
+                    {"error": "method not allowed"},
+                    {"Allow": "POST"},
+                )
         else:
             self._drain_body()
             self._json(HTTPStatus.NOT_FOUND, {"error": "unknown route"})
@@ -317,6 +344,11 @@ class ControllerHandler(BaseHTTPRequestHandler):
     do_GET = _dispatch
     do_POST = _dispatch
     do_HEAD = _dispatch
+    do_PUT = _dispatch
+    do_DELETE = _dispatch
+    do_OPTIONS = _dispatch
+    do_PATCH = _dispatch
+
 
 
 def main() -> None:

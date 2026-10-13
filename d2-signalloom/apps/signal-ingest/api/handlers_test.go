@@ -508,3 +508,60 @@ func TestSeed_RespectsAuthenticatedTenantAudit(t *testing.T) {
 	}
 }
 
+func TestMethodGatesAllowHeaders(t *testing.T) {
+	h, _ := newTestHandlers(t)
+
+	// handleNonoAudit: POST only
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/v1/audit/nono", nil)
+		rec := httptest.NewRecorder()
+		h.handleNonoAudit(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleNonoAudit got status %d, want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("%s handleNonoAudit got Allow %q, want POST", method, allow)
+		}
+	}
+
+	// handleCreateDelegation: POST only
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/v1/delegations", nil)
+		rec := httptest.NewRecorder()
+		h.handleCreateDelegation(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleCreateDelegation got status %d, want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("%s handleCreateDelegation got Allow %q, want POST", method, allow)
+		}
+	}
+
+	// handleClampDelegation: POST, DELETE
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodPatch} {
+		req := httptest.NewRequest(method, "/api/v1/delegations/clamp", nil)
+		rec := httptest.NewRecorder()
+		h.handleClampDelegation(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleClampDelegation got status %d, want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST, DELETE" {
+			t.Errorf("%s handleClampDelegation got Allow %q, want POST, DELETE", method, allow)
+		}
+	}
+
+	// handleRevokeDelegations: POST only
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/v1/delegations/revoke", nil)
+		rec := httptest.NewRecorder()
+		h.handleRevokeDelegations(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleRevokeDelegations got status %d, want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("%s handleRevokeDelegations got Allow %q, want POST", method, allow)
+		}
+	}
+}
+
+

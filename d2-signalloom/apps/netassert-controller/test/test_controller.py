@@ -88,6 +88,23 @@ class HealthTest(ControllerServerTestCase):
             self.assertEqual("application/json", response.getheader("Content-Type"))
             connection.close()
 
+    def test_health_method_not_allowed_returns_405_and_allow_header(self):
+        for path in ("/health", "/healthz", "/readyz"):
+            for method in ("POST", "PUT", "DELETE", "PATCH"):
+                connection = http.client.HTTPConnection("127.0.0.1", self.port)
+                connection.request(method, path)
+                response = connection.getresponse()
+                self.assertEqual(405, response.status)
+                self.assertEqual("GET, HEAD", response.getheader("Allow"))
+                self.assertEqual("application/json", response.getheader("Content-Type"))
+                body = json.loads(response.read())
+                self.assertEqual({"error": "method not allowed"}, body)
+                connection.close()
+
+    def test_threading_http_server_sets_allow_reuse_address(self):
+        self.assertTrue(ThreadingHTTPServer.allow_reuse_address)
+
+
 
 class ScanTest(ControllerServerTestCase):
     """/scan owns the exact create/delete/conflict logic that used to live in
@@ -224,6 +241,31 @@ class ScanTest(ControllerServerTestCase):
         self.assertRegex(server.NETASSERT_SCANNER_IMAGE, r"@sha256:[0-9a-f]{64}$")
         self.assertRegex(server.NETASSERT_SNIFFER_IMAGE, r"@sha256:[0-9a-f]{64}$")
 
+    def test_scan_method_not_allowed_returns_405_and_allow_header(self):
+
+
+        for method in ("GET", "PUT", "DELETE", "PATCH"):
+            connection = http.client.HTTPConnection("127.0.0.1", self.port)
+            connection.request(method, "/scan")
+            response = connection.getresponse()
+            self.assertEqual(405, response.status)
+            self.assertEqual("POST", response.getheader("Allow"))
+            self.assertEqual("application/json", response.getheader("Content-Type"))
+            body = json.loads(response.read())
+            self.assertEqual({"error": "method not allowed"}, body)
+            connection.close()
+
+    def test_scan_head_returns_405_and_allow_header_and_empty_body(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port)
+        connection.request("HEAD", "/scan")
+        response = connection.getresponse()
+        self.assertEqual(405, response.status)
+        self.assertEqual("POST", response.getheader("Allow"))
+        self.assertEqual("application/json", response.getheader("Content-Type"))
+        self.assertEqual(b"", response.read())
+        connection.close()
+
 
 if __name__ == "__main__":
+
     unittest.main()

@@ -34,6 +34,7 @@ type ClampDelegationRequest struct {
 // handleCreateDelegation handles POST /api/v1/delegations.
 func (h *Handlers) handleCreateDelegation(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -162,6 +163,7 @@ func (h *Handlers) handleCreateDelegation(w http.ResponseWriter, r *http.Request
 // handleClampDelegation handles POST /api/v1/delegations/clamp.
 func (h *Handlers) handleClampDelegation(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
+		w.Header().Set("Allow", "POST, DELETE")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}

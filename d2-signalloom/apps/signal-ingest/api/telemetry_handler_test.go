@@ -432,3 +432,60 @@ func TestCodingAgentTelemetry_ClockSkewAndUncertaintyOrdering(t *testing.T) {
 			res3.Verdict, res3.Confidence, res3.Explanation)
 	}
 }
+
+func TestCodingAgentTelemetryMethodGates(t *testing.T) {
+	h, _ := newTestHandlers(t)
+
+	// handleCodingAgentTelemetry: POST only
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/v1/telemetry/coding-agents", nil)
+		rec := httptest.NewRecorder()
+		h.handleCodingAgentTelemetry(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleCodingAgentTelemetry got status %d, want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("%s handleCodingAgentTelemetry got Allow %q, want POST", method, allow)
+		}
+	}
+
+	// handleCodingAgentOrdering: POST only
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/v1/telemetry/coding-agents/ordering", nil)
+		rec := httptest.NewRecorder()
+		h.handleCodingAgentOrdering(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleCodingAgentOrdering got status %d, want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("%s handleCodingAgentOrdering got Allow %q, want POST", method, allow)
+		}
+	}
+
+	// handleQueryCodingAgentTelemetry: GET only
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/v1/telemetry/coding-agents/query", nil)
+		rec := httptest.NewRecorder()
+		h.handleQueryCodingAgentTelemetry(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleQueryCodingAgentTelemetry got status %d, want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "GET" {
+			t.Errorf("%s handleQueryCodingAgentTelemetry got Allow %q, want GET", method, allow)
+		}
+	}
+
+	// handleAggregateCodingAgentTelemetry: GET, POST
+	for _, method := range []string{http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req := httptest.NewRequest(method, "/api/v1/telemetry/coding-agents/aggregate", nil)
+		rec := httptest.NewRecorder()
+		h.handleAggregateCodingAgentTelemetry(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleAggregateCodingAgentTelemetry got status %d, want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "GET, POST" {
+			t.Errorf("%s handleAggregateCodingAgentTelemetry got Allow %q, want GET, POST", method, allow)
+		}
+	}
+}
+

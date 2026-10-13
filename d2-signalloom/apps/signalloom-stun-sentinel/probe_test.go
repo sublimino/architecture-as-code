@@ -122,6 +122,44 @@ func TestSyntheticProbeHandlerReturns200(t *testing.T) {
 	}
 }
 
+func TestSyntheticProbeHandlerHEADSuppressesBody(t *testing.T) {
+	handler := syntheticProbeHandler("agent-cardvault", "fe-signalloom-agents")
+	req := httptest.NewRequest(http.MethodHead, "/healthz", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", rec.Code)
+	}
+	if rec.Header().Get("X-SignalLoom-Preserved") != "true" {
+		t.Errorf("X-SignalLoom-Preserved header missing")
+	}
+	if rec.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("Content-Type = %q; want application/json", rec.Header().Get("Content-Type"))
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("expected empty body for HEAD request, got %q", rec.Body.String())
+	}
+}
+
+func TestSyntheticProbeHandlerMethodNotAllowed(t *testing.T) {
+	handler := syntheticProbeHandler("agent-cardvault", "fe-signalloom-agents")
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req := httptest.NewRequest(method, "/healthz", nil)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("method %s status = %d; want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
+			t.Errorf("method %s Allow = %q; want GET, HEAD", method, allow)
+		}
+	}
+}
+
 func TestProbePreserverLifecycleAndIdempotency(t *testing.T) {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "agent-test", Namespace: "fe-signalloom-agents", UID: "uid-abc"},

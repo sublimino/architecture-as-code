@@ -35,6 +35,7 @@ type ErasureResponse struct {
 // handleEraseSubject serves POST /api/v1/privacy/erasure/{id}.
 func (h *Handlers) handleEraseSubject(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}

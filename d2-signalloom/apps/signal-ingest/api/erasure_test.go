@@ -468,3 +468,19 @@ func TestErasureRouteUnheldSubjectSucceeds(t *testing.T) {
 		t.Error("the permitted erasure was not recorded in the audit trail")
 	}
 }
+
+func TestErasureRouteMethodNotAllowed(t *testing.T) {
+	h, _ := newTestHandlers(t)
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/v1/privacy/erasure/actor-1", nil)
+		rec := httptest.NewRecorder()
+		h.handleEraseSubject(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleEraseSubject got status %d, want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("%s handleEraseSubject got Allow %q, want POST", method, allow)
+		}
+	}
+}
+

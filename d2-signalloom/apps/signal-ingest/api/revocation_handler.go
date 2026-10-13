@@ -24,6 +24,7 @@ type RevokeDelegationRequest struct {
 // handleRevokeDelegations handles POST /api/v1/delegations/revoke.
 func (h *Handlers) handleRevokeDelegations(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}

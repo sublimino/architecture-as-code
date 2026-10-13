@@ -41,6 +41,7 @@ func (h *Handlers) getCodingAgentStore() codingagent.TelemetryStore {
 // 4. Server-side clock skew calculation alongside untouched original timestamp.
 func (h *Handlers) handleCodingAgentTelemetry(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -102,6 +103,7 @@ func (h *Handlers) handleCodingAgentTelemetry(w http.ResponseWriter, r *http.Req
 // handleQueryCodingAgentTelemetry retrieves stored telemetry records for the authenticated tenant.
 func (h *Handlers) handleQueryCodingAgentTelemetry(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -129,6 +131,7 @@ func (h *Handlers) handleQueryCodingAgentTelemetry(w http.ResponseWriter, r *htt
 // strictly enforcing the k-anonymity minimum group size (k=5) to prevent re-identification.
 func (h *Handlers) handleAggregateCodingAgentTelemetry(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		w.Header().Set("Allow", "GET, POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -160,6 +163,7 @@ func (h *Handlers) handleAggregateCodingAgentTelemetry(w http.ResponseWriter, r 
 // handleCodingAgentOrdering evaluates causal ordering between two records with clock-skew uncertainty bounds.
 func (h *Handlers) handleCodingAgentOrdering(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}

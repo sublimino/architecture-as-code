@@ -541,6 +541,20 @@ func TestAuditWebhookReceiver_MalformedPayload(t *testing.T) {
 	if wGet.Result().StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 Method Not Allowed, got %d", wGet.Result().StatusCode)
 	}
+	if allow := wGet.Header().Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow: POST, got %q", allow)
+	}
+
+	// Test GKE GET method rejected
+	reqGetGKE := httptest.NewRequest(http.MethodGet, "/audit/gke", nil)
+	wGetGKE := httptest.NewRecorder()
+	receiver.HandleGKECloudLogging(wGetGKE, reqGetGKE)
+	if wGetGKE.Result().StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 Method Not Allowed, got %d", wGetGKE.Result().StatusCode)
+	}
+	if allow := wGetGKE.Header().Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow: POST, got %q", allow)
+	}
 
 	// Test invalid JSON
 	reqBad := httptest.NewRequest(http.MethodPost, WebhookPath, bytes.NewReader([]byte("{invalid-json")))

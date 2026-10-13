@@ -47,7 +47,7 @@ describe('Universal AI CLI & Harness Dashboard Suite', () => {
     await fs.writeFile(
       testSessionFile,
       [
-        JSON.stringify({ session_name: 'CPAI Hardening Verification', timestamp: new Date().toISOString(), summary: 'Testing CpaiAdapter parseSession' }),
+        JSON.stringify({ session_name: 'CPAI Hardening Verification', timestamp: new Date().toISOString(), summary: 'Testing CpaiAdapter parseSession', current_goal: 'Harden CPAI session parser' }),
         JSON.stringify({ role: 'user', content: 'verify session parsing' }),
         JSON.stringify({ role: 'assistant', content: 'session parsed successfully' })
       ].join('\n'),
@@ -61,6 +61,7 @@ describe('Universal AI CLI & Harness Dashboard Suite', () => {
     expect(session?.deviceId).toBe('dev-box');
     expect(session?.hostname).toBe('dev-host');
     expect(session?.title).toBe('CPAI Hardening Verification');
+    expect(session?.currentGoal).toBe('Harden CPAI session parser');
     expect(session?.summary).toBe('Testing CpaiAdapter parseSession');
     expect(session?.cwd).toBe(process.env.HOME || '/');
     expect(session?.url).toBe('cpai://session/session-cpai-demo');

@@ -1500,15 +1500,23 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 while total <= 1048576:
                     line = self.rfile.readline(128)
                     if not line:
+                        self.close_connection = True
                         break
                     chunk_len_str = line.split(b";")[0].strip()
-                    if not chunk_len_str:
+                    if not chunk_len_str or not re.fullmatch(rb"[0-9a-fA-F]+", chunk_len_str):
+                        self.close_connection = True
                         break
                     chunk_len = int(chunk_len_str, 16)
+                    if chunk_len < 0:
+                        self.close_connection = True
+                        break
                     if chunk_len == 0:
                         while True:
                             trailer = self.rfile.readline(1024)
-                            if not trailer or trailer in (b"\r\n", b"\n", b""):
+                            if not trailer:
+                                self.close_connection = True
+                                break
+                            if trailer in (b"\r\n", b"\n"):
                                 break
                         break
                     total += chunk_len
@@ -1522,7 +1530,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
                             self.close_connection = True
                             return
                         rem -= len(b)
-                    self.rfile.readline(4)
+                    crlf = self.rfile.readline(4)
+                    if crlf not in (b"\r\n", b"\n"):
+                        self.close_connection = True
+                        break
             except Exception:
                 self.close_connection = True
             return
@@ -1532,7 +1543,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
             length = int(raw_len.strip()) if raw_len else 0
         except (ValueError, TypeError, AttributeError):
             length = 0
-        if 0 < length <= 1048576:
+            self.close_connection = True
+        if length < 0 or length > 1048576:
+            self.close_connection = True
+        elif 0 < length <= 1048576:
             try:
                 rem = length
                 while rem > 0:
@@ -1542,9 +1556,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         break
                     rem -= len(b)
             except (OSError, ValueError):
-                pass
-        elif length > 1048576:
-            self.close_connection = True
+                self.close_connection = True
 
     def _json(self, status: int, payload: object, extra_headers: dict | None = None) -> None:
         self.send_response(status)
@@ -1612,15 +1624,23 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 while len(chunks) <= 1048576:
                     line = self.rfile.readline(128)
                     if not line:
+                        self.close_connection = True
                         break
                     chunk_len_str = line.split(b";")[0].strip()
-                    if not chunk_len_str:
+                    if not chunk_len_str or not re.fullmatch(rb"[0-9a-fA-F]+", chunk_len_str):
+                        self.close_connection = True
                         break
                     chunk_len = int(chunk_len_str, 16)
+                    if chunk_len < 0:
+                        self.close_connection = True
+                        break
                     if chunk_len == 0:
                         while True:
                             trailer = self.rfile.readline(1024)
-                            if not trailer or trailer in (b"\r\n", b"\n", b""):
+                            if not trailer:
+                                self.close_connection = True
+                                break
+                            if trailer in (b"\r\n", b"\n"):
                                 break
                         break
                     if len(chunks) + chunk_len > 1048576:
@@ -1631,7 +1651,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
                             if not b:
                                 return None
                             rem -= len(b)
-                        self.rfile.readline(4)
+                        crlf = self.rfile.readline(4)
+                        if crlf not in (b"\r\n", b"\n"):
+                            self.close_connection = True
                         break
                     rem = chunk_len
                     while rem > 0:
@@ -1641,7 +1663,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
                             return None
                         chunks.extend(b)
                         rem -= len(b)
-                    self.rfile.readline(4)
+                    crlf = self.rfile.readline(4)
+                    if crlf not in (b"\r\n", b"\n"):
+                        self.close_connection = True
+                        break
                 if not chunks:
                     return None
                 try:
@@ -1657,10 +1682,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
             length = int(raw_len.strip()) if raw_len else 0
         except (ValueError, TypeError, AttributeError):
             length = 0
-        if length <= 0:
-            return None
-        if length > 1048576:
             self.close_connection = True
+            return None
+        if length < 0 or length > 1048576:
+            self.close_connection = True
+            return None
+        if length == 0:
             return None
         try:
             chunks = bytearray()
@@ -1674,6 +1701,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 rem -= len(b)
             raw = bytes(chunks)
         except (OSError, ValueError):
+            self.close_connection = True
             return None
         if not raw:
             return None

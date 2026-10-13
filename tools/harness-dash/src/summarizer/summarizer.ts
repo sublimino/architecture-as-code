@@ -349,7 +349,7 @@ export class SessionSummarizer {
       throw new Error('CEREBRAS_API_KEY not found in environment or ~/.hermes/.env');
     }
 
-    const candidateModels = ['gemma-4-31b', 'llama3.1-8b'];
+    const candidateModels = ['gpt-oss-120b', 'qwen-3.8-27b', 'llama3.1-8b', 'gemma-4-31b'];
     let lastError: Error | null = null;
 
     for (const model of candidateModels) {
@@ -373,7 +373,7 @@ export class SessionSummarizer {
                 content: prompt
               }
             ],
-            max_tokens: 150,
+            max_tokens: 350,
             temperature: 0.2
           })
         });
@@ -384,7 +384,11 @@ export class SessionSummarizer {
         }
 
         const data: any = await res.json();
-        const content = data.choices?.[0]?.message?.content?.trim();
+        const choice = data.choices?.[0];
+        let content = choice?.message?.content?.trim();
+        if (!content && choice?.message?.reasoning) {
+          content = choice.message.reasoning.trim();
+        }
         if (!content) {
           throw new Error(`Empty response from Cerebras ${model}`);
         }

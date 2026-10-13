@@ -1277,6 +1277,27 @@ class ScanTestCase(ProxyServerTestCase):
         self.assertEqual("close", resp.getheader("Connection"))
         connection.close()
 
+        # 3. Negative chunk size marks connection close
+        connection = http.client.HTTPConnection("127.0.0.1", self.port)
+        connection.request("POST", "/network-tests/scan", body="-1\r\n0000000000\r\n0\r\n\r\n", headers={"Transfer-Encoding": "chunked"})
+        resp = connection.getresponse()
+        self.assertEqual("close", resp.getheader("Connection"))
+        connection.close()
+
+        # 4. Corrupted chunk delimiter marks connection close
+        connection = http.client.HTTPConnection("127.0.0.1", self.port)
+        connection.request("POST", "/network-tests/scan", body="3\r\nfooX0\r\n\r\n", headers={"Transfer-Encoding": "chunked"})
+        resp = connection.getresponse()
+        self.assertEqual("close", resp.getheader("Connection"))
+        connection.close()
+
+        # 5. Negative Content-Length marks connection close
+        connection = http.client.HTTPConnection("127.0.0.1", self.port)
+        connection.request("POST", "/llm/assistants", headers={"Content-Length": "-1"})
+        resp = connection.getresponse()
+        self.assertEqual("close", resp.getheader("Connection"))
+        connection.close()
+
 
 if __name__ == "__main__":
     unittest.main()

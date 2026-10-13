@@ -23,9 +23,10 @@ They also lacked candidate model fallbacks when primary models retired.
 
 ### 1. Agent Trust Stream Desynchronization Defenses
 We update `d2-agent-trust/a2a/service.py`.
-We implement chunked transfer decoding draining with hex length validation up to 1 MiB.
+We implement chunked transfer decoding draining with strict hex validation up to 1 MiB.
+We reject signed or negative chunk sizes and enforce CRLF delimiters after chunk data.
 We replace single-chunk draining with looped reading up to the specified content length.
-We set connection closure flags on oversized payloads and socket EOF.
+We set connection closure flags on oversized payloads, negative lengths, and socket EOF.
 We emit `Connection: close` headers whenever connection closure flags trigger.
 We ensure status lines precede response headers across all replies.
 We bound authorization context and token strings to 16384 bytes.
@@ -36,7 +37,8 @@ We preserve root cause exception chains across JSON parsing errors using `from e
 
 ### 3. Fake Integration Proxy Stream and Header Parity
 We update `d2-signalloom/apps/fake-integration-proxy/server.py`.
-We add chunked transfer encoding draining and oversized payload connection closing.
+We add chunked transfer encoding draining and body parsing with strict hex validation.
+We enforce CRLF delimiters after chunk data and close connections on malformed chunks.
 We emit route-specific Allow headers on 501 Not Implemented responses.
 We emit 404 Not Found without Allow headers on unmapped route paths.
 We ensure JSON responses emit `Connection: close` when closing connections.
@@ -44,11 +46,12 @@ We wire TRACE and CONNECT verbs to safe 501 handlers with request body draining.
 
 ### 4. CPAI Adapter and Inference Hardening
 We update `tools/harness-dash/src/adapters/cpai.ts`.
-We extract working directory paths from parsed transcript fields.
+We extract working directory paths and current goals from parsed transcript fields.
 We parse subordinate activities and session tags dynamically.
 We update `tools/harness-dash/src/summarizer/summarizer.ts`.
 We add an 8-second timeout bound to Cerebras inference requests.
-We implement candidate model fallback to `llama3.1-8b` before Gemini Flash fallback.
+We align candidate models with `gpt-oss-120b` and `qwen-3.8-27b`.
+We expand token allowances for reasoning models and support reasoning fallback.
 
 ## Verification Plan
 We run `python3 -m unittest discover -s d2-agent-trust/test`.

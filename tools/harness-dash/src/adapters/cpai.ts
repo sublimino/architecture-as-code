@@ -45,6 +45,7 @@ export class CpaiAdapter extends BaseHarnessAdapter {
       const lastLines = await this.tailSession(filePath, 100);
       
       let title = `CPAI Workflow ${sessionId.slice(0, 8)}`;
+      let currentGoal = '';
       const titleHistory: string[] = [];
       const subordinateActivities: SubordinateActivity[] = [];
       let summary = 'CPAI conversation and agent workflow';
@@ -66,6 +67,11 @@ export class CpaiAdapter extends BaseHarnessAdapter {
             titleHistory.push(title);
           }
           if (parsed.summary) summary = parsed.summary;
+          if (typeof parsed.current_goal === 'string' && parsed.current_goal.trim()) {
+            currentGoal = parsed.current_goal.trim();
+          } else if (typeof parsed.goal === 'string' && parsed.goal.trim()) {
+            currentGoal = parsed.goal.trim();
+          }
           if (typeof parsed.cwd === 'string' && parsed.cwd.trim()) {
             cwd = parsed.cwd.trim();
           } else if (typeof parsed.working_directory === 'string' && parsed.working_directory.trim()) {
@@ -123,7 +129,7 @@ export class CpaiAdapter extends BaseHarnessAdapter {
         hostname,
         title,
         titleHistory,
-        currentGoal: title,
+        currentGoal: currentGoal || (titleHistory[titleHistory.length - 1] || title),
         status,
         createdAt: stat.birthtime.toISOString(),
         updatedAt: stat.mtime.toISOString(),

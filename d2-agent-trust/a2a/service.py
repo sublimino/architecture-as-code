@@ -135,15 +135,23 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                     while total <= 1048576:
                         line = self.rfile.readline(128)
                         if not line:
+                            self.close_connection = True
                             break
                         chunk_len_str = line.split(b";")[0].strip()
-                        if not chunk_len_str:
+                        if not chunk_len_str or not re.fullmatch(rb"[0-9a-fA-F]+", chunk_len_str):
+                            self.close_connection = True
                             break
                         chunk_len = int(chunk_len_str, 16)
+                        if chunk_len < 0:
+                            self.close_connection = True
+                            break
                         if chunk_len == 0:
                             while True:
                                 trailer = self.rfile.readline(1024)
-                                if not trailer or trailer in (b"\r\n", b"\n", b""):
+                                if not trailer:
+                                    self.close_connection = True
+                                    break
+                                if trailer in (b"\r\n", b"\n"):
                                     break
                             break
                         total += chunk_len
@@ -157,7 +165,10 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                                 self.close_connection = True
                                 return
                             rem -= len(b)
-                        self.rfile.readline(4)
+                        crlf = self.rfile.readline(4)
+                        if crlf not in (b"\r\n", b"\n"):
+                            self.close_connection = True
+                            break
                 except Exception:
                     self.close_connection = True
                 return
@@ -166,8 +177,11 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
             try:
                 length = int(raw_len.strip() if isinstance(raw_len, str) else (raw_len or 0))
             except (ValueError, TypeError):
+                self.close_connection = True
                 return
-            if 0 < length <= 1048576:
+            if length < 0 or length > 1048576:
+                self.close_connection = True
+            elif 0 < length <= 1048576:
                 try:
                     rem = length
                     while rem > 0:
@@ -177,9 +191,7 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                             break
                         rem -= len(b)
                 except (OSError, ValueError):
-                    pass
-            elif length > 1048576:
-                self.close_connection = True
+                    self.close_connection = True
 
         def _send_json(self, status: int, payload: dict, allow: str | None = None):
             self.send_response(status)
@@ -280,11 +292,12 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
             try:
                 length = int(raw_len.strip())
             except ValueError:
+                self.close_connection = True
                 self._drain_body()
                 self._send_json(400, {"error": "invalid Content-Length"})
                 return
             if length <= 0 or length > 1048576:
-                if length > 1048576:
+                if length < 0 or length > 1048576:
                     self.close_connection = True
                 self._drain_body()
                 self._send_json(400, {"error": "Content-Length out of range"})

@@ -271,6 +271,31 @@ class A2A(unittest.TestCase):
    self.assertIsNone(resp.getheader("Allow"))
    resp.read()
    conn.close()
+
+   # Negative chunk size closes connection
+   conn = http.client.HTTPConnection("127.0.0.1", s.server_port)
+   conn.request("POST", "/health", body="-1\r\n0000000000\r\n0\r\n\r\n", headers={"Transfer-Encoding": "chunked"})
+   resp = conn.getresponse()
+   self.assertEqual("close", resp.getheader("Connection"))
+   resp.read()
+   conn.close()
+
+   # Corrupted chunk delimiter closes connection
+   conn = http.client.HTTPConnection("127.0.0.1", s.server_port)
+   conn.request("POST", "/health", body="3\r\nfooX0\r\n\r\n", headers={"Transfer-Encoding": "chunked"})
+   resp = conn.getresponse()
+   self.assertEqual("close", resp.getheader("Connection"))
+   resp.read()
+   conn.close()
+
+   # Negative Content-Length closes connection
+   conn = http.client.HTTPConnection("127.0.0.1", s.server_port)
+   conn.request("POST", "/a2a", body=json.dumps(self.request).encode(), headers={"Content-Length": "-1"})
+   resp = conn.getresponse()
+   self.assertEqual(400, resp.status)
+   self.assertEqual("close", resp.getheader("Connection"))
+   resp.read()
+   conn.close()
   finally:
    s.shutdown(); th.join(); s.server_close()
 

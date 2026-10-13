@@ -9,6 +9,7 @@ setup() {
   OUTPUT_DIR="${TEST_DIR}/${TENANT_ID}"
   DATA_DIR="${OUTPUT_DIR}/data"
   KIND_CONFIG="${OUTPUT_DIR}/kind-config.yaml"
+  PYTHON="$(python3 -c 'import yaml' >/dev/null 2>&1 && echo python3 || echo /usr/bin/python3)"
 }
 
 teardown() {
@@ -101,21 +102,21 @@ teardown() {
   [ "$(stat -c '%a' "${KIND_CONFIG}")" = "644" ]
 
   # Python YAML parser validation
-  run python3 -c "import yaml; d = yaml.safe_load(open('${KIND_CONFIG}')); assert d['kind'] == 'Cluster'"
+  run "$PYTHON" -c "import yaml; d = yaml.safe_load(open('${KIND_CONFIG}')); assert d['kind'] == 'Cluster'"
   [ "$status" -eq 0 ]
 
   # Assert cluster name
-  run python3 -c "import yaml; d = yaml.safe_load(open('${KIND_CONFIG}')); print(d['name'])"
+  run "$PYTHON" -c "import yaml; d = yaml.safe_load(open('${KIND_CONFIG}')); print(d['name'])"
   [ "$status" -eq 0 ]
   [ "$output" = "kind-${TENANT_ID}" ]
 
   # Assert kubeadmConfigPatches contains nodeStatusMaxImages: -1
-  run python3 -c "import yaml; d = yaml.safe_load(open('${KIND_CONFIG}')); print(d['kubeadmConfigPatches'][0])"
+  run "$PYTHON" -c "import yaml; d = yaml.safe_load(open('${KIND_CONFIG}')); print(d['kubeadmConfigPatches'][0])"
   [ "$status" -eq 0 ]
   [[ "$output" =~ "nodeStatusMaxImages: -1" ]]
 
   # Assert extraPortMappings (80, 443 TCP)
-  run python3 -c "
+  run "$PYTHON" -c "
 import yaml
 d = yaml.safe_load(open('${KIND_CONFIG}'))
 ports = d['nodes'][0]['extraPortMappings']
@@ -128,7 +129,7 @@ print(f'PORTS_OK: {len(ports)}')
   [[ "$output" =~ "PORTS_OK: 2" ]]
 
   # Assert extraMounts paths and readOnly properties
-  run python3 -c "
+  run "$PYTHON" -c "
 import yaml
 d = yaml.safe_load(open('${KIND_CONFIG}'))
 mounts = d['nodes'][0]['extraMounts']

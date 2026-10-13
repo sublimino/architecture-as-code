@@ -18,7 +18,7 @@ teardown() {
 
 @test "init-tenant.sh --help displays usage" {
   run ./scripts/init-tenant.sh --help
-  [ "$status" -eq 1 ]
+  [ "$status" -eq 0 ]
   [[ "$output" =~ "Usage:" ]]
   [[ "$output" =~ "--tenant-id" ]]
 }

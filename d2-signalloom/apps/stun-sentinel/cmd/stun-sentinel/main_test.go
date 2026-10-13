@@ -1053,5 +1053,15 @@ func TestSnapshotAndStunMethodGates(t *testing.T) {
 	if rec404.Body.Len() != 0 {
 		t.Errorf("HEAD /quarantine/snapshots/non-existent-snap-999 body len = %d, want 0", rec404.Body.Len())
 	}
+
+	// 5. HEAD /unknown-path returns 404 with 0 body bytes (RFC 9110 body suppression on unknown routes)
+	recUnknown := httptest.NewRecorder()
+	routes.ServeHTTP(recUnknown, httptest.NewRequest(http.MethodHead, "/unknown-path", nil))
+	if recUnknown.Code != http.StatusNotFound {
+		t.Errorf("HEAD /unknown-path status = %d, want 404", recUnknown.Code)
+	}
+	if recUnknown.Body.Len() != 0 {
+		t.Errorf("HEAD /unknown-path body len = %d, want 0", recUnknown.Body.Len())
+	}
 }
 

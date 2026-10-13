@@ -766,5 +766,38 @@ func TestNewMux_RoutesAndHeadParity(t *testing.T) {
 	if recMetHead.Body.Len() != 0 {
 		t.Errorf("HEAD /metrics got body %q, want empty", recMetHead.Body.String())
 	}
+
+	// Test /validate HEAD method rejection and empty body
+	recValHead := httptest.NewRecorder()
+	mux.ServeHTTP(recValHead, httptest.NewRequest(http.MethodHead, "/validate", nil))
+	if recValHead.Code != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD /validate got status %d, want 405", recValHead.Code)
+	}
+	if allow := recValHead.Header().Get("Allow"); allow != "POST" {
+		t.Errorf("HEAD /validate Allow = %q, want POST", allow)
+	}
+	if recValHead.Body.Len() != 0 {
+		t.Errorf("HEAD /validate got body %q, want empty", recValHead.Body.String())
+	}
+
+	// Test unknown route HEAD 404 body suppression
+	rec404Head := httptest.NewRecorder()
+	mux.ServeHTTP(rec404Head, httptest.NewRequest(http.MethodHead, "/unknown-route", nil))
+	if rec404Head.Code != http.StatusNotFound {
+		t.Errorf("HEAD /unknown-route got status %d, want 404", rec404Head.Code)
+	}
+	if rec404Head.Body.Len() != 0 {
+		t.Errorf("HEAD /unknown-route got body %q, want empty", rec404Head.Body.String())
+	}
+
+	// Test WebhookServer.ServeHTTP direct invocation with HEAD
+	recSrvHead := httptest.NewRecorder()
+	server.ServeHTTP(recSrvHead, httptest.NewRequest(http.MethodHead, "/validate", nil))
+	if recSrvHead.Code != http.StatusMethodNotAllowed {
+		t.Errorf("server.ServeHTTP HEAD got status %d, want 405", recSrvHead.Code)
+	}
+	if recSrvHead.Body.Len() != 0 {
+		t.Errorf("server.ServeHTTP HEAD got body %q, want empty", recSrvHead.Body.String())
+	}
 }
 

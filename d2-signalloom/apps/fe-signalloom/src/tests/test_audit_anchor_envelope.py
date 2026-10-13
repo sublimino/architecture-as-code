@@ -212,11 +212,13 @@ class _StubArchivista(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         if self.path in ("/upload", "/query"):
+            body = b"method not allowed"
             self.send_response(405)
             self.send_header("Allow", "POST")
             self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(b"method not allowed")
+            self.wfile.write(body)
             return
         self.send_error(404)
 
@@ -228,20 +230,24 @@ class _StubArchivista(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         if self.path in ("/upload", "/query"):
+            body = b"method not allowed"
             self.send_response(405)
             self.send_header("Allow", "POST")
             self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             return
         self.send_error(404)
 
     def do_POST(self):
         if self.path.startswith("/download/"):
+            body = b"method not allowed"
             self.send_response(405)
             self.send_header("Allow", "GET, HEAD")
             self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(b"method not allowed")
+            self.wfile.write(body)
             return
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         if self.path == "/upload":
@@ -340,6 +346,9 @@ def test_archivista_head_and_method_gates(stub_archivista, keypair):
     except urllib.error.HTTPError as exc:
         assert exc.code == 405
         assert exc.headers.get("Allow") == "GET, HEAD"
+        assert exc.headers.get("Content-Type") == "text/plain; charset=utf-8"
+        assert exc.headers.get("Content-Length") == "18"
+        assert exc.read() == b"method not allowed"
         exc.close()
 
     req_get_upload = urllib.request.Request(f"{stub_archivista}/upload", method="GET")
@@ -349,6 +358,21 @@ def test_archivista_head_and_method_gates(stub_archivista, keypair):
     except urllib.error.HTTPError as exc:
         assert exc.code == 405
         assert exc.headers.get("Allow") == "POST"
+        assert exc.headers.get("Content-Type") == "text/plain; charset=utf-8"
+        assert exc.headers.get("Content-Length") == "18"
+        assert exc.read() == b"method not allowed"
+        exc.close()
+
+    req_head_upload = urllib.request.Request(f"{stub_archivista}/upload", method="HEAD")
+    try:
+        with urllib.request.urlopen(req_head_upload) as resp:
+            pytest.fail("expected 405")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 405
+        assert exc.headers.get("Allow") == "POST"
+        assert exc.headers.get("Content-Type") == "text/plain; charset=utf-8"
+        assert exc.headers.get("Content-Length") == "18"
+        assert exc.read() == b""
         exc.close()
 
 

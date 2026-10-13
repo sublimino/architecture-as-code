@@ -305,11 +305,14 @@ class _RecordingUpstream(BaseHTTPRequestHandler):
 
     def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
         if code == 501:
+            body = b"method not allowed"
             self.send_response(405)
             self.send_header("Allow", "GET, POST, HEAD")
             self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(b"method not allowed")
+            if self.command != "HEAD":
+                self.wfile.write(body)
             return
         super().send_error(code, message, explain)
 
@@ -363,7 +366,7 @@ def test_recording_upstream_head_and_method_gates(recording_upstream) -> None:
         assert exc.headers.get("Content-Type") == "application/json"
         exc.close()
 
-    # Verify PUT returns 405 with Allow: GET, POST, HEAD
+    # Verify PUT returns 405 with Allow: GET, POST, HEAD, Content-Type, Content-Length, and body
     req_put = urllib.request.Request(f"http://127.0.0.1:{port}/test", method="PUT")
     try:
         with urllib.request.urlopen(req_put) as resp:
@@ -371,7 +374,27 @@ def test_recording_upstream_head_and_method_gates(recording_upstream) -> None:
     except urllib.error.HTTPError as exc:
         assert exc.code == 405
         assert exc.headers.get("Allow") == "GET, POST, HEAD"
+        assert exc.headers.get("Content-Type") == "text/plain; charset=utf-8"
+        assert exc.headers.get("Content-Length") == "18"
+        assert exc.read() == b"method not allowed"
         exc.close()
+
+    # Verify HEAD suppresses body when send_error(501) executes
+    import io
+    from unittest import mock
+    mock_handler = mock.MagicMock(spec=_RecordingUpstream)
+    mock_handler.command = "HEAD"
+    mock_wfile = io.BytesIO()
+    mock_handler.wfile = mock_wfile
+    _RecordingUpstream.send_error(mock_handler, 501)
+    mock_handler.send_response.assert_called_once_with(405)
+    mock_handler.send_header.assert_has_calls([
+        mock.call("Allow", "GET, POST, HEAD"),
+        mock.call("Content-Type", "text/plain; charset=utf-8"),
+        mock.call("Content-Length", "18"),
+    ])
+    mock_handler.end_headers.assert_called_once()
+    assert mock_wfile.getvalue() == b""
 
 
 def test_telemetry_proxy_refuses_anonymous_locally_and_sends_only_the_gateway_key(recording_upstream) -> None:

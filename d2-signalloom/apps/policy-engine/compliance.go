@@ -723,6 +723,14 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 
 // handleFrameworks returns available frameworks and their versions, or 404 for non-existent framework ID.
 func (ch *complianceHandler) handleFrameworks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
 	subpath := strings.TrimPrefix(r.URL.Path, "/api/v1/compliance/frameworks")
 	subpath = strings.TrimPrefix(subpath, "/")
 
@@ -730,6 +738,9 @@ func (ch *complianceHandler) handleFrameworks(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
+		if r.Method == http.MethodHead {
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
@@ -739,11 +750,19 @@ func (ch *complianceHandler) handleFrameworks(w http.ResponseWriter, r *http.Req
 		if !ok {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
+			if r.Method == http.MethodHead {
+				return
+			}
 			json.NewEncoder(w).Encode(map[string]any{
 				"error":        "framework_not_found",
 				"message":      fmt.Sprintf("Regulatory framework %q not found", subpath),
 				"framework_id": subpath,
 			})
+			return
+		}
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
 			return
 		}
 		writeJSONChecked(w, http.StatusOK, map[string]any{
@@ -753,11 +772,24 @@ func (ch *complianceHandler) handleFrameworks(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	writeJSONChecked(w, http.StatusOK, fws)
 }
 
 // handleSummary returns aggregate posture from the last scan.
 func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
 	// WHOSE summary. handleSummary used to take no tenant input of any kind and
 	// read a single unkeyed slot, so it served the last scanner's figures --
 	// under the last scanner's declared currency -- to every caller, including
@@ -767,6 +799,11 @@ func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Reques
 	// reads back exactly what it stored and nothing else.
 	tenantID, err := extractTenant(r)
 	if err != nil {
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
 		writeJSONChecked(w, http.StatusForbidden, map[string]any{
 			"error":   "cross_tenant_forbidden",
 			"message": err.Error(),
@@ -782,6 +819,11 @@ func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Reques
 		// posture nobody computed. The same reasoning as writeJSONChecked, one
 		// level up. It is also deliberately NOT another tenant's figures, which
 		// is the whole of this fix.
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		writeJSONChecked(w, http.StatusNotFound, map[string]any{
 			"error":  "no_scan_for_tenant",
 			"tenant": tenantID,
@@ -836,6 +878,11 @@ func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Reques
 	}
 	summary.Exposure = money.Money{Amount: summary.TotalExposure, Currency: summary.Currency}
 
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	writeJSONChecked(w, http.StatusOK, summary)
 }
 

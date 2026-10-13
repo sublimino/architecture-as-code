@@ -130,8 +130,16 @@ func runSelfConsumer(ctx context.Context, socketPath, listenAddr string) (string
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		if r.Method == http.MethodHead {
+			return
+		}
 		_, _ = io.WriteString(w, sc.Metrics().Render())
 	})
 

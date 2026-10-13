@@ -1987,9 +1987,14 @@ _DATABASE_UNREACHABLE: tuple[type[BaseException], ...] = (
 )
 
 
-def _error_response(status_code: int, code: str, message: str) -> JSONResponse:
+def _error_response(
+    status_code: int,
+    code: str,
+    message: str,
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
     body = ErrorResponse(error=ErrorDetail(code=code, message=message))
-    return JSONResponse(status_code=status_code, content=body.model_dump())
+    return JSONResponse(status_code=status_code, content=body.model_dump(), headers=headers)
 
 
 def install_api_exception_handlers(app: FastAPI) -> None:
@@ -2008,10 +2013,10 @@ def install_api_exception_handlers(app: FastAPI) -> None:
         _request: Request, exc: StarletteHTTPException
     ) -> JSONResponse:
         if exc.status_code == 404:
-            return _error_response(404, "not_found", "Resource was not found")
+            return _error_response(404, "not_found", "Resource was not found", headers=exc.headers)
         if exc.status_code == 405:
-            return _error_response(405, "method_not_allowed", "Method is not allowed")
-        return _error_response(exc.status_code, "request_error", "Request failed")
+            return _error_response(405, "method_not_allowed", "Method is not allowed", headers=exc.headers)
+        return _error_response(exc.status_code, "request_error", "Request failed", headers=exc.headers)
 
     @app.exception_handler(Exception)
     async def handle_internal_error(_request: Request, exc: Exception) -> JSONResponse:

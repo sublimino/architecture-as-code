@@ -352,3 +352,54 @@ print(len(d["http_errors"]), len(d["network_errors"]), len(d["crash_errors"]))' 
   [ "$port" -le 44999 ]
   [ "$(json_get "$reports_root/port-report/iteration-1.json" dashboard.started_locally)" = "True" ]
 }
+
+@test "JEVLOOP spa-server returns 405 Method Not Allowed with Allow: GET, HEAD on mutating methods" {
+  local port
+  port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
+  local dir="$BATS_TEST_TMPDIR/spa-test"
+  mkdir -p "$dir"
+  echo "<html><body>test</body></html>" > "$dir/index.html"
+  python3 "$root/scripts/jev-test-bot/spa-server.py" --directory "$dir" --port "$port" &
+  local server_pid=$!
+
+  # Wait for server
+  local ready=0
+  for _ in $(seq 1 30); do
+    if curl -s -o /dev/null "http://127.0.0.1:$port/"; then
+      ready=1
+      break
+    fi
+    sleep 0.1
+  done
+  [ "$ready" -eq 1 ]
+
+  # GET returns 200
+  run curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$port/"
+  [ "$output" -eq 200 ]
+
+  # HEAD returns 200 with empty body
+  run curl -s -I "http://127.0.0.1:$port/"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "200 OK" ]]
+
+  # POST returns 405 with Allow: GET, HEAD
+  run curl -s -i -X POST "http://127.0.0.1:$port/"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "405" ]]
+  [[ "$output" =~ "Allow: GET, HEAD" ]]
+
+  # PUT returns 405 with Allow: GET, HEAD
+  run curl -s -i -X PUT "http://127.0.0.1:$port/"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "405" ]]
+  [[ "$output" =~ "Allow: GET, HEAD" ]]
+
+  # DELETE returns 405 with Allow: GET, HEAD
+  run curl -s -i -X DELETE "http://127.0.0.1:$port/"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "405" ]]
+  [[ "$output" =~ "Allow: GET, HEAD" ]]
+
+  kill "$server_pid" 2>/dev/null || true
+  wait "$server_pid" 2>/dev/null || true
+}

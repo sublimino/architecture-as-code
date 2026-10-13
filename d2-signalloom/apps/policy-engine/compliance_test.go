@@ -396,3 +396,102 @@ func TestComplianceSummary_NoScan(t *testing.T) {
 			"or this test cannot contrast it with (A)", present["totalControls"])
 	}
 }
+
+func TestComplianceFrameworks_MethodsAndHEAD(t *testing.T) {
+	h := testComplianceHandler(t)
+
+	// POST returns 405 Method Not Allowed with Allow: GET, HEAD
+	recPost := httptest.NewRecorder()
+	h.handleFrameworks(recPost, httptest.NewRequest(http.MethodPost, "/api/v1/compliance/frameworks", nil))
+	if recPost.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST code=%d, want 405", recPost.Code)
+	}
+	if allow := recPost.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Fatalf("POST Allow=%q, want 'GET, HEAD'", allow)
+	}
+
+	// HEAD returns 200 OK with empty body and Content-Type: application/json
+	recHead := httptest.NewRecorder()
+	h.handleFrameworks(recHead, httptest.NewRequest(http.MethodHead, "/api/v1/compliance/frameworks", nil))
+	if recHead.Code != http.StatusOK {
+		t.Fatalf("HEAD code=%d, want 200", recHead.Code)
+	}
+	if ct := recHead.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("HEAD Content-Type=%q, want application/json", ct)
+	}
+	if recHead.Body.Len() != 0 {
+		t.Fatalf("HEAD body len=%d, want 0", recHead.Body.Len())
+	}
+
+	// HEAD subpath exists
+	recSubHead := httptest.NewRecorder()
+	h.handleFrameworks(recSubHead, httptest.NewRequest(http.MethodHead, "/api/v1/compliance/frameworks/nist-800-53", nil))
+	if recSubHead.Code != http.StatusOK {
+		t.Fatalf("HEAD subpath code=%d, want 200", recSubHead.Code)
+	}
+	if recSubHead.Body.Len() != 0 {
+		t.Fatalf("HEAD subpath body len=%d, want 0", recSubHead.Body.Len())
+	}
+
+	// HEAD subpath non-existent returns 404 with empty body
+	recNotFoundHead := httptest.NewRecorder()
+	h.handleFrameworks(recNotFoundHead, httptest.NewRequest(http.MethodHead, "/api/v1/compliance/frameworks/non-existent-framework", nil))
+	if recNotFoundHead.Code != http.StatusNotFound {
+		t.Fatalf("HEAD not-found code=%d, want 404", recNotFoundHead.Code)
+	}
+	if recNotFoundHead.Body.Len() != 0 {
+		t.Fatalf("HEAD not-found body len=%d, want 0", recNotFoundHead.Body.Len())
+	}
+}
+
+func TestComplianceSummary_MethodsAndHEAD(t *testing.T) {
+	h := testComplianceHandler(t)
+
+	// POST returns 405 Method Not Allowed with Allow: GET, HEAD
+	recPost := httptest.NewRecorder()
+	h.handleSummary(recPost, httptest.NewRequest(http.MethodPost, "/api/v1/compliance/summary", nil))
+	if recPost.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST code=%d, want 405", recPost.Code)
+	}
+	if allow := recPost.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Fatalf("POST Allow=%q, want 'GET, HEAD'", allow)
+	}
+
+	// HEAD without prior scan returns 404 with empty body
+	recNoScanHead := httptest.NewRecorder()
+	h.handleSummary(recNoScanHead, httptest.NewRequest(http.MethodHead, "/api/v1/compliance/summary", nil))
+	if recNoScanHead.Code != http.StatusNotFound {
+		t.Fatalf("HEAD no-scan code=%d, want 404", recNoScanHead.Code)
+	}
+	if recNoScanHead.Body.Len() != 0 {
+		t.Fatalf("HEAD no-scan body len=%d, want 0", recNoScanHead.Body.Len())
+	}
+
+	// Run scan
+	scanReq := ComplianceScanRequest{
+		Namespace:     "test-ns",
+		PolicyVersion: "v2.1.0",
+		Frameworks:    []string{"nist-800-53"},
+		Manifest:      map[string]any{},
+	}
+	body, _ := json.Marshal(scanReq)
+	sw := httptest.NewRecorder()
+	h.handleScan(sw, httptest.NewRequest(http.MethodPost, "/api/v1/compliance/scan", bytes.NewReader(body)))
+	if sw.Code != http.StatusOK {
+		t.Fatalf("scan code=%d, want 200", sw.Code)
+	}
+
+	// HEAD with prior scan returns 200 OK with empty body
+	recScanHead := httptest.NewRecorder()
+	h.handleSummary(recScanHead, httptest.NewRequest(http.MethodHead, "/api/v1/compliance/summary", nil))
+	if recScanHead.Code != http.StatusOK {
+		t.Fatalf("HEAD post-scan code=%d, want 200", recScanHead.Code)
+	}
+	if ct := recScanHead.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("HEAD post-scan Content-Type=%q, want application/json", ct)
+	}
+	if recScanHead.Body.Len() != 0 {
+		t.Fatalf("HEAD post-scan body len=%d, want 0", recScanHead.Body.Len())
+	}
+}
+

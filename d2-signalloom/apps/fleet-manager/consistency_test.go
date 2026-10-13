@@ -581,3 +581,63 @@ func TestConsistency_KernelAnnotationAbsentOrMalformedIsNull(t *testing.T) {
 		})
 	}
 }
+
+func TestConsistency_HTTPMethodsAndHEAD(t *testing.T) {
+	bao := &fakeTokenCounter{configured: true, counts: map[string]int{consTestSPIFFE: 1}}
+	spire := &fakeEntryLister{entries: map[string]int{consTestSPIFFE: 1}}
+	c, _ := newTestChecker(t, bao, spire, consPod(false, false), consDeployment(false))
+	mux := http.NewServeMux()
+	c.register(mux)
+
+	// POST should return 405 Method Not Allowed with Allow: GET, HEAD
+	recPost := httptest.NewRecorder()
+	mux.ServeHTTP(recPost, httptest.NewRequest(http.MethodPost, "/api/v1/fleet/consistency/"+consTestAgent, nil))
+	if recPost.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST code=%d, want 405", recPost.Code)
+	}
+	if allow := recPost.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Fatalf("POST Allow=%q, want 'GET, HEAD'", allow)
+	}
+
+	// HEAD should return 200 OK with empty body and Content-Type: application/json
+	recHead := httptest.NewRecorder()
+	mux.ServeHTTP(recHead, httptest.NewRequest(http.MethodHead, "/api/v1/fleet/consistency/"+consTestAgent, nil))
+	if recHead.Code != http.StatusOK {
+		t.Fatalf("HEAD code=%d, want 200", recHead.Code)
+	}
+	if ct := recHead.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("HEAD Content-Type=%q, want application/json", ct)
+	}
+	if recHead.Body.Len() != 0 {
+		t.Fatalf("HEAD body len=%d, want 0", recHead.Body.Len())
+	}
+}
+
+func TestConsistencyMetrics_HTTPMethodsAndHEAD(t *testing.T) {
+	metrics := newConsistencyMetrics()
+	metrics.record(ConsistencyReport{AgentID: "agent-a", queried: true})
+
+	// POST should return 405 Method Not Allowed with Allow: GET, HEAD
+	recPost := httptest.NewRecorder()
+	metrics.serveHTTP(recPost, httptest.NewRequest(http.MethodPost, "/metrics", nil))
+	if recPost.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST code=%d, want 405", recPost.Code)
+	}
+	if allow := recPost.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Fatalf("POST Allow=%q, want 'GET, HEAD'", allow)
+	}
+
+	// HEAD should return 200 OK with empty body and text/plain content type
+	recHead := httptest.NewRecorder()
+	metrics.serveHTTP(recHead, httptest.NewRequest(http.MethodHead, "/metrics", nil))
+	if recHead.Code != http.StatusOK {
+		t.Fatalf("HEAD code=%d, want 200", recHead.Code)
+	}
+	if !strings.HasPrefix(recHead.Header().Get("Content-Type"), "text/plain") {
+		t.Fatalf("HEAD Content-Type=%q, want text/plain", recHead.Header().Get("Content-Type"))
+	}
+	if recHead.Body.Len() != 0 {
+		t.Fatalf("HEAD body len=%d, want 0", recHead.Body.Len())
+	}
+}
+

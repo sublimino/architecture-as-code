@@ -62,6 +62,18 @@ def test_health_is_preserved_and_livez_has_no_dependency():
         assert client.get("/livez").json() == {"status": "live"}
 
 
+def test_health_and_probe_head_and_methods():
+    set_pool_for_testing(ReadyPool())
+    with TestClient(app, raise_server_exceptions=False) as client:
+        for path in ("/health", "/healthz", "/api/health", "/livez", "/readyz"):
+            res_head = client.head(path)
+            assert res_head.status_code == 200
+            assert res_head.content == b""
+            res_post = client.post(path)
+            assert res_post.status_code == 405
+            assert res_post.headers.get("allow") in ("GET, HEAD", "HEAD, GET")
+
+
 def test_readyz_requires_postgresql_but_tolerates_redis_degradation():
     set_pool_for_testing(ReadyPool())
     with TestClient(app, raise_server_exceptions=False) as client:

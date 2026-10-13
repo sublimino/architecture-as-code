@@ -243,8 +243,8 @@ func consistencyIntervalFromEnv() time.Duration {
 }
 
 func (c *consistencyChecker) handleConsistency(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -265,6 +265,9 @@ func (c *consistencyChecker) handleConsistency(w http.ResponseWriter, r *http.Re
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	if r.Method == http.MethodHead {
+		return
+	}
 	_ = json.NewEncoder(w).Encode(rep)
 }
 
@@ -564,7 +567,12 @@ func (m *consistencyMetrics) record(rep ConsistencyReport) {
 	}
 }
 
-func (m *consistencyMetrics) serveHTTP(w http.ResponseWriter, _ *http.Request) {
+func (m *consistencyMetrics) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var b strings.Builder
@@ -574,6 +582,9 @@ func (m *consistencyMetrics) serveHTTP(w http.ResponseWriter, _ *http.Request) {
 	writeLabelledCounter(&b, "fleet_split_brain_total", "Split-brain findings: a plane disagreeing with the pod's containment state.", m.splitBrain)
 	writeLabelledCounter(&b, "fleet_consistency_unqueried_total", "Checks where at least one plane could not be queried (never counted as consistent).", m.unqueried)
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	if r.Method == http.MethodHead {
+		return
+	}
 	_, _ = w.Write([]byte(b.String()))
 }
 

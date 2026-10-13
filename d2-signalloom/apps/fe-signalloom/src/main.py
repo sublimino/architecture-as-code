@@ -124,21 +124,21 @@ install_admin_users_api(app)
 app.add_middleware(IdentityHeaderStripMiddleware)
 
 
-@app.get("/api/health")
-@app.get("/health")
-@app.get("/healthz")
+@app.api_route("/api/health", methods=["GET", "HEAD"])
+@app.api_route("/health", methods=["GET", "HEAD"])
+@app.api_route("/healthz", methods=["GET", "HEAD"])
 async def health() -> dict[str, str]:
     """Existing backwards-compatible health endpoint."""
     return {"status": "ok"}
 
 
-@app.get("/livez")
+@app.api_route("/livez", methods=["GET", "HEAD"])
 async def livez() -> dict[str, str]:
     """A process/event-loop probe; it intentionally touches no dependencies."""
     return {"status": "live"}
 
 
-@app.get("/readyz")
+@app.api_route("/readyz", methods=["GET", "HEAD"])
 async def readyz(request: Request) -> JSONResponse:
     """PostgreSQL gates readiness; Redis availability is diagnostic only."""
     try:

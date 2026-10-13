@@ -46,35 +46,72 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_args):  # keep bats output readable
         pass
 
-    def _send(self, code: int, payload: dict):
+    def _send(self, code: int, payload: dict, extra_headers: dict | None = None):
         body = json.dumps(payload).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if extra_headers:
+            for k, v in extra_headers.items():
+                self.send_header(k, v)
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
-    def _err(self, code: int, ecode: str, msg: str):
-        self._send(code, {"error": {"code": ecode, "message": msg}})
+    def _err(self, code: int, ecode: str, msg: str, extra_headers: dict | None = None):
+        self._send(code, {"error": {"code": ecode, "message": msg}}, extra_headers=extra_headers)
+
+    def _send_405(self, allow: str):
+        self._err(405, "method_not_allowed", f"Method {self.command} not allowed", extra_headers={"Allow": allow})
 
     def _authed(self) -> bool:
         auth = self.headers.get("Authorization", "")
         return auth.strip() == f"Bearer {TOKEN}"
 
-    def do_HEAD(self):
-        clean_path = self.path.split("?")[0].rstrip("/") or "/"
+    def _allowed_methods_for_path(self, path: str) -> str | None:
+        clean_path = path.split("?")[0].rstrip("/") or "/"
         if clean_path in ("/health", "/healthz", "/readyz"):
-            body = json.dumps({"status": "ok"}).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            return
-        self.send_error(404)
+            return "GET, HEAD"
+        if clean_path == "/dex/token":
+            return "POST"
+        if re.match(r"^/api/demo/([^/]+)/runs$", clean_path):
+            return "POST"
+        if re.match(r"^/api/demo/([^/]+)/(status|steps)$", clean_path):
+            return "GET, HEAD"
+        if re.match(r"^/api/demo/([^/]+)/runs/([^/]+)$", clean_path):
+            return "GET, HEAD"
+        return None
+
+    def _handle_unsupported_method(self):
+        allowed = self._allowed_methods_for_path(self.path)
+        if allowed:
+            self._send_405(allowed)
+        else:
+            self._err(404, "not_found", "no such route")
+
+    def do_HEAD(self):
+        self.do_GET()
+
+    def do_PUT(self):
+        self._handle_unsupported_method()
+
+    def do_DELETE(self):
+        self._handle_unsupported_method()
+
+    def do_PATCH(self):
+        self._handle_unsupported_method()
+
+    def do_OPTIONS(self):
+        self._handle_unsupported_method()
 
     # Dex password grant. The gate refuses to run without a token, so a stub
     # that cannot mint one would exercise only the CANNOT-RUN path.
     def do_POST(self):
+        clean_path = self.path.split("?")[0].rstrip("/") or "/"
+        if clean_path in ("/health", "/healthz", "/readyz") or re.match(r"^/api/demo/([^/]+)/(status|steps)$", clean_path) or re.match(r"^/api/demo/([^/]+)/runs/([^/]+)$", clean_path):
+            self._send_405("GET, HEAD")
+            return
+
         raw_len = self.headers.get("Content-Length")
         if raw_len is not None:
             try:
@@ -125,6 +162,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         clean_path = self.path.split("?")[0].rstrip("/") or "/"
+        if clean_path == "/dex/token" or re.match(r"^/api/demo/([^/]+)/runs$", clean_path):
+            self._send_405("POST")
+            return
+
         if clean_path in ("/health", "/healthz", "/readyz"):
             self._send(200, {"status": "ok"})
             return
@@ -196,13 +237,17 @@ class Handler(BaseHTTPRequestHandler):
         return entry.get("status", "healthy") if isinstance(entry, dict) else str(entry)
 
 
+class ReusableThreadingHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+
+
 def main(argv: list[str]) -> int:
     global SCENARIO
     if len(argv) != 3:
         print(f"usage: {argv[0]} <port> <scenario.json>", file=sys.stderr)
         return 2
     SCENARIO = json.loads(open(argv[2]).read())
-    server = ThreadingHTTPServer(("127.0.0.1", int(argv[1])), Handler)
+    server = ReusableThreadingHTTPServer(("127.0.0.1", int(argv[1])), Handler)
     server.serve_forever()
     return 0
 

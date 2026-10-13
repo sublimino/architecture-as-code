@@ -347,6 +347,8 @@ func newA2AHandler(client *http.Client, address, role, expectedSubject string, p
 func newA2AHandlerWithInstance(client *http.Client, address, role, expectedSubject string, publicKey ed25519.PublicKey, instanceNonce string) http.Handler {
 	mux := http.NewServeMux()
 	replay := newReplayCache(10000)
+	mux.HandleFunc("/health", func(response http.ResponseWriter, _ *http.Request) { response.WriteHeader(http.StatusOK) })
+	mux.HandleFunc("/healthz", func(response http.ResponseWriter, _ *http.Request) { response.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("/readyz", func(response http.ResponseWriter, _ *http.Request) { response.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("/challenge", func(response http.ResponseWriter, _ *http.Request) {
 		response.Header().Set("Content-Type", "application/json")

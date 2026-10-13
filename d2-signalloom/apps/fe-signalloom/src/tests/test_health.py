@@ -57,6 +57,7 @@ def test_health_is_preserved_and_livez_has_no_dependency():
     set_pool_for_testing(ReadyPool())
     with TestClient(app, raise_server_exceptions=False) as client:
         assert client.get("/health").json() == {"status": "ok"}
+        assert client.get("/healthz").json() == {"status": "ok"}
         assert client.get("/api/health").json() == {"status": "ok"}
         assert client.get("/livez").json() == {"status": "live"}
 

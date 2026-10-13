@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { TaskMapper, MAX_SESSIONS } from "./task-mapper";
+import { TaskMapper, MAX_SESSIONS, MAX_TASKS_PER_SESSION } from "./task-mapper";
 
 describe("TaskMapper", () => {
   it("parses valid commands from mentions", () => {
@@ -88,5 +88,19 @@ describe("TaskMapper", () => {
     expect(pruned).toBe(1);
     expect(mapper.allSessions().length).toBe(1);
     expect(mapper.allSessions()[0].topic).toBe("fresh-topic");
+  });
+
+  it("bounds tasks per session to MAX_TASKS_PER_SESSION", () => {
+    const mapper = new TaskMapper();
+    const session = mapper.getSession("busy-topic", 1);
+
+    for (let i = 0; i < MAX_TASKS_PER_SESSION + 15; i++) {
+      const task = mapper.createTask(session, "status");
+      if (i < 10) {
+        mapper.updateTask(task, "completed", "done");
+      }
+    }
+
+    expect(session.tasks.length).toBe(MAX_TASKS_PER_SESSION);
   });
 });

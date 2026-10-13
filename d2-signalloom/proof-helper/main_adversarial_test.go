@@ -473,15 +473,17 @@ func TestChallengeEndpointReturnsInstanceNonce(t *testing.T) {
 	}
 }
 
-// TestReadyzEndpoint verifies the /readyz endpoint.
+// TestReadyzEndpoint verifies the /health, /healthz, and /readyz endpoints.
 func TestReadyzEndpoint(t *testing.T) {
 	handler, _, _ := setupA2ATest(t)
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
+	for _, path := range []string{"/health", "/healthz", "/readyz"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("/readyz: expected 200, got %d", w.Code)
+		if w.Code != http.StatusOK {
+			t.Errorf("%s: expected 200, got %d", path, w.Code)
+		}
 	}
 }
 

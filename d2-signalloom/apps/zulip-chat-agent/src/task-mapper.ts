@@ -34,6 +34,7 @@ const COMMANDS = [
 export type Command = (typeof COMMANDS)[number];
 
 export const MAX_SESSIONS = 1000;
+export const MAX_TASKS_PER_SESSION = 100;
 
 export class TaskMapper {
   private sessions = new Map<string, TaskSession>();
@@ -113,6 +114,16 @@ export class TaskMapper {
       status: "pending",
       createdAt: new Date(),
     };
+    if (session.tasks.length >= MAX_TASKS_PER_SESSION) {
+      const evictIdx = session.tasks.findIndex(
+        (t) => t.status === "completed" || t.status === "failed"
+      );
+      if (evictIdx !== -1) {
+        session.tasks.splice(evictIdx, 1);
+      } else {
+        session.tasks.shift();
+      }
+    }
     session.tasks.push(task);
     return task;
   }

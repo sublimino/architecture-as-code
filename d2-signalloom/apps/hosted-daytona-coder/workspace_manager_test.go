@@ -15,20 +15,22 @@ func TestHealth(t *testing.T) {
 	mgr := NewWorkspaceManager("test-ns")
 	srv := newServer(mgr)
 
-	req := httptest.NewRequest("GET", "/health", nil)
-	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	for _, path := range []string{"/health", "/healthz", "/readyz"} {
+		req := httptest.NewRequest("GET", path, nil)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", rec.Code)
-	}
+		if rec.Code != http.StatusOK {
+			t.Fatalf("path %s expected status 200, got %d", path, rec.Code)
+		}
 
-	var body map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if body["status"] != "healthy" {
-		t.Fatalf("expected healthy, got %s", body["status"])
+		var body map[string]string
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("path %s decode response: %v", path, err)
+		}
+		if body["status"] != "healthy" {
+			t.Fatalf("path %s expected healthy, got %s", path, body["status"])
+		}
 	}
 }
 

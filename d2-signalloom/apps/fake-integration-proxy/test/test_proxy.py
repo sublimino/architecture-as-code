@@ -61,7 +61,7 @@ class ProxyTest(ProxyServerTestCase):
         self.request("DELETE", "/_test/requests")
 
     def test_health_and_healthz_return_ok(self):
-        for path in ("/health", "/healthz"):
+        for path in ("/health", "/healthz", "/readyz"):
             status, body = self.request("GET", path)
             self.assertEqual(200, status)
             self.assertEqual({"status": "ok"}, body)

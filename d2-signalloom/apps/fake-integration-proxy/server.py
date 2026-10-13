@@ -1875,7 +1875,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
     def _dispatch(self) -> None:
         path = urlparse(self.path).path
-        if path in ("/health", "/healthz") and self.command == "GET":
+        if path in ("/health", "/healthz", "/readyz") and self.command == "GET":
             self._json(HTTPStatus.OK, {"status": "ok"})
         elif path == "/agents" and self.command == "GET":
             self._handle_agents()

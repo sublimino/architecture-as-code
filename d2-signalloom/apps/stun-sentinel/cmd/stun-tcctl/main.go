@@ -299,6 +299,46 @@ func doMetrics(o *opts) error {
 	return nil
 }
 
+func newMux(l *tc.Loader, reg *tc.Registry) *http.ServeMux {
+	mux := http.NewServeMux()
+
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "ok")
+	}
+	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/healthz", healthHandler)
+	mux.HandleFunc("/readyz", healthHandler)
+
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		// Refresh from the BPF map before rendering, so a scrape always
+		// reports kernel truth rather than the last thing we happened to
+		// observe.
+		if l != nil {
+			for _, iface := range l.AttachedInterfaces() {
+				if stats, err := l.Stats(iface); err == nil {
+					reg.ObserveDrops(iface, stats.PacketsDropped, stats.BytesDropped)
+					reg.SetIsolated(iface, stats.Isolated)
+				}
+			}
+			reg.SetAttachedFilters(len(l.AttachedInterfaces()))
+		}
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		if reg != nil {
+			fmt.Fprint(w, reg.Render())
+		}
+	})
+
+	if l != nil && reg != nil {
+		// Trigger endpoints. POST only: a GET that mutates kernel state would be
+		// reachable by any link prefetch or crawler on the node network.
+		mux.HandleFunc("/v1/isolate", triggerHandler(l, reg, true))
+		mux.HandleFunc("/v1/release", triggerHandler(l, reg, false))
+	}
+
+	return mux
+}
+
 func doServe(o *opts) error {
 	l := newLoader(o)
 	defer l.Close()
@@ -308,32 +348,7 @@ func doServe(o *opts) error {
 	reg := tc.NewRegistry()
 	l.SetMetricsHooks(reg.ObserveIsolationDuration, reg.ObserveDrops)
 
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "ok")
-	})
-
-	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
-		// Refresh from the BPF map before rendering, so a scrape always
-		// reports kernel truth rather than the last thing we happened to
-		// observe.
-		for _, iface := range l.AttachedInterfaces() {
-			if stats, err := l.Stats(iface); err == nil {
-				reg.ObserveDrops(iface, stats.PacketsDropped, stats.BytesDropped)
-				reg.SetIsolated(iface, stats.Isolated)
-			}
-		}
-		reg.SetAttachedFilters(len(l.AttachedInterfaces()))
-		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		fmt.Fprint(w, reg.Render())
-	})
-
-	// Trigger endpoints. POST only: a GET that mutates kernel state would be
-	// reachable by any link prefetch or crawler on the node network.
-	mux.HandleFunc("/v1/isolate", triggerHandler(l, reg, true))
-	mux.HandleFunc("/v1/release", triggerHandler(l, reg, false))
+	mux := newMux(l, reg)
 
 	srv := &http.Server{
 		Addr:              o.addr,

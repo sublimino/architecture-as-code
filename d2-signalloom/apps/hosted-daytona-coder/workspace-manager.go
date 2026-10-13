@@ -158,10 +158,13 @@ func main() {
 func newServer(mgr *WorkspaceManager) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
-	})
+	}
+	mux.HandleFunc("GET /health", healthHandler)
+	mux.HandleFunc("GET /healthz", healthHandler)
+	mux.HandleFunc("GET /readyz", healthHandler)
 
 	mux.HandleFunc("POST /workspaces", func(w http.ResponseWriter, r *http.Request) {
 		tenant, err := extractTenant(r)

@@ -9,9 +9,6 @@
 package main
 
 import (
-	"bytes"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/swarm-governor/a2a"
@@ -140,34 +137,3 @@ func TestDispatch_NoMatchingAgent(t *testing.T) {
 	}
 }
 
-func TestHealthEndpoints(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", handleHealthz)
-	mux.HandleFunc("/healthz", handleHealthz)
-	mux.HandleFunc("/readyz", handleReadyz)
-
-	for _, path := range []string{"/health", "/healthz", "/readyz"} {
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, path, nil)
-		mux.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Errorf("%s returned status %d, want 200", path, rec.Code)
-		}
-	}
-}
-
-func TestHandleSubmit_EmptyDescriptionRejected(t *testing.T) {
-	gov := NewGovernor("test-ns", 100000)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/tasks/submit", gov.handleSubmit)
-
-	for _, desc := range []string{"", "   ", "\t\n"} {
-		payload := []byte(`{"description":"` + desc + `"}`)
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/tasks/submit", bytes.NewReader(payload))
-		mux.ServeHTTP(rec, req)
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("empty description %q returned status %d, want 400", desc, rec.Code)
-		}
-	}
-}

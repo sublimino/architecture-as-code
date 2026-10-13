@@ -71,6 +71,29 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                 body=json.dumps({"instanceNonce":instance}).encode(); self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body); return
             if path not in ("/.well-known/agent-card.json","/.well-known/agent.json","/agent-card.json"): self.send_error(404); return
             self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(card))); self.end_headers(); self.wfile.write(card)
+        def do_HEAD(self):
+            path = self.path.split("?")[0].rstrip("/") or "/"
+            if path in ("/health", "/healthz", "/readyz"):
+                body = b'{"status":"ok"}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                return
+            if path == "/challenge":
+                body = json.dumps({"instanceNonce": instance}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                return
+            if path not in ("/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(card)))
+            self.end_headers()
         def do_POST(self):
             path = self.path.split("?")[0].rstrip("/") or "/"
             if path != "/a2a": self.send_error(404); return
@@ -90,7 +113,7 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
             try:
                 auth = self.headers.get("Authorization", "")
                 if not auth.startswith("Bearer "): self.send_error(403); return
-                context = auth.removeprefix("Bearer ")
+                context = auth.removeprefix("Bearer ").strip()
                 jwt_svid = self.headers.get("X-SPIFFE-JWT-SVID")
                 if not jwt_svid: self.send_error(403); return
                 validator = identity_validator or (lambda token: validate_openbao_identity(openbao_url or "",token,openbao_role,PLANNER))

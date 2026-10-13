@@ -58,12 +58,35 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, {"error": {"code": ecode, "message": msg}})
 
     def _authed(self) -> bool:
-        return self.headers.get("Authorization", "") == f"Bearer {TOKEN}"
+        auth = self.headers.get("Authorization", "")
+        return auth.strip() == f"Bearer {TOKEN}"
+
+    def do_HEAD(self):
+        clean_path = self.path.split("?")[0].rstrip("/") or "/"
+        if clean_path in ("/health", "/healthz", "/readyz"):
+            body = json.dumps({"status": "ok"}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            return
+        self.send_error(404)
 
     # Dex password grant. The gate refuses to run without a token, so a stub
     # that cannot mint one would exercise only the CANNOT-RUN path.
     def do_POST(self):
-        length = int(self.headers.get("Content-Length") or 0)
+        raw_len = self.headers.get("Content-Length")
+        if raw_len is not None:
+            try:
+                length = int(raw_len.strip())
+            except ValueError:
+                self._err(400, "invalid_length", "invalid Content-Length header")
+                return
+            if length < 0:
+                self._err(400, "invalid_length", "negative Content-Length header")
+                return
+        else:
+            length = 0
         raw = self.rfile.read(length).decode() if length else ""
         if self.path.rstrip("/") == "/dex/token":
             if SCENARIO.get("_dex") == "down":

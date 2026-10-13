@@ -76,6 +76,18 @@ class HealthTest(ControllerServerTestCase):
     def test_unknown_route_is_404(self):
         self.assertEqual(404, self.request("GET", "/nope")[0])
 
+    def test_health_head_probes(self):
+        for path in ("/health", "/healthz", "/readyz"):
+            connection = http.client.HTTPConnection("127.0.0.1", self.port)
+            connection.request("HEAD", path)
+            response = connection.getresponse()
+            self.assertEqual(200, response.status)
+            body = response.read()
+            self.assertEqual(b"", body)
+            self.assertEqual("15", response.getheader("Content-Length"))
+            self.assertEqual("application/json", response.getheader("Content-Type"))
+            connection.close()
+
 
 class ScanTest(ControllerServerTestCase):
     """/scan owns the exact create/delete/conflict logic that used to live in

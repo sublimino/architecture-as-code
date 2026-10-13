@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -271,6 +273,67 @@ func TestCardvaultMethodNotAllowed(t *testing.T) {
 		if resp.StatusCode != http.StatusMethodNotAllowed {
 			t.Errorf("POST %s: expected 405 Method Not Allowed, got %d", ep, resp.StatusCode)
 		}
+		if allow := resp.Header.Get("Allow"); !strings.Contains(allow, "GET") || !strings.Contains(allow, "HEAD") {
+			t.Errorf("POST %s: expected Allow header containing GET, HEAD, got %q", ep, allow)
+		}
+	}
+}
+
+func TestCardvaultHeadRequests(t *testing.T) {
+	srv := newTestServer("u", "p")
+	defer srv.Close()
+
+	endpoints := []string{
+		"/healthz",
+		"/readyz",
+		"/health",
+		"/api/v1/cards",
+		"/api/v1/cards/card-001",
+	}
+
+	for _, ep := range endpoints {
+		req, err := http.NewRequest(http.MethodHead, srv.URL+ep, nil)
+		if err != nil {
+			t.Fatalf("NewRequest: %v", err)
+		}
+		req.SetBasicAuth("u", "p")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("HEAD %s: %v", ep, err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			t.Fatalf("HEAD %s read body: %v", ep, err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("HEAD %s: expected 200 OK, got %d", ep, resp.StatusCode)
+		}
+		if len(body) != 0 {
+			t.Errorf("HEAD %s: expected empty body, got %d bytes: %q", ep, len(body), string(body))
+		}
+		if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+			t.Errorf("HEAD %s: expected Content-Type application/json, got %q", ep, ct)
+		}
+	}
+
+	// Also check HEAD on not found card
+	req, err := http.NewRequest(http.MethodHead, srv.URL+"/api/v1/cards/nonexistent", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.SetBasicAuth("u", "p")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("HEAD nonexistent card: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("HEAD nonexistent: expected 404, got %d", resp.StatusCode)
+	}
+	if len(body) != 0 {
+		t.Errorf("HEAD nonexistent: expected empty body, got %d bytes", len(body))
 	}
 }
 

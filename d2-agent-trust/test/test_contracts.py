@@ -65,7 +65,16 @@ class A2A(unittest.TestCase):
     resp=urllib.request.urlopen(f'http://127.0.0.1:{s.server_port}{probe}')
     self.assertEqual(200, resp.status)
     self.assertEqual({'status':'ok'}, json.loads(resp.read()))
+    head_req=urllib.request.Request(f'http://127.0.0.1:{s.server_port}{probe}', method='HEAD')
+    head_resp=urllib.request.urlopen(head_req)
+    self.assertEqual(200, head_resp.status)
+    self.assertEqual(b'', head_resp.read())
+    self.assertEqual('15', head_resp.headers.get("Content-Length"))
    self.assertEqual(self.instance,json.loads(urllib.request.urlopen(f'http://127.0.0.1:{s.server_port}/challenge?extra=1').read())['instanceNonce'])
+   head_chal=urllib.request.Request(f'http://127.0.0.1:{s.server_port}/challenge', method='HEAD')
+   head_chal_resp=urllib.request.urlopen(head_chal)
+   self.assertEqual(200, head_chal_resp.status)
+   self.assertEqual(b'', head_chal_resp.read())
   finally: s.shutdown(); th.join(); s.server_close()
  def test_http_uses_validator_not_claimed_identity_header(self):
   def validator(token):
@@ -74,7 +83,7 @@ class A2A(unittest.TestCase):
   s=serve(self.public,0,identity_validator=validator,receiver_instance=self.instance); th=threading.Thread(target=s.serve_forever); th.start()
   try:
    url=f'http://127.0.0.1:{s.server_port}/a2a'; now=int(time.time()); c=self.context(nbf=now-1,exp=now+30,jti='http')
-   req=urllib.request.Request(url,data=json.dumps(self.request).encode(),headers={'Authorization':'Bearer '+c,'X-SPIFFE-JWT-SVID':'good-svid','X-Authenticated-SPIFFE-ID':'spiffe://spoof'},method='POST')
+   req=urllib.request.Request(url,data=json.dumps(self.request).encode(),headers={'Authorization':'Bearer   '+c+'  ','X-SPIFFE-JWT-SVID':'good-svid','X-Authenticated-SPIFFE-ID':'spiffe://spoof'},method='POST')
    resp=urllib.request.urlopen(req)
    self.assertIsNotNone(resp.headers.get("Content-Length"))
    self.assertEqual(resp.headers.get("Content-Type"), "application/json")

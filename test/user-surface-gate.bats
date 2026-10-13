@@ -371,5 +371,11 @@ EOF
     run curl -s -o /dev/null -w "%{http_code}" "${BASE}/${path}"
     [ "$status" -eq 0 ]
     [ "$output" = "200" ]
+    run curl -s -I -o /dev/null -w "%{http_code}" "${BASE}/${path}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "200" ]
   done
+  run curl -s -o /dev/null -w "%{http_code}" -H "Content-Length: bad" -X POST "${BASE}/dex/token"
+  [ "$status" -eq 0 ]
+  [ "$output" = "400" ]
 }

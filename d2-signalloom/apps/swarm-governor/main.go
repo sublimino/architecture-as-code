@@ -64,6 +64,7 @@ type SubmitRequest struct {
 
 func (g *Governor) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
@@ -127,7 +128,8 @@ func (g *Governor) handleSubmit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *Governor) handleGetTask(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
@@ -147,10 +149,25 @@ func (g *Governor) handleGetTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	writeJSON(w, http.StatusOK, plan)
 }
 
-func (g *Governor) handleAgentCard(w http.ResponseWriter, _ *http.Request) {
+func (g *Governor) handleAgentCard(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	card := a2a.AgentCard{
 		Name:        "swarm-governor",
 		Description: "Swarm coordinator. Evaluates task complexity, discovers agents, and dispatches sub-tasks with token budgets.",
@@ -165,12 +182,41 @@ func (g *Governor) handleAgentCard(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, card)
 }
 
-func handleHealthz(w http.ResponseWriter, _ *http.Request) {
+func handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func handleReadyz(w http.ResponseWriter, _ *http.Request) {
+func handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+}
+
+func newMux(gov *Governor) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/tasks/submit", gov.handleSubmit)
+	mux.HandleFunc("/tasks/", gov.handleGetTask)
+	mux.HandleFunc("/.well-known/agent-card.json", gov.handleAgentCard)
+	mux.HandleFunc("/health", handleHealthz)
+	mux.HandleFunc("/healthz", handleHealthz)
+	mux.HandleFunc("/readyz", handleReadyz)
+	return mux
 }
 
 func main() {
@@ -199,13 +245,7 @@ func main() {
 
 	gov := NewGovernor(namespace, maxBudget)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/tasks/submit", gov.handleSubmit)
-	mux.HandleFunc("/tasks/", gov.handleGetTask)
-	mux.HandleFunc("/.well-known/agent-card.json", gov.handleAgentCard)
-	mux.HandleFunc("/health", handleHealthz)
-	mux.HandleFunc("/healthz", handleHealthz)
-	mux.HandleFunc("/readyz", handleReadyz)
+	mux := newMux(gov)
 
 	srv := &http.Server{
 		Addr:              ":" + port,

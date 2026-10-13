@@ -50,3 +50,17 @@ describe("icon overlap gate", () => {
     });
   }
 });
+
+// The warden is our own component, not a CNCF project, so it carries the
+// Signal Loom logo. The first build reused the retired Olly Sentinel icon.
+const LOGO = "data:image/png;base64," + readFileSync(join(import.meta.dir, "assets/signal-loom-logo-96.png")).toString("base64");
+
+describe("warden branding", () => {
+  for (const name of readdirSync(DIAGRAMS).filter((f) => f.endsWith(".drawio")).sort()) {
+    test(`${name} draws every warden with the Signal Loom logo`, () => {
+      const wardens = parseDrawio(readFileSync(join(DIAGRAMS, name), "utf8")).cells.filter((c: Cell) => c.vertex && /warden/i.test(c.value));
+      expect(wardens.length).toBeGreaterThan(0);
+      for (const w of wardens) expect(w.style.image === LOGO ? w.id : `${w.id} uses another icon`).toBe(w.id);
+    });
+  }
+});

@@ -22,6 +22,8 @@ in this repository, so a reader can trace the box to a directory.
 | The warden | Per-node eBPF capture, cgroup freeze and tc network stun; reports to the fleet hub. | `d2-signalloom/apps/signalloom-warden/` |
 | Collectors from external systems | signal-ingest collectors that pull audit and telemetry from systems outside the cluster. | `d2-signalloom/apps/signal-ingest/collectors/` |
 
+Draw the warden with the Signal Loom logo (`scripts/diagrams/assets/signal-loom-logo-96.png`). It is our component, not a CNCF project. `scripts/diagrams/diagram-layout.test.ts` enforces this.
+
 Name the collectors by the system they read, not by package name:
 
 - AWS CloudTrail and GuardDuty, through SQS and EventBridge (`awslogs`).

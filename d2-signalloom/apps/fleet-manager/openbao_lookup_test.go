@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -40,8 +41,30 @@ func newSlowAccessorServerHook(t *testing.T, n int, match map[int]bool, sub stri
 	s.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/auth/token/accessors":
-			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"keys": keys}})
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "GET, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+				}
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			if r.Method != http.MethodHead {
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"keys": keys}})
+			}
 		case "/v1/auth/token/lookup-accessor":
+			if r.Method != http.MethodPost && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "POST, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+				}
+				return
+			}
 			cur := s.inFlight.Add(1)
 			for {
 				prev := s.maxSeen.Load()
@@ -57,8 +80,11 @@ func newSlowAccessorServerHook(t *testing.T, n int, match map[int]bool, sub stri
 			fmt.Sscanf(body.Accessor, "acc-%03d", &i)
 			if i == failAt { // fails at once, while its siblings are still in flight
 				s.inFlight.Add(-1)
+				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusInternalServerError)
-				_, _ = w.Write([]byte(`{"errors":["internal error"]}`))
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["internal error"]}`))
+				}
 				return
 			}
 			if onLookup != nil {
@@ -70,8 +96,21 @@ func newSlowAccessorServerHook(t *testing.T, n int, match map[int]bool, sub stri
 			if match[i] {
 				display = "jwt-" + sub
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"display_name": display}})
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			if r.Method != http.MethodHead {
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"display_name": display}})
+			}
 		case "/v1/auth/token/revoke-accessor":
+			if r.Method != http.MethodPost && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "POST, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+				}
+				return
+			}
 			var body struct {
 				Accessor string `json:"accessor"`
 			}
@@ -81,11 +120,73 @@ func newSlowAccessorServerHook(t *testing.T, n int, match map[int]bool, sub stri
 			s.mu.Unlock()
 			w.WriteHeader(http.StatusNoContent)
 		default:
-			http.NotFound(w, r)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"errors":["not found"]}`))
+			}
 		}
 	}))
 	t.Cleanup(s.srv.Close)
 	return s
+}
+
+func TestOpenBaoLookupServerMethodGatingAndHEAD(t *testing.T) {
+	s := newSlowAccessorServerHook(t, 2, nil, "sub", 0, -1, nil)
+
+	// 1. HEAD /v1/auth/token/accessors returns 200 with 0 body bytes
+	headResp, err := http.Head(s.srv.URL + "/v1/auth/token/accessors")
+	if err != nil {
+		t.Fatalf("HEAD accessors failed: %v", err)
+	}
+	defer headResp.Body.Close()
+	if headResp.StatusCode != http.StatusOK {
+		t.Errorf("HEAD accessors status = %d, want 200", headResp.StatusCode)
+	}
+	headBytes, _ := io.ReadAll(headResp.Body)
+	if len(headBytes) != 0 {
+		t.Errorf("HEAD accessors body len = %d, want 0", len(headBytes))
+	}
+
+	// 2. POST /v1/auth/token/accessors returns 405 with Allow: GET, HEAD
+	postResp, err := http.Post(s.srv.URL+"/v1/auth/token/accessors", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST accessors failed: %v", err)
+	}
+	defer postResp.Body.Close()
+	if postResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("POST accessors status = %d, want 405", postResp.StatusCode)
+	}
+	if allow := postResp.Header.Get("Allow"); allow != "GET, HEAD" {
+		t.Errorf("POST accessors Allow = %q, want 'GET, HEAD'", allow)
+	}
+
+	// 3. GET /v1/auth/token/lookup-accessor returns 405 with Allow: POST, HEAD
+	getResp, err := http.Get(s.srv.URL + "/v1/auth/token/lookup-accessor")
+	if err != nil {
+		t.Fatalf("GET lookup-accessor failed: %v", err)
+	}
+	defer getResp.Body.Close()
+	if getResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("GET lookup-accessor status = %d, want 405", getResp.StatusCode)
+	}
+	if allow := getResp.Header.Get("Allow"); allow != "POST, HEAD" {
+		t.Errorf("GET lookup-accessor Allow = %q, want 'POST, HEAD'", allow)
+	}
+
+	// 4. HEAD /nonexistent returns 404 with 0 body bytes
+	headNotFound, err := http.Head(s.srv.URL + "/nonexistent")
+	if err != nil {
+		t.Fatalf("HEAD nonexistent failed: %v", err)
+	}
+	defer headNotFound.Body.Close()
+	if headNotFound.StatusCode != http.StatusNotFound {
+		t.Errorf("HEAD nonexistent status = %d, want 404", headNotFound.StatusCode)
+	}
+	notFoundBytes, _ := io.ReadAll(headNotFound.Body)
+	if len(notFoundBytes) != 0 {
+		t.Errorf("HEAD nonexistent body len = %d, want 0", len(notFoundBytes))
+	}
 }
 
 const lookupSub = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kusari-agent"

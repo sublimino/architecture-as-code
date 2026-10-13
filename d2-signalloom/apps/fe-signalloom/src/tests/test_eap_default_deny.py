@@ -314,7 +314,14 @@ class _RecordingUpstream(BaseHTTPRequestHandler):
             if self.command != "HEAD":
                 self.wfile.write(body)
             return
-        super().send_error(code, message, explain)
+        err_msg = message or (self.responses.get(code, ("error",))[0])
+        err_body = err_msg.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(err_body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(err_body)
 
     def log_message(self, *_: Any) -> None:  # keep pytest output clean
         return
@@ -395,6 +402,17 @@ def test_recording_upstream_head_and_method_gates(recording_upstream) -> None:
     ])
     mock_handler.end_headers.assert_called_once()
     assert mock_wfile.getvalue() == b""
+
+    # Verify HEAD suppresses body when send_error(500) executes
+    mock_handler_500 = mock.MagicMock(spec=_RecordingUpstream)
+    mock_handler_500.command = "HEAD"
+    mock_handler_500.responses = _RecordingUpstream.responses
+    mock_wfile_500 = io.BytesIO()
+    mock_handler_500.wfile = mock_wfile_500
+    _RecordingUpstream.send_error(mock_handler_500, 500, "internal error")
+    mock_handler_500.send_response.assert_called_once_with(500)
+    mock_handler_500.end_headers.assert_called_once()
+    assert mock_wfile_500.getvalue() == b""
 
 
 def test_telemetry_proxy_refuses_anonymous_locally_and_sends_only_the_gateway_key(recording_upstream) -> None:

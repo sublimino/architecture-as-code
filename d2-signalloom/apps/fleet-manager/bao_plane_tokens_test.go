@@ -58,13 +58,43 @@ func TestBaoPlane_TokenRevocationFailureIsNotContained(t *testing.T) {
 	// here is precisely the old defect: a live token behind a green plane.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/sys/leases/revoke" {
+			if r.Method != http.MethodPut && r.Method != http.MethodPost && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "PUT, POST, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"errors":["method not allowed"]}`))
+				}
+				return
+			}
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"errors":["storage unavailable"]}`))
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte(`{"errors":["storage unavailable"]}`))
+		}
 	}))
 	defer srv.Close()
+
+	// Verify HEAD request body suppression on 500 error path
+	headReq, err := http.NewRequestWithContext(context.Background(), http.MethodHead, srv.URL+"/v1/auth/token/accessors", nil)
+	if err != nil {
+		t.Fatalf("HEAD request failed: %v", err)
+	}
+	headResp, err := srv.Client().Do(headReq)
+	if err != nil {
+		t.Fatalf("HEAD request Do failed: %v", err)
+	}
+	defer headResp.Body.Close()
+	if headResp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("HEAD status = %d, want 500", headResp.StatusCode)
+	}
+	headBytes, _ := io.ReadAll(headResp.Body)
+	if len(headBytes) != 0 {
+		t.Errorf("expected 0 body bytes on HEAD 500, got %d", len(headBytes))
+	}
 
 	res, err := baoPlaneClient(t, srv.URL).revokeBaoPlane(context.Background(), testNamespace, "agent-cardvault", "k2")
 	if !errors.Is(err, ErrEnforcementUnavailable) {

@@ -6,6 +6,7 @@ package correlation
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -28,6 +29,15 @@ func TestUntrustedDelegationContainment(t *testing.T) {
 
 	// Mock Stun Sentinel HTTP Server
 	mockSentinel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"error":"method not allowed"}`))
+			}
+			return
+		}
 		atomic.AddUint32(&stunCalled, 1)
 		var req StunFreezeRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
@@ -35,15 +45,34 @@ func TestUntrustedDelegationContainment(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(StunFreezeResponse{
-			Frozen:    true,
-			PodName:   req.PodName,
-			LatencyMS: 12.5,
-			Polls:     1,
-			PIDs:      []int{4102, 4103},
-		})
+		if r.Method != http.MethodHead {
+			_ = json.NewEncoder(w).Encode(StunFreezeResponse{
+				Frozen:    true,
+				PodName:   req.PodName,
+				LatencyMS: 12.5,
+				Polls:     1,
+				PIDs:      []int{4102, 4103},
+			})
+		}
 	}))
 	defer mockSentinel.Close()
+
+	// Verify HEAD request is rejected with 405 Method Not Allowed and 0 body bytes
+	headResp, err := http.Head(mockSentinel.URL + "/api/v1/containment/stun")
+	if err != nil {
+		t.Fatalf("HEAD to mockSentinel failed: %v", err)
+	}
+	defer headResp.Body.Close()
+	if headResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 on HEAD, got %d", headResp.StatusCode)
+	}
+	if allow := headResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow 'POST', got %q", allow)
+	}
+	headBytes, _ := io.ReadAll(headResp.Body)
+	if len(headBytes) != 0 {
+		t.Errorf("expected 0 body bytes on HEAD, got %d", len(headBytes))
+	}
 
 	metrics := NewQuarantineMetrics()
 	stunClient := NewHTTPStunClient(StunClientOptions{
@@ -159,10 +188,22 @@ func TestUntrustedDelegationContainment(t *testing.T) {
 // the estate runs Go benchmarks.
 func BenchmarkUntrustedDelegationContainment(b *testing.B) {
 	mockSentinel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"error":"method not allowed"}`))
+			}
+			return
+		}
 		var req StunFreezeRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(StunFreezeResponse{Frozen: true, PodName: req.PodName, Polls: 1})
+		w.WriteHeader(http.StatusOK)
+		if r.Method != http.MethodHead {
+			_ = json.NewEncoder(w).Encode(StunFreezeResponse{Frozen: true, PodName: req.PodName, Polls: 1})
+		}
 	}))
 	defer mockSentinel.Close()
 
@@ -403,10 +444,21 @@ func TestQuarantine_BaselineExemptions(t *testing.T) {
 func TestQuarantine_DebounceRateLimiting(t *testing.T) {
 	var callCount int32
 	mockSentinel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"error":"method not allowed"}`))
+			}
+			return
+		}
 		atomic.AddInt32(&callCount, 1)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(StunFreezeResponse{Frozen: true})
+		if r.Method != http.MethodHead {
+			_ = json.NewEncoder(w).Encode(StunFreezeResponse{Frozen: true})
+		}
 	}))
 	defer mockSentinel.Close()
 

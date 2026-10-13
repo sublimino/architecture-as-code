@@ -50,31 +50,60 @@ func TestLLMEndpointFormat(t *testing.T) {
 	var receivedPath string
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedPath = r.URL.Path
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"error":{"message":"method not allowed"}}`))
+			}
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(openAIChatResponse{
-			ID:     "chatcmpl-test",
-			Object: "chat.completion",
-			Choices: []struct {
-				Index   int `json:"index"`
-				Message struct {
-					Role    string `json:"role"`
-					Content string `json:"content"`
-				} `json:"message"`
-			}{
-				{
-					Index:   0,
-					Message: struct {
+		w.WriteHeader(http.StatusOK)
+		if r.Method != http.MethodHead {
+			_ = json.NewEncoder(w).Encode(openAIChatResponse{
+				ID:     "chatcmpl-test",
+				Object: "chat.completion",
+				Choices: []struct {
+					Index   int `json:"index"`
+					Message struct {
 						Role    string `json:"role"`
 						Content string `json:"content"`
-					}{Role: "assistant", Content: "Hello"},
+					} `json:"message"`
+				}{
+					{
+						Index:   0,
+						Message: struct {
+							Role    string `json:"role"`
+							Content string `json:"content"`
+						}{Role: "assistant", Content: "Hello"},
+					},
 				},
-			},
-		})
+			})
+		}
 	}))
 	defer mock.Close()
 
 	// The expected endpoint path for OpenAI-compatible APIs.
 	expectedPath := "/v1/chat/completions"
+
+	// Verify HEAD request is rejected with 405 Method Not Allowed and 0 body bytes
+	headResp, err := http.Head(mock.URL + expectedPath)
+	if err != nil {
+		t.Fatalf("HEAD request failed: %v", err)
+	}
+	defer headResp.Body.Close()
+	if headResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 on HEAD, got %d", headResp.StatusCode)
+	}
+	if allow := headResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow 'POST', got %q", allow)
+	}
+	headBytes, _ := io.ReadAll(headResp.Body)
+	if len(headBytes) != 0 {
+		t.Errorf("expected 0 body bytes on HEAD, got %d", len(headBytes))
+	}
 
 	// Simulate what the executor would call: POST to LLM_ENDPOINT + path.
 	resp, err := http.Post(mock.URL+expectedPath, "application/json",
@@ -96,25 +125,37 @@ func TestLLMRequestShape(t *testing.T) {
 	// Verify the request body includes model, messages, and max_tokens.
 	var received openAIChatRequest
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"error":{"message":"method not allowed"}}`))
+			}
+			return
+		}
 		body, _ := io.ReadAll(r.Body)
 		json.Unmarshal(body, &received)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(openAIChatResponse{
-			ID:     "chatcmpl-test",
-			Object: "chat.completion",
-			Choices: []struct {
-				Index   int `json:"index"`
-				Message struct {
-					Role    string `json:"role"`
-					Content string `json:"content"`
-				} `json:"message"`
-			}{
-				{Index: 0, Message: struct {
-					Role    string `json:"role"`
-					Content string `json:"content"`
-				}{Role: "assistant", Content: "done"}},
-			},
-		})
+		w.WriteHeader(http.StatusOK)
+		if r.Method != http.MethodHead {
+			_ = json.NewEncoder(w).Encode(openAIChatResponse{
+				ID:     "chatcmpl-test",
+				Object: "chat.completion",
+				Choices: []struct {
+					Index   int `json:"index"`
+					Message struct {
+						Role    string `json:"role"`
+						Content string `json:"content"`
+					} `json:"message"`
+				}{
+					{Index: 0, Message: struct {
+						Role    string `json:"role"`
+						Content string `json:"content"`
+					}{Role: "assistant", Content: "done"}},
+				},
+			})
+		}
 	}))
 	defer mock.Close()
 
@@ -158,32 +199,44 @@ func TestLLMRequestShape(t *testing.T) {
 func TestLLMResponseParsing(t *testing.T) {
 	// Verify the response parser handles the OpenAI completion format.
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"error":{"message":"method not allowed"}}`))
+			}
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(openAIChatResponse{
-			ID:     "chatcmpl-abc123",
-			Object: "chat.completion",
-			Choices: []struct {
-				Index   int `json:"index"`
-				Message struct {
-					Role    string `json:"role"`
-					Content string `json:"content"`
-				} `json:"message"`
-			}{
-				{Index: 0, Message: struct {
-					Role    string `json:"role"`
-					Content string `json:"content"`
-				}{Role: "assistant", Content: "Here is the fix:\n```go\nfmt.Println(\"fixed\")\n```"}},
-			},
-			Usage: struct {
-				PromptTokens     int `json:"prompt_tokens"`
-				CompletionTokens int `json:"completion_tokens"`
-				TotalTokens      int `json:"total_tokens"`
-			}{
-				PromptTokens:     100,
-				CompletionTokens: 50,
-				TotalTokens:      150,
-			},
-		})
+		w.WriteHeader(http.StatusOK)
+		if r.Method != http.MethodHead {
+			_ = json.NewEncoder(w).Encode(openAIChatResponse{
+				ID:     "chatcmpl-abc123",
+				Object: "chat.completion",
+				Choices: []struct {
+					Index   int `json:"index"`
+					Message struct {
+						Role    string `json:"role"`
+						Content string `json:"content"`
+					} `json:"message"`
+				}{
+					{Index: 0, Message: struct {
+						Role    string `json:"role"`
+						Content string `json:"content"`
+					}{Role: "assistant", Content: "Here is the fix:\n```go\nfmt.Println(\"fixed\")\n```"}},
+				},
+				Usage: struct {
+					PromptTokens     int `json:"prompt_tokens"`
+					CompletionTokens int `json:"completion_tokens"`
+					TotalTokens      int `json:"total_tokens"`
+				}{
+					PromptTokens:     100,
+					CompletionTokens: 50,
+					TotalTokens:      150,
+				},
+			})
+		}
 	}))
 	defer mock.Close()
 
@@ -242,9 +295,20 @@ func TestLLMErrorHandling(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					w.Header().Set("Allow", "POST")
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					if r.Method != http.MethodHead {
+						_, _ = w.Write([]byte(`{"error":{"message":"method not allowed"}}`))
+					}
+					return
+				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(tc.statusCode)
-				w.Write([]byte(tc.body))
+				if r.Method != http.MethodHead {
+					w.Write([]byte(tc.body))
+				}
 			}))
 			defer mock.Close()
 
@@ -300,6 +364,15 @@ func TestAnthropicMessagesAPIFormat(t *testing.T) {
 	// shapes differ from OpenAI. Verify the contract.
 	var received anthropicRequest
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(`{"error":{"type":"not_allowed","message":"method not allowed"}}`))
+			}
+			return
+		}
 		body, _ := io.ReadAll(r.Body)
 		json.Unmarshal(body, &received)
 
@@ -310,26 +383,46 @@ func TestAnthropicMessagesAPIFormat(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(anthropicResponse{
-			ID:   "msg-test-123",
-			Type: "message",
-			Role: "assistant",
-			Content: []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			}{
-				{Type: "text", Text: "Here is the fix."},
-			},
-			Usage: struct {
-				InputTokens  int `json:"input_tokens"`
-				OutputTokens int `json:"output_tokens"`
-			}{
-				InputTokens:  100,
-				OutputTokens: 50,
-			},
-		})
+		w.WriteHeader(http.StatusOK)
+		if r.Method != http.MethodHead {
+			_ = json.NewEncoder(w).Encode(anthropicResponse{
+				ID:   "msg-test-123",
+				Type: "message",
+				Role: "assistant",
+				Content: []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				}{
+					{Type: "text", Text: "Here is the fix."},
+				},
+				Usage: struct {
+					InputTokens  int `json:"input_tokens"`
+					OutputTokens int `json:"output_tokens"`
+				}{
+					InputTokens:  100,
+					OutputTokens: 50,
+				},
+			})
+		}
 	}))
 	defer mock.Close()
+
+	// Verify HEAD request is rejected with 405 Method Not Allowed and 0 body bytes
+	headResp, err := http.Head(mock.URL + "/v1/messages")
+	if err != nil {
+		t.Fatalf("HEAD request failed: %v", err)
+	}
+	defer headResp.Body.Close()
+	if headResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 on HEAD, got %d", headResp.StatusCode)
+	}
+	if allow := headResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("expected Allow 'POST', got %q", allow)
+	}
+	headBytes, _ := io.ReadAll(headResp.Body)
+	if len(headBytes) != 0 {
+		t.Errorf("expected 0 body bytes on HEAD, got %d", len(headBytes))
+	}
 
 	reqBody := anthropicRequest{
 		Model: "claude-sonnet-4-20250514",

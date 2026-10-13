@@ -35,6 +35,15 @@ setup() {
 	REGISTRY_POLICY="$REPO_ROOT/policy/cel/require-trusted-registry.yaml"
 	DIGEST_POLICY="$REPO_ROOT/policy/cel/require-image-digest.yaml"
 	DEMO_BINDINGS="$REPO_ROOT/policy/cel/admission-demo-bindings.yaml"
+	local gopath="${GOPATH:-}"
+	if [ "$gopath" = "/usr/local/src/gocode" ] || [ -z "$gopath" ]; then
+		gopath=/tmp/gopath
+	fi
+	export GOPATH="$gopath"
+	export GOCACHE="${GOCACHE:-/tmp/gocache}"
+	export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+	export GONOSUMDB="*"
+	mkdir -p "$GOPATH" "$GOCACHE" "$GOMODCACHE"
 }
 
 # code_of strips whole-line `#` comments so assertions about what a file

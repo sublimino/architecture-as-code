@@ -179,17 +179,47 @@ func TestTasksSubmission_ValidationAndGates(t *testing.T) {
 		{
 			name:    "path traversal in branch",
 			payload: TaskRequest{Repo: "https://github.com/example/repo.git", Branch: "../../../root", Instruction: "Fix bug"},
-			errMsg:  "branch cannot contain path traversal or reflog syntax",
+			errMsg:  "path traversal",
 		},
 		{
 			name:    "reflog injection in branch",
 			payload: TaskRequest{Repo: "https://github.com/example/repo.git", Branch: "main@{1}", Instruction: "Fix bug"},
-			errMsg:  "branch cannot contain path traversal or reflog syntax",
+			errMsg:  "reflog syntax",
 		},
 		{
 			name:    "double slashes in branch",
 			payload: TaskRequest{Repo: "https://github.com/example/repo.git", Branch: "feature//branch", Instruction: "Fix bug"},
-			errMsg:  "branch cannot contain path traversal or reflog syntax",
+			errMsg:  "path traversal",
+		},
+		{
+			name:    "HEAD branch injection",
+			payload: TaskRequest{Repo: "https://github.com/example/repo.git", Branch: "HEAD", Instruction: "Fix bug"},
+			errMsg:  "branch cannot be HEAD",
+		},
+		{
+			name:    "hidden component in branch",
+			payload: TaskRequest{Repo: "https://github.com/example/repo.git", Branch: "feature/.hidden", Instruction: "Fix bug"},
+			errMsg:  "hidden components",
+		},
+		{
+			name:    "trailing dot in branch",
+			payload: TaskRequest{Repo: "https://github.com/example/repo.git", Branch: "feature/branch.", Instruction: "Fix bug"},
+			errMsg:  "branch cannot end with slash, dot, or .lock",
+		},
+		{
+			name:    "trailing slash in branch",
+			payload: TaskRequest{Repo: "https://github.com/example/repo.git", Branch: "feature/branch/", Instruction: "Fix bug"},
+			errMsg:  "branch cannot end with slash, dot, or .lock",
+		},
+		{
+			name:    "trailing lock in branch",
+			payload: TaskRequest{Repo: "https://github.com/example/repo.git", Branch: "feature/branch.lock", Instruction: "Fix bug"},
+			errMsg:  "branch cannot end with slash, dot, or .lock",
+		},
+		{
+			name:    "invalid characters in branch",
+			payload: TaskRequest{Repo: "https://github.com/example/repo.git", Branch: "feature;rm-rf", Instruction: "Fix bug"},
+			errMsg:  "branch contains invalid characters",
 		},
 	}
 

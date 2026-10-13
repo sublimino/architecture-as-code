@@ -178,6 +178,9 @@ func main() {
 		Addr:              ":8085",
 		Handler:           srv,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -320,6 +323,11 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	})
 
 	getWorkspaceHandler := func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+		}()
+
 		tenant, err := extractTenant(r)
 		if err != nil {
 			writeError(w, http.StatusForbidden, err.Error())
@@ -348,6 +356,11 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	mux.HandleFunc("HEAD /workspaces/{id}", getWorkspaceHandler)
 
 	mux.HandleFunc("DELETE /workspaces/{id}", func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+		}()
+
 		tenant, err := extractTenant(r)
 		if err != nil {
 			writeError(w, http.StatusForbidden, err.Error())
@@ -437,6 +450,11 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	})
 
 	listWorkspacesHandler := func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+		}()
+
 		tenant, err := extractTenant(r)
 		if err != nil {
 			writeError(w, http.StatusForbidden, err.Error())

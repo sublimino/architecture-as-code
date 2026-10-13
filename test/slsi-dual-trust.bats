@@ -100,19 +100,18 @@ teardown() {
   [ "$(jq -r '.appliance_mode' "${record}")" = "attached" ]
 }
 
-@test "policy/kyverno-verify-images.yaml defines admission policy across tenant scopes" {
-  local policy_file="policy/kyverno-verify-images.yaml"
+@test "CEL ValidatingAdmissionPolicy defines admission policy across tenant scopes" {
+  local policy_file="policy/cel/require-trusted-registry.yaml"
   [ -f "${policy_file}" ]
 
-  # Verify Kyverno policy presence and scope
-  run grep -E "kind: ClusterPolicy" "${policy_file}"
-  [ "$status" -eq 0 ]
-  run grep -E "validationFailureAction: Enforce" "${policy_file}"
-  [ "$status" -eq 0 ]
-  run grep -E "tenant-\*" "${policy_file}"
-  [ "$status" -eq 0 ]
-
-  # Verify CEL ValidatingAdmissionPolicy presence
+  # Verify CEL ValidatingAdmissionPolicy presence and enforcement configuration
   run grep -E "kind: ValidatingAdmissionPolicy" "${policy_file}"
   [ "$status" -eq 0 ]
+  run grep -E "failurePolicy: Fail" "${policy_file}"
+  [ "$status" -eq 0 ]
+  run grep -E "zot\.registry\.svc\.cluster\.local" "${policy_file}"
+  [ "$status" -eq 0 ]
+
+  # Verify unbundled Kyverno policy is deprecated and absent
+  [ ! -e "policy/kyverno-verify-images.yaml" ]
 }

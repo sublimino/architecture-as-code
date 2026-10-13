@@ -1039,7 +1039,7 @@ EOF
     "secret_namespace": "flux-system"
   },
   "image_admission": {
-    "policy_file": "policy/kyverno-verify-images.yaml",
+    "policy_file": "policy/cel/require-trusted-registry.yaml",
     "action": "Enforce",
     "modes_supported": [
       "static-key",

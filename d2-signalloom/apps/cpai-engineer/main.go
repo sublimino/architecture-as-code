@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -65,19 +66,30 @@ func validateRepo(repo string) error {
 	return nil
 }
 
+var branchRegex = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_\-\.\/]*$`)
+
 func validateBranch(branch string) error {
 	branch = strings.TrimSpace(branch)
 	if branch == "" {
 		return nil
 	}
+	if len(branch) > 255 {
+		return errors.New("branch name must be 255 characters or fewer")
+	}
 	if strings.HasPrefix(branch, "-") {
 		return errors.New("branch cannot start with a dash")
 	}
-	if strings.Contains(branch, "..") || strings.Contains(branch, "@{") || strings.Contains(branch, "//") {
-		return errors.New("branch cannot contain path traversal or reflog syntax")
+	if branch == "HEAD" {
+		return errors.New("branch cannot be HEAD")
 	}
-	if len(branch) > 255 {
-		return errors.New("branch name must be 255 characters or fewer")
+	if strings.Contains(branch, "..") || strings.Contains(branch, "@{") || strings.Contains(branch, "//") || strings.Contains(branch, "/.") || strings.Contains(branch, ".lock/") {
+		return errors.New("branch cannot contain path traversal, reflog syntax, hidden components, or .lock components")
+	}
+	if strings.HasSuffix(branch, "/") || strings.HasSuffix(branch, ".lock") || strings.HasSuffix(branch, ".") {
+		return errors.New("branch cannot end with slash, dot, or .lock")
+	}
+	if !branchRegex.MatchString(branch) {
+		return errors.New("branch contains invalid characters")
 	}
 	return nil
 }
@@ -112,6 +124,9 @@ func main() {
 		Addr:              ":8084",
 		Handler:           srv,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)

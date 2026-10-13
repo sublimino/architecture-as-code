@@ -26,13 +26,17 @@ d2-signalloom/apps/signal-ingest/api/tenancy_grants.go
 d2-signalloom/apps/signal-ingest/base/deployment.yaml
 d2-signalloom/apps/signal-ingest/collectors/ebpf/collector.go
 d2-signalloom/apps/signal-ingest/collectors/ebpf/doc.go
+d2-signalloom/apps/signal-ingest/collectors/ebpf/endpoint.go
 d2-signalloom/apps/signal-ingest/collectors/fixtures.go
+d2-signalloom/apps/signal-ingest/collectors/ebpf/fixtures_endpoint.go
+d2-signalloom/apps/signal-ingest/collectors/ebpf/package_test.go
 d2-signalloom/apps/signal-ingest/correlation/containment_test.go
 d2-signalloom/apps/signal-ingest/correlation/metrics.go
 d2-signalloom/apps/signal-ingest/correlation/quarantine.go
 d2-signalloom/apps/signal-ingest/correlation/stun_client.go
 d2-signalloom/apps/signal-ingest/deploy/jwt-auth-config.yaml
 d2-signalloom/apps/signal-ingest/deploy_render_test.go
+d2-signalloom/apps/signal-ingest/e2e/coverage_matrix_test.go
 d2-signalloom/apps/signal-ingest/identity/migrations/004_delegation_revocation.sql
 d2-signalloom/apps/signal-ingest/identity/revocation_test.go
 d2-signalloom/apps/signal-ingest/identity/stun_client.go

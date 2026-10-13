@@ -26,12 +26,38 @@ d2-signalloom/AGENTS.md:apps/stun-sentinel # R3 library module directory path li
 d2-signalloom/AGENTS.md:apps/signalloom-stun-sentinel # pre-migration daemon app directory link
 d2-signalloom/apps/fleet-manager/Dockerfile:stun-sentinel # R3 go-module directory (apps/stun-sentinel) copied into the fleet-manager build context; the rename kept the module path
 scripts/sentinel-image-tag.sh:stun-sentinel # image-input defaults name the R3 go-module directories apps/stun-sentinel and apps/signalloom-stun-sentinel (same paths d2-signalloom/Makefile carries)
-docs/EAP/enforcement.md # EAP pilot docs link to source directories and Secret names that still carry the old probe name (rename after ADR-07 is a separate card); added when docs/kusari moved to docs/EAP
-docs/EAP/faq-and-limits.md # EAP pilot docs link to source directories and Secret names that still carry the old probe name (rename after ADR-07 is a separate card); added when docs/kusari moved to docs/EAP
-docs/EAP/README.md # EAP pilot docs link to source directories and Secret names that still carry the old probe name (rename after ADR-07 is a separate card); added when docs/kusari moved to docs/EAP
-docs/EAP/secondary-cluster.md # EAP pilot docs link to source directories and Secret names that still carry the old probe name (rename after ADR-07 is a separate card); added when docs/kusari moved to docs/EAP
+docs/EAP/ # EAP pilot docs link to legacy source directories and document live stun-sentinel eBPF stream contract
 d2-signalloom/apps/fleet-manager/cmd/resume-token/main.go:stun-sentinel # Go import of the R3 module path apps/stun-sentinel/pkg/auth (the resume-token signer)
 d2-signalloom/apps/fleet-manager/cmd/resume-token/main_test.go:stun-sentinel # Go import of the R3 module path apps/stun-sentinel/pkg/auth
 d2-signalloom/apps/fleet-manager/resume_token_cli_compat_test.go:stun-sentinel # Go import of the R3 module path apps/stun-sentinel/pkg/auth
 test/fixtures/test-isolation-allowlist.txt # SLAWS isolation audit allow-list records per-file reasons and so carries the R3 module paths apps/stun-sentinel and apps/signalloom-stun-sentinel
 scripts/vacuous-assertions.allow:stun-sentinel # vacuous-assertions allow-list records three VAC008 exceptions anchored on d2-signalloom/apps/stun-sentinel/bpf/build.sh, the R3 go-module directory
+docs/README.md:Proposal # historical proposal titles in decision records index
+d2-signalloom/AGENTS.md:stun-sentinel in-kernel eBPF endpoint telemetry # live in-kernel eBPF stream description
+policy/bundles/kusari/endpoint-runtime.yaml:stun-sentinel # live in-kernel eBPF stream source contract
+policy/bundles/kusari/network-egress.yaml:stun-sentinel # live network-egress threat bundle stream reference
+d2-signalloom/apps/policy-engine/base/bundles-configmap.yaml:stun-sentinel # rendered Kusari bundles carrying live in-kernel eBPF stream contract
+d2-signalloom/apps/policy-engine/observations_test.go # tests for live in-kernel eBPF stream source
+d2-signalloom/apps/signal-ingest/policy/actor_identity_test.go:stun-sentinel # tests for live in-kernel eBPF stream actor scoping
+.github/workflows/warden-ebpf-multi-kernel.yaml:stun-sentinel # eBPF kernel build matrix targeting retained apps/stun-sentinel library module
+d2-signalloom/apps/docs-signalloom/src/content/docs/reference/test-suites.md:stun-sentinel # documentation referencing retained apps/stun-sentinel library module
+scripts/slaws-slaat-permutation-matrix.sh:stun-sentinel # test matrix executing retained apps/stun-sentinel library module tests
+test/cgroup-freeze-stun.bats:stun-sentinel # tests targeting retained apps/stun-sentinel library module
+test/crkc-phase1-unified-stun.bats:stun-sentinel # build test targeting retained apps/stun-sentinel library module
+docs/flux-coverage-exceptions.yaml:stun-sentinel # path exception for retained apps/stun-sentinel deploy manifest
+d2-signalloom/test/sentinel-containment.bats:signalloom-stun-sentinel # preflight fallback path for unmigrated branch
+d2-signalloom/test/sentinel-evidence.bats:signalloom-stun-sentinel # preflight fallback path for unmigrated branch
+d2-signalloom/apps/dashboard-signalloom/src/api/policyApi.ts:stun-sentinel # constant for live in-kernel eBPF stream source
+d2-signalloom/apps/dashboard-signalloom/src/components/AgentActivityTab.tsx:stun-sentinel # UI filter and badge for live in-kernel eBPF stream source
+d2-signalloom/apps/dashboard-signalloom/src/components/AgentActivityTab.test.tsx:stun-sentinel # tests for live in-kernel eBPF stream UI badge
+d2-signalloom/apps/dashboard-signalloom/src/components/agents/ClaimModal.tsx:stun-sentinel # UI telemetry description for live in-kernel eBPF stream
+d2-signalloom/apps/dashboard-signalloom/src/components/onboarding/ContainmentPolicyConsentStep.tsx:stun-sentinel # UI policy step referencing live in-kernel eBPF stream
+d2-signalloom/apps/dashboard-signalloom/src/components/signals/ObservationFeed.tsx:stun-sentinel # observation feed component filtering live in-kernel eBPF stream
+d2-signalloom/apps/dashboard-signalloom/src/pages/FeedsExplorerPage.tsx:stun-sentinel # feeds explorer UI page filtering live in-kernel eBPF stream
+d2-signalloom/apps/dashboard-signalloom/src/pages/FeedsExplorerPage.test.tsx:stun-sentinel # tests for feeds explorer filtering live in-kernel eBPF stream
+d2-signalloom/apps/dashboard-signalloom/src/pages/SignalsPage.test.tsx:stun-sentinel # tests for signals page displaying live in-kernel eBPF stream
+d2-signalloom/apps/docs-signalloom/src/content/docs/agents/dual-agent-onboarding.mdx:stun-sentinel # user documentation for live in-kernel eBPF stream
+d2-signalloom/apps/docs-signalloom/src/content/docs/operate/detection-coverage.mdx:stun-sentinel # detection coverage documentation for live in-kernel eBPF stream
+d2-signalloom/apps/kusari-agent/README.md:stun-sentinel # kusari agent documentation for live in-kernel eBPF stream
+docs/osramp-component-flows.html:stun-sentinel # component flow diagram documenting live in-kernel eBPF stream
+test/acceptance/agent-claim.spec.ts:stun-sentinel # acceptance test asserting live in-kernel eBPF stream telemetry

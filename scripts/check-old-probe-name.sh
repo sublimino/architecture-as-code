@@ -78,7 +78,7 @@ if [ -f "$DOCS_LINT_SCRIPT" ]; then
 fi
 
 # Read tracked files count
-FILE_COUNT="$(git -C "$ROOT" ls-files | wc -l | tr -d ' ')"
+FILE_COUNT="$(git -c core.quotepath=false -C "$ROOT" ls-files | wc -l | tr -d ' ')"
 
 if [ "$FILE_COUNT" -eq 0 ]; then
 	echo "CANNOT SCAN: zero tracked files in $ROOT" >&2
@@ -148,7 +148,7 @@ FINAL_FINDINGS="$TMP_DIR/final_findings.txt"
 # 1. Scan tracked file paths
 (
 	cd "$ROOT"
-	git ls-files | rg -i -e "$SEARCH_PAT" | while IFS= read -r f; do
+	git -c core.quotepath=false ls-files | rg -i -e "$SEARCH_PAT" | while IFS= read -r f; do
 		printf '%s:1: [path-match] %s\n' "$f" "$f"
 	done >> "$RAW_FINDINGS" || true
 )
@@ -156,7 +156,9 @@ FINAL_FINDINGS="$TMP_DIR/final_findings.txt"
 # 2. Scan tracked file contents
 (
 	cd "$ROOT"
-	git ls-files -z | xargs -0 rg -n -i -e "$SEARCH_PAT" --path-separator / -- >> "$RAW_FINDINGS" 2>/dev/null || true
+	git -c core.quotepath=false ls-files -z | while IFS= read -r -d '' f; do
+		[ ! -d "$f" ] && printf '%s\0' "$f"
+	done | xargs -0 rg -n -i -e "$SEARCH_PAT" --path-separator / -- >> "$RAW_FINDINGS" 2>/dev/null || true
 )
 
 # Process raw findings and apply filters

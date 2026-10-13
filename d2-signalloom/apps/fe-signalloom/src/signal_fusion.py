@@ -9,12 +9,12 @@ from __future__ import annotations
 import logging
 import os
 import urllib.parse
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, Depends, Query
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from api_compat import APIError, Principal, _audit_outbound_request, authenticated_principal
 from cross_tenant_audit import audit_cross_tenant_read
@@ -29,19 +29,32 @@ _SIGNAL_INGEST_URL = os.getenv("SIGNAL_INGEST_URL", "http://signal-ingest:8082")
 _TIMEOUT = 10.0
 
 
-async def _proxy(method: str, path: str, principal: Principal, *, write: bool = False, **kwargs: Any) -> JSONResponse:
+async def _proxy(
+    method: str,
+    path: str,
+    principal: Principal,
+    *,
+    write: bool = False,
+    request: Request | None = None,
+    **kwargs: Any,
+) -> Response:
     """Forward a request to signal-ingest as the gateway, acting for ``principal``'s tenant.
 
     The headers are built before the request so a missing gateway key is its own 503, never
     folded into the generic 502 below and never sent as an anonymous request.
     """
+    if request is not None and getattr(request, "method", None):
+        method = request.method
     headers = ingest_headers(principal, write=write)
     try:
         async with httpx.AsyncClient(
             base_url=_SIGNAL_INGEST_URL, timeout=_TIMEOUT
         ) as client:
             resp = await client.request(method, path, headers=headers, **kwargs)
-            content = resp.json()
+            if resp.status_code in (204, 205, 304) or method == "HEAD":
+                content = None
+            else:
+                content = resp.json()
     except httpx.ConnectError as exc:
         logger.warning("signal-ingest service unreachable at %s", _SIGNAL_INGEST_URL)
         raise APIError(
@@ -58,11 +71,35 @@ async def _proxy(method: str, path: str, principal: Principal, *, write: bool = 
         raise APIError(
             502, "upstream_unavailable", "signal-ingest closed the connection without a response (restarting?)"
         ) from exc
+    except APIError:
+        raise
     except Exception as exc:
         logger.exception("signal-ingest proxy error: %s %s", method, path)
         raise APIError(
             502, "upstream_unavailable", "signal-ingest proxy error"
         ) from exc
+
+    # Collect upstream headers to propagate per RFC 9110
+    from collections.abc import Mapping
+
+    forwarded_headers: dict[str, str] = {}
+    resp_headers_map: dict[str, str] = {}
+    headers_obj = getattr(resp, "headers", None)
+    if isinstance(headers_obj, Mapping):
+        resp_headers_map = {str(k).lower(): str(v) for k, v in headers_obj.items()}
+    for header_key in ("allow", "etag", "location", "x-tenant-id", "retry-after", "x-request-id"):
+        if header_key in resp_headers_map:
+            forwarded_headers[header_key] = resp_headers_map[header_key]
+
+    # For 204 No Content, 205 Reset Content, 304 Not Modified, HEAD requests, return Response directly without body
+    if resp.status_code in (204, 205, 304) or method == "HEAD" or content is None:
+        if "content-type" in resp_headers_map and resp.status_code not in (204, 205, 304):
+            forwarded_headers["content-type"] = resp_headers_map["content-type"]
+        return Response(
+            status_code=resp.status_code,
+            content=b"",
+            headers=forwarded_headers,
+        )
 
     if not write and 200 <= resp.status_code < 300:
         # Gated on `write`, not just the response: a write always acts for the caller's own
@@ -73,7 +110,7 @@ async def _proxy(method: str, path: str, principal: Principal, *, write: bool = 
         await audit_cross_tenant_read(
             principal, f"{method} {path}", content, what=f"Reading {path} cross-tenant",
         )
-    return JSONResponse(status_code=resp.status_code, content=content)
+    return JSONResponse(status_code=resp.status_code, content=content, headers=forwarded_headers)
 
 
 @router.get("/observations")
@@ -83,7 +120,8 @@ async def get_observations(
     limit: int = Query(default=100, ge=1, le=1000),
     after: str | None = None,
     before: str | None = None,
-) -> JSONResponse:
+    request: Request = None,
+) -> Response:
     """List signal observations from the columnar store."""
     params: dict[str, Any] = {"limit": limit}
     if layer:
@@ -92,7 +130,7 @@ async def get_observations(
         params["after"] = after
     if before:
         params["before"] = before
-    return await _proxy("GET", "/api/v1/observations", principal, params=params)
+    return await _proxy("GET", "/api/v1/observations", principal, params=params, request=request)
 
 
 
@@ -165,19 +203,21 @@ async def stream_observations(
 @router.get("/actors")
 async def get_actors(
     principal: Annotated[Principal, Depends(authenticated_principal)],
-) -> JSONResponse:
+    request: Request = None,
+) -> Response:
     """List provisional actors."""
-    return await _proxy("GET", "/api/v1/actors", principal)
+    return await _proxy("GET", "/api/v1/actors", principal, request=request)
 
 
 @router.get("/actors/{actor_id}")
 async def get_actor(
     actor_id: str,
     principal: Annotated[Principal, Depends(authenticated_principal)],
-) -> JSONResponse:
+    request: Request = None,
+) -> Response:
     """Get a single provisional actor with evidence chain."""
     quoted = urllib.parse.quote(actor_id, safe="")
-    return await _proxy("GET", f"/api/v1/actors/{quoted}", principal)
+    return await _proxy("GET", f"/api/v1/actors/{quoted}", principal, request=request)
 
 
 @router.get("/actors/{actor_id}/authorization")
@@ -185,13 +225,14 @@ async def get_actor_authorization(
     actor_id: str,
     principal: Annotated[Principal, Depends(authenticated_principal)],
     action: str | None = None,
-) -> JSONResponse:
+    request: Request = None,
+) -> Response:
     """Get authorization chain for an actor."""
     params: dict[str, Any] = {}
     if action:
         params["action"] = action
     quoted = urllib.parse.quote(actor_id, safe="")
-    return await _proxy("GET", f"/api/v1/actors/{quoted}/authorization", principal, params=params)
+    return await _proxy("GET", f"/api/v1/actors/{quoted}/authorization", principal, params=params, request=request)
 
 
 @router.get("/authorization")
@@ -199,14 +240,15 @@ async def query_authorization(
     principal: Annotated[Principal, Depends(authenticated_principal)],
     actor_id: str | None = None,
     action: str | None = None,
-) -> JSONResponse:
+    request: Request = None,
+) -> Response:
     """Query authorization chains estate-wide or filtered."""
     params: dict[str, Any] = {}
     if actor_id:
         params["actor_id"] = actor_id
     if action:
         params["action"] = action
-    return await _proxy("GET", "/api/v1/authorization", principal, params=params)
+    return await _proxy("GET", "/api/v1/authorization", principal, params=params, request=request)
 
 
 #: Event type admitted by migration 055.
@@ -217,7 +259,7 @@ EVENT_ACTOR_PROMOTE = "actor.promote_requested"
 async def promote_actor(
     actor_id: str,
     principal: Annotated[Principal, Depends(require_superadmin)],
-) -> JSONResponse:
+) -> Response:
     """Promote a provisional actor to the agent registry. Superadmin only.
 
     Promotion is the Weave's highest-stakes decision: it turns a provisional
@@ -243,15 +285,16 @@ async def promote_actor(
 @router.get("/coverage")
 async def get_coverage(
     principal: Annotated[Principal, Depends(authenticated_principal)],
-) -> JSONResponse:
+    request: Request = None,
+) -> Response:
     """Get signal coverage across observation layers."""
-    return await _proxy("GET", "/api/v1/coverage", principal)
+    return await _proxy("GET", "/api/v1/coverage", principal, request=request)
 
 
 @router.post("/correlate")
 async def run_correlation(
     principal: Annotated[Principal, Depends(authenticated_principal)],
-) -> JSONResponse:
+) -> Response:
     """Trigger a correlation engine run."""
     return await _proxy("POST", "/api/v1/correlate", principal)
 
@@ -259,15 +302,16 @@ async def run_correlation(
 @router.get("/store/stats")
 async def get_store_stats(
     principal: Annotated[Principal, Depends(authenticated_principal)],
-) -> JSONResponse:
+    request: Request = None,
+) -> Response:
     """Get store diagnostics — observation counts, actor stats, store type."""
-    return await _proxy("GET", "/api/v1/store/stats", principal)
+    return await _proxy("GET", "/api/v1/store/stats", principal, request=request)
 
 
 @router.post("/collectors/seed")
 async def seed_collectors(
     principal: Annotated[Principal, Depends(authenticated_principal)],
-) -> JSONResponse:
+) -> Response:
     """Seed the signal collectors with initial data."""
     return await _proxy("POST", "/api/v1/collectors/seed", principal, write=True)
 

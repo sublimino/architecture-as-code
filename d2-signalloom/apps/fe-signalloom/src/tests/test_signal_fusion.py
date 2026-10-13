@@ -175,11 +175,16 @@ class TestSeedProxy:
         key = tmp_path / "token"
         key.write_text("k" * 43)
         monkeypatch.setenv("SIGNAL_INGEST_KEY_FILE", str(key))
-        state: dict = {"status": 201, "body": {"seeded": 42}, "sent": []}
+        state: dict = {"status": 201, "body": {"seeded": 42}, "content": None, "headers": {}, "sent": []}
 
         def handler(request: _httpx.Request) -> _httpx.Response:
             state["sent"].append(request)
-            return _httpx.Response(state["status"], json=state["body"])
+            resp_headers = dict(state.get("headers", {}))
+            if state.get("content") is not None:
+                return _httpx.Response(state["status"], content=state["content"], headers=resp_headers)
+            if state.get("body") is not None:
+                return _httpx.Response(state["status"], json=state["body"], headers=resp_headers)
+            return _httpx.Response(state["status"], headers=resp_headers)
 
         real = _httpx.AsyncClient
 
@@ -223,6 +228,64 @@ class TestSeedProxy:
         resp = client.post("/api/signals/collectors/seed")
         assert resp.status_code == 500
         assert resp.json() == {"error": "failed to seed fixtures"}
+
+    def test_proxy_handles_204_no_content(self, client, ingest):
+        """204 No Content must not emit a body or error payload per RFC 9110 Section 15.3.5."""
+        ingest["status"] = 204
+        ingest["body"] = None
+        ingest["content"] = b""
+        resp = client.post("/api/signals/collectors/seed")
+        assert resp.status_code == 204
+        assert resp.content == b""
+        assert resp.text == ""
+
+    def test_proxy_handles_head_request(self, client, ingest):
+        """HEAD requests must return empty body and suppress body emission."""
+        ingest["status"] = 200
+        ingest["body"] = [{"id": "obs-1", "layer": "network"}]
+        ingest["content"] = None
+        ingest["headers"] = {"Content-Type": "application/json"}
+        resp = client.head("/api/signals/observations")
+        assert resp.status_code == 200
+        assert resp.content == b""
+        assert resp.text == ""
+        assert resp.headers.get("content-type") == "application/json"
+
+    def test_proxy_propagates_allow_header_on_405(self, client, ingest):
+        """405 Method Not Allowed must preserve RFC 9110 Section 15.5.6 Allow header."""
+        ingest["status"] = 405
+        ingest["body"] = {"error": "method not allowed"}
+        ingest["headers"] = {"Allow": "POST"}
+        resp = client.post("/api/signals/collectors/seed")
+        assert resp.status_code == 405
+        assert resp.headers.get("allow") == "POST"
+        assert resp.json() == {"error": "method not allowed"}
+
+    def test_proxy_propagates_location_and_etag_headers(self, client, ingest):
+        """201 Created responses must propagate Location and ETag headers."""
+        ingest["status"] = 201
+        ingest["body"] = {"seeded": 42}
+        ingest["headers"] = {"Location": "/api/v1/collectors/seed/1", "ETag": '"etag-seed-1"'}
+        resp = client.post("/api/signals/collectors/seed")
+        assert resp.status_code == 201
+        assert resp.headers.get("location") == "/api/v1/collectors/seed/1"
+        assert resp.headers.get("etag") == '"etag-seed-1"'
+        assert resp.json() == {"seeded": 42}
+
+    def test_proxy_propagates_retry_after_and_tenant_headers(self, client, ingest):
+        """Retry-After, X-Tenant-ID, and X-Request-ID headers must be forwarded."""
+        ingest["status"] = 429
+        ingest["body"] = {"error": "rate limit exceeded"}
+        ingest["headers"] = {
+            "Retry-After": "30",
+            "X-Tenant-ID": "tenant-prod-2",
+            "X-Request-ID": "req-sig-44",
+        }
+        resp = client.post("/api/signals/collectors/seed")
+        assert resp.status_code == 429
+        assert resp.headers.get("retry-after") == "30"
+        assert resp.headers.get("x-tenant-id") == "tenant-prod-2"
+        assert resp.headers.get("x-request-id") == "req-sig-44"
 
 
 # ---------------------------------------------------------------------------

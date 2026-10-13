@@ -1,0 +1,78 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-images
+  annotations:
+    policies.kyverno.io/title: Verify Images
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Verifies that container images are signed with a trusted static key (release or tenant key)
+      or pinned by immutable digest across all tenant workloads.
+spec:
+  validationFailureAction: Enforce
+  webhookTimeoutSeconds: 30
+  rules:
+    - name: verify-images-rule
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - admission-demo
+                - signalloom-demo
+                - local
+                - "tenant-*"
+      verifyImages:
+        - imageReferences:
+            - "ghcr.io/controlplane-security/*"
+            - "ghcr.io/stefanprodan/podinfo*"
+            - "zot.registry.svc.cluster.local:5000/*"
+            - "localhost:5000/*"
+            - "*:*"
+          attestors:
+            - count: 1
+              entries:
+                - keys:
+                    publicKeys: |
+                      -----BEGIN PUBLIC KEY-----
+                      MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAECa/2NBwx+ercWc9SzCqeZACsrxh7
+                      U1/2mLj3PTLCsW6aKPi5IBYD2pRn8UNxHWkg1yihSWQaS9Ui7OlYxMRYug==
+                      -----END PUBLIC KEY-----
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: dual-trust-image-policy
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  validations:
+    - expression: >-
+        object.spec.containers.all(c,
+          c.image.contains('@sha256:') ||
+          c.image.startsWith('zot.registry.svc.cluster.local:5000/') ||
+          c.image.startsWith('ghcr.io/controlplaneio/') ||
+          c.image.startsWith('ghcr.io/fluxcd/')
+        )
+      message: "Container image must be digest-pinned or sourced from trusted registry"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: dual-trust-image-policy-binding
+spec:
+  policyName: dual-trust-image-policy
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: ["admission-demo", "signalloom-demo", "local"]

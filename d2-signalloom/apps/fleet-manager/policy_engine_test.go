@@ -355,11 +355,11 @@ func TestPolicyRoutes_Endpoints(t *testing.T) {
 	if postResp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected status 405 on POST /api/v1/fleet/policies, got %d", postResp.StatusCode)
 	}
-	if allow := postResp.Header.Get("Allow"); allow != "GET, HEAD" {
-		t.Errorf("expected Allow: GET, HEAD on POST /api/v1/fleet/policies, got %q", allow)
+	if allow := postResp.Header.Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Errorf("expected Allow: GET, HEAD, OPTIONS on POST /api/v1/fleet/policies, got %q", allow)
 	}
 
-	// 6. HEAD /api/v1/fleet/policies/evaluate -> 405 Method Not Allowed (Allow: POST, 0 body bytes)
+	// 6. HEAD /api/v1/fleet/policies/evaluate -> 405 Method Not Allowed (Allow: POST, OPTIONS, 0 body bytes)
 	headEvalReq, err := http.NewRequest(http.MethodHead, ts.URL+"/api/v1/fleet/policies/evaluate", nil)
 	if err != nil {
 		t.Fatalf("HEAD /api/v1/fleet/policies/evaluate request create failed: %v", err)
@@ -371,8 +371,8 @@ func TestPolicyRoutes_Endpoints(t *testing.T) {
 	if headEvalResp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected status 405 on HEAD /api/v1/fleet/policies/evaluate, got %d", headEvalResp.StatusCode)
 	}
-	if allow := headEvalResp.Header.Get("Allow"); allow != "POST" {
-		t.Errorf("expected Allow: POST on HEAD /api/v1/fleet/policies/evaluate, got %q", allow)
+	if allow := headEvalResp.Header.Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("expected Allow: POST, OPTIONS on HEAD /api/v1/fleet/policies/evaluate, got %q", allow)
 	}
 	headEvalBody, _ := io.ReadAll(headEvalResp.Body)
 	headEvalResp.Body.Close()
@@ -380,7 +380,7 @@ func TestPolicyRoutes_Endpoints(t *testing.T) {
 		t.Errorf("expected 0 body bytes on HEAD /api/v1/fleet/policies/evaluate, got %d", len(headEvalBody))
 	}
 
-	// 7. GET /api/v1/fleet/policies/evaluate -> 405 Method Not Allowed (Allow: POST)
+	// 7. GET /api/v1/fleet/policies/evaluate -> 405 Method Not Allowed (Allow: POST, OPTIONS)
 	getEvalReq, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/fleet/policies/evaluate", nil)
 	if err != nil {
 		t.Fatalf("GET /api/v1/fleet/policies/evaluate request create failed: %v", err)
@@ -393,7 +393,7 @@ func TestPolicyRoutes_Endpoints(t *testing.T) {
 	if getEvalResp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected status 405 on GET /api/v1/fleet/policies/evaluate, got %d", getEvalResp.StatusCode)
 	}
-	if allow := getEvalResp.Header.Get("Allow"); allow != "POST" {
-		t.Errorf("expected Allow: POST on GET /api/v1/fleet/policies/evaluate, got %q", allow)
+	if allow := getEvalResp.Header.Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("expected Allow: POST, OPTIONS on GET /api/v1/fleet/policies/evaluate, got %q", allow)
 	}
 }

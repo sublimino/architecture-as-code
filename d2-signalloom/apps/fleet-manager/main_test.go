@@ -80,8 +80,8 @@ func TestHandleTopology_MethodNotAllowed(t *testing.T) {
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", w.Code)
 	}
-	if allow := w.Header().Get("Allow"); allow != "GET, HEAD" {
-		t.Fatalf("expected Allow: GET, HEAD, got %q", allow)
+	if allow := w.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Fatalf("expected Allow: GET, HEAD, OPTIONS, got %q", allow)
 	}
 
 	headReq := httptest.NewRequest(http.MethodHead, "/api/v1/fleet/topology", nil)
@@ -155,8 +155,8 @@ func TestHandleStun_MethodNotAllowed(t *testing.T) {
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", w.Code)
 	}
-	if allow := w.Header().Get("Allow"); allow != "POST" {
-		t.Fatalf("expected Allow: POST, got %q", allow)
+	if allow := w.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Fatalf("expected Allow: POST, OPTIONS, got %q", allow)
 	}
 }
 
@@ -244,8 +244,8 @@ func TestHandleDeploy_MethodNotAllowed(t *testing.T) {
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", w.Code)
 	}
-	if allow := w.Header().Get("Allow"); allow != "POST" {
-		t.Fatalf("expected Allow: POST, got %q", allow)
+	if allow := w.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Fatalf("expected Allow: POST, OPTIONS, got %q", allow)
 	}
 }
 
@@ -268,8 +268,8 @@ func TestHandlePolicies_HEADAndMethodNotAllowed(t *testing.T) {
 	if postW.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("POST expected 405, got %d", postW.Code)
 	}
-	if allow := postW.Header().Get("Allow"); allow != "GET, HEAD" {
-		t.Fatalf("expected Allow: GET, HEAD, got %q", allow)
+	if allow := postW.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Fatalf("expected Allow: GET, HEAD, OPTIONS, got %q", allow)
 	}
 }
 
@@ -309,8 +309,8 @@ func TestHandleMutating_MethodNotAllowed(t *testing.T) {
 				if w.Code != http.StatusMethodNotAllowed {
 					t.Fatalf("%s [%s] expected 405, got %d", rt.name, m, w.Code)
 				}
-				if allow := w.Header().Get("Allow"); allow != "POST" {
-					t.Fatalf("%s [%s] expected Allow: POST, got %q", rt.name, m, allow)
+				if allow := w.Header().Get("Allow"); allow != "POST, OPTIONS" {
+					t.Fatalf("%s [%s] expected Allow: POST, OPTIONS, got %q", rt.name, m, allow)
 				}
 				if m == http.MethodHead && w.Body.Len() != 0 {
 					t.Fatalf("%s [HEAD] expected 0 body bytes, got %d: %q", rt.name, w.Body.Len(), w.Body.String())
@@ -340,8 +340,8 @@ func TestHandleTopology_HEADAndMethodNotAllowed(t *testing.T) {
 		if postW.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("[%s] expected 405, got %d", m, postW.Code)
 		}
-		if allow := postW.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Fatalf("[%s] expected Allow: GET, HEAD, got %q", m, allow)
+		if allow := postW.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Fatalf("[%s] expected Allow: GET, HEAD, OPTIONS, got %q", m, allow)
 		}
 	}
 }

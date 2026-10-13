@@ -562,6 +562,179 @@ func TestMethodGatesAllowHeaders(t *testing.T) {
 			t.Errorf("%s handleRevokeDelegations got Allow %q, want POST", method, allow)
 		}
 	}
+
+	// handleHealth: GET, HEAD
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/health", nil)
+		rec := httptest.NewRecorder()
+		h.handleHealth(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleHealth got status %d, want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
+			t.Errorf("%s handleHealth got Allow %q, want GET, HEAD", method, allow)
+		}
+	}
+
+	// handleHealthz: GET, HEAD
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/healthz", nil)
+		rec := httptest.NewRecorder()
+		handleHealthz(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleHealthz got status %d, want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
+			t.Errorf("%s handleHealthz got Allow %q, want GET, HEAD", method, allow)
+		}
+	}
+
+	// handleCoverage: GET, HEAD
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/v1/coverage", nil)
+		rec := httptest.NewRecorder()
+		handleCoverage(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleCoverage got status %d, want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
+			t.Errorf("%s handleCoverage got Allow %q, want GET, HEAD", method, allow)
+		}
+	}
+
+	// handleIngestObservations: POST only
+	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/v1/observations", nil)
+		rec := httptest.NewRecorder()
+		h.handleIngestObservations(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleIngestObservations got status %d, want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("%s handleIngestObservations got Allow %q, want POST", method, allow)
+		}
+	}
+
+	// handleCorrelate: POST only
+	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/v1/correlate", nil)
+		rec := httptest.NewRecorder()
+		h.handleCorrelate(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleCorrelate got status %d, want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("%s handleCorrelate got Allow %q, want POST", method, allow)
+		}
+	}
+
+	// handleSeed: POST only
+	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/v1/collectors/seed", nil)
+		rec := httptest.NewRecorder()
+		h.handleSeed(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleSeed got status %d, want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("%s handleSeed got Allow %q, want POST", method, allow)
+		}
+	}
+
+	// handleStream: GET, HEAD
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/v1/stream", nil)
+		rec := httptest.NewRecorder()
+		h.handleStream(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleStream got status %d, want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
+			t.Errorf("%s handleStream got Allow %q, want GET, HEAD", method, allow)
+		}
+	}
+}
+
+func TestHandlers_HeadBodySuppression(t *testing.T) {
+	h, mux := newTestHandlers(t)
+
+	// HEAD /health
+	req := httptest.NewRequest(http.MethodHead, "/health", nil)
+	rec := httptest.NewRecorder()
+	h.handleHealth(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("HEAD /health got status %d, want 200", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("HEAD /health got %d body bytes, want 0", rec.Body.Len())
+	}
+
+	// HEAD /healthz
+	rec = httptest.NewRecorder()
+	handleHealthz(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("HEAD /healthz got status %d, want 200", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("HEAD /healthz got %d body bytes, want 0", rec.Body.Len())
+	}
+
+	// HEAD /api/v1/coverage
+	req = httptest.NewRequest(http.MethodHead, "/api/v1/coverage", nil)
+	rec = httptest.NewRecorder()
+	handleCoverage(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("HEAD /api/v1/coverage got status %d, want 200", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("HEAD /api/v1/coverage got %d body bytes, want 0", rec.Body.Len())
+	}
+
+	// HEAD /api/v1/stream
+	req = httptest.NewRequest(http.MethodHead, "/api/v1/stream", nil)
+	rec = httptest.NewRecorder()
+	h.handleStream(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("HEAD /api/v1/stream got status %d, want 200", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("HEAD /api/v1/stream got %d body bytes, want 0", rec.Body.Len())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("HEAD /api/v1/stream Content-Type got %q, want text/event-stream", ct)
+	}
+
+	// HEAD /api/v1/observations
+	req = httptest.NewRequest(http.MethodHead, "/api/v1/observations", nil)
+	rec = httptest.NewRecorder()
+	h.handleQueryObservations(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("HEAD /api/v1/observations got status %d, want 200", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("HEAD /api/v1/observations got %d body bytes, want 0", rec.Body.Len())
+	}
+
+	// HEAD /api/v1/actors
+	req = httptest.NewRequest(http.MethodHead, "/api/v1/actors", nil)
+	rec = httptest.NewRecorder()
+	h.handleListActors(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("HEAD /api/v1/actors got status %d, want 200", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("HEAD /api/v1/actors got %d body bytes, want 0", rec.Body.Len())
+	}
+
+	// HEAD through mux /api/v1/observations
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("HEAD mux /api/v1/observations got status %d, want 200", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("HEAD mux /api/v1/observations got %d body bytes, want 0", rec.Body.Len())
+	}
 }
 
 

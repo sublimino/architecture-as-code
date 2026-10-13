@@ -50,6 +50,12 @@ type AuthorizationQueryResponse struct {
 
 // handleGetActorAuthorization serves GET /api/v1/actors/{id}/authorization.
 func (h *Handlers) handleGetActorAuthorization(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
 	id, err := actorIDFromPath(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "actor id is required")
@@ -142,12 +148,27 @@ func (h *Handlers) handleGetActorAuthorization(w http.ResponseWriter, r *http.Re
 	chain := h.BuildAuthorizationChain(r.Context(), actor, actionHint)
 	if chain.Decision == "REVOKED" || strings.HasPrefix(chain.Decision, "REVOKED") || actor.Status == "revoked" {
 		w.Header().Set("X-Authorization-Status", "REVOKED")
+		if r != nil && r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
 		writeJSON(w, http.StatusForbidden, chain)
 		return
 	}
 	if actor.Status == model.ActorQuarantined || chain.QuarantineDetails != nil {
 		chain.Error = fmt.Sprintf("actor execution quarantined: unverified delegation chain (%s)", chain.ViolationReason)
+		if r != nil && r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
 		writeJSON(w, http.StatusForbidden, chain)
+		return
+	}
+	if r != nil && r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 	writeJSON(w, http.StatusOK, chain)
@@ -155,6 +176,12 @@ func (h *Handlers) handleGetActorAuthorization(w http.ResponseWriter, r *http.Re
 
 // handleQueryAuthorization serves GET /api/v1/authorization.
 func (h *Handlers) handleQueryAuthorization(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
 	ctx := r.Context()
 
 	queryTime := time.Now().UTC()
@@ -244,12 +271,27 @@ func (h *Handlers) handleQueryAuthorization(w http.ResponseWriter, r *http.Reque
 		chain := h.BuildAuthorizationChain(ctx, actor, actionHint)
 		if chain.Decision == "REVOKED" || strings.HasPrefix(chain.Decision, "REVOKED") || actor.Status == "revoked" {
 			w.Header().Set("X-Authorization-Status", "REVOKED")
+			if r != nil && r.Method == http.MethodHead {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
 			writeJSON(w, http.StatusForbidden, chain)
 			return
 		}
 		if actor.Status == model.ActorQuarantined || chain.QuarantineDetails != nil {
 			chain.Error = fmt.Sprintf("actor execution quarantined: unverified delegation chain (%s)", chain.ViolationReason)
+			if r != nil && r.Method == http.MethodHead {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
 			writeJSON(w, http.StatusForbidden, chain)
+			return
+		}
+		if r != nil && r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
 			return
 		}
 		writeJSON(w, http.StatusOK, chain)
@@ -269,7 +311,17 @@ func (h *Handlers) handleQueryAuthorization(w http.ResponseWriter, r *http.Reque
 					chain := h.BuildAuthorizationChain(ctx, a, action)
 					if a.Status == model.ActorQuarantined || chain.QuarantineDetails != nil {
 						chain.Error = fmt.Sprintf("actor execution quarantined: unverified delegation chain (%s)", chain.ViolationReason)
+						if r != nil && r.Method == http.MethodHead {
+							w.Header().Set("Content-Type", "application/json")
+							w.WriteHeader(http.StatusForbidden)
+							return
+						}
 						writeJSON(w, http.StatusForbidden, chain)
+						return
+					}
+					if r != nil && r.Method == http.MethodHead {
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(http.StatusOK)
 						return
 					}
 					writeJSON(w, http.StatusOK, chain)
@@ -335,6 +387,11 @@ func (h *Handlers) handleQueryAuthorization(w http.ResponseWriter, r *http.Reque
 		KPIFraction:   kpiFraction,
 	}
 
+	if r != nil && r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 

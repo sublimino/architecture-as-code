@@ -137,3 +137,69 @@ func TestFleetRiskReportsFullCoverageWhenAllAgentsAssess(t *testing.T) {
 		t.Errorf("agentsUnassessed = %v, want empty", names)
 	}
 }
+
+func TestFleetRisk_MethodGatesAndHEAD(t *testing.T) {
+	src := partialFleetSource{ids: []string{"agent-a"}}
+	h := &Handlers{FairService: fair.NewService(src)}
+
+	// handleGetFleetRisk: POST returns 405 with Allow: GET, HEAD
+	reqPost := httptest.NewRequest(http.MethodPost, "/api/v1/risk/fleet", nil)
+	wPost := httptest.NewRecorder()
+	h.handleGetFleetRisk(wPost, reqPost)
+	if wPost.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST handleGetFleetRisk: want 405, got %d", wPost.Code)
+	}
+	if allow := wPost.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Errorf("POST handleGetFleetRisk: want Allow 'GET, HEAD', got %q", allow)
+	}
+
+	// handleGetFleetRisk: HEAD returns 200 with 0 body bytes
+	reqHead := httptest.NewRequest(http.MethodHead, "/api/v1/risk/fleet", nil)
+	reqHead = reqHead.WithContext(context.WithValue(reqHead.Context(), principalContextKey{},
+		Principal{
+			Subject:     "auditor",
+			Permissions: map[Permission]bool{PermissionCrossTenantRead: true},
+		}))
+	wHead := httptest.NewRecorder()
+	h.handleGetFleetRisk(wHead, reqHead)
+	if wHead.Code != http.StatusOK {
+		t.Fatalf("HEAD handleGetFleetRisk: want 200, got %d", wHead.Code)
+	}
+	if wHead.Body.Len() != 0 {
+		t.Errorf("HEAD handleGetFleetRisk: want 0 body bytes, got %d", wHead.Body.Len())
+	}
+	if ct := wHead.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("HEAD handleGetFleetRisk: want Content-Type 'application/json', got %q", ct)
+	}
+
+	// handleGetAgentRisk: POST returns 405 with Allow: GET, HEAD
+	reqAgentPost := httptest.NewRequest(http.MethodPost, "/api/v1/risk/agents/agent-a", nil)
+	wAgentPost := httptest.NewRecorder()
+	h.handleGetAgentRisk(wAgentPost, reqAgentPost)
+	if wAgentPost.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST handleGetAgentRisk: want 405, got %d", wAgentPost.Code)
+	}
+	if allow := wAgentPost.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Errorf("POST handleGetAgentRisk: want Allow 'GET, HEAD', got %q", allow)
+	}
+
+	// handleGetAgentRisk: HEAD returns 200 with 0 body bytes
+	reqAgentHead := httptest.NewRequest(http.MethodHead, "/api/v1/risk/agents/agent-a", nil)
+	reqAgentHead.SetPathValue("id", "agent-a")
+	reqAgentHead = reqAgentHead.WithContext(context.WithValue(reqAgentHead.Context(), principalContextKey{},
+		Principal{
+			Subject:     "auditor",
+			Permissions: map[Permission]bool{PermissionCrossTenantRead: true},
+		}))
+	wAgentHead := httptest.NewRecorder()
+	h.handleGetAgentRisk(wAgentHead, reqAgentHead)
+	if wAgentHead.Code != http.StatusOK {
+		t.Fatalf("HEAD handleGetAgentRisk: want 200, got %d", wAgentHead.Code)
+	}
+	if wAgentHead.Body.Len() != 0 {
+		t.Errorf("HEAD handleGetAgentRisk: want 0 body bytes, got %d", wAgentHead.Body.Len())
+	}
+	if ct := wAgentHead.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("HEAD handleGetAgentRisk: want Content-Type 'application/json', got %q", ct)
+	}
+}

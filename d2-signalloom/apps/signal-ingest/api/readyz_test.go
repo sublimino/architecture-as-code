@@ -346,3 +346,29 @@ func TestReadyz_AuditWebhookRouteMounted(t *testing.T) {
 		t.Fatalf("POST /api/v1/audit/webhook unconfigured: got %d, want 503 (404 would mean route not mounted)", w.Code)
 	}
 }
+
+func TestReadyz_MethodGatesAndHEAD(t *testing.T) {
+	h := &Handlers{}
+
+	// POST returns 405 with Allow: GET, HEAD
+	reqPost := httptest.NewRequest(http.MethodPost, "/readyz", nil)
+	wPost := httptest.NewRecorder()
+	h.handleReadyz(wPost, reqPost)
+	if wPost.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST handleReadyz: want 405, got %d", wPost.Code)
+	}
+	if allow := wPost.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Errorf("POST handleReadyz: want Allow 'GET, HEAD', got %q", allow)
+	}
+
+	// HEAD returns 200 with 0 body bytes
+	reqHead := httptest.NewRequest(http.MethodHead, "/readyz", nil)
+	wHead := httptest.NewRecorder()
+	h.handleReadyz(wHead, reqHead)
+	if wHead.Code != http.StatusOK {
+		t.Fatalf("HEAD handleReadyz: want 200, got %d", wHead.Code)
+	}
+	if wHead.Body.Len() != 0 {
+		t.Errorf("HEAD handleReadyz: want 0 body bytes, got %d", wHead.Body.Len())
+	}
+}

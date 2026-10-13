@@ -269,3 +269,93 @@ func TestDeriveAttestationGitoid_DeterministicAndValid(t *testing.T) {
 		t.Errorf("different inputs must produce different gitoids")
 	}
 }
+
+func TestAuthorization_MethodGatesAndHEAD(t *testing.T) {
+	h, mux := newTestHandlers(t)
+
+	obs := collectors.SeedAll(time.Now().UTC())
+	_ = h.Store.Append(context.Background(), obs)
+	actors, _ := h.Engine.Correlate(context.Background())
+	if len(actors) == 0 {
+		t.Fatal("no actors")
+	}
+	actorID := actors[0].ID
+
+	testCtx := context.WithValue(context.Background(), principalContextKey{}, Principal{
+		Subject:     "auditor",
+		Permissions: map[Permission]bool{PermissionCrossTenantRead: true},
+	})
+
+	// handleGetActorAuthorization: POST rejected with 405 and Allow: GET, HEAD
+	reqPost := httptest.NewRequest(http.MethodPost, "/api/v1/actors/"+actorID+"/authorization", nil).WithContext(testCtx)
+	reqPost.SetPathValue("id", actorID)
+	wPost := httptest.NewRecorder()
+	h.handleGetActorAuthorization(wPost, reqPost)
+	if wPost.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST handleGetActorAuthorization: want 405, got %d", wPost.Code)
+	}
+	if allow := wPost.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Errorf("POST handleGetActorAuthorization: want Allow 'GET, HEAD', got %q", allow)
+	}
+
+	// handleGetActorAuthorization: HEAD returns 200 with 0 body bytes and Content-Type: application/json
+	reqHead := httptest.NewRequest(http.MethodHead, "/api/v1/actors/"+actorID+"/authorization", nil).WithContext(testCtx)
+	reqHead.SetPathValue("id", actorID)
+	wHead := httptest.NewRecorder()
+	h.handleGetActorAuthorization(wHead, reqHead)
+	if wHead.Code != http.StatusOK {
+		t.Fatalf("HEAD handleGetActorAuthorization: want 200, got %d", wHead.Code)
+	}
+	if wHead.Body.Len() != 0 {
+		t.Errorf("HEAD handleGetActorAuthorization: want 0 body bytes, got %d", wHead.Body.Len())
+	}
+	if ct := wHead.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("HEAD handleGetActorAuthorization: want Content-Type 'application/json', got %q", ct)
+	}
+
+	// handleQueryAuthorization: POST rejected with 405 and Allow: GET, HEAD
+	reqQueryPost := httptest.NewRequest(http.MethodPost, "/api/v1/authorization", nil).WithContext(testCtx)
+	wQueryPost := httptest.NewRecorder()
+	h.handleQueryAuthorization(wQueryPost, reqQueryPost)
+	if wQueryPost.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST handleQueryAuthorization: want 405, got %d", wQueryPost.Code)
+	}
+	if allow := wQueryPost.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Errorf("POST handleQueryAuthorization: want Allow 'GET, HEAD', got %q", allow)
+	}
+
+	// handleQueryAuthorization: HEAD returns 200 with 0 body bytes
+	reqQueryHead := httptest.NewRequest(http.MethodHead, "/api/v1/authorization", nil).WithContext(testCtx)
+	wQueryHead := httptest.NewRecorder()
+	h.handleQueryAuthorization(wQueryHead, reqQueryHead)
+	if wQueryHead.Code != http.StatusOK {
+		t.Fatalf("HEAD handleQueryAuthorization: want 200, got %d", wQueryHead.Code)
+	}
+	if wQueryHead.Body.Len() != 0 {
+		t.Errorf("HEAD handleQueryAuthorization: want 0 body bytes, got %d", wQueryHead.Body.Len())
+	}
+	if ct := wQueryHead.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("HEAD handleQueryAuthorization: want Content-Type 'application/json', got %q", ct)
+	}
+
+	// handleQueryAuthorization with actor_id: HEAD returns 200 with 0 body bytes
+	reqQueryActorHead := httptest.NewRequest(http.MethodHead, "/api/v1/authorization?actor_id="+actorID, nil).WithContext(testCtx)
+	wQueryActorHead := httptest.NewRecorder()
+	h.handleQueryAuthorization(wQueryActorHead, reqQueryActorHead)
+	if wQueryActorHead.Code != http.StatusOK {
+		t.Fatalf("HEAD handleQueryAuthorization(actor_id): want 200, got %d", wQueryActorHead.Code)
+	}
+	if wQueryActorHead.Body.Len() != 0 {
+		t.Errorf("HEAD handleQueryAuthorization(actor_id): want 0 body bytes, got %d", wQueryActorHead.Body.Len())
+	}
+
+	// Mux HEAD /api/v1/authorization
+	wMuxHead := httptest.NewRecorder()
+	mux.ServeHTTP(wMuxHead, reqQueryHead)
+	if wMuxHead.Code != http.StatusOK {
+		t.Errorf("HEAD mux /api/v1/authorization: want 200, got %d", wMuxHead.Code)
+	}
+	if wMuxHead.Body.Len() != 0 {
+		t.Errorf("HEAD mux /api/v1/authorization: want 0 body bytes, got %d", wMuxHead.Body.Len())
+	}
+}

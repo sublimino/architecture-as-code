@@ -291,6 +291,12 @@ type HealthResponse struct {
 // handleHealth answers health queries with full visibility into the effective protective controls posture.
 // Operators can inspect this endpoint to verify encryption and audit enforcement directly.
 func (h *Handlers) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
 	encPosture := identity.GetEncryptionPosture(h.Encryptor)
 	auditPosture := audit.GetAuditPosture(h.Audit)
 
@@ -319,6 +325,11 @@ func (h *Handlers) handleHealth(w http.ResponseWriter, r *http.Request) {
 // dependency in here would turn a Postgres outage into a CrashLoopBackOff,
 // which is the failure this whole change exists to remove.
 func handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	if r != nil && r.Method == http.MethodHead {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -356,6 +367,12 @@ func (h *Handlers) vocabLogDue() bool {
 // including recording an audit trail and connecting to live collector sources.
 // Readiness failure means "send me no traffic".
 func (h *Handlers) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), readyCheckTimeout)
 	defer cancel()
 
@@ -427,6 +444,12 @@ func (h *Handlers) handleReadyz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleIngestObservations(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
 	chainHeaders, err := parseChainHeaders(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_batch_chain: "+err.Error())
@@ -603,6 +626,17 @@ func (h *Handlers) handleIngestObservations(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if r != nil && r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	q := store.Query{}
 
 	if layers := r.URL.Query()["layer"]; len(layers) > 0 {
@@ -678,6 +712,17 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handlers) handleListActors(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if r != nil && r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	actors, err := h.scopedActors(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
@@ -693,6 +738,11 @@ func (h *Handlers) handleListActors(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleGetActor(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	id, err := actorIDFromPath(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "actor id is required")
@@ -707,10 +757,21 @@ func (h *Handlers) handleGetActor(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "actor not found")
 		return
 	}
+	if r != nil && r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	writeJSON(w, http.StatusOK, actor)
 }
 
 func (h *Handlers) handleCorrelate(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
 	actors, err := h.Engine.Correlate(r.Context())
 	if err != nil {
 		slog.Error("correlation failed", "error", err)
@@ -794,6 +855,12 @@ func projectSeedLabels(s store.SignalStore, obs []model.Observation) {
 }
 
 func (h *Handlers) handleSeed(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
 	obs := collectors.SeedAll(time.Now().UTC())
 	projectSeedLabels(h.Store, obs)
 	if err := bindWriteTenancy(r, obs); err != nil {
@@ -836,6 +903,17 @@ type StoreStatsResponse struct {
 }
 
 func (h *Handlers) handleStoreStats(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if r != nil && r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	// Query all observations from the store.
 	obs, err := h.Store.QueryRange(r.Context(), store.Query{})
 	if err != nil {
@@ -900,7 +978,18 @@ type BlindSpot struct {
 	Description string `json:"description"`
 }
 
-func handleCoverage(w http.ResponseWriter, _ *http.Request) {
+func handleCoverage(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if r != nil && r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	resp := CoverageResponse{
 		CoveredLayers: []string{
 			"network_egress",
@@ -937,6 +1026,20 @@ func handleCoverage(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *Handlers) handleStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming unsupported")
@@ -987,6 +1090,11 @@ func (h *Handlers) handleStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleGetAgentRisk(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	if !requireCrossTenantRead(w, r) {
 		return
 	}
@@ -1073,10 +1181,20 @@ func (h *Handlers) handleGetAgentRisk(w http.ResponseWriter, r *http.Request) {
 		"source":     "riskctl",
 	}
 
+	if r != nil && r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handlers) handleGetFleetRisk(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	if !requireCrossTenantRead(w, r) {
 		return
 	}
@@ -1087,6 +1205,11 @@ func (h *Handlers) handleGetFleetRisk(w http.ResponseWriter, r *http.Request) {
 
 	agentIDs := h.FairService.AgentIDs()
 	if len(agentIDs) == 0 {
+		if r != nil && r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"currency": "GBP",
 			// An empty fleet carries a genuine zero: there is nothing to assess,
@@ -1181,6 +1304,11 @@ func (h *Handlers) handleGetFleetRisk(w http.ResponseWriter, r *http.Request) {
 		"source":     "riskctl",
 	}
 
+	if r != nil && r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 

@@ -126,3 +126,44 @@ func TestStoreStats_WithData(t *testing.T) {
 		t.Error("store type must not be empty")
 	}
 }
+
+func TestStoreStats_MethodGatesAndHEAD(t *testing.T) {
+	h, mux := newTestHandlers(t)
+
+	// Direct handler call method gate: POST/PUT/DELETE rejected with 405 and Allow: GET, HEAD
+	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(m, "/api/v1/store/stats", nil)
+		w := httptest.NewRecorder()
+		h.handleStoreStats(w, req)
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s handleStoreStats: want 405, got %d", m, w.Code)
+		}
+		if allow := w.Header().Get("Allow"); allow != "GET, HEAD" {
+			t.Errorf("%s handleStoreStats: want Allow 'GET, HEAD', got %q", m, allow)
+		}
+	}
+
+	// HEAD request directly on handler returns 200 with 0 body bytes
+	reqHead := httptest.NewRequest(http.MethodHead, "/api/v1/store/stats", nil)
+	wHead := httptest.NewRecorder()
+	h.handleStoreStats(wHead, reqHead)
+	if wHead.Code != http.StatusOK {
+		t.Errorf("HEAD handleStoreStats: want 200, got %d", wHead.Code)
+	}
+	if wHead.Body.Len() != 0 {
+		t.Errorf("HEAD handleStoreStats: want 0 body bytes, got %d bytes: %q", wHead.Body.Len(), wHead.Body.String())
+	}
+	if ct := wHead.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("HEAD handleStoreStats: want Content-Type 'application/json', got %q", ct)
+	}
+
+	// HEAD request through mux returns 200 with 0 body bytes
+	wMuxHead := httptest.NewRecorder()
+	mux.ServeHTTP(wMuxHead, reqHead)
+	if wMuxHead.Code != http.StatusOK {
+		t.Errorf("HEAD mux store/stats: want 200, got %d", wMuxHead.Code)
+	}
+	if wMuxHead.Body.Len() != 0 {
+		t.Errorf("HEAD mux store/stats: want 0 body bytes, got %d bytes: %q", wMuxHead.Body.Len(), wMuxHead.Body.String())
+	}
+}

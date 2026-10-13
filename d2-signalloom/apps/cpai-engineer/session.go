@@ -105,6 +105,11 @@ func (s *SessionStore) Get(id string) (*TaskResponse, error) {
 
 // List returns the most recent n tasks ordered by creation time descending.
 func (s *SessionStore) List(n int) ([]*TaskResponse, error) {
+	if n <= 0 {
+		n = 50
+	} else if n > 500 {
+		n = 500
+	}
 	rows, err := s.db.Query(`
 		SELECT task_id, status, commits, tokens_used, error_msg, created_at, updated_at
 		FROM tasks ORDER BY created_at DESC LIMIT ?
@@ -126,6 +131,9 @@ func (s *SessionStore) List(n int) ([]*TaskResponse, error) {
 			t.Commits = []string{}
 		}
 		tasks = append(tasks, &t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	if tasks == nil {
 		tasks = []*TaskResponse{}

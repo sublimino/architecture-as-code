@@ -64,12 +64,7 @@ func main() {
 		port = "8080"
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", handleCheckRun)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "ok")
-	})
+	mux := newMux()
 
 	srv := &http.Server{
 		Addr:              ":" + port,
@@ -94,11 +89,26 @@ func main() {
 	_ = srv.Shutdown(ctx)
 }
 
+func newMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "ok")
+	}
+	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/healthz", healthHandler)
+	mux.HandleFunc("/readyz", healthHandler)
+	mux.HandleFunc("/", handleCheckRun)
+	return mux
+}
+
 func handleCheckRun(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
 
 	// Validate CloudEvent headers.
 	ceType := r.Header.Get("Ce-Type")

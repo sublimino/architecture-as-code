@@ -98,17 +98,25 @@ func main() {
 func newServer(executor *Executor, store *SessionStore) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
-	})
+	}
+	mux.HandleFunc("GET /health", healthHandler)
+	mux.HandleFunc("GET /healthz", healthHandler)
+	mux.HandleFunc("GET /readyz", healthHandler)
 
 	mux.HandleFunc("POST /tasks", func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		var req TaskRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 			return
 		}
+
+		req.Repo = strings.TrimSpace(req.Repo)
+		req.Branch = strings.TrimSpace(req.Branch)
+		req.Instruction = strings.TrimSpace(req.Instruction)
 
 		if req.Repo == "" || req.Instruction == "" {
 			writeError(w, http.StatusBadRequest, "repo and instruction are required")

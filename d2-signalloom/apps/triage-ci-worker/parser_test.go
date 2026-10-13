@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -135,4 +137,17 @@ func stringContains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestHealthEndpoints(t *testing.T) {
+	mux := newMux()
+	paths := []string{"/health", "/healthz", "/readyz"}
+	for _, p := range paths {
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s returned status %d, want 200", p, rec.Code)
+		}
+	}
 }

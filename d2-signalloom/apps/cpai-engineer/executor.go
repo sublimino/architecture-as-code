@@ -176,6 +176,12 @@ func (e *Executor) ensureRepo(ctx context.Context, dir, repo, branch string) err
 
 // runOpenCode executes OpenCode headlessly inside the nono sandbox.
 func (e *Executor) runOpenCode(ctx context.Context, dir, instruction string, tokenBudget int) error {
+	if tokenBudget < 1000 {
+		tokenBudget = 1000
+	} else if tokenBudget > 500000 {
+		tokenBudget = 500000
+	}
+
 	// OpenCode's headless mode: opencode -y --message "instruction"
 	cmd := e.nono.WrapWithDir(dir, "opencode", "-y",
 		"--message", instruction,
@@ -238,7 +244,7 @@ func (e *Executor) fail(task *TaskResponse, errMsg string) {
 // sanitisePath converts a repo URL to a safe directory name.
 func sanitisePath(repo string) string {
 	// Strip protocol prefix and .git suffix.
-	name := repo
+	name := strings.TrimSpace(repo)
 	for _, prefix := range []string{"https://", "http://", "git@", "ssh://"} {
 		name = strings.TrimPrefix(name, prefix)
 	}
@@ -246,5 +252,10 @@ func sanitisePath(repo string) string {
 	// Replace path separators and colons.
 	name = strings.ReplaceAll(name, "/", "_")
 	name = strings.ReplaceAll(name, ":", "_")
+	name = strings.ReplaceAll(name, "..", "")
+	name = strings.Trim(name, "-._")
+	if name == "" {
+		return "repo"
+	}
 	return name
 }

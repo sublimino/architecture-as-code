@@ -192,18 +192,20 @@ func TestHealthEndpoint(t *testing.T) {
 	executor := NewExecutor(dir, nono, store)
 	srv := newServer(executor, store)
 
-	req := httptest.NewRequest("GET", "/health", nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
+	for _, path := range []string{"/health", "/healthz", "/readyz"} {
+		req := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
+		if w.Code != http.StatusOK {
+			t.Errorf("%s: expected 200, got %d", path, w.Code)
+		}
 
-	var body map[string]string
-	json.NewDecoder(w.Body).Decode(&body)
-	if body["status"] != "healthy" {
-		t.Errorf("expected healthy, got %s", body["status"])
+		var body map[string]string
+		json.NewDecoder(w.Body).Decode(&body)
+		if body["status"] != "healthy" {
+			t.Errorf("%s: expected status 'healthy', got %q", path, body["status"])
+		}
 	}
 }
 
@@ -346,6 +348,10 @@ func TestSanitisePath(t *testing.T) {
 		{"https://github.com/org/repo.git", "github.com_org_repo"},
 		{"git@github.com:org/repo.git", "github.com_org_repo"},
 		{"http://gitlab.example.com/team/project", "gitlab.example.com_team_project"},
+		{"../../evil/path", "evil_path"},
+		{"../..", "repo"},
+		{"", "repo"},
+		{"---repo---", "repo"},
 	}
 	for _, tc := range tests {
 		got := sanitisePath(tc.input)

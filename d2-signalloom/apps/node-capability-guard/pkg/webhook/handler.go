@@ -369,9 +369,19 @@ func (s *WebhookServer) HandleValidate(w http.ResponseWriter, r *http.Request) {
 	start := s.Now()
 	timestamp := start.UTC().Format(time.RFC3339)
 
-	if r.Method != http.MethodPost {
-		methodNotAllowed(w, r, "POST")
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
 		return
+	}
+
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, r, "POST, OPTIONS")
+		return
+	}
+
+	if r.Body != nil {
+		defer r.Body.Close()
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
@@ -388,6 +398,11 @@ func (s *WebhookServer) HandleValidate(w http.ResponseWriter, r *http.Request) {
 
 	if review.Request == nil {
 		http.Error(w, "missing request", http.StatusBadRequest)
+		return
+	}
+
+	if strings.TrimSpace(review.Request.UID) == "" {
+		http.Error(w, "missing request uid", http.StatusBadRequest)
 		return
 	}
 
@@ -480,8 +495,14 @@ func HandleValidate(w http.ResponseWriter, r *http.Request) {
 
 // HandleMetrics outputs Prometheus metrics including legacy and fine-grained counters.
 func HandleMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		methodNotAllowed(w, r, "GET, HEAD")
+		methodNotAllowed(w, r, "GET, HEAD, OPTIONS")
 		return
 	}
 
@@ -525,8 +546,14 @@ func HandleMetrics(w http.ResponseWriter, r *http.Request) {
 
 // HandleHealthz responds with health status and checks store connectivity.
 func HandleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		methodNotAllowed(w, r, "GET, HEAD")
+		methodNotAllowed(w, r, "GET, HEAD, OPTIONS")
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")

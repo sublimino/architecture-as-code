@@ -691,8 +691,8 @@ func TestMethodNotAllowed_ProbesAndMetrics(t *testing.T) {
 			if recH.Code != http.StatusMethodNotAllowed {
 				t.Errorf("HandleHealthz %s %s expected 405 Method Not Allowed, got %d", method, path, recH.Code)
 			}
-			if recH.Header().Get("Allow") != "GET, HEAD" {
-				t.Errorf("HandleHealthz %s %s expected Allow: GET, HEAD, got %q", method, path, recH.Header().Get("Allow"))
+			if recH.Header().Get("Allow") != "GET, HEAD, OPTIONS" {
+				t.Errorf("HandleHealthz %s %s expected Allow: GET, HEAD, OPTIONS, got %q", method, path, recH.Header().Get("Allow"))
 			}
 			if recH.Body.Len() == 0 {
 				t.Errorf("HandleHealthz %s %s expected non-empty body", method, path)
@@ -707,8 +707,8 @@ func TestMethodNotAllowed_ProbesAndMetrics(t *testing.T) {
 		if recM.Code != http.StatusMethodNotAllowed {
 			t.Errorf("HandleMetrics %s expected 405 Method Not Allowed, got %d", method, recM.Code)
 		}
-		if recM.Header().Get("Allow") != "GET, HEAD" {
-			t.Errorf("HandleMetrics %s expected Allow: GET, HEAD, got %q", method, recM.Header().Get("Allow"))
+		if recM.Header().Get("Allow") != "GET, HEAD, OPTIONS" {
+			t.Errorf("HandleMetrics %s expected Allow: GET, HEAD, OPTIONS, got %q", method, recM.Header().Get("Allow"))
 		}
 		if recM.Body.Len() == 0 {
 			t.Errorf("HandleMetrics %s expected non-empty body", method)
@@ -725,8 +725,8 @@ func TestMethodNotAllowed_HandleValidate(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("HandleValidate %s expected 405 Method Not Allowed, got %d", method, rec.Code)
 		}
-		if rec.Header().Get("Allow") != "POST" {
-			t.Errorf("HandleValidate %s expected Allow: POST, got %q", method, rec.Header().Get("Allow"))
+		if rec.Header().Get("Allow") != "POST, OPTIONS" {
+			t.Errorf("HandleValidate %s expected Allow: POST, OPTIONS, got %q", method, rec.Header().Get("Allow"))
 		}
 		if method == http.MethodHead {
 			if rec.Body.Len() != 0 {
@@ -745,8 +745,8 @@ func TestMethodNotAllowed_HandleValidate(t *testing.T) {
 		if recPkg.Code != http.StatusMethodNotAllowed {
 			t.Errorf("package HandleValidate %s expected 405, got %d", method, recPkg.Code)
 		}
-		if recPkg.Header().Get("Allow") != "POST" {
-			t.Errorf("package HandleValidate %s expected Allow: POST, got %q", method, recPkg.Header().Get("Allow"))
+		if recPkg.Header().Get("Allow") != "POST, OPTIONS" {
+			t.Errorf("package HandleValidate %s expected Allow: POST, OPTIONS, got %q", method, recPkg.Header().Get("Allow"))
 		}
 		if method == http.MethodHead {
 			if recPkg.Body.Len() != 0 {
@@ -788,8 +788,8 @@ func TestNewMux_RoutesAndHeadParity(t *testing.T) {
 			if recMethod.Code != http.StatusMethodNotAllowed {
 				t.Errorf("%s %s got status %d, want 405", method, path, recMethod.Code)
 			}
-			if allow := recMethod.Header().Get("Allow"); allow != "GET, HEAD" {
-				t.Errorf("%s %s Allow = %q, want GET, HEAD", method, path, allow)
+			if allow := recMethod.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+				t.Errorf("%s %s Allow = %q, want GET, HEAD, OPTIONS", method, path, allow)
 			}
 			if recMethod.Body.Len() == 0 {
 				t.Errorf("%s %s expected non-empty body", method, path)
@@ -816,8 +816,8 @@ func TestNewMux_RoutesAndHeadParity(t *testing.T) {
 		if recMethod.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s /metrics got status %d, want 405", method, recMethod.Code)
 		}
-		if allow := recMethod.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Errorf("%s /metrics Allow = %q, want GET, HEAD", method, allow)
+		if allow := recMethod.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("%s /metrics Allow = %q, want GET, HEAD, OPTIONS", method, allow)
 		}
 	}
 
@@ -827,8 +827,8 @@ func TestNewMux_RoutesAndHeadParity(t *testing.T) {
 	if recValHead.Code != http.StatusMethodNotAllowed {
 		t.Errorf("HEAD /validate got status %d, want 405", recValHead.Code)
 	}
-	if allow := recValHead.Header().Get("Allow"); allow != "POST" {
-		t.Errorf("HEAD /validate Allow = %q, want POST", allow)
+	if allow := recValHead.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("HEAD /validate Allow = %q, want POST, OPTIONS", allow)
 	}
 	if recValHead.Body.Len() != 0 {
 		t.Errorf("HEAD /validate got body %q, want empty", recValHead.Body.String())
@@ -840,8 +840,8 @@ func TestNewMux_RoutesAndHeadParity(t *testing.T) {
 		if recMethod.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s /validate got status %d, want 405", method, recMethod.Code)
 		}
-		if allow := recMethod.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("%s /validate Allow = %q, want POST", method, allow)
+		if allow := recMethod.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("%s /validate Allow = %q, want POST, OPTIONS", method, allow)
 		}
 		if recMethod.Body.Len() == 0 {
 			t.Errorf("%s /validate expected non-empty error body", method)
@@ -866,6 +866,74 @@ func TestNewMux_RoutesAndHeadParity(t *testing.T) {
 	}
 	if recSrvHead.Body.Len() != 0 {
 		t.Errorf("server.ServeHTTP HEAD got body %q, want empty", recSrvHead.Body.String())
+	}
+}
+
+func TestOPTIONS_Endpoints(t *testing.T) {
+	server := webhook.NewWebhookServer(nil, "signalloom.demo")
+	mux := webhook.NewMux(server)
+
+	// Test /validate OPTIONS
+	for _, target := range []string{"direct", "mux"} {
+		req := httptest.NewRequest(http.MethodOptions, "/validate", nil)
+		rec := httptest.NewRecorder()
+		if target == "direct" {
+			server.HandleValidate(rec, req)
+		} else {
+			mux.ServeHTTP(rec, req)
+		}
+		if rec.Code != http.StatusNoContent {
+			t.Errorf("/validate OPTIONS (%s) expected status 204, got %d", target, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("/validate OPTIONS (%s) expected Allow: POST, OPTIONS, got %q", target, allow)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("/validate OPTIONS (%s) expected empty body, got %q", target, rec.Body.String())
+		}
+	}
+
+	// Test /metrics and health probes OPTIONS
+	for _, path := range []string{"/metrics", "/health", "/healthz", "/readyz"} {
+		for _, target := range []string{"direct", "mux"} {
+			req := httptest.NewRequest(http.MethodOptions, path, nil)
+			rec := httptest.NewRecorder()
+			if target == "direct" {
+				if path == "/metrics" {
+					webhook.HandleMetrics(rec, req)
+				} else {
+					webhook.HandleHealthz(rec, req)
+				}
+			} else {
+				mux.ServeHTTP(rec, req)
+			}
+			if rec.Code != http.StatusNoContent {
+				t.Errorf("%s OPTIONS (%s) expected status 204, got %d", path, target, rec.Code)
+			}
+			if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+				t.Errorf("%s OPTIONS (%s) expected Allow: GET, HEAD, OPTIONS, got %q", path, target, allow)
+			}
+			if rec.Body.Len() != 0 {
+				t.Errorf("%s OPTIONS (%s) expected empty body, got %q", path, target, rec.Body.String())
+			}
+		}
+	}
+}
+
+func TestHandleValidate_MissingUID(t *testing.T) {
+	server := webhook.NewWebhookServer(nil, "signalloom.demo")
+
+	// Missing UID
+	body := []byte(`{"apiVersion":"admission.k8s.io/v1","kind":"AdmissionReview","request":{"uid":"","operation":"CREATE"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/validate", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	server.HandleValidate(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for missing UID, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "missing request uid") {
+		t.Fatalf("expected error body to mention missing request uid, got %q", rec.Body.String())
 	}
 }
 

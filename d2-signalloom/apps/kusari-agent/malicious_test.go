@@ -328,8 +328,8 @@ func TestMaliciousActRoutesRejectGet(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed || body["ok"] != false {
 			t.Fatalf("%s: code %d body %v, want 405 ok=false", p, rec.Code, body)
 		}
-		if rec.Header().Get("Allow") != http.MethodPost {
-			t.Fatalf("%s: Allow = %q, want POST", p, rec.Header().Get("Allow"))
+		if rec.Header().Get("Allow") != "POST, OPTIONS" {
+			t.Fatalf("%s: Allow = %q, want POST, OPTIONS", p, rec.Header().Get("Allow"))
 		}
 	}
 }

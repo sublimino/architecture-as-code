@@ -483,11 +483,16 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// getOnly refuses every method but GET and HEAD with 405 and an Allow header.
+// getOnly refuses every method but GET, HEAD, and OPTIONS with 405 and an Allow header.
 func getOnly(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET only"})
 			return
 		}
@@ -590,8 +595,13 @@ type probeEntry struct {
 
 func (a *agent) postOnly(action string, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Allow", "POST, OPTIONS")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", http.MethodPost)
+			w.Header().Set("Allow", "POST, OPTIONS")
 			if r.Method == http.MethodHead {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusMethodNotAllowed)
@@ -599,6 +609,9 @@ func (a *agent) postOnly(action string, h http.HandlerFunc) http.HandlerFunc {
 			}
 			writeJSON(w, http.StatusMethodNotAllowed, actResult{Action: action, Error: "POST only", PID: os.Getpid()})
 			return
+		}
+		if r.Body != nil {
+			defer r.Body.Close()
 		}
 		h(w, r)
 	}

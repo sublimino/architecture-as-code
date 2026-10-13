@@ -17,8 +17,8 @@ func TestReadOnlyRoutesRejectWritesWithAllowHeader(t *testing.T) {
 			a.routes().ServeHTTP(rec, httptest.NewRequest(method, path, nil))
 			var body map[string]string
 			_ = json.Unmarshal(rec.Body.Bytes(), &body)
-			if rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Allow") != "GET, HEAD" || body["error"] == "" {
-				t.Errorf("%s %s = %d Allow=%q body=%q, want 405 Allow=GET, HEAD with a JSON error",
+			if rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Allow") != "GET, HEAD, OPTIONS" || body["error"] == "" {
+				t.Errorf("%s %s = %d Allow=%q body=%q, want 405 Allow=GET, HEAD, OPTIONS with a JSON error",
 					method, path, rec.Code, rec.Header().Get("Allow"), rec.Body.String())
 			}
 		}
@@ -79,8 +79,8 @@ func TestActRoutesRejectHEADWithoutBody(t *testing.T) {
 		if rec.Body.Len() != 0 {
 			t.Errorf("HEAD %s wrote %d body bytes (%q), want 0", path, rec.Body.Len(), rec.Body.String())
 		}
-		if rec.Header().Get("Allow") != http.MethodPost {
-			t.Errorf("HEAD %s Allow header = %q, want POST", path, rec.Header().Get("Allow"))
+		if rec.Header().Get("Allow") != "POST, OPTIONS" {
+			t.Errorf("HEAD %s Allow header = %q, want POST, OPTIONS", path, rec.Header().Get("Allow"))
 		}
 		if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
 			t.Errorf("HEAD %s Content-Type = %q, want application/json", path, ct)
@@ -168,8 +168,8 @@ func TestActRoutesRejectNonPostMethodsWithAllowHeader(t *testing.T) {
 			if rec.Code != http.StatusMethodNotAllowed {
 				t.Errorf("%s %s = %d, want 405 Method Not Allowed", method, path, rec.Code)
 			}
-			if allow := rec.Header().Get("Allow"); allow != http.MethodPost {
-				t.Errorf("%s %s Allow = %q, want POST", method, path, allow)
+			if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+				t.Errorf("%s %s Allow = %q, want POST, OPTIONS", method, path, allow)
 			}
 			if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
 				t.Errorf("%s %s Content-Type = %q, want application/json", method, path, ct)
@@ -200,14 +200,14 @@ func TestPostOnlyDirectMethodGatingAndHEAD(t *testing.T) {
 		t.Fatalf("POST did not invoke handler cleanly: code=%d", recPost.Code)
 	}
 
-	// 2. HEAD returns 405 with Allow: POST, Content-Type: application/json, and empty body
+	// 2. HEAD returns 405 with Allow: POST, OPTIONS, Content-Type: application/json, and empty body
 	recHead := httptest.NewRecorder()
 	handler(recHead, httptest.NewRequest(http.MethodHead, "/act/test", nil))
 	if recHead.Code != http.StatusMethodNotAllowed {
 		t.Errorf("HEAD status = %d, want 405", recHead.Code)
 	}
-	if recHead.Header().Get("Allow") != http.MethodPost {
-		t.Errorf("HEAD Allow = %q, want POST", recHead.Header().Get("Allow"))
+	if recHead.Header().Get("Allow") != "POST, OPTIONS" {
+		t.Errorf("HEAD Allow = %q, want POST, OPTIONS", recHead.Header().Get("Allow"))
 	}
 	if ct := recHead.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("HEAD Content-Type = %q, want application/json", ct)
@@ -216,15 +216,15 @@ func TestPostOnlyDirectMethodGatingAndHEAD(t *testing.T) {
 		t.Errorf("HEAD wrote %d body bytes, want 0", recHead.Body.Len())
 	}
 
-	// 3. GET, PUT, DELETE, PATCH return 405 with Allow: POST and JSON error body
+	// 3. GET, PUT, DELETE, PATCH return 405 with Allow: POST, OPTIONS and JSON error body
 	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		rec := httptest.NewRecorder()
 		handler(rec, httptest.NewRequest(method, "/act/test", nil))
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s status = %d, want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != http.MethodPost {
-			t.Errorf("%s Allow = %q, want POST", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("%s Allow = %q, want POST, OPTIONS", method, allow)
 		}
 		var body map[string]any
 		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
@@ -233,6 +233,66 @@ func TestPostOnlyDirectMethodGatingAndHEAD(t *testing.T) {
 		if body["error"] != "POST only" {
 			t.Errorf("%s error = %v, want 'POST only'", method, body["error"])
 		}
+	}
+}
+
+func TestRoutesAcceptOPTIONS(t *testing.T) {
+	a, _, _ := actAgent(t)
+
+	// 1. Read-only routes answer OPTIONS with 204 No Content, Allow: GET, HEAD, OPTIONS, and empty body
+	for _, path := range []string{"/quote", "/", "/stats", "/health", "/healthz", "/readyz"} {
+		rec := httptest.NewRecorder()
+		a.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodOptions, path, nil))
+		if rec.Code != http.StatusNoContent {
+			t.Errorf("OPTIONS %s code = %d, want 204 No Content", path, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("OPTIONS %s Allow = %q, want GET, HEAD, OPTIONS", path, allow)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("OPTIONS %s wrote %d body bytes (%q), want 0", path, rec.Body.Len(), rec.Body.String())
+		}
+	}
+
+	// 2. Act routes answer OPTIONS with 204 No Content, Allow: POST, OPTIONS, and empty body
+	actRoutes := []string{
+		"/act/read-passwd",
+		"/act/read-shadow",
+		"/act/cpu-burn",
+		"/act/gpu-open",
+		"/act/gpu-probe",
+		"/act/exfil",
+		"/act/kube-enum",
+		"/act/recon",
+	}
+	for _, path := range actRoutes {
+		rec := httptest.NewRecorder()
+		a.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodOptions, path, nil))
+		if rec.Code != http.StatusNoContent {
+			t.Errorf("OPTIONS %s code = %d, want 204 No Content", path, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("OPTIONS %s Allow = %q, want POST, OPTIONS", path, allow)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("OPTIONS %s wrote %d body bytes (%q), want 0", path, rec.Body.Len(), rec.Body.String())
+		}
+	}
+
+	// 3. Direct postOnly handler answers OPTIONS with 204 No Content, Allow: POST, OPTIONS, and empty body
+	handler := a.postOnly("unit-test-options", func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called for OPTIONS request")
+	})
+	recDirect := httptest.NewRecorder()
+	handler(recDirect, httptest.NewRequest(http.MethodOptions, "/act/test", nil))
+	if recDirect.Code != http.StatusNoContent {
+		t.Errorf("direct postOnly OPTIONS code = %d, want 204", recDirect.Code)
+	}
+	if allow := recDirect.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("direct postOnly OPTIONS Allow = %q, want POST, OPTIONS", allow)
+	}
+	if recDirect.Body.Len() != 0 {
+		t.Errorf("direct postOnly OPTIONS wrote %d body bytes, want 0", recDirect.Body.Len())
 	}
 }
 

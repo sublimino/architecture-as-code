@@ -118,6 +118,7 @@ func handleGetCard(w http.ResponseWriter, r *http.Request) {
 
 func newMux(username, password string) *http.ServeMux {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/health", handleHealthz)
 	mux.HandleFunc("/healthz", handleHealthz)
 	mux.HandleFunc("/readyz", handleReadyz)
 	mux.HandleFunc("/api/v1/cards", requireAuth(username, password, handleListCards))

@@ -126,6 +126,7 @@ app.add_middleware(IdentityHeaderStripMiddleware)
 
 @app.get("/api/health")
 @app.get("/health")
+@app.get("/healthz")
 async def health() -> dict[str, str]:
     """Existing backwards-compatible health endpoint."""
     return {"status": "ok"}

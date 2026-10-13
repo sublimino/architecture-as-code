@@ -35,6 +35,29 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
+func TestHealth(t *testing.T) {
+	srv := newTestServer("user", "pass")
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/health")
+	if err != nil {
+		t.Fatalf("GET /health: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["status"] != "ok" {
+		t.Fatalf("expected status ok, got %q", body["status"])
+	}
+}
+
 func TestReadyz(t *testing.T) {
 	srv := newTestServer("user", "pass")
 	defer srv.Close()

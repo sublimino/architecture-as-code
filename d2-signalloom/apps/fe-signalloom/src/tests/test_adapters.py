@@ -29,3 +29,14 @@ def test_optional_connector_can_be_disabled_and_is_visible(caplog):
 def test_invalid_adapter_configuration_fails_startup(environment, message):
     with pytest.raises(ValueError, match=message):
         load_adapter_selections(environment)
+
+
+def test_health_and_healthz_probes():
+    from fastapi.testclient import TestClient
+    from main import app
+
+    client = TestClient(app)
+    for path in ("/health", "/healthz", "/api/health", "/livez"):
+        resp = client.get(path)
+        assert resp.status_code == 200
+        assert resp.json()["status"] in ("ok", "live")

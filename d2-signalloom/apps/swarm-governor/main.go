@@ -75,6 +75,12 @@ func (g *Governor) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Description = strings.TrimSpace(req.Description)
+	if req.Description == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "description required"})
+		return
+	}
+
 	// Discover agent cards.
 	var agents []a2a.AgentCard
 	ctx := r.Context()
@@ -197,15 +203,17 @@ func main() {
 	mux.HandleFunc("/tasks/submit", gov.handleSubmit)
 	mux.HandleFunc("/tasks/", gov.handleGetTask)
 	mux.HandleFunc("/.well-known/agent-card.json", gov.handleAgentCard)
+	mux.HandleFunc("/health", handleHealthz)
 	mux.HandleFunc("/healthz", handleHealthz)
 	mux.HandleFunc("/readyz", handleReadyz)
 
 	srv := &http.Server{
-		Addr:         ":" + port,
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  30 * time.Second,
+		Addr:              ":" + port,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       30 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

@@ -56,7 +56,8 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 
 // HandleListPolicies handles GET /api/v1/policies.
 func (h *PolicyEngineHandlers) HandleListPolicies(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -66,6 +67,11 @@ func (h *PolicyEngineHandlers) HandleListPolicies(w http.ResponseWriter, r *http
 		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	summaries := h.store.ListPolicies(tenantID)
 	writeJSON(w, http.StatusOK, summaries)
 }
@@ -73,6 +79,7 @@ func (h *PolicyEngineHandlers) HandleListPolicies(w http.ResponseWriter, r *http
 // HandleEvaluatePolicies handles POST /api/v1/policies/evaluate.
 func (h *PolicyEngineHandlers) HandleEvaluatePolicies(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -165,6 +172,7 @@ func (h *PolicyEngineHandlers) HandleEvaluatePolicies(w http.ResponseWriter, r *
 // HandleRegisterBundle handles POST /api/v1/policies/bundles.
 func (h *PolicyEngineHandlers) HandleRegisterBundle(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -203,6 +211,7 @@ func (h *PolicyEngineHandlers) HandleRegisterBundle(w http.ResponseWriter, r *ht
 // HandleRollback handles POST /api/v1/policies/rollback.
 func (h *PolicyEngineHandlers) HandleRollback(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}

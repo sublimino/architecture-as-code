@@ -100,6 +100,10 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 	}
 	mux.HandleFunc("GET /health", healthHandler)
@@ -151,6 +155,10 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		json.NewEncoder(w).Encode(task)
 	})
 
@@ -161,6 +169,10 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		json.NewEncoder(w).Encode(tasks)
 	})
 

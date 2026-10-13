@@ -77,14 +77,22 @@ func main() {
 }
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
-	healthHandler := func(w http.ResponseWriter, _ *http.Request) {
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	}
 	mux.HandleFunc("GET /health", healthHandler)
 	mux.HandleFunc("GET /healthz", healthHandler)
-	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
 	})
 	mux.HandleFunc("POST /api/v1/workspace/poll", s.handlePoll)
@@ -135,12 +143,16 @@ func (s *Server) handleStun(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(res)
 }
 
-func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	lastPolled := s.lastPolled
 	s.mu.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"connector":   "google-workspace-reports",
 		"status":      "active",

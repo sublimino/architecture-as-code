@@ -28,6 +28,16 @@ func TestProbeHandlerAnswersLivenessWithoutACredential(t *testing.T) {
 	if w.Code != http.StatusOK || decodeBody(t, w)["status"] != "ok" {
 		t.Fatalf("GET /healthz on the probe handler: %d %s, want 200 {\"status\":\"ok\"}", w.Code, w.Body.String())
 	}
+	wHead := probeGet(t, NewProbeHandler(&Handlers{}), http.MethodHead, "/healthz")
+	if wHead.Code != http.StatusOK {
+		t.Fatalf("HEAD /healthz: %d, want 200", wHead.Code)
+	}
+	if wHead.Body.Len() != 0 {
+		t.Fatalf("HEAD /healthz body length: %d, want 0", wHead.Body.Len())
+	}
+	if ct := wHead.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("HEAD /healthz content-type: %q, want application/json", ct)
+	}
 }
 
 func TestProbeHandlerReadinessFollowsTheAuditBackend(t *testing.T) {
@@ -36,11 +46,25 @@ func TestProbeHandlerReadinessFollowsTheAuditBackend(t *testing.T) {
 	if w.Code != http.StatusServiceUnavailable || decodeBody(t, w)["reason"] != "audit_backend_unreachable" {
 		t.Fatalf("GET /readyz with the audit backend down: %d %s, want 503 audit_backend_unreachable", w.Code, w.Body.String())
 	}
+	wHeadDown := probeGet(t, NewProbeHandler(down), http.MethodHead, "/readyz")
+	if wHeadDown.Code != http.StatusServiceUnavailable {
+		t.Fatalf("HEAD /readyz down: %d, want 503", wHeadDown.Code)
+	}
+	if wHeadDown.Body.Len() != 0 {
+		t.Fatalf("HEAD /readyz down body length: %d, want 0", wHeadDown.Body.Len())
+	}
 
 	up := &Handlers{AuditReady: func(context.Context) error { return nil }}
 	w = probeGet(t, NewProbeHandler(up), http.MethodGet, "/readyz")
 	if w.Code != http.StatusOK || decodeBody(t, w)["status"] != "ready" {
 		t.Fatalf("GET /readyz with the audit backend up: %d %s, want 200 ready", w.Code, w.Body.String())
+	}
+	wHeadUp := probeGet(t, NewProbeHandler(up), http.MethodHead, "/readyz")
+	if wHeadUp.Code != http.StatusOK {
+		t.Fatalf("HEAD /readyz up: %d, want 200", wHeadUp.Code)
+	}
+	if wHeadUp.Body.Len() != 0 {
+		t.Fatalf("HEAD /readyz up body length: %d, want 0", wHeadUp.Body.Len())
 	}
 }
 
@@ -86,3 +110,18 @@ func TestAPIRouterStillRefusesAnAnonymousProbe(t *testing.T) {
 		}
 	}
 }
+
+func TestProbeHandlerHEADRequests(t *testing.T) {
+	h, _ := newTestHandlers(t)
+	probe := NewProbeHandler(h)
+	for _, path := range []string{"/healthz", "/readyz"} {
+		w := probeGet(t, probe, http.MethodHead, path)
+		if w.Code != http.StatusOK {
+			t.Errorf("HEAD %s on probe handler: %d, want 200", path, w.Code)
+		}
+		if w.Body.Len() != 0 {
+			t.Errorf("HEAD %s on probe handler returned %d body bytes, want 0", path, w.Body.Len())
+		}
+	}
+}
+

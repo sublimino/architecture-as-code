@@ -22,22 +22,42 @@ func TestServer_Routes(t *testing.T) {
 	mux := http.NewServeMux()
 	srv.registerRoutes(mux)
 
-	// Test health and healthz
-	for _, path := range []string{"/health", "/healthz"} {
+	// Test health, healthz, readyz with GET and HEAD
+	for _, path := range []string{"/health", "/healthz", "/readyz"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
-			t.Errorf("%s: want 200, got %d", path, w.Code)
+			t.Errorf("%s GET: want 200, got %d", path, w.Code)
+		}
+
+		headReq := httptest.NewRequest(http.MethodHead, path, nil)
+		headW := httptest.NewRecorder()
+		mux.ServeHTTP(headW, headReq)
+		if headW.Code != http.StatusOK {
+			t.Errorf("%s HEAD: want 200, got %d", path, headW.Code)
+		}
+		if headW.Body.Len() != 0 {
+			t.Errorf("%s HEAD: expected 0 body bytes, got %d", path, headW.Body.Len())
 		}
 	}
 
-	// Test status
+	// Test status GET and HEAD
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspace/status", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Errorf("status: want 200, got %d", w.Code)
+	}
+
+	headStatusReq := httptest.NewRequest(http.MethodHead, "/api/v1/workspace/status", nil)
+	headStatusW := httptest.NewRecorder()
+	mux.ServeHTTP(headStatusW, headStatusReq)
+	if headStatusW.Code != http.StatusOK {
+		t.Errorf("status HEAD: want 200, got %d", headStatusW.Code)
+	}
+	if headStatusW.Body.Len() != 0 {
+		t.Errorf("status HEAD: expected 0 body bytes, got %d", headStatusW.Body.Len())
 	}
 
 	// Test stun cascade

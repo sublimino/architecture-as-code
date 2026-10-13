@@ -180,7 +180,13 @@ type degradedReporter interface {
 // Every value is a string on purpose: the existing contract test decodes this
 // body into a map[string]string, and a numeric field would abort that decode
 // part-way through and silently blank the keys after it.
-func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
 	body := map[string]string{
 		"status":           "ok",
 		"fleet_client":     "unconfigured",
@@ -224,6 +230,10 @@ func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
 	json.NewEncoder(w).Encode(body)
 }
 
@@ -579,18 +589,34 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-func (s *server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+func (s *server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
 	json.NewEncoder(w).Encode(map[string]string{
 		"status": "ok",
 	})
 }
 
 func (s *server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if s.dag == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
+		if r.Method == http.MethodHead {
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]string{
 			"status": "not_ready",
 			"error":  "fleet topology DAG not initialized",
@@ -602,6 +628,9 @@ func (s *server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		if err := s.enforcement.Client.Health(ctx); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
+			if r.Method == http.MethodHead {
+				return
+			}
 			json.NewEncoder(w).Encode(map[string]string{
 				"status": "degraded",
 				"error":  err.Error(),
@@ -610,6 +639,9 @@ func (s *server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
 	json.NewEncoder(w).Encode(map[string]string{
 		"status": "ok",
 		"ready":  "true",

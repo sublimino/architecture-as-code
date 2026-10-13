@@ -180,5 +180,29 @@ func TestHealthProbes(t *testing.T) {
 		if resp["status"] != "ok" {
 			t.Fatalf("path %s status = %q, want 'ok'", path, resp["status"])
 		}
+
+		headReq := httptest.NewRequest(http.MethodHead, path, nil)
+		headRec := httptest.NewRecorder()
+		mux.ServeHTTP(headRec, headReq)
+		if headRec.Code != http.StatusOK {
+			t.Fatalf("path %s HEAD returned status %d, want 200", path, headRec.Code)
+		}
+		if headRec.Body.Len() != 0 {
+			t.Fatalf("path %s HEAD returned %d body bytes, want 0", path, headRec.Body.Len())
+		}
+	}
+}
+
+func TestValidationErrors_ContentTypeJSON(t *testing.T) {
+	mux := newMux(func() time.Time { return fixedNow })
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/factory/validate-promotion", bytes.NewBufferString(`{invalid json`))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("want Content-Type application/json, got %q", ct)
 	}
 }

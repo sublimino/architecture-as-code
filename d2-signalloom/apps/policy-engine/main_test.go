@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -22,6 +23,28 @@ func TestHealth(t *testing.T) {
 	if body["status"] != "ok" {
 		t.Fatalf("expected status ok, got %q", body["status"])
 	}
+
+	// HEAD
+	req = httptest.NewRequest(http.MethodHead, "/health", nil)
+	w = httptest.NewRecorder()
+	handleHealthz(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("HEAD expected 200, got %d", w.Code)
+	}
+	if w.Body.Len() != 0 {
+		t.Fatalf("HEAD expected 0 body length, got %d", w.Body.Len())
+	}
+
+	// Method Not Allowed
+	req = httptest.NewRequest(http.MethodPost, "/health", nil)
+	w = httptest.NewRecorder()
+	handleHealthz(w, req)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST expected 405, got %d", w.Code)
+	}
+	if allow := w.Header().Get("Allow"); !strings.Contains(allow, "GET") || !strings.Contains(allow, "HEAD") {
+		t.Fatalf("expected Allow header with GET, HEAD, got %q", allow)
+	}
 }
 
 func TestHealthz(t *testing.T) {
@@ -37,6 +60,17 @@ func TestHealthz(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&body)
 	if body["status"] != "ok" {
 		t.Fatalf("expected status ok, got %q", body["status"])
+	}
+
+	// HEAD
+	req = httptest.NewRequest(http.MethodHead, "/healthz", nil)
+	w = httptest.NewRecorder()
+	handleHealthz(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("HEAD expected 200, got %d", w.Code)
+	}
+	if w.Body.Len() != 0 {
+		t.Fatalf("HEAD expected 0 body length, got %d", w.Body.Len())
 	}
 }
 
@@ -54,7 +88,30 @@ func TestReadyz(t *testing.T) {
 	if body["status"] != "ready" {
 		t.Fatalf("expected status ready, got %q", body["status"])
 	}
+
+	// HEAD
+	req = httptest.NewRequest(http.MethodHead, "/readyz", nil)
+	w = httptest.NewRecorder()
+	handleReadyz(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("HEAD expected 200, got %d", w.Code)
+	}
+	if w.Body.Len() != 0 {
+		t.Fatalf("HEAD expected 0 body length, got %d", w.Body.Len())
+	}
+
+	// Method Not Allowed
+	req = httptest.NewRequest(http.MethodDelete, "/readyz", nil)
+	w = httptest.NewRecorder()
+	handleReadyz(w, req)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("DELETE expected 405, got %d", w.Code)
+	}
+	if allow := w.Header().Get("Allow"); !strings.Contains(allow, "GET") {
+		t.Fatalf("expected Allow header with GET, got %q", allow)
+	}
 }
+
 
 func TestEvaluate_FullyCompliant(t *testing.T) {
 	trueVal := true
@@ -273,6 +330,9 @@ func TestEvaluate_MethodNotAllowed(t *testing.T) {
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", w.Code)
+	}
+	if allow := w.Header().Get("Allow"); allow != "POST" {
+		t.Fatalf("expected Allow: POST, got %q", allow)
 	}
 }
 

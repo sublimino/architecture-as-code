@@ -251,13 +251,19 @@ type HealthResponse struct {
 
 // handleHealth answers health queries with full visibility into the effective protective controls posture.
 // Operators can inspect this endpoint to verify encryption and audit enforcement directly.
-func (h *Handlers) handleHealth(w http.ResponseWriter, _ *http.Request) {
+func (h *Handlers) handleHealth(w http.ResponseWriter, r *http.Request) {
 	encPosture := identity.GetEncryptionPosture(h.Encryptor)
 	auditPosture := audit.GetAuditPosture(h.Audit)
 
 	status := "ok"
 	if !encPosture.Healthy || !auditPosture.Healthy {
 		status = "degraded"
+	}
+
+	if r != nil && r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
 	}
 
 	resp := HealthResponse{
@@ -273,7 +279,12 @@ func (h *Handlers) handleHealth(w http.ResponseWriter, _ *http.Request) {
 // me", and restarting cannot repair an unreachable database -- wiring a
 // dependency in here would turn a Postgres outage into a CrashLoopBackOff,
 // which is the failure this whole change exists to remove.
-func handleHealthz(w http.ResponseWriter, _ *http.Request) {
+func handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r != nil && r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -312,6 +323,11 @@ func (h *Handlers) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	if h.AuditReady != nil {
 		if err := h.AuditReady(ctx); err != nil {
 			slog.Warn("readiness: audit backend unreachable", "error", err)
+			if r != nil && r.Method == http.MethodHead {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 				"status": "not_ready",
 				"reason": "audit_backend_unreachable",
@@ -336,6 +352,11 @@ func (h *Handlers) handleReadyz(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("readiness: audit_vocabulary_not_admitted",
 					"missing_event_types", body["missing_event_types"], "error", err)
 			}
+			if r != nil && r.Method == http.MethodHead {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
 			writeJSON(w, http.StatusServiceUnavailable, body)
 			return
 		}
@@ -344,6 +365,11 @@ func (h *Handlers) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	if h.CollectorHealth != nil {
 		if err := h.CollectorHealth(ctx); err != nil {
 			slog.Warn("readiness: collector source unhealthy", "error", err)
+			if r != nil && r.Method == http.MethodHead {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 				"status": "not_ready",
 				"reason": "collector_source_unhealthy",
@@ -353,6 +379,11 @@ func (h *Handlers) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if r != nil && r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 

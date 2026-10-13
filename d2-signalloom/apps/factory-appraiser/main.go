@@ -59,6 +59,7 @@ func appraiseHandler(clock func() time.Time) http.HandlerFunc {
 		staleTTL := defaultStaleTTL
 		if req.StaleTTLMinutes != nil {
 			if *req.StaleTTLMinutes <= 0 {
+				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusBadRequest)
 				_ = json.NewEncoder(w).Encode(map[string]string{
 					"error":  "malformed_request",
@@ -70,6 +71,7 @@ func appraiseHandler(clock func() time.Time) http.HandlerFunc {
 		}
 
 		res, esc := appraiser.Appraise(req.Candidates, req.Intents, clock(), staleTTL)
+		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"appraisal":        res,
 			"escalation":       esc,
@@ -81,8 +83,12 @@ func appraiseHandler(clock func() time.Time) http.HandlerFunc {
 
 func newMux(clock func() time.Time) *http.ServeMux {
 	mux := http.NewServeMux()
-	healthHandler := func(w http.ResponseWriter, _ *http.Request) {
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	}
 	mux.HandleFunc("GET /healthz", healthHandler)
@@ -97,17 +103,20 @@ func newMux(clock func() time.Time) *http.ServeMux {
 			Promotion validator.Promotion  `json:"promotion"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 
 		if err := validator.ValidateSeparationOfDuties(req.Candidate, req.Evidence); err != nil {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 		if err := validator.ValidatePromotionContract(req.Promotion, req.Evidence); err != nil {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return

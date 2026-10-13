@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"k8s.io/client-go/kubernetes/fake"
@@ -128,5 +129,79 @@ func TestHealthUnconfiguredDoesNotClaimEnforcement(t *testing.T) {
 	}
 	if body["status"] != "ok" {
 		t.Fatalf("expected the pre-existing status contract to hold, got %q", body["status"])
+	}
+}
+
+func TestHealthMethodsAndHead(t *testing.T) {
+	s := newTestServer(t)
+
+	// HEAD on /health
+	req := httptest.NewRequest(http.MethodHead, "/health", nil)
+	w := httptest.NewRecorder()
+	s.handleHealth(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("HEAD /health: expected 200, got %d", w.Code)
+	}
+	if w.Body.Len() != 0 {
+		t.Fatalf("HEAD /health: expected 0 body bytes, got %d", w.Body.Len())
+	}
+
+	// POST rejected on /health
+	req = httptest.NewRequest(http.MethodPost, "/health", nil)
+	w = httptest.NewRecorder()
+	s.handleHealth(w, req)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST /health: expected 405, got %d", w.Code)
+	}
+	if allow := w.Header().Get("Allow"); !strings.Contains(allow, "GET") || !strings.Contains(allow, "HEAD") {
+		t.Fatalf("POST /health: expected Allow header with GET, HEAD, got %q", allow)
+	}
+}
+
+func TestHealthzAndReadyzMethodsAndHead(t *testing.T) {
+	s := newTestServer(t)
+
+	// HEAD on /healthz
+	req := httptest.NewRequest(http.MethodHead, "/healthz", nil)
+	w := httptest.NewRecorder()
+	s.handleHealthz(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("HEAD /healthz: expected 200, got %d", w.Code)
+	}
+	if w.Body.Len() != 0 {
+		t.Fatalf("HEAD /healthz: expected 0 body bytes, got %d", w.Body.Len())
+	}
+
+	// POST rejected on /healthz
+	req = httptest.NewRequest(http.MethodPost, "/healthz", nil)
+	w = httptest.NewRecorder()
+	s.handleHealthz(w, req)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST /healthz: expected 405, got %d", w.Code)
+	}
+	if allow := w.Header().Get("Allow"); !strings.Contains(allow, "GET") {
+		t.Fatalf("POST /healthz: expected Allow header with GET, got %q", allow)
+	}
+
+	// HEAD on /readyz
+	req = httptest.NewRequest(http.MethodHead, "/readyz", nil)
+	w = httptest.NewRecorder()
+	s.handleReadyz(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("HEAD /readyz: expected 200, got %d", w.Code)
+	}
+	if w.Body.Len() != 0 {
+		t.Fatalf("HEAD /readyz: expected 0 body bytes, got %d", w.Body.Len())
+	}
+
+	// POST rejected on /readyz
+	req = httptest.NewRequest(http.MethodPost, "/readyz", nil)
+	w = httptest.NewRecorder()
+	s.handleReadyz(w, req)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST /readyz: expected 405, got %d", w.Code)
+	}
+	if allow := w.Header().Get("Allow"); !strings.Contains(allow, "GET") {
+		t.Fatalf("POST /readyz: expected Allow header with GET, got %q", allow)
 	}
 }

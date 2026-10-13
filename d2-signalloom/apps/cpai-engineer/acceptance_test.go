@@ -67,6 +67,19 @@ func TestAcceptanceHealthEndpoint(t *testing.T) {
 	if body["status"] != "healthy" {
 		t.Errorf("expected status=healthy, got %q", body["status"])
 	}
+
+	headResp, err := http.Head(ts.URL + "/health")
+	if err != nil {
+		t.Fatalf("HEAD /health: %v", err)
+	}
+	headBytes, _ := io.ReadAll(headResp.Body)
+	headResp.Body.Close()
+	if headResp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 on HEAD, got %d", headResp.StatusCode)
+	}
+	if len(headBytes) != 0 {
+		t.Errorf("expected 0 bytes on HEAD /health, got %d", len(headBytes))
+	}
 }
 
 // ── Task Submission ────────────────────────────────────────────────────────
@@ -222,3 +235,27 @@ func TestTokenBudgetDefaultsWhenZero(t *testing.T) {
 		t.Errorf("expected 202, got %d: %s", resp.StatusCode, string(b))
 	}
 }
+
+// ── HEAD Requests ──────────────────────────────────────────────────────────
+
+func TestHeadHealthAndTasks(t *testing.T) {
+	ts := testServer(t)
+	defer ts.Close()
+
+	for _, path := range []string{"/health", "/healthz", "/readyz", "/tasks"} {
+		req, _ := http.NewRequest(http.MethodHead, ts.URL+path, nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("HEAD %s: %v", path, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("HEAD %s: expected 200, got %d", path, resp.StatusCode)
+		}
+		if len(body) != 0 {
+			t.Errorf("HEAD %s: expected 0 body bytes, got %d", path, len(body))
+		}
+	}
+}
+

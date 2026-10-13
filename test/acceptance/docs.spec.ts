@@ -171,3 +171,63 @@ test.describe("architecture diagrams page", () => {
     await expect(dialog).toHaveCount(0);
   });
 });
+
+// Internal Architecture publishes the component-level SeeCode diagrams
+// (public/diagrams/internal/NN-*.{svg,html,json}). docs-signalloom/DIAGRAMS.md
+// governs these the same way it governs the Draw.io platform diagrams above,
+// so a drift from its inclusion/exclusion lists fails test/diagram-focus.bats,
+// not this spec. This spec only proves the page renders and every asset it
+// links actually loads.
+test.describe("internal architecture page", () => {
+  const slug = "reference/internal-architecture";
+
+  test("renders its heading and sidebar entry", async ({ page }) => {
+    const response = await page.goto(`${BASE}/${slug}/`, { waitUntil: "domcontentloaded" });
+
+    expect(response, "no HTTP response for the internal architecture page").not.toBeNull();
+    expect(response!.status()).toBe(200);
+
+    await expect(page.locator("h1").first()).toHaveText("Internal Architecture");
+    await expect(page.locator(`a[href$="/${slug}/"]`).first()).toHaveCount(1);
+  });
+
+  test("embeds between 10 and 20 diagrams, each actually decoded", async ({ page }) => {
+    await page.goto(`${BASE}/${slug}/`, { waitUntil: "load" });
+
+    const images = page.locator('img[src*="/diagrams/internal/"]');
+    const count = await images.count();
+    expect(count, "internal diagram count out of the expected 10-20 range").toBeGreaterThanOrEqual(10);
+    expect(count, "internal diagram count out of the expected 10-20 range").toBeLessThanOrEqual(20);
+
+    for (let i = 0; i < count; i++) {
+      const img = images.nth(i);
+      const src = await img.getAttribute("src");
+      const width = await img.evaluate(el => (el as HTMLImageElement).naturalWidth);
+      expect(width, `${src} did not load`).toBeGreaterThan(0);
+    }
+  });
+
+  test("every internal diagram link resolves to a served file", async ({ page, request }) => {
+    await page.goto(`${BASE}/${slug}/`, { waitUntil: "domcontentloaded" });
+
+    const hrefs = await page.locator('a[href*="/diagrams/internal/"]').evaluateAll(els =>
+      els.map(el => (el as HTMLAnchorElement).href),
+    );
+    expect(hrefs.length, "no internal diagram links on the page").toBeGreaterThan(0);
+
+    for (const href of hrefs) {
+      const head = await request.get(href);
+      expect(head.status(), `unexpected status for ${href}`).toBe(200);
+    }
+  });
+
+  test("architecture diagrams page points here instead of embedding component flows", async ({ page }) => {
+    await page.goto(`${BASE}/reference/architecture-diagrams/`, { waitUntil: "domcontentloaded" });
+
+    // The old component-flows diagram lived at public/diagrams/osramp-demo.svg.
+    // It moved into this page as 01-component-flows; the old embed must be gone.
+    await expect(page.locator('img[src$="/diagrams/osramp-demo.svg"]')).toHaveCount(0);
+
+    await expect(page.locator(`a[href$="/${slug}/"]`).first()).toHaveCount(1);
+  });
+});

@@ -31,14 +31,7 @@ The single-node foundation that `make up` builds. No cloud dependency.
 - Native Draw.io XML: [osramp-kind-sovereign-airgap.drawio](/docs/diagrams/osramp-kind-sovereign-airgap.drawio)
 - High-resolution raster PNG: [osramp-kind-sovereign-airgap.png](/docs/diagrams/osramp-kind-sovereign-airgap.png)
 
-### Component flows
-
-The interactive component map of the platform, generated from the repository.
-
-![Signal Loom component flows](/docs/diagrams/osramp-demo.svg)
-
-- Interactive diagram: [osramp-demo.html](/docs/diagrams/osramp-demo.html)
-- Diagram source: [osramp-demo.json](/docs/diagrams/osramp-demo.json)
+Component-level call diagrams, generated from the repository, moved to [Internal Architecture](/docs/reference/internal-architecture/).
 
 ## Roadmap platforms
 

@@ -79,6 +79,9 @@ function ensureWorktree(dir: string, branch: string): string {
     if (res.code === 0) {
       const curBranch = runCmd("git rev-parse --abbrev-ref HEAD", dir, false).stdout;
       if (curBranch === branch) {
+        runCmd("git merge --abort", dir, false);
+        runCmd("git reset --hard HEAD", dir, false);
+        runCmd("git clean -fd", dir, false);
         return dir;
       }
     }
@@ -236,7 +239,19 @@ function mergeDownToMainAndMaster(): boolean {
 
   if (!intInMain) {
     console.log(`     Merging ${INTEGRATION_BRANCH} into ${MAIN_BRANCH}...`);
-    runCmd(`git merge --no-ff -m "merge: ${INTEGRATION_BRANCH} into main" ${INTEGRATION_BRANCH}`, wt);
+    const mergeRes = runCmd(`git merge --no-ff -m "merge: ${INTEGRATION_BRANCH} into main" ${INTEGRATION_BRANCH}`, wt, false);
+    if (mergeRes.code !== 0) {
+      console.log("     Merge conflict detected, checking deployment.yaml...");
+      const deployYaml = path.join(wt, "d2-signalloom/apps/signal-ingest/base/deployment.yaml");
+      if (fs.existsSync(deployYaml)) {
+        runCmd(`git checkout --theirs "${deployYaml}"`, wt, false);
+        updateDeploymentPin(wt);
+        runCmd(`git add "${deployYaml}"`, wt);
+        runCmd(`git commit --no-gpg-sign -m "merge: ${INTEGRATION_BRANCH} into main (resolved image tag)"`, wt);
+      } else {
+        throw new Error(`Merge conflict on non-deployment file in main worktree: ${mergeRes.stderr}`);
+      }
+    }
   }
 
   if (!featInMain) {

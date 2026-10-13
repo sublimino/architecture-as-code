@@ -2,6 +2,7 @@ import http.client
 import io
 import json
 import os
+import socket
 import threading
 import unittest
 from types import SimpleNamespace
@@ -1333,6 +1334,27 @@ class ScanTestCase(ProxyServerTestCase):
         resp = connection.getresponse()
         self.assertEqual("close", resp.getheader("Connection"))
         connection.close()
+
+    def test_chunk_missing_crlf_does_not_hang(self):
+        s = socket.create_connection(("127.0.0.1", self.port))
+        s.sendall(
+            b"GET /health HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n"
+            b"3\r\nfooXX"
+        )
+        s.settimeout(2.0)
+        data = b""
+        while True:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+            if b"\r\n\r\n" in data:
+                break
+        s.close()
+        self.assertIn(b"400 Bad Request", data)
+        self.assertIn(b"Connection: close", data)
 
 
 if __name__ == "__main__":

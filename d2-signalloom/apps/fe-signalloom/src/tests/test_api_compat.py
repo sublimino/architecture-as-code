@@ -1133,6 +1133,8 @@ def test_capabilities_for_superadmin_user(client, monkeypatch):
         "api_subject_tenants",
         {"alice": "tenant-a", "bob": "tenant-b", "demo-user": "tenant-demo"},
     )
+    monkeypatch.setattr(settings, "api_superadmin_subjects", {"demo-user"})
+    monkeypatch.setattr(settings, "api_superadmin_emails", {"demo-user@signalloom.local"})
     token = token_for("demo-user", extra_claims={"email": "demo-user@signalloom.local"})
     response = client.get("/api/capabilities", headers=bearer(token))
     assert response.status_code == 200
@@ -1267,6 +1269,8 @@ def test_capabilities_workload_scoped_db(client, monkeypatch):
         "api_subject_tenants",
         {"alice": "tenant-a", "bob": "tenant-b", "demo-user": "tenant-demo"},
     )
+    monkeypatch.setattr(settings, "api_superadmin_subjects", {"demo-user"})
+    monkeypatch.setattr(settings, "api_superadmin_emails", {"demo-user@signalloom.local"})
     class MockPool:
         async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
             if "SELECT id FROM agent_registry" in query:

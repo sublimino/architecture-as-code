@@ -100,8 +100,8 @@ export default function ObservationFeed({
   const isSentinelObservation = (obs: SignalObservation): boolean => {
     // Only the HIGH-FREQUENCY sentinel telemetry streams are the noise this toggle
     // hides: the per-connection socket-trace flow and its gap detector
-    // (network_egress). Low-frequency, high-value endpoint FINDINGS — source
-    // "stun-sentinel" (live) and "sentinel.ebpf.syscall_trace" (projection) — are
+    // (network_egress). Low-frequency, high-value endpoint FINDINGS: source
+    // "stun-sentinel" (live) and "sentinel.ebpf.syscall_trace" (projection), are
     // detections, not noise, and MUST survive the toggle; matching on a broad
     // "sentinel"/"stun" substring (as this did) hid every live endpoint detection.
     const s = (obs.source || '').toLowerCase()

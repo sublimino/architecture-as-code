@@ -291,7 +291,7 @@ export const IMPORT_ID_PREFIX = 'signalloom-'
 // The stamp is SECOND-resolution, so the random suffix is the only thing
 // separating two imports pushed inside the same second. At 4 hex chars that is
 // 65,536 values: 20 imports in one second collide with probability ~0.3%, and a
-// collision is not cosmetic — `selectMostRecentImport` identifies our pushes by
+// collision is not cosmetic: `selectMostRecentImport` identifies our pushes by
 // this id, so two indistinguishable ids mean the embed can select the wrong
 // cluster.
 //

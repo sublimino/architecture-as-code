@@ -24,7 +24,7 @@ import { isDemoMode } from '../api/demoMode'
  * (`VITE_FAIR_VERSIONS_PREFIX`, default `/v1/fair/versions`), so demo mode
  * cannot obtain this list through the api client's fixture gate. It is
  * therefore seeded here and reachable ONLY when `isDemoMode()` is true. In
- * live mode the version selector shows exactly what the API returned — an
+ * live mode the version selector shows exactly what the API returned: an
  * empty selector is the honest answer when the API serves nothing.
  */
 export const DEMO_VERSIONS: FrameworkVersion[] = [
@@ -208,7 +208,7 @@ export default function RiskExposurePage() {
   }, [agentList])
 
   // Agent counts are observations, never estimates. An empty inventory means
-  // "we have not been told about any agents", which is zero — not the 20/15/5
+  // "we have not been told about any agents", which is zero, not the 20/15/5
   // these previously asserted. Those literals also fed `ratio` below, so a
   // fabricated population silently rescaled real ALE/VaR/TVaR money.
   const governedCount = useMemo(
@@ -284,7 +284,7 @@ export default function RiskExposurePage() {
 
     // scaleMoney returns null precisely when the product is not a usable
     // figure. Each of these used to answer that null with
-    // `{ amount: Math.round(x * ratio) }` — recomputing by hand the number the
+    // `{ amount: Math.round(x * ratio) }`, recomputing by hand the number the
     // money layer had just refused to produce, and defeating the one guard
     // that exists. `?? 0` in those fallbacks also turned a missing carried
     // figure into a £0 claim. If any leg cannot be scaled, the apportioned

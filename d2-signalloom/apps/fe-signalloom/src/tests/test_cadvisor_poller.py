@@ -266,6 +266,7 @@ async def test_a_finished_scrape_leaves_no_body_behind_for_the_cycle_collector()
     body = (padding + scrape()).encode()
     poller = kubelet(lambda req: httpx.Response(200, content=body))
 
+    await poller.poll_once()
     gc.collect()
     gc.disable()
     tracemalloc.start()

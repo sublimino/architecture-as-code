@@ -350,7 +350,7 @@ export default function Settings() {
             </div>
           </SectionCard>
 
-          {/* Risk profile — READ-ONLY here on purpose.
+          {/* Risk profile: READ-ONLY here on purpose.
               Declared at onboarding; this card reports what was declared.
               "Not declared" is shown literally rather than blank or as a
               plausible default, because an undeclared profile is a real state

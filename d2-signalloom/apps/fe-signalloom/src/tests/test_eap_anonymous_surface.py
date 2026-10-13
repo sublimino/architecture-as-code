@@ -89,13 +89,13 @@ BODIES: Dict[Tuple[str, str], Dict[str, Any]] = {
 @pytest.fixture
 def probe_client(monkeypatch):
     """TestClient setup with test pool and settings without invoking background reaper."""
-    settings.api_jwt_issuer = "https://issuer.test"
-    settings.api_jwt_audience = "signalloom-api"
-    settings.api_jwt_authorized_party = "signalloom-dashboard"
-    settings.api_jwks_url = "https://issuer.test/keys"
-    settings.api_subject_tenants = {"demo-user": "tenant-demo"}
-    settings.api_superadmin_emails = set()
-    settings.api_superadmin_subjects = set()
+    monkeypatch.setattr(settings, "api_jwt_issuer", "https://issuer.test")
+    monkeypatch.setattr(settings, "api_jwt_audience", "signalloom-api")
+    monkeypatch.setattr(settings, "api_jwt_authorized_party", "signalloom-dashboard")
+    monkeypatch.setattr(settings, "api_jwks_url", "https://issuer.test/keys")
+    monkeypatch.setattr(settings, "api_subject_tenants", {"demo-user": "tenant-demo"})
+    monkeypatch.setattr(settings, "api_superadmin_emails", set())
+    monkeypatch.setattr(settings, "api_superadmin_subjects", set())
 
     async def _noop_close() -> None:
         return None

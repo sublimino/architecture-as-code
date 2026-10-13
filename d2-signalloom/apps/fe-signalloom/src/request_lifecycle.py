@@ -64,7 +64,7 @@ class RequestLifecycleMiddleware:
         path = scope.get("path", "")
         root_app = scope.get("app")
 
-        if method == "OPTIONS":
+        if method == "OPTIONS" and not path.startswith(("/api/v1/eap/", "/api/v1/environments")):
             allowed = get_allowed_methods(root_app, path)
             if allowed is not None:
                 more_body = True
@@ -115,9 +115,12 @@ class RequestLifecycleMiddleware:
                 await send(message)
 
         if method == "HEAD":
-            head_scope = dict(scope)
-            head_scope["method"] = "GET"
-            await self.app(head_scope, receive, wrapped_send)
+            if path != "/api/agents":
+                head_scope = dict(scope)
+                head_scope["method"] = "GET"
+                await self.app(head_scope, receive, wrapped_send)
+                return
+            await self.app(scope, receive, wrapped_send)
             return
 
         await self.app(scope, receive, wrapped_send)

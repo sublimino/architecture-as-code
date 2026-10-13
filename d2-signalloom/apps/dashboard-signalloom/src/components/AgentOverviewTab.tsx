@@ -32,7 +32,7 @@ interface ControlPolicyMetadata {
  * Resolve the policy rule behind a compliance result.
  *
  * `AgentComplianceResultResponse` carries only control_id, control_name,
- * framework_name, status, assessed_at and evidence_ref — it does NOT carry the
+ * framework_name, status, assessed_at and evidence_ref; it does NOT carry the
  * CEL expression, severity, remediation or docs URL that this panel displays.
  * Those can therefore only come from the seeded demo bundles, so the lookup is
  * gated: in live mode it returns null and the caller renders an explicit

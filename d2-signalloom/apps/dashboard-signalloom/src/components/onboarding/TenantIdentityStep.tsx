@@ -134,7 +134,7 @@ export default function TenantIdentityStep({
         errs.push('Risk Appetite Tolerance must be a positive number, or left blank.')
       } else if (!reportingCurrency) {
         errs.push(
-          'Choose a Reporting Currency for the Risk Appetite Tolerance — an amount ' +
+          'Choose a Reporting Currency for the Risk Appetite Tolerance: an amount ' +
           'without a currency is not an amount.',
         )
       }
@@ -354,7 +354,7 @@ export default function TenantIdentityStep({
             </h2>
             <p style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.6, marginBottom: 16 }}>
               What a loss event costs <em>here</em>. The policy pack decides how often something
-              goes wrong; these decide what it is worth when it does — so the same control can
+              goes wrong; these decide what it is worth when it does, so the same control can
               warrant enforcement at one institution and only an audit note at another, without
               anyone having an opinion. Leave any of it blank and the platform uses its own
               defaults instead.

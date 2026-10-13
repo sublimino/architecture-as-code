@@ -354,7 +354,7 @@ export default function CompliancePolicyPage() {
       if (pol.status === 'fulfilled' && Array.isArray(pol.value)) setPolicySummaries(pol.value)
 
       // allSettled never throws, so a rejected leg used to be indistinguishable
-      // from one that legitimately returned nothing — and the unconditional
+      // from one that legitimately returned nothing, and the unconditional
       // setError(null) below cleared any earlier error too. Surface the
       // rejections instead: a page that cannot load its figures must say so.
       const failures = [

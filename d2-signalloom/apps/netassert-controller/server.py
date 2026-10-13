@@ -219,7 +219,14 @@ def _job_status_count(status: dict[str, object], field: str) -> int:
 
 class ControllerHandler(BaseHTTPRequestHandler):
     server_version = "NetassertController/1.0"
+    protocol_version = "HTTP/1.1"
     timeout = 10.0
+
+    def handle_one_request(self) -> None:
+        try:
+            super().handle_one_request()
+        except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
+            self.close_connection = True
 
     def log_message(self, format: str, *args: object) -> None:
         return
@@ -269,70 +276,90 @@ class ControllerHandler(BaseHTTPRequestHandler):
         msg = message if message is not None else phrase
         self._json(code, {"error": msg})
 
-    def _drain_body(self) -> None:
+    def _drain_body(self) -> bool:
         if not hasattr(self, "headers") or not self.headers:
-            return
+            return True
         te = self.headers.get("Transfer-Encoding", "").lower()
         has_cl = "content-length" in [k.lower() for k in self.headers.keys()]
         if ("chunked" in te and has_cl) or (te and has_cl):
             self.close_connection = True
-            return
+            return False
+        if te and "chunked" not in te:
+            self.close_connection = True
+            return False
         if "chunked" in te:
             try:
                 total = 0
+                terminated = False
                 while total <= 1048576:
                     line = self.rfile.readline(128)
-                    if not line:
+                    if not line or not line.endswith(b"\n"):
                         self.close_connection = True
-                        break
+                        return False
                     chunk_len_str = line.split(b";")[0].strip()
                     if not chunk_len_str or not re.fullmatch(rb"[0-9a-fA-F]+", chunk_len_str):
                         self.close_connection = True
-                        break
-                    chunk_len = int(chunk_len_str, 16)
+                        return False
+                    try:
+                        chunk_len = int(chunk_len_str, 16)
+                    except ValueError:
+                        self.close_connection = True
+                        return False
                     if chunk_len < 0:
                         self.close_connection = True
-                        break
+                        return False
                     if chunk_len == 0:
                         trailer_count = 0
                         while trailer_count < 32:
                             trailer = self.rfile.readline(1024)
-                            if not trailer:
+                            if not trailer or not trailer.endswith(b"\n"):
                                 self.close_connection = True
-                                break
+                                return False
                             if trailer in (b"\r\n", b"\n"):
                                 break
                             trailer_count += 1
                         else:
                             self.close_connection = True
+                            return False
+                        terminated = True
                         break
                     total += chunk_len
                     if total > 1048576:
                         self.close_connection = True
-                        break
+                        return False
                     rem = chunk_len
                     while rem > 0:
                         b = self.rfile.read(min(rem, 65536))
                         if not b:
                             self.close_connection = True
-                            return
+                            return False
                         rem -= len(b)
-                    crlf = self.rfile.readline(4)
-                    if crlf not in (b"\r\n", b"\n"):
+                    c = self.rfile.read(1)
+                    if c == b"\r":
+                        c2 = self.rfile.read(1)
+                        if c2 != b"\n":
+                            self.close_connection = True
+                            return False
+                    elif c != b"\n":
                         self.close_connection = True
-                        break
+                        return False
+                if not terminated:
+                    self.close_connection = True
+                    return False
             except Exception:
                 self.close_connection = True
-            return
+                return False
+            return True
 
         try:
             raw_len = self.headers.get("Content-Length", "0")
             length = int(raw_len.strip()) if raw_len else 0
         except (ValueError, TypeError, AttributeError):
             self.close_connection = True
-            return
+            return False
         if length < 0 or length > 1048576:
             self.close_connection = True
+            return False
         elif 0 < length <= 1048576:
             try:
                 rem = length
@@ -340,10 +367,12 @@ class ControllerHandler(BaseHTTPRequestHandler):
                     b = self.rfile.read(min(rem, 65536))
                     if not b:
                         self.close_connection = True
-                        break
+                        return False
                     rem -= len(b)
             except (OSError, ValueError):
                 self.close_connection = True
+                return False
+        return True
 
     def _handle_scan(self) -> None:
         """POST /scan — (re)create the fixed netassert-run Job.
@@ -354,7 +383,9 @@ class ControllerHandler(BaseHTTPRequestHandler):
         from _netassert_job_manifest — no caller input reaches it (the body
         is drained and discarded, never parsed).
         """
-        self._drain_body()
+        if not self._drain_body():
+            self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+            return
         try:
             token = _read_service_account_token()
             context = _kubernetes_ssl_context()
@@ -416,7 +447,9 @@ class ControllerHandler(BaseHTTPRequestHandler):
 
     def _handle_scan_delete(self) -> None:
         """DELETE /scan — teardown/abort the running or completed netassert-run Job."""
-        self._drain_body()
+        if not self._drain_body():
+            self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+            return
         try:
             token = _read_service_account_token()
             context = _kubernetes_ssl_context()
@@ -446,19 +479,28 @@ class ControllerHandler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.OK, {"job": NETASSERT_JOB_NAME, "status": "deleted"})
 
     def _dispatch(self) -> None:
+        te = self.headers.get("Transfer-Encoding", "").lower() if hasattr(self, "headers") and self.headers else ""
+        has_cl = "content-length" in [k.lower() for k in self.headers.keys()] if hasattr(self, "headers") and self.headers else False
+        if ("chunked" in te and has_cl) or (te and has_cl) or (te and "chunked" not in te):
+            self.close_connection = True
+            self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+            return
+        if self.command in ("GET", "HEAD", "OPTIONS"):
+            self._drain_body()
         path = urlparse(self.path).path
         if path in ("/health", "/healthz", "/readyz", "/livez"):
             if self.command in ("GET", "HEAD"):
                 self._json(HTTPStatus.OK, {"status": "ok"})
             elif self.command == "OPTIONS":
-                self._drain_body()
                 self._json(
                     HTTPStatus.NO_CONTENT,
                     None,
                     {"Allow": "GET, HEAD, OPTIONS"},
                 )
             else:
-                self._drain_body()
+                if not self._drain_body():
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return
                 self._json(
                     HTTPStatus.METHOD_NOT_ALLOWED,
                     {"error": "method not allowed"},
@@ -470,21 +512,24 @@ class ControllerHandler(BaseHTTPRequestHandler):
             elif self.command == "DELETE":
                 self._handle_scan_delete()
             elif self.command == "OPTIONS":
-                self._drain_body()
                 self._json(
                     HTTPStatus.NO_CONTENT,
                     None,
                     {"Allow": "POST, DELETE, OPTIONS"},
                 )
             else:
-                self._drain_body()
+                if not self._drain_body():
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return
                 self._json(
                     HTTPStatus.METHOD_NOT_ALLOWED,
                     {"error": "method not allowed"},
                     {"Allow": "POST, DELETE, OPTIONS"},
                 )
         else:
-            self._drain_body()
+            if not self._drain_body():
+                self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                return
             self._json(HTTPStatus.NOT_FOUND, {"error": "unknown route"})
 
     do_GET = _dispatch

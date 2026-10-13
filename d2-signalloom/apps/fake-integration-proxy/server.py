@@ -1505,6 +1505,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if ("chunked" in te and has_cl) or (te and has_cl):
             self.close_connection = True
             return False
+        if te and "chunked" not in te:
+            self.close_connection = True
+            return False
         if "chunked" in te:
             try:
                 total = 0
@@ -1552,8 +1555,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
                             self.close_connection = True
                             return False
                         rem -= len(b)
-                    crlf = self.rfile.readline(4)
-                    if crlf not in (b"\r\n", b"\n"):
+                    c = self.rfile.read(1)
+                    if c == b"\r":
+                        c2 = self.rfile.read(1)
+                        if c2 != b"\n":
+                            self.close_connection = True
+                            return False
+                    elif c != b"\n":
                         self.close_connection = True
                         return False
                 if not terminated:
@@ -1650,6 +1658,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
     def _body(self) -> object:
         te = self.headers.get("Transfer-Encoding", "").lower() if hasattr(self, "headers") and self.headers else ""
+        has_cl = "content-length" in [k.lower() for k in self.headers.keys()] if hasattr(self, "headers") and self.headers else False
+        if ("chunked" in te and has_cl) or (te and has_cl):
+            self.close_connection = True
+            return None
+        if te and "chunked" not in te:
+            self.close_connection = True
+            return None
         if "chunked" in te:
             try:
                 chunks = bytearray()
@@ -1667,13 +1682,17 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         self.close_connection = True
                         break
                     if chunk_len == 0:
-                        while True:
+                        trailer_count = 0
+                        while trailer_count < 32:
                             trailer = self.rfile.readline(1024)
-                            if not trailer:
+                            if not trailer or not trailer.endswith(b"\n"):
                                 self.close_connection = True
                                 break
                             if trailer in (b"\r\n", b"\n"):
                                 break
+                            trailer_count += 1
+                        else:
+                            self.close_connection = True
                         break
                     if len(chunks) + chunk_len > 1048576:
                         self.close_connection = True
@@ -1683,8 +1702,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
                             if not b:
                                 return None
                             rem -= len(b)
-                        crlf = self.rfile.readline(4)
-                        if crlf not in (b"\r\n", b"\n"):
+                        c = self.rfile.read(1)
+                        if c == b"\r":
+                            c2 = self.rfile.read(1)
+                            if c2 != b"\n":
+                                self.close_connection = True
+                        elif c != b"\n":
                             self.close_connection = True
                         break
                     rem = chunk_len
@@ -1695,8 +1718,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
                             return None
                         chunks.extend(b)
                         rem -= len(b)
-                    crlf = self.rfile.readline(4)
-                    if crlf not in (b"\r\n", b"\n"):
+                    c = self.rfile.read(1)
+                    if c == b"\r":
+                        c2 = self.rfile.read(1)
+                        if c2 != b"\n":
+                            self.close_connection = True
+                            break
+                    elif c != b"\n":
                         self.close_connection = True
                         break
                 if not chunks:
@@ -1765,7 +1793,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if category is None:
             return False
         if self.command == "OPTIONS":
-            self._body()
+            self._drain_body()
             self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS"})
             return True
         body = self._body() if self.command in {"POST", "PUT", "PATCH"} else None
@@ -2109,12 +2137,20 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, {"requests": self.state.get_requests()})
                 return True
             if self.command == "DELETE":
+                if not self._drain_body():
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return True
                 self.state.reset_requests()
                 self._json(HTTPStatus.OK, {"requests": []})
                 return True
             if self.command == "OPTIONS":
-                self._body()
+                if not self._drain_body():
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return True
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, DELETE, OPTIONS"})
+                return True
+            if not self._drain_body():
+                self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
                 return True
             self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, DELETE, OPTIONS"})
             return True
@@ -2123,8 +2159,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, {"fixtures": self.state.get_fixtures()})
                 return True
             if self.command == "OPTIONS":
-                self._body()
+                if not self._drain_body():
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return True
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
+                return True
+            if not self._drain_body():
+                self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
                 return True
             self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
             return True
@@ -2136,6 +2177,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 return True
             if self.command == "PUT":
                 body = self._body()
+                if getattr(self, "close_connection", False):
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return True
                 if body is None:
                     self._json(HTTPStatus.BAD_REQUEST, {"error": "fixture body is required"})
                     return True
@@ -2143,8 +2187,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, {"category": category, "name": name, "fixture": body})
                 return True
             if self.command == "OPTIONS":
-                self._body()
+                if not self._drain_body():
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return True
                 self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "PUT, OPTIONS"})
+                return True
+            if not self._drain_body():
+                self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
                 return True
             self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "PUT, OPTIONS"})
             return True
@@ -2157,6 +2206,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
         return values[0] if values and values[0] else None
 
     def _dispatch(self) -> None:
+        te = self.headers.get("Transfer-Encoding", "").lower() if hasattr(self, "headers") and self.headers else ""
+        has_cl = "content-length" in [k.lower() for k in self.headers.keys()] if hasattr(self, "headers") and self.headers else False
+        if ("chunked" in te and has_cl) or (te and has_cl) or (te and "chunked" not in te):
+            self.close_connection = True
+            self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+            return
         if self.command in ("GET", "HEAD", "OPTIONS") and not self._drain_body():
             self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
             return

@@ -119,6 +119,13 @@ func (s *Server) routes() http.Handler {
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodHead {
 			w.WriteHeader(http.StatusOK)
@@ -127,6 +134,13 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	}
 	readyHandler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodHead {
 			w.WriteHeader(http.StatusOK)
@@ -147,6 +161,14 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "POST")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	count, err := s.pollAndIngest(r.Context())
 	if err != nil {
@@ -175,6 +197,14 @@ func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "POST")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req stun.StunRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -207,6 +237,17 @@ func (s *Server) handleStun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
 	s.mu.RLock()
 	lastPolled := s.lastPolled
 	s.mu.RUnlock()

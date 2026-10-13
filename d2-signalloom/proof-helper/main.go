@@ -344,17 +344,18 @@ func newA2AHandler(client *http.Client, address, role, expectedSubject string, p
 	return newA2AHandlerWithInstance(client, address, role, expectedSubject, publicKey, base64.RawURLEncoding.EncodeToString(instanceBytes))
 }
 
+func methodNotAllowed(response http.ResponseWriter, r *http.Request, allow string) {
+	response.Header().Set("Allow", allow)
+	response.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	response.WriteHeader(http.StatusMethodNotAllowed)
+	if r != nil && r.Method != http.MethodHead {
+		_, _ = response.Write([]byte("method not allowed\n"))
+	}
+}
+
 func newA2AHandlerWithInstance(client *http.Client, address, role, expectedSubject string, publicKey ed25519.PublicKey, instanceNonce string) http.Handler {
 	mux := http.NewServeMux()
 	replay := newReplayCache(10000)
-	methodNotAllowed := func(response http.ResponseWriter, r *http.Request, allow string) {
-		response.Header().Set("Allow", allow)
-		response.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		response.WriteHeader(http.StatusMethodNotAllowed)
-		if r != nil && r.Method != http.MethodHead {
-			_, _ = response.Write([]byte("method not allowed\n"))
-		}
-	}
 	healthHandler := func(response http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			methodNotAllowed(response, r, "GET, HEAD")

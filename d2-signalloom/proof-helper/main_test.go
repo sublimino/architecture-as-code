@@ -394,27 +394,37 @@ func TestA2AHandlerHealthAndChallengeMethods(t *testing.T) {
 			t.Errorf("HEAD %s Content-Type = %q, want application/json", path, ct)
 		}
 
-		// POST rejected with Allow: GET, HEAD
-		req = httptest.NewRequest(http.MethodPost, path, nil)
-		rec = httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-		if rec.Code != http.StatusMethodNotAllowed {
-			t.Errorf("POST %s returned %d, want 405", path, rec.Code)
-		}
-		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Errorf("POST %s Allow = %q, want GET, HEAD", path, allow)
+		// Disallowed methods (POST, PUT, DELETE, PATCH) rejected with Allow: GET, HEAD and non-empty body
+		for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+			req = httptest.NewRequest(m, path, nil)
+			rec = httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s returned %d, want 405", m, path, rec.Code)
+			}
+			if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
+				t.Errorf("%s %s Allow = %q, want GET, HEAD", m, path, allow)
+			}
+			if rec.Body.Len() == 0 {
+				t.Errorf("%s %s expected non-empty error body", m, path)
+			}
 		}
 	}
 
-	// /a2a GET rejected with Allow: POST
-	reqA2AGet := httptest.NewRequest(http.MethodGet, "/a2a", nil)
-	recA2AGet := httptest.NewRecorder()
-	handler.ServeHTTP(recA2AGet, reqA2AGet)
-	if recA2AGet.Code != http.StatusMethodNotAllowed {
-		t.Errorf("GET /a2a returned %d, want 405", recA2AGet.Code)
-	}
-	if allow := recA2AGet.Header().Get("Allow"); allow != "POST" {
-		t.Errorf("GET /a2a Allow = %q, want POST", allow)
+	// /a2a disallowed methods (GET, PUT, DELETE, PATCH) rejected with Allow: POST
+	for _, m := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		reqA2A := httptest.NewRequest(m, "/a2a", nil)
+		recA2A := httptest.NewRecorder()
+		handler.ServeHTTP(recA2A, reqA2A)
+		if recA2A.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s /a2a returned %d, want 405", m, recA2A.Code)
+		}
+		if allow := recA2A.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("%s /a2a Allow = %q, want POST", m, allow)
+		}
+		if recA2A.Body.Len() == 0 {
+			t.Errorf("%s /a2a expected non-empty error body", m)
+		}
 	}
 
 	// Challenge GET
@@ -442,15 +452,20 @@ func TestA2AHandlerHealthAndChallengeMethods(t *testing.T) {
 		t.Errorf("HEAD /challenge body length = %d, want 0", rec.Body.Len())
 	}
 
-	// Challenge POST rejected
-	req = httptest.NewRequest(http.MethodPost, "/challenge", nil)
-	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Errorf("POST /challenge returned %d, want 405", rec.Code)
-	}
-	if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
-		t.Errorf("POST /challenge Allow = %q, want GET, HEAD", allow)
+	// Challenge disallowed methods (POST, PUT, DELETE, PATCH) rejected with Allow: GET, HEAD
+	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req = httptest.NewRequest(m, "/challenge", nil)
+		rec = httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s /challenge returned %d, want 405", m, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
+			t.Errorf("%s /challenge Allow = %q, want GET, HEAD", m, allow)
+		}
+		if rec.Body.Len() == 0 {
+			t.Errorf("%s /challenge expected non-empty error body", m)
+		}
 	}
 
 	// /a2a HEAD rejected with Allow: POST and empty body
@@ -536,28 +551,30 @@ func TestOpenBaoMockMethodGatesAndHEADBodySuppression(t *testing.T) {
 		t.Fatalf("RFC 9110 violation: expected 0 body bytes on HEAD 405, got %d: %q", len(headBody), string(headBody))
 	}
 
-	// 2. GET request on POST route returns 405 with Allow: POST and non-empty error body
-	getReq, err := http.NewRequest(http.MethodGet, srv.URL+"/v1/auth/jwt/login", nil)
-	if err != nil {
-		t.Fatalf("failed creating GET request: %v", err)
-	}
-	getResp, err := http.DefaultClient.Do(getReq)
-	if err != nil {
-		t.Fatalf("GET request failed: %v", err)
-	}
-	getBody, err := io.ReadAll(getResp.Body)
-	_ = getResp.Body.Close()
-	if err != nil {
-		t.Fatalf("failed reading GET body: %v", err)
-	}
-	if getResp.StatusCode != http.StatusMethodNotAllowed {
-		t.Fatalf("expected 405 on GET, got %d", getResp.StatusCode)
-	}
-	if allow := getResp.Header.Get("Allow"); allow != "POST" {
-		t.Fatalf("expected Allow: POST on GET 405, got %q", allow)
-	}
-	if len(getBody) == 0 {
-		t.Fatal("expected non-empty error body on GET 405")
+	// 2. Disallowed methods (GET, PUT, DELETE, PATCH) on POST route return 405 with Allow: POST and non-empty error body
+	for _, m := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req, err := http.NewRequest(m, srv.URL+"/v1/auth/jwt/login", nil)
+		if err != nil {
+			t.Fatalf("failed creating %s request: %v", m, err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s request failed: %v", m, err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil {
+			t.Fatalf("failed reading %s body: %v", m, err)
+		}
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Fatalf("expected 405 on %s, got %d", m, resp.StatusCode)
+		}
+		if allow := resp.Header.Get("Allow"); allow != "POST" {
+			t.Fatalf("expected Allow: POST on %s 405, got %q", m, allow)
+		}
+		if len(body) == 0 {
+			t.Fatalf("expected non-empty error body on %s 405", m)
+		}
 	}
 
 	// 3. HEAD on simulated 500 error route returns 0 body bytes
@@ -582,4 +599,51 @@ func TestOpenBaoMockMethodGatesAndHEADBodySuppression(t *testing.T) {
 		t.Fatalf("RFC 9110 violation: expected 0 body bytes on HEAD 500, got %d: %q", len(errBody), string(errBody))
 	}
 }
+
+func TestMethodNotAllowedDirect(t *testing.T) {
+	// GET request -> 405 with Allow header and body
+	recGet := httptest.NewRecorder()
+	reqGet := httptest.NewRequest(http.MethodGet, "/test", nil)
+	methodNotAllowed(recGet, reqGet, "POST")
+	if recGet.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", recGet.Code)
+	}
+	if allow := recGet.Header().Get("Allow"); allow != "POST" {
+		t.Fatalf("expected Allow: POST, got %q", allow)
+	}
+	if ct := recGet.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+		t.Fatalf("expected text/plain Content-Type, got %q", ct)
+	}
+	if recGet.Body.String() != "method not allowed\n" {
+		t.Fatalf("expected 'method not allowed\\n', got %q", recGet.Body.String())
+	}
+
+	// HEAD request -> 405 with Allow header and 0 body bytes (RFC 9110 Section 6.4.1)
+	recHead := httptest.NewRecorder()
+	reqHead := httptest.NewRequest(http.MethodHead, "/test", nil)
+	methodNotAllowed(recHead, reqHead, "POST")
+	if recHead.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 on HEAD, got %d", recHead.Code)
+	}
+	if allow := recHead.Header().Get("Allow"); allow != "POST" {
+		t.Fatalf("expected Allow: POST on HEAD, got %q", allow)
+	}
+	if recHead.Body.Len() != 0 {
+		t.Fatalf("RFC 9110 violation: expected 0 body bytes on HEAD 405, got %d: %q", recHead.Body.Len(), recHead.Body.String())
+	}
+
+	// Nil request -> 405 without panic
+	recNil := httptest.NewRecorder()
+	methodNotAllowed(recNil, nil, "GET, HEAD")
+	if recNil.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 on nil req, got %d", recNil.Code)
+	}
+	if allow := recNil.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Fatalf("expected Allow: GET, HEAD, got %q", allow)
+	}
+	if recNil.Body.Len() != 0 {
+		t.Fatalf("expected 0 body bytes on nil req, got %d", recNil.Body.Len())
+	}
+}
+
 

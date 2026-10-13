@@ -942,14 +942,19 @@ func TestHealthMethodRejectionAndHead(t *testing.T) {
 			t.Errorf("HEAD %s body length = %d, want 0", path, rec.Body.Len())
 		}
 
-		// POST rejected
-		rec = httptest.NewRecorder()
-		routes.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, nil))
-		if rec.Code != http.StatusMethodNotAllowed {
-			t.Errorf("POST %s status = %d, want 405", path, rec.Code)
-		}
-		if !strings.Contains(rec.Header().Get("Allow"), "GET") {
-			t.Errorf("POST %s missing Allow header: %s", path, rec.Header().Get("Allow"))
+		// Disallowed methods (POST, PUT, DELETE, PATCH) rejected with 405 and Allow: GET, HEAD
+		for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+			rec = httptest.NewRecorder()
+			routes.ServeHTTP(rec, httptest.NewRequest(m, path, nil))
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s status = %d, want 405", m, path, rec.Code)
+			}
+			if !strings.Contains(rec.Header().Get("Allow"), "GET") {
+				t.Errorf("%s %s missing Allow header: %s", m, path, rec.Header().Get("Allow"))
+			}
+			if rec.Body.Len() == 0 {
+				t.Errorf("%s %s expected non-empty error body", m, path)
+			}
 		}
 	}
 }
@@ -986,7 +991,7 @@ func TestSnapshotAndStunMethodGates(t *testing.T) {
 	srv, _ := newTestServer(t, root, "test-freeze", "test-resume")
 	routes := srv.routes()
 
-	// 1. Authenticated /stun, /resume, /quarantine/prune reject GET/HEAD with 405 and Allow: POST
+	// 1. Authenticated /stun, /resume, /quarantine/prune reject GET/HEAD/PUT/DELETE/PATCH with 405 and Allow: POST
 	targets := []struct {
 		path  string
 		token string
@@ -996,7 +1001,7 @@ func TestSnapshotAndStunMethodGates(t *testing.T) {
 		{"/quarantine/prune", "test-freeze"},
 	}
 	for _, tgt := range targets {
-		for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete} {
+		for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(method, tgt.path, nil)
 			req.Header.Set("Authorization", "Bearer "+tgt.token)
@@ -1007,13 +1012,19 @@ func TestSnapshotAndStunMethodGates(t *testing.T) {
 			if rec.Header().Get("Allow") != "POST" {
 				t.Errorf("%s %s Allow = %q, want 'POST'", method, tgt.path, rec.Header().Get("Allow"))
 			}
-			if method == http.MethodHead && rec.Body.Len() != 0 {
-				t.Errorf("HEAD %s (405): want empty body, got %d bytes: %s", tgt.path, rec.Body.Len(), rec.Body.String())
+			if method == http.MethodHead {
+				if rec.Body.Len() != 0 {
+					t.Errorf("HEAD %s (405): want empty body, got %d bytes: %s", tgt.path, rec.Body.Len(), rec.Body.String())
+				}
+			} else {
+				if rec.Body.Len() == 0 {
+					t.Errorf("%s %s expected non-empty error body", method, tgt.path)
+				}
 			}
 		}
 	}
 
-	// 2. /quarantine/snapshots supports HEAD and rejects POST with 405 Allow: GET, HEAD
+	// 2. /quarantine/snapshots supports HEAD and rejects POST, PUT, DELETE, PATCH with 405 Allow: GET, HEAD
 	rec := httptest.NewRecorder()
 	routes.ServeHTTP(rec, httptest.NewRequest(http.MethodHead, "/quarantine/snapshots", nil))
 	if rec.Code != http.StatusOK {
@@ -1023,13 +1034,33 @@ func TestSnapshotAndStunMethodGates(t *testing.T) {
 		t.Errorf("HEAD /quarantine/snapshots body len = %d, want 0", rec.Body.Len())
 	}
 
-	recPost := httptest.NewRecorder()
-	routes.ServeHTTP(recPost, httptest.NewRequest(http.MethodPost, "/quarantine/snapshots", nil))
-	if recPost.Code != http.StatusMethodNotAllowed {
-		t.Errorf("POST /quarantine/snapshots status = %d, want 405", recPost.Code)
+	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		recM := httptest.NewRecorder()
+		routes.ServeHTTP(recM, httptest.NewRequest(m, "/quarantine/snapshots", nil))
+		if recM.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s /quarantine/snapshots status = %d, want 405", m, recM.Code)
+		}
+		if recM.Header().Get("Allow") != "GET, HEAD" {
+			t.Errorf("%s /quarantine/snapshots Allow = %q, want 'GET, HEAD'", m, recM.Header().Get("Allow"))
+		}
+		if recM.Body.Len() == 0 {
+			t.Errorf("%s /quarantine/snapshots expected non-empty error body", m)
+		}
 	}
-	if recPost.Header().Get("Allow") != "GET, HEAD" {
-		t.Errorf("POST /quarantine/snapshots Allow = %q, want 'GET, HEAD'", recPost.Header().Get("Allow"))
+
+	// /quarantine/snapshots/{id} rejects POST, PUT, DELETE, PATCH with 405 Allow: GET, HEAD
+	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		recM := httptest.NewRecorder()
+		routes.ServeHTTP(recM, httptest.NewRequest(m, "/quarantine/snapshots/snap-123", nil))
+		if recM.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s /quarantine/snapshots/snap-123 status = %d, want 405", m, recM.Code)
+		}
+		if recM.Header().Get("Allow") != "GET, HEAD" {
+			t.Errorf("%s /quarantine/snapshots/snap-123 Allow = %q, want 'GET, HEAD'", m, recM.Header().Get("Allow"))
+		}
+		if recM.Body.Len() == 0 {
+			t.Errorf("%s /quarantine/snapshots/snap-123 expected non-empty error body", m)
+		}
 	}
 
 	// 3. Unauthenticated HEAD to /stun, /resume, /quarantine/prune returns 401 with 0 body bytes
@@ -1064,4 +1095,70 @@ func TestSnapshotAndStunMethodGates(t *testing.T) {
 		t.Errorf("HEAD /unknown-path body len = %d, want 0", recUnknown.Body.Len())
 	}
 }
+
+func TestStunSentinelWriteJSONDirectAndHEAD(t *testing.T) {
+	statuses := []int{
+		http.StatusOK,
+		http.StatusCreated,
+		http.StatusBadRequest,
+		http.StatusUnauthorized,
+		http.StatusForbidden,
+		http.StatusNotFound,
+		http.StatusMethodNotAllowed,
+		http.StatusInternalServerError,
+		http.StatusServiceUnavailable,
+	}
+
+	for _, st := range statuses {
+		// GET request writes body
+		recGet := httptest.NewRecorder()
+		reqGet := httptest.NewRequest(http.MethodGet, "/test", nil)
+		writeJSON(recGet, reqGet, st, map[string]string{"msg": "test"})
+		if recGet.Code != st {
+			t.Errorf("status %d GET: want code %d, got %d", st, st, recGet.Code)
+		}
+		if ct := recGet.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("status %d GET: want application/json Content-Type, got %q", st, ct)
+		}
+		if recGet.Body.Len() == 0 {
+			t.Errorf("status %d GET: expected non-empty body", st)
+		}
+
+		// HEAD request suppresses body (RFC 9110 Section 6.4.1)
+		recHead := httptest.NewRecorder()
+		reqHead := httptest.NewRequest(http.MethodHead, "/test", nil)
+		writeJSON(recHead, reqHead, st, map[string]string{"msg": "test"})
+		if recHead.Code != st {
+			t.Errorf("status %d HEAD: want code %d, got %d", st, st, recHead.Code)
+		}
+		if ct := recHead.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("status %d HEAD: want application/json Content-Type, got %q", st, ct)
+		}
+		if recHead.Body.Len() != 0 {
+			t.Errorf("status %d HEAD: expected 0 body bytes, got %d: %q", st, recHead.Body.Len(), recHead.Body.String())
+		}
+	}
+
+	// nil request writes body
+	recNil := httptest.NewRecorder()
+	writeJSON(recNil, nil, http.StatusOK, map[string]string{"nil": "req"})
+	if recNil.Code != http.StatusOK {
+		t.Errorf("nil req: want 200, got %d", recNil.Code)
+	}
+	if recNil.Body.Len() == 0 {
+		t.Error("nil req: expected non-empty body")
+	}
+
+	// nil body
+	recNilBody := httptest.NewRecorder()
+	reqNilBody := httptest.NewRequest(http.MethodGet, "/test", nil)
+	writeJSON(recNilBody, reqNilBody, http.StatusOK, nil)
+	if recNilBody.Code != http.StatusOK {
+		t.Errorf("nil body: want 200, got %d", recNilBody.Code)
+	}
+	if strings.TrimSpace(recNilBody.Body.String()) != "null" {
+		t.Errorf("nil body: want 'null', got %q", recNilBody.Body.String())
+	}
+}
+
 

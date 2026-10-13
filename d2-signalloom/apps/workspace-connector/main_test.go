@@ -41,6 +41,22 @@ func TestServer_Routes(t *testing.T) {
 		if headW.Body.Len() != 0 {
 			t.Errorf("%s HEAD: expected 0 body bytes, got %d", path, headW.Body.Len())
 		}
+
+		// Method rejection on probes (POST, PUT, DELETE, PATCH) -> 405 with Allow: GET, HEAD
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+			mReq := httptest.NewRequest(method, path, nil)
+			mW := httptest.NewRecorder()
+			mux.ServeHTTP(mW, mReq)
+			if mW.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s: want 405, got %d", method, path, mW.Code)
+			}
+			if allow := mW.Header().Get("Allow"); allow != "GET, HEAD" {
+				t.Errorf("%s %s Allow: want 'GET, HEAD', got %q", method, path, allow)
+			}
+			if mW.Body.Len() == 0 {
+				t.Errorf("%s %s: expected non-empty error body", method, path)
+			}
+		}
 	}
 
 	// Test status GET and HEAD
@@ -59,6 +75,22 @@ func TestServer_Routes(t *testing.T) {
 	}
 	if headStatusW.Body.Len() != 0 {
 		t.Errorf("status HEAD: expected 0 body bytes, got %d", headStatusW.Body.Len())
+	}
+
+	// Method rejection on status (POST, PUT, DELETE, PATCH) -> 405 with Allow: GET, HEAD
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		mReq := httptest.NewRequest(method, "/api/v1/workspace/status", nil)
+		mW := httptest.NewRecorder()
+		mux.ServeHTTP(mW, mReq)
+		if mW.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s /api/v1/workspace/status: want 405, got %d", method, mW.Code)
+		}
+		if allow := mW.Header().Get("Allow"); allow != "GET, HEAD" {
+			t.Errorf("%s /api/v1/workspace/status Allow: want 'GET, HEAD', got %q", method, allow)
+		}
+		if mW.Body.Len() == 0 {
+			t.Errorf("%s /api/v1/workspace/status: expected non-empty error body", method)
+		}
 	}
 
 	// Test stun cascade
@@ -172,8 +204,27 @@ func TestHeadErrorBodySuppression(t *testing.T) {
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Errorf("HEAD %s: want 405, got %d", path, w.Code)
 		}
+		if allow := w.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("HEAD %s Allow: want 'POST', got %q", path, allow)
+		}
 		if w.Body.Len() != 0 {
 			t.Errorf("HEAD %s: expected 0 body bytes, got %d: %q", path, w.Body.Len(), w.Body.String())
+		}
+
+		// Disallowed methods (GET, PUT, DELETE, PATCH) return 405 with Allow: POST and non-empty body
+		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+			mReq := httptest.NewRequest(method, path, nil)
+			mW := httptest.NewRecorder()
+			handler.ServeHTTP(mW, mReq)
+			if mW.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s: want 405, got %d", method, path, mW.Code)
+			}
+			if allow := mW.Header().Get("Allow"); allow != "POST" {
+				t.Errorf("%s %s Allow: want 'POST', got %q", method, path, allow)
+			}
+			if mW.Body.Len() == 0 {
+				t.Errorf("%s %s: expected non-empty error body", method, path)
+			}
 		}
 	}
 
@@ -275,5 +326,159 @@ func TestWorkspaceIngestMockServerMethodGatingAndHEAD(t *testing.T) {
 		t.Errorf("HEAD body length = %d, want 0", len(body))
 	}
 }
+
+func TestDirectHandlerMethodRejectionAndHead(t *testing.T) {
+	srv := &Server{
+		client:    client.NewMockReportsClient(),
+		stunner:   stun.NewMemoryStunExecutor(),
+		ingestURL: "http://localhost:8090/api/v1/observations",
+	}
+
+	// 1. Direct handlePoll with disallowed methods (GET, PUT, DELETE, PATCH)
+	for _, m := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req := httptest.NewRequest(m, "/api/v1/workspace/poll", nil)
+		w := httptest.NewRecorder()
+		srv.handlePoll(w, req)
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("direct handlePoll %s: want 405, got %d", m, w.Code)
+		}
+		if allow := w.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("direct handlePoll %s Allow: want 'POST', got %q", m, allow)
+		}
+		if w.Body.Len() == 0 {
+			t.Errorf("direct handlePoll %s: expected non-empty error body", m)
+		}
+	}
+
+	// Direct handlePoll with HEAD returns 200 with 0 body bytes
+	fakeIngest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer fakeIngest.Close()
+	srv.ingestURL = fakeIngest.URL
+
+	headPollReq := httptest.NewRequest(http.MethodHead, "/api/v1/workspace/poll", nil)
+	headPollW := httptest.NewRecorder()
+	srv.handlePoll(headPollW, headPollReq)
+	if headPollW.Code != http.StatusOK {
+		t.Errorf("direct handlePoll HEAD: want 200, got %d", headPollW.Code)
+	}
+	if headPollW.Body.Len() != 0 {
+		t.Errorf("direct handlePoll HEAD: expected 0 body bytes, got %d", headPollW.Body.Len())
+	}
+
+	// 2. Direct handleStun with disallowed methods (GET, PUT, DELETE, PATCH)
+	for _, m := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req := httptest.NewRequest(m, "/api/v1/workspace/stun", nil)
+		w := httptest.NewRecorder()
+		srv.handleStun(w, req)
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("direct handleStun %s: want 405, got %d", m, w.Code)
+		}
+		if allow := w.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("direct handleStun %s Allow: want 'POST', got %q", m, allow)
+		}
+		if w.Body.Len() == 0 {
+			t.Errorf("direct handleStun %s: expected non-empty error body", m)
+		}
+	}
+
+	// Direct handleStun with HEAD and valid payload returns 200 with 0 body bytes
+	stunPayload, _ := json.Marshal(stun.StunRequest{
+		AgentID:             "spiffe://osramp.local/ns/agents/sa/rogue-agent",
+		ServiceAccountEmail: "agent-rogue@corp.internal",
+		Reason:              "External OAuth token grant detected",
+		RequestedAt:         time.Now().UTC(),
+	})
+	headStunReq := httptest.NewRequest(http.MethodHead, "/api/v1/workspace/stun", bytes.NewReader(stunPayload))
+	headStunW := httptest.NewRecorder()
+	srv.handleStun(headStunW, headStunReq)
+	if headStunW.Code != http.StatusOK {
+		t.Errorf("direct handleStun HEAD: want 200, got %d", headStunW.Code)
+	}
+	if headStunW.Body.Len() != 0 {
+		t.Errorf("direct handleStun HEAD: expected 0 body bytes, got %d", headStunW.Body.Len())
+	}
+
+	// 3. Direct handleStatus with disallowed methods (POST, PUT, DELETE, PATCH)
+	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req := httptest.NewRequest(m, "/api/v1/workspace/status", nil)
+		w := httptest.NewRecorder()
+		srv.handleStatus(w, req)
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("direct handleStatus %s: want 405, got %d", m, w.Code)
+		}
+		if allow := w.Header().Get("Allow"); allow != "GET, HEAD" {
+			t.Errorf("direct handleStatus %s Allow: want 'GET, HEAD', got %q", m, allow)
+		}
+		if w.Body.Len() == 0 {
+			t.Errorf("direct handleStatus %s: expected non-empty error body", m)
+		}
+	}
+
+	// Direct handleStatus with HEAD returns 200 with 0 body bytes
+	headStatusReq := httptest.NewRequest(http.MethodHead, "/api/v1/workspace/status", nil)
+	headStatusW := httptest.NewRecorder()
+	srv.handleStatus(headStatusW, headStatusReq)
+	if headStatusW.Code != http.StatusOK {
+		t.Errorf("direct handleStatus HEAD: want 200, got %d", headStatusW.Code)
+	}
+	if headStatusW.Body.Len() != 0 {
+		t.Errorf("direct handleStatus HEAD: expected 0 body bytes, got %d", headStatusW.Body.Len())
+	}
+}
+
+func TestWorkspaceConnectorHeadResponseWriterDirect(t *testing.T) {
+	// Direct headResponseWriter Write discards bytes and returns length
+	rec := httptest.NewRecorder()
+	hw := &headResponseWriter{ResponseWriter: rec}
+	payload := []byte("hello world payload")
+	n, err := hw.Write(payload)
+	if err != nil {
+		t.Fatalf("unexpected Write error: %v", err)
+	}
+	if n != len(payload) {
+		t.Errorf("Write returned %d, want %d", n, len(payload))
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("headResponseWriter leaked body bytes: %d", rec.Body.Len())
+	}
+
+	// Flush delegation
+	hw.Flush()
+
+	// Verify headBodySuppressingMiddleware with various statuses
+	for _, status := range []int{http.StatusOK, http.StatusBadRequest, http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusInternalServerError} {
+		h := headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{"status":"test"}`))
+		}))
+
+		// HEAD request
+		headReq := httptest.NewRequest(http.MethodHead, "/test", nil)
+		headRec := httptest.NewRecorder()
+		h.ServeHTTP(headRec, headReq)
+		if headRec.Code != status {
+			t.Errorf("status %d: want code %d, got %d", status, status, headRec.Code)
+		}
+		if headRec.Body.Len() != 0 {
+			t.Errorf("status %d HEAD: expected 0 body bytes, got %d: %q", status, headRec.Body.Len(), headRec.Body.String())
+		}
+
+		// GET request preserves body
+		getReq := httptest.NewRequest(http.MethodGet, "/test", nil)
+		getRec := httptest.NewRecorder()
+		h.ServeHTTP(getRec, getReq)
+		if getRec.Code != status {
+			t.Errorf("status %d: want code %d, got %d", status, status, getRec.Code)
+		}
+		if getRec.Body.Len() == 0 {
+			t.Errorf("status %d GET: expected non-empty body", status)
+		}
+	}
+}
+
 
 

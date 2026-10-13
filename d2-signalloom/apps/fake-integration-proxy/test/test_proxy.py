@@ -66,6 +66,15 @@ class ProxyTest(ProxyServerTestCase):
             self.assertEqual(200, status)
             self.assertEqual({"status": "ok"}, body)
 
+            # Test HEAD method parity
+            connection = http.client.HTTPConnection("127.0.0.1", self.port)
+            connection.request("HEAD", path)
+            resp = connection.getresponse()
+            self.assertEqual(200, resp.status)
+            self.assertEqual("application/json", resp.getheader("Content-Type"))
+            self.assertEqual(b"", resp.read())
+            connection.close()
+
     def test_malformed_content_length_handled_safely(self):
         connection = http.client.HTTPConnection("127.0.0.1", self.port)
         connection.request("POST", "/llm/assistants", "not-read", {"Content-Length": "invalid-len"})

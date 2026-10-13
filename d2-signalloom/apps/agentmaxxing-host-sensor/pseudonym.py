@@ -46,6 +46,11 @@ class ValueRequiredError(PseudonymError):
     pass
 
 
+class InvalidEpochError(PseudonymError):
+    """Raised when epoch is non-positive or exceeds uint32 max."""
+    pass
+
+
 def derive_info(epoch: int, tenant_id: str) -> bytes:
     """
     Build the HKDF info parameter according to the SLDP contract:
@@ -89,8 +94,16 @@ class KeyRing:
             raise RootKeyTooShortError(
                 f"identity: pseudonym root key must be at least {MIN_ROOT_KEY_BYTES} bytes"
             )
+        try:
+            ep = int(epoch)
+        except (ValueError, TypeError) as exc:
+            raise InvalidEpochError(f"identity: pseudonym epoch must be an integer, got {epoch!r}") from exc
+        if ep <= 0 or ep > 0xFFFFFFFF:
+            raise InvalidEpochError(
+                f"identity: pseudonym epoch must be a positive 32-bit unsigned integer (1 <= epoch <= 4294967295), got {epoch}"
+            )
         self._root: bytes = bytes(root)
-        self._epoch: int = int(epoch)
+        self._epoch: int = ep
         self._derived: Dict[str, bytes] = {}
         self._lock = threading.Lock()
 
@@ -140,9 +153,9 @@ class KeyRing:
             return tenant_id in self._derived
 
 
-def is_pseudonym(s: str) -> bool:
+def is_pseudonym(s: object) -> bool:
     """Check whether a string has the exact shape of a 64-character lowercase hex pseudonym."""
-    if len(s) != HEX_LEN:
+    if not isinstance(s, str) or len(s) != HEX_LEN:
         return False
     for char in s:
         if not (("0" <= char <= "9") or ("a" <= char <= "f")):

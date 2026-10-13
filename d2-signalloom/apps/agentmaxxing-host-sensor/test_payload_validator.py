@@ -29,6 +29,7 @@ try:
     from .pseudonym import (
         HEX_LEN,
         MIN_ROOT_KEY_BYTES,
+        InvalidEpochError,
         KeyRing,
         RootKeyTooShortError,
         TenantRequiredError,
@@ -49,6 +50,7 @@ except (ImportError, ValueError):
     from pseudonym import (
         HEX_LEN,
         MIN_ROOT_KEY_BYTES,
+        InvalidEpochError,
         KeyRing,
         RootKeyTooShortError,
         TenantRequiredError,
@@ -97,6 +99,17 @@ class PseudonymPrimitiveTests(unittest.TestCase):
         p1 = ring_epoch1.pseudonym("tenant-1", "secret")
         p2 = ring_epoch2.pseudonym("tenant-1", "secret")
         self.assertNotEqual(p1, p2)
+
+    def test_keyring_rejects_invalid_epochs(self) -> None:
+        """Reject non-positive, zero, overflow, or non-integer epochs."""
+        for bad_epoch in [0, -1, -999, 0x100000000, 2**33, "not-int"]:
+            with self.assertRaises(InvalidEpochError):
+                KeyRing(self.root_key, epoch=bad_epoch)
+
+    def test_is_pseudonym_safe_on_non_strings(self) -> None:
+        """Verify is_pseudonym returns False without raising on non-string or malformed inputs."""
+        for val in [None, 123, [], {}, b"bytes", "", "short", "z" * 64, "A" * 64]:
+            self.assertFalse(is_pseudonym(val))
 
 
 class PayloadValidatorTests(unittest.TestCase):

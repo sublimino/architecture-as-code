@@ -332,3 +332,60 @@ func TestWorkspaceCapacityLimit(t *testing.T) {
 		t.Fatalf("expected capacity exceeded error, got nil")
 	}
 }
+
+func TestValidateBranch(t *testing.T) {
+	validBranches := []string{
+		"",
+		"main",
+		"feat/auth-validation",
+		"bugfix_123",
+		"v1.0.0",
+		"release-2026.01",
+	}
+	for _, b := range validBranches {
+		if err := validateBranch(b); err != nil {
+			t.Errorf("expected branch %q to be valid, got: %v", b, err)
+		}
+	}
+
+	invalidBranches := []string{
+		"-u",
+		"--upload-pack=exploit",
+		"../escape",
+		"branch/../traversal",
+		"feature@{1}",
+		"branch//double-slash",
+		"trailing-slash/",
+		"branch.lock",
+		"branch with spaces",
+		"branch;rm -rf",
+		strings.Repeat("a", 256),
+	}
+	for _, b := range invalidBranches {
+		if err := validateBranch(b); err == nil {
+			t.Errorf("expected branch %q to be rejected, got nil", b)
+		}
+	}
+}
+
+func TestWorkspaceCreationInvalidBranch(t *testing.T) {
+	mgr := NewWorkspaceManager("test-ns")
+	srv := newServer(mgr)
+
+	wsReq := WorkspaceRequest{
+		PVC:    "valid-pvc",
+		User:   "alice",
+		Branch: "--upload-pack=evil",
+	}
+	raw, _ := json.Marshal(wsReq)
+
+	req := httptest.NewRequest("POST", "/workspaces", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+

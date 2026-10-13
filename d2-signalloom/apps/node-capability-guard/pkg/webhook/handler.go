@@ -428,6 +428,11 @@ func HandleValidate(w http.ResponseWriter, r *http.Request) {
 
 // HandleMetrics outputs Prometheus metrics including legacy and fine-grained counters.
 func HandleMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	rejections := atomic.LoadUint64(&RejectionsTotal)
 	admissions := atomic.LoadUint64(&AdmissionsTotal)
 	rejContained := atomic.LoadUint64(&RejectionsContainedIdentityTotal)
@@ -436,6 +441,10 @@ func HandleMetrics(w http.ResponseWriter, r *http.Request) {
 	admAllowed := atomic.LoadUint64(&AdmissionsAllowedTotal)
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	if r.Method == http.MethodHead {
+		return
+	}
+
 	fmt.Fprintf(w, "# HELP node_capability_rejections_total Total number of agent pods rejected due to missing node containment capabilities or containment policy\n")
 	fmt.Fprintf(w, "# TYPE node_capability_rejections_total counter\n")
 	fmt.Fprintf(w, "node_capability_rejections_total %d\n\n", rejections)
@@ -463,6 +472,10 @@ func HandleMetrics(w http.ResponseWriter, r *http.Request) {
 
 // HandleHealthz responds with health status and checks store connectivity.
 func HandleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	store := GetDefaultStore()
 	if store != nil {
 		if err := store.Health(r.Context()); err != nil {
@@ -471,5 +484,7 @@ func HandleHealthz(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("ok\n"))
+	if r.Method != http.MethodHead {
+		_, _ = w.Write([]byte("ok\n"))
+	}
 }

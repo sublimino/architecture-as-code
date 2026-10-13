@@ -303,14 +303,24 @@ func newMux(l *tc.Loader, reg *tc.Registry) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "ok")
+		if r.Method != http.MethodHead {
+			fmt.Fprintln(w, "ok")
+		}
 	}
 	mux.HandleFunc("/health", healthHandler)
 	mux.HandleFunc("/healthz", healthHandler)
 	mux.HandleFunc("/readyz", healthHandler)
 
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		// Refresh from the BPF map before rendering, so a scrape always
 		// reports kernel truth rather than the last thing we happened to
 		// observe.
@@ -324,7 +334,7 @@ func newMux(l *tc.Loader, reg *tc.Registry) *http.ServeMux {
 			reg.SetAttachedFilters(len(l.AttachedInterfaces()))
 		}
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		if reg != nil {
+		if r.Method != http.MethodHead && reg != nil {
 			fmt.Fprint(w, reg.Render())
 		}
 	})

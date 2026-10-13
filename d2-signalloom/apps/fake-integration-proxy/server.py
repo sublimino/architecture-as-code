@@ -1473,7 +1473,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
-        self.wfile.write(encoded)
+        if self.command != "HEAD":
+            self.wfile.write(encoded)
 
     def _body(self) -> object:
         try:
@@ -1875,7 +1876,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
     def _dispatch(self) -> None:
         path = urlparse(self.path).path
-        if path in ("/health", "/healthz", "/readyz") and self.command == "GET":
+        if path in ("/health", "/healthz", "/readyz") and self.command in ("GET", "HEAD"):
             self._json(HTTPStatus.OK, {"status": "ok"})
         elif path == "/agents" and self.command == "GET":
             self._handle_agents()
@@ -1898,6 +1899,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.NOT_FOUND, {"error": "unknown route"})
 
     do_GET = _dispatch
+    do_HEAD = _dispatch
     do_POST = _dispatch
     do_PUT = _dispatch
     do_PATCH = _dispatch

@@ -41,3 +41,30 @@ func TestMetricsEndpoint(t *testing.T) {
 		t.Fatalf("unexpected content-type: %s", ct)
 	}
 }
+
+func TestHealthAndMetricsMethodNotAllowed(t *testing.T) {
+	mux := newMux(nil, nil)
+
+	paths := []string{"/health", "/healthz", "/readyz", "/metrics"}
+	for _, path := range paths {
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+			req := httptest.NewRequest(method, path, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("%s %s expected 405 Method Not Allowed, got %d", method, path, rec.Code)
+			}
+		}
+
+		// HEAD should succeed
+		reqHead := httptest.NewRequest(http.MethodHead, path, nil)
+		recHead := httptest.NewRecorder()
+		mux.ServeHTTP(recHead, reqHead)
+
+		if recHead.Code != http.StatusOK {
+			t.Fatalf("HEAD %s expected 200 OK, got %d", path, recHead.Code)
+		}
+	}
+}
+

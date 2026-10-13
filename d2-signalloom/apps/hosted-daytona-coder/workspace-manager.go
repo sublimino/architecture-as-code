@@ -53,8 +53,9 @@ type ErrorResponse struct {
 }
 
 var (
-	pvcRegex  = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
-	userRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`)
+	pvcRegex    = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
+	userRegex   = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`)
+	branchRegex = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_\-\.\/]*$`)
 )
 
 func validatePVC(pvc string) error {
@@ -81,6 +82,29 @@ func validateUser(user string) error {
 	}
 	if strings.Contains(user, "..") || strings.Contains(user, "/") || !userRegex.MatchString(user) {
 		return errors.New("user must be an alphanumeric identifier without path traversal")
+	}
+	return nil
+}
+
+func validateBranch(branch string) error {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return nil
+	}
+	if len(branch) > 255 {
+		return errors.New("branch must be 255 characters or fewer")
+	}
+	if strings.HasPrefix(branch, "-") {
+		return errors.New("branch cannot start with a dash")
+	}
+	if strings.Contains(branch, "..") || strings.Contains(branch, "@{") || strings.Contains(branch, "//") {
+		return errors.New("branch cannot contain path traversal or reflog syntax")
+	}
+	if strings.HasSuffix(branch, "/") || strings.HasSuffix(branch, ".lock") {
+		return errors.New("branch cannot end with slash or .lock")
+	}
+	if !branchRegex.MatchString(branch) {
+		return errors.New("branch contains invalid characters")
 	}
 	return nil
 }
@@ -184,6 +208,10 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 			return
 		}
 		if err := validateUser(req.User); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := validateBranch(req.Branch); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}

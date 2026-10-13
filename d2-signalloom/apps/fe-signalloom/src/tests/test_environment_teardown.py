@@ -14,6 +14,8 @@ import sys
 import textwrap
 import threading
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -188,8 +190,28 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(self.code)
         self.end_headers()
 
+    def do_HEAD(self):
+        self.send_response(self.code)
+        self.end_headers()
+
+    def send_error(self, code, message=None, explain=None):
+        if code == 501:
+            err_body = b"Method Not Allowed\n"
+            self.send_response(405)
+            self.send_header("Allow", "GET, HEAD")
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(err_body)))
+            self.end_headers()
+            self.wfile.write(err_body)
+            return
+        super().send_error(code, message=message, explain=explain)
+
     def log_message(self, *a):
         pass
+
+
+class ReusableHTTPServer(http.server.HTTPServer):
+    allow_reuse_address = True
 
 
 @pytest.fixture
@@ -198,7 +220,7 @@ def http_server():
 
     def start(code):
         handler = type("H", (_Handler,), {"code": code})
-        srv = http.server.HTTPServer(("127.0.0.1", 0), handler)
+        srv = ReusableHTTPServer(("127.0.0.1", 0), handler)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         servers.append(srv)
         return f"http://127.0.0.1:{srv.server_address[1]}/"
@@ -206,6 +228,7 @@ def http_server():
     for s in servers:
         s.shutdown()
         s.server_close()
+
 
 
 @pytest.mark.parametrize("code", [404, 503])
@@ -219,8 +242,29 @@ def test_stage1_probe_fails_if_domain_still_serves(kube, http_server):
     assert res.outcome is StageOutcome.FAILED and "still answers HTTP 200" in res.detail
 
 
+def test_stage1_probe_http_server_head_and_method_gate(http_server):
+    """http_server stub must answer HEAD with body suppression and reject unsupported methods with 405."""
+    url = http_server(200)
+    head_req = urllib.request.Request(url, method="HEAD")
+    with urllib.request.urlopen(head_req) as resp:
+        assert resp.status == 200
+        assert resp.read() == b""
+
+    post_req = urllib.request.Request(url, data=b"data", method="POST")
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(post_req)
+    err = exc_info.value
+    try:
+        assert err.code == 405
+        allow = err.headers.get("Allow", "")
+        assert "GET" in allow and "HEAD" in allow
+    finally:
+        err.close()
+
+
 def test_probe_unreachable_is_not_success():
     assert td.probe_customer_domain("http://127.0.0.1:1/", timeout=0.5)["severed"] is None
+
 
 
 def test_run_bounded_closes_its_pipes():

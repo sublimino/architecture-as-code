@@ -54,9 +54,13 @@ EAP_PATH_PREFIXES = ("/api/v1/eap/", "/api/v1/environments")
 #: ``test_no_oidc_callback_route_is_mounted`` keeps that claim honest.
 ANONYMOUS_ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/health"): "liveness probe for the kubelet and load balancer; returns a constant",
+    ("HEAD", "/health"): "liveness probe HEAD parity for the kubelet and load balancer; returns a constant",
     ("GET", "/api/health"): "liveness probe alias under /api prefix; returns a constant",
+    ("HEAD", "/api/health"): "liveness probe HEAD parity alias under /api prefix; returns a constant",
     ("GET", "/livez"): "process/event-loop probe; touches no dependency and returns a constant",
+    ("HEAD", "/livez"): "process/event-loop probe HEAD parity; touches no dependency and returns a constant",
     ("GET", "/readyz"): "readiness probe; reports PostgreSQL/Redis state only, no tenant data",
+    ("HEAD", "/readyz"): "readiness probe HEAD parity; reports PostgreSQL/Redis state only, no tenant data",
     ("GET", "/openapi.json"): "FastAPI schema document; describes routes, carries no data",
     ("GET", "/docs"): "FastAPI Swagger UI shell; static HTML that loads /openapi.json",
     ("GET", "/docs/oauth2-redirect"): "Swagger UI OAuth2 redirect helper page; static HTML",
@@ -117,14 +121,24 @@ def _concrete_path(route: Any) -> str:
     return route.path_format.format(**params) if params else route.path_format
 
 
-def _flat_routes(routes: list[Any]) -> list[Any]:
+def _flat_routes(routes: list[Any], prefix: str = "") -> list[Any]:
     out = []
     for r in routes:
+        p = prefix
+        if hasattr(r, "include_context") and hasattr(r.include_context, "prefix"):
+            p = prefix + r.include_context.prefix
         inner = getattr(getattr(r, "original_router", None), "routes", None) or getattr(r, "routes", None)
         if inner and not isinstance(r, APIRoute):
-            out.extend(_flat_routes(inner))
+            out.extend(_flat_routes(inner, p))
         else:
-            out.append(r)
+            if p and hasattr(r, "path") and not r.path.startswith(p):
+                import copy
+                rc = copy.copy(r)
+                rc.path = p + r.path
+                rc.path_format = p + getattr(r, "path_format", r.path)
+                out.append(rc)
+            else:
+                out.append(r)
     return out
 
 
@@ -268,7 +282,7 @@ class _RecordingUpstream(BaseHTTPRequestHandler):
 
     seen: list[dict[str, str]] = []
 
-    def _answer(self) -> None:
+    def _answer(self, send_body: bool = True) -> None:
         self.seen.append({k.lower(): v for k, v in self.headers.items()})
         if "content-length" in self.headers:
             self.rfile.read(int(self.headers["content-length"]))
@@ -277,10 +291,27 @@ class _RecordingUpstream(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        if send_body:
+            self.wfile.write(body)
 
-    do_GET = _answer
-    do_POST = _answer
+    def do_GET(self) -> None:
+        self._answer(send_body=True)
+
+    def do_POST(self) -> None:
+        self._answer(send_body=True)
+
+    def do_HEAD(self) -> None:
+        self._answer(send_body=False)
+
+    def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
+        if code == 501:
+            self.send_response(405)
+            self.send_header("Allow", "GET, POST, HEAD")
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"method not allowed")
+            return
+        super().send_error(code, message, explain)
 
     def log_message(self, *_: Any) -> None:  # keep pytest output clean
         return
@@ -290,16 +321,57 @@ class _RecordingUpstream(BaseHTTPRequestHandler):
 def recording_upstream(monkeypatch: pytest.MonkeyPatch):
     import coding_agent_telemetry
 
+    class ReusableThreadingHTTPServer(ThreadingHTTPServer):
+        allow_reuse_address = True
+
     _RecordingUpstream.seen = []
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _RecordingUpstream)
+    server = ReusableThreadingHTTPServer(("127.0.0.1", 0), _RecordingUpstream)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+    _RecordingUpstream.server_port = server.server_port
     monkeypatch.setattr(coding_agent_telemetry, "_SIGNAL_INGEST_URL", f"http://127.0.0.1:{server.server_port}")
     try:
         yield _RecordingUpstream
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_recording_upstream_head_and_method_gates(recording_upstream) -> None:
+    import urllib.request
+    port = recording_upstream.server_port
+
+    # Verify GET returns status 401 with body
+    req_get = urllib.request.Request(f"http://127.0.0.1:{port}/test", method="GET")
+    try:
+        with urllib.request.urlopen(req_get) as resp:
+            pytest.fail("expected 401")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 401
+        body = exc.read()
+        assert len(body) > 0
+        exc.close()
+
+    # Verify HEAD returns status 401 with empty body
+    req_head = urllib.request.Request(f"http://127.0.0.1:{port}/test", method="HEAD")
+    try:
+        with urllib.request.urlopen(req_head) as resp:
+            pytest.fail("expected 401")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 401
+        assert exc.read() == b""
+        assert exc.headers.get("Content-Type") == "application/json"
+        exc.close()
+
+    # Verify PUT returns 405 with Allow: GET, POST, HEAD
+    req_put = urllib.request.Request(f"http://127.0.0.1:{port}/test", method="PUT")
+    try:
+        with urllib.request.urlopen(req_put) as resp:
+            pytest.fail("expected 405")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 405
+        assert exc.headers.get("Allow") == "GET, POST, HEAD"
+        exc.close()
 
 
 def test_telemetry_proxy_refuses_anonymous_locally_and_sends_only_the_gateway_key(recording_upstream) -> None:

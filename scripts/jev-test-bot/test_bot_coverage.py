@@ -19,6 +19,8 @@ import os
 import socket
 import sys
 import threading
+import urllib.error
+import urllib.request
 
 import pytest
 
@@ -39,15 +41,38 @@ class _Shell(http.server.BaseHTTPRequestHandler):
         b'<body><a href="/risk">Risk</a></body></html>'
     )
 
-    def do_GET(self):  # noqa: N802 — BaseHTTPRequestHandler's required name
+    def _serve(self, send_body=True):
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.send_header("Content-Length", str(len(self.BODY)))
         self.end_headers()
-        self.wfile.write(self.BODY)
+        if send_body:
+            self.wfile.write(self.BODY)
+
+    def do_GET(self):  # noqa: N802 — BaseHTTPRequestHandler's required name
+        self._serve(send_body=True)
+
+    def do_HEAD(self):  # noqa: N802
+        self._serve(send_body=False)
+
+    def send_error(self, code, message=None, explain=None):
+        if code == 501:
+            err_body = b"Method Not Allowed\n"
+            self.send_response(405)
+            self.send_header("Allow", "GET, HEAD")
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(err_body)))
+            self.end_headers()
+            self.wfile.write(err_body)
+            return
+        super().send_error(code, message=message, explain=explain)
 
     def log_message(self, *_args):  # keep the test output clean
         return
+
+
+class ReusableHTTPServer(http.server.HTTPServer):
+    allow_reuse_address = True
 
 
 @pytest.fixture
@@ -56,7 +81,7 @@ def stub_server():
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
-    server = http.server.HTTPServer(("127.0.0.1", port), _Shell)
+    server = ReusableHTTPServer(("127.0.0.1", port), _Shell)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -65,6 +90,7 @@ def stub_server():
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
 
 
 def test_normalise_strips_query_and_fragment():
@@ -133,3 +159,24 @@ def test_the_run_loop_records_the_route_it_was_pointed_at(stub_server):
     assert summary["visited_paths"], "a successful fetch recorded no visited route"
     assert "/compliance/risk" == summary["visited_paths"][0], summary["visited_paths"]
     assert summary["path_status"]["/compliance/risk"] == 200
+
+
+def test_shell_stub_head_and_unsupported_methods(stub_server):
+    """HEAD must return 200 with Content-Length and no body; POST must return 405 with Allow header."""
+    head_req = urllib.request.Request(f"{stub_server}/risk", method="HEAD")
+    with urllib.request.urlopen(head_req) as resp:
+        assert resp.status == 200
+        assert resp.headers.get("Content-Length") == str(len(_Shell.BODY))
+        assert resp.read() == b""
+
+    post_req = urllib.request.Request(f"{stub_server}/risk", data=b"data", method="POST")
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(post_req)
+    err = exc_info.value
+    try:
+        assert err.code == 405
+        allow = err.headers.get("Allow", "")
+        assert "GET" in allow and "HEAD" in allow
+    finally:
+        err.close()
+

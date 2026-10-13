@@ -224,42 +224,58 @@ def test_api_fuzzer_classification_invariants():
 
 class _MockApiServer(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        self._handle()
+        self._handle(send_body=True)
+
+    def do_HEAD(self):
+        self._handle(send_body=False)
 
     def do_POST(self):
-        self._handle()
+        self._handle(send_body=True)
 
     def do_PUT(self):
-        self._handle()
+        self._handle(send_body=True)
 
     def do_DELETE(self):
-        self._handle()
+        self._handle(send_body=True)
 
     def do_PATCH(self):
-        self._handle()
+        self._handle(send_body=True)
 
     def do_OPTIONS(self):
-        self._handle()
+        self._handle(send_body=True)
 
-    def _handle(self):
+    def _handle(self, send_body=True):
         if "error500" in self.path:
+            body = b'{"error": "internal_crash"}'
             self.send_response(500)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(b'{"error": "internal_crash"}')
+            if send_body:
+                self.wfile.write(body)
         elif "badrequest" in self.path:
+            body = b'{"error": "bad_request"}'
             self.send_response(400)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(b'{"error": "bad_request"}')
+            if send_body:
+                self.wfile.write(body)
         else:
+            body = b'{"status": "ok"}'
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(b'{"status": "ok"}')
+            if send_body:
+                self.wfile.write(body)
 
     def log_message(self, *_args):
         return
+
+
+class ReusableHTTPServer(http.server.HTTPServer):
+    allow_reuse_address = True
 
 
 @pytest.fixture
@@ -267,7 +283,7 @@ def mock_api_server():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
-    server = http.server.HTTPServer(("127.0.0.1", port), _MockApiServer)
+    server = ReusableHTTPServer(("127.0.0.1", port), _MockApiServer)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -343,5 +359,23 @@ def test_jev_client_live_key_resolution_and_schema():
     assert decision["confidence"] > 0
     assert decision["mock"] is False
     assert "model" in decision
+
+
+def test_mock_api_server_head_and_content_length(mock_api_server):
+    import urllib.request
+    req_get = urllib.request.Request(f"{mock_api_server}/api/health", method="GET")
+    with urllib.request.urlopen(req_get) as resp:
+        assert resp.status == 200
+        body = resp.read()
+        assert len(body) > 0
+        cl = resp.headers.get("Content-Length")
+        assert cl == str(len(body))
+
+    req_head = urllib.request.Request(f"{mock_api_server}/api/health", method="HEAD")
+    with urllib.request.urlopen(req_head) as resp:
+        assert resp.status == 200
+        assert resp.read() == b""
+        assert resp.headers.get("Content-Length") == cl
+        assert resp.headers.get("Content-Type") == "application/json"
 
 

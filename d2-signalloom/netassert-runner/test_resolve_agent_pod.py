@@ -63,20 +63,40 @@ class ApiHandler(BaseHTTPRequestHandler):
     def log_message(self, *_args):
         pass
 
-    def do_GET(self):
+    def _serve(self, send_body=True):
         payload, status = self.responses.get(self.path, ({"message": "missing fixture"}, 404))
         encoded = json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
-        self.wfile.write(encoded)
+        if send_body:
+            self.wfile.write(encoded)
+
+    def do_GET(self):
+        self._serve(send_body=True)
+
+    def do_HEAD(self):
+        self._serve(send_body=False)
+
+    def send_error(self, code, message=None, explain=None):
+        if code == 501:
+            self.send_response(405)
+            self.send_header("Allow", "GET, HEAD")
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"method not allowed")
+            return
+        super().send_error(code, message, explain)
 
 
 class ResolverTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.api = ThreadingHTTPServer(("127.0.0.1", 0), ApiHandler)
+        class ReusableThreadingHTTPServer(ThreadingHTTPServer):
+            allow_reuse_address = True
+
+        cls.api = ReusableThreadingHTTPServer(("127.0.0.1", 0), ApiHandler)
         cls.thread = threading.Thread(target=cls.api.serve_forever, daemon=True)
         cls.thread.start()
 
@@ -183,6 +203,35 @@ class ResolverTest(unittest.TestCase):
         )
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertNotIn("agent-patsy", output)
+
+    def test_api_handler_head_and_unsupported_methods(self):
+        import urllib.request
+        port = self.api.server_port
+        ApiHandler.responses[AGENT_URL] = ({"items": [ready_pod("test-agent")]}, 200)
+
+        # Verify GET returns body and status 200
+        req_get = urllib.request.Request(f"http://127.0.0.1:{port}{AGENT_URL}", method="GET")
+        with urllib.request.urlopen(req_get) as resp:
+            self.assertEqual(200, resp.status)
+            body = resp.read()
+            self.assertGreater(len(body), 0)
+
+        # Verify HEAD returns status 200 with empty body
+        req_head = urllib.request.Request(f"http://127.0.0.1:{port}{AGENT_URL}", method="HEAD")
+        with urllib.request.urlopen(req_head) as resp:
+            self.assertEqual(200, resp.status)
+            self.assertEqual(b"", resp.read())
+            self.assertEqual("application/json", resp.headers.get("Content-Type"))
+
+        # Verify POST returns 405 with Allow header
+        req_post = urllib.request.Request(f"http://127.0.0.1:{port}{AGENT_URL}", method="POST")
+        try:
+            with urllib.request.urlopen(req_post) as resp:
+                self.fail("Expected 405")
+        except urllib.error.HTTPError as exc:
+            self.assertEqual(405, exc.code)
+            self.assertEqual("GET, HEAD", exc.headers.get("Allow"))
+            exc.close()
 
 
 if __name__ == "__main__":

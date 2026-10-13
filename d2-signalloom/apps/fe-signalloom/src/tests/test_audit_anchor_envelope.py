@@ -195,22 +195,55 @@ class _StubArchivista(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-    def _respond(self, payload, status=200):
+    def _respond(self, payload, status=200, send_body=True):
         body = json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        if send_body:
+            self.wfile.write(body)
 
     def do_GET(self):
         if self.path.startswith("/download/"):
             gitoid = self.path.rsplit("/", 1)[-1]
-            return self._respond(self.envelopes[gitoid])
+            if gitoid in self.envelopes:
+                return self._respond(self.envelopes[gitoid], send_body=True)
+            self.send_error(404)
+            return
+        if self.path in ("/upload", "/query"):
+            self.send_response(405)
+            self.send_header("Allow", "POST")
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"method not allowed")
+            return
+        self.send_error(404)
+
+    def do_HEAD(self):
+        if self.path.startswith("/download/"):
+            gitoid = self.path.rsplit("/", 1)[-1]
+            if gitoid in self.envelopes:
+                return self._respond(self.envelopes[gitoid], send_body=False)
+            self.send_error(404)
+            return
+        if self.path in ("/upload", "/query"):
+            self.send_response(405)
+            self.send_header("Allow", "POST")
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            return
         self.send_error(404)
 
     def do_POST(self):
-        body = self.rfile.read(int(self.headers["Content-Length"]))
+        if self.path.startswith("/download/"):
+            self.send_response(405)
+            self.send_header("Allow", "GET, HEAD")
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"method not allowed")
+            return
+        body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         if self.path == "/upload":
             envelope = json.loads(body)
             framed = f"blob {len(body)}\0".encode() + body
@@ -229,11 +262,30 @@ class _StubArchivista(BaseHTTPRequestHandler):
             return self._respond({"data": {"dsses": {"edges": edges}}})
         self.send_error(404)
 
+    def send_error(self, code, message=None, explain=None):
+        if code == 501:
+            self.send_response(405)
+            if self.path.startswith("/download/"):
+                self.send_header("Allow", "GET, HEAD")
+            elif self.path in ("/upload", "/query"):
+                self.send_header("Allow", "POST")
+            else:
+                self.send_header("Allow", "GET, POST, HEAD")
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"method not allowed")
+            return
+        super().send_error(code, message, explain)
+
+
+class ReusableHTTPServer(HTTPServer):
+    allow_reuse_address = True
+
 
 @pytest.fixture
 def stub_archivista():
     _StubArchivista.envelopes = {}
-    server = HTTPServer(("127.0.0.1", 0), _StubArchivista)
+    server = ReusableHTTPServer(("127.0.0.1", 0), _StubArchivista)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield f"http://127.0.0.1:{server.server_port}"
@@ -253,13 +305,51 @@ def test_archivista_health_check_rejects_graphql_errors():
         def do_POST(self):
             self._respond({"errors": [{"message": "not ready"}]})
 
-    server = HTTPServer(("127.0.0.1", 0), ErrorQuery)
+    server = ReusableHTTPServer(("127.0.0.1", 0), ErrorQuery)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
         assert not ArchivistaAnchorStore(f"http://127.0.0.1:{server.server_port}").health()
     finally:
         server.shutdown()
+
+
+def test_archivista_head_and_method_gates(stub_archivista, keypair):
+    import urllib.request
+    private, _ = keypair
+    store = ArchivistaAnchorStore(stub_archivista)
+    cp = _checkpoint(index=42)
+    gitoid = store.publish(cp, sign_envelope(build_statement(cp), private))
+
+    req_get = urllib.request.Request(f"{stub_archivista}/download/{gitoid}", method="GET")
+    with urllib.request.urlopen(req_get) as resp:
+        assert resp.status == 200
+        body = resp.read()
+        assert len(body) > 0
+
+    req_head = urllib.request.Request(f"{stub_archivista}/download/{gitoid}", method="HEAD")
+    with urllib.request.urlopen(req_head) as resp:
+        assert resp.status == 200
+        assert resp.read() == b""
+        assert resp.headers.get("Content-Type") == "application/json"
+
+    req_post = urllib.request.Request(f"{stub_archivista}/download/{gitoid}", method="POST")
+    try:
+        with urllib.request.urlopen(req_post) as resp:
+            pytest.fail("expected 405")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 405
+        assert exc.headers.get("Allow") == "GET, HEAD"
+        exc.close()
+
+    req_get_upload = urllib.request.Request(f"{stub_archivista}/upload", method="GET")
+    try:
+        with urllib.request.urlopen(req_get_upload) as resp:
+            pytest.fail("expected 405")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 405
+        assert exc.headers.get("Allow") == "POST"
+        exc.close()
 
 
 def test_archivista_round_trips(stub_archivista, keypair):

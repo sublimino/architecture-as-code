@@ -154,6 +154,10 @@ def test_verify_is_read_only_and_fail_closed_executor_supports_it():
     assert not FailClosedExecutor().verify(TeardownStage.ROUTE, request()).success
 
 
+class ReusableThreadingHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+
+
 def test_bounded_http_transport_stops_slow_drip_body():
     class SlowDrip(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -164,10 +168,26 @@ def test_bounded_http_transport_stops_slow_drip_body():
                 self.wfile.flush()
                 time.sleep(0.05)
 
+        def do_HEAD(self):
+            self.send_response(200)
+            self.end_headers()
+
+        def send_error(self, code, message=None, explain=None):
+            if code == 501:
+                err_body = b"Method Not Allowed\n"
+                self.send_response(405)
+                self.send_header("Allow", "GET, HEAD")
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Length", str(len(err_body)))
+                self.end_headers()
+                self.wfile.write(err_body)
+                return
+            super().send_error(code, message=message, explain=explain)
+
         def log_message(self, *_args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), SlowDrip)
+    server = ReusableThreadingHTTPServer(("127.0.0.1", 0), SlowDrip)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -187,10 +207,27 @@ def test_redirect_is_rejected_before_secret_header_can_be_forwarded():
             self.send_header("Location", "https://attacker.invalid/")
             self.end_headers()
 
+        def do_HEAD(self):
+            self.send_response(302)
+            self.send_header("Location", "https://attacker.invalid/")
+            self.end_headers()
+
+        def send_error(self, code, message=None, explain=None):
+            if code == 501:
+                err_body = b"Method Not Allowed\n"
+                self.send_response(405)
+                self.send_header("Allow", "GET, HEAD")
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Length", str(len(err_body)))
+                self.end_headers()
+                self.wfile.write(err_body)
+                return
+            super().send_error(code, message=message, explain=explain)
+
         def log_message(self, *_args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Redirect)
+    server = ReusableThreadingHTTPServer(("127.0.0.1", 0), Redirect)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         transport = adapters.BoundedHTTPTransport(allow_http_loopback=True)
@@ -204,6 +241,7 @@ def test_redirect_is_rejected_before_secret_header_can_be_forwarded():
             )
     finally:
         server.shutdown()
+
 
 
 def test_openbao_authorization_failure_fails_stage_cleanly():

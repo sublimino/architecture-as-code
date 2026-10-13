@@ -104,7 +104,7 @@ const TEST_OBS = [
     timestamp: '2026-10-06T10:15:00Z',
     layer: 'endpoint_host',
     fidelity: 'definitive' as const,
-    source: 'tetragon',
+    source: 'stun-sentinel',
     actor_hint: 'agent-nono',
     confidence: 0.98,
     raw_evidence_ref: 'sha256:1111222233334444',

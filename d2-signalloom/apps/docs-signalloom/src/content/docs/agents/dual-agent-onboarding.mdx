@@ -119,8 +119,8 @@ The banner contrasts two different kinds of evidence:
   is what `agent-nono-evidenced` contributes when the Nono capability is
   present. The hash chain makes the audit session tamper-evident: altering an
   earlier record breaks every later link.
-- **Linux kernel eBPF flow tracepoints.** This is what Tetragon observes for
-  every workload, confined or not, including `agent-standard-baseline`.
+- **Linux kernel eBPF flow tracepoints.** This is what the stun-sentinel observes
+  in-kernel for every workload, confined or not, including `agent-standard-baseline`.
 
 The distinction is the point of the demonstration. eBPF tracepoints tell you what
 a workload *did*. The hash-chained audit session tells you what a workload

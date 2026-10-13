@@ -18,7 +18,7 @@ import EmptyState from '../components/EmptyState'
 import HelpHint from '../components/HelpHint'
 
 const SIGNAL_LAYERS = [
-  { id: 'endpoint_host', title: 'L1 Host / eBPF', code: 'L1', description: 'Kernel tracepoints & Tetragon eBPF telemetry' },
+  { id: 'endpoint_host', title: 'L1 Host / eBPF', code: 'L1', description: 'In-kernel eBPF syscall tracing via the stun-sentinel' },
   { id: 'network_egress', title: 'L2 Network / mTLS / Bao', code: 'L2', description: 'mTLS envoy proxies & OpenBao token exchanges' },
   { id: 'application_saas', title: 'L3 Workspace / SaaS', code: 'L3', description: 'Workspace activity & cross-tenant API invocations' },
   { id: 'behavioural', title: 'L4 Agent / Sandbox / Nono', code: 'L4', description: 'agent-nono Landlock LSM isolation & syscall denials' },

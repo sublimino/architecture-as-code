@@ -6403,13 +6403,13 @@ async def get_agent_telemetry(
     elif "standard" in agent_id_lower or "baseline" in agent_id_lower:
         observations = [
             TelemetryObservationModel(
-                id=f"obs-{agent_id}-tetragon-1",
+                id=f"obs-{agent_id}-sentinel-1",
                 observed_at=_now_iso(),
-                source="tetragon-ebpf-flow",
+                source="stun-sentinel",
                 layer="LayerKernelTracepoint",
                 actor_id=agent_id,
                 principal_id=tenant_id,
-                action="tetragon.process_exec",
+                action="sentinel.process_exec",
                 details={
                     "binary": "/usr/local/bin/agent-worker",
                     "syscall": "sys_enter_execve",
@@ -6421,13 +6421,13 @@ async def get_agent_telemetry(
                 confidence=1.0,
             ),
             TelemetryObservationModel(
-                id=f"obs-{agent_id}-tetragon-2",
+                id=f"obs-{agent_id}-sentinel-2",
                 observed_at=_now_iso(),
-                source="tetragon-ebpf-flow",
+                source="stun-sentinel",
                 layer="LayerKernelSocket",
                 actor_id=agent_id,
                 principal_id=tenant_id,
-                action="tetragon.socket_connect",
+                action="sentinel.socket_connect",
                 details={
                     "daddr": "10.96.0.1",
                     "dport": 443,

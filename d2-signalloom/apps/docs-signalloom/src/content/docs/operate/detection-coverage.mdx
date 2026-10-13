@@ -27,13 +27,47 @@ cleartext label.
 |---|---|---|---|
 | kube-apiserver audit (`kubernetes`) | `k8saudit-kube` · `COLLECTOR_K8SAUDIT_KUBE_MODE=live` (warden-local file/webhook, or EKS/GKE/AKS) | `k8s-audit.yaml` | pods/exec, secret read, RBAC escalation, token mint, privileged pod, CSR approve, webhook config, impersonate |
 | cloud control plane (`cloud_control_plane`) | `awslogs` · `COLLECTOR_AWSLOGS_MODE` ; `gcpaudit` · `COLLECTOR_GCPAUDIT_MODE` | `cloud-signals.yaml`, `iam-change.yaml`, `gcp-admin.yaml` | IAM priv/key change, EKS/console/root, S3/GCS exposure, GuardDuty/logging-sink tamper |
-| endpoint host (`endpoint_host`) | `agent-nono` (Landlock) ; `tetragon` · `COLLECTOR_EBPF_MODE` | `landlock-denial.yaml`, `endpoint-runtime.yaml` | Landlock denial, sensitive-file open, unexpected execve, capability/ptrace |
+| endpoint host (`endpoint_host`) | live `stun-sentinel` (in-kernel eBPF, source `stun-sentinel`) ; projection `collectors/ebpf` · `COLLECTOR_EBPF_ENDPOINT_MODE` (`fixture` \| `live-seam` \| `off`), source `sentinel.ebpf.syscall_trace` (provider `sentinel-ebpf`) ; `agent-nono` Landlock | `endpoint-runtime.yaml`, `landlock-denial.yaml` | sensitive-file open, unexpected execve, capability/ptrace (collector projection only today); Landlock denial |
 | network egress (`network_egress`) | `netebpf` ; `awslogs` VPC flow | `network-egress.yaml` | direct-IP egress, off-cluster resolver, DNS tunnel (entropy bucket), VPC reject burst |
 | identity & authz (`identity_authorization`) | `spirea` (SPIRE) ; SaaS login ; `baoaudit` | `identity-auth.yaml`, `openbao-audit.yaml` | SVID to an unexpected SPIFFE, foreign trust domain, impossible-travel/MFA-absent login, OpenBao root-token use |
 | application SaaS (`application_saas`) | `workspacesaas` · `COLLECTOR_WORKSPACESAAS_MODE` | `application-saas.yaml` | mass download, external sensitive share, OAuth app grant, admin-console change |
 
 The `behavioural` layer (evasive syscall burst) is detected in the stun-sentinel
 itself, not via a CEL bundle.
+
+### The two endpoint_host streams
+
+`endpoint_host` carries two streams that share one label contract:
+
+- **Live stun-sentinel** — in-kernel eBPF, no DaemonSet. Observations arrive with
+  `source: "stun-sentinel"` and drive both Tier-0 in-kernel containment (cgroup
+  freeze) and central CEL findings. Each observation carries `classification`
+  (`file_access` or `process_exec`), `syscall`, `target`, and an `ActorHint`
+  (`actor_hint`) that is pseudonymised into `obs.actor`.
+- **Collector projection** — `collectors/ebpf`, selected with
+  `COLLECTOR_EBPF_ENDPOINT_MODE` (`fixture` \| `live-seam` \| `off`); emits
+  `source: "sentinel.ebpf.syscall_trace"` with provider label `sentinel-ebpf` and
+  scopes the actor by service account.
+
+`endpoint-runtime.yaml` source-gates its three rules — `sensitive-file-open`,
+`unexpected-execve`, `capability-or-ptrace` — on **both**
+`sentinel.ebpf.syscall_trace` and `stun-sentinel`. `landlock-denial.yaml` is the
+separate `agent-nono`/Landlock endpoint stream, gated on `verification_status`.
+
+Two residuals hold today:
+
+1. The kernel probe cannot see a service account, so on the live `stun-sentinel`
+   stream exec-scoping is by the workload **actor/pod pseudonym** — a trusted live
+   workload is exempted by its actor identity in `allowed_exec_actors`, not by an
+   SA name. The collector projection still scopes by service account.
+2. `capability-or-ptrace` fires only on the collector projection today, because the
+   sentinel does not yet probe ptrace/capability syscalls (planned).
+
+An operator reads live sentinel endpoint findings on the dashboard **Signals**
+page: filter the feed to the `endpoint_host` layer to see `stun-sentinel`
+observations, their findings, and any resulting stun on the timeline. The feed's
+"Filter Out Sentinel Events" toggle hides `stun-sentinel`-sourced rows, so leave
+it off when inspecting live endpoint detections.
 
 ## Where an operator sees it
 

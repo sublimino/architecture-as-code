@@ -21,7 +21,7 @@ if [ -d "${WORKSPACE_DIR}/.git" ]; then
     echo "[daytona-workspace] Existing Git repo found, checking out ${GIT_BRANCH}..."
     cd "${WORKSPACE_DIR}"
     git fetch --all --prune 2>/dev/null || true
-    git checkout "${GIT_BRANCH}" 2>/dev/null || echo "[daytona-workspace] Branch ${GIT_BRANCH} not found, staying on current branch."
+    git checkout -- "${GIT_BRANCH}" 2>/dev/null || echo "[daytona-workspace] Branch ${GIT_BRANCH} not found, staying on current branch."
 else
     echo "[daytona-workspace] No Git repo found in workspace; ready for clone."
 fi

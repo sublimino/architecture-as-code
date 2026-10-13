@@ -59,6 +59,11 @@ class HealthTest(ControllerServerTestCase):
         self.assertEqual(200, status)
         self.assertEqual({"status": "ok"}, body)
 
+    def test_livez_returns_ok(self):
+        status, body = self.request("GET", "/livez")
+        self.assertEqual(200, status)
+        self.assertEqual({"status": "ok"}, body)
+
     def test_malformed_content_length_drains_safely(self):
         connection = http.client.HTTPConnection("127.0.0.1", self.port)
         connection.request("GET", "/health", headers={"Content-Length": "invalid-len"})
@@ -77,7 +82,7 @@ class HealthTest(ControllerServerTestCase):
         self.assertEqual(404, self.request("GET", "/nope")[0])
 
     def test_health_head_probes(self):
-        for path in ("/health", "/healthz", "/readyz"):
+        for path in ("/health", "/healthz", "/readyz", "/livez"):
             connection = http.client.HTTPConnection("127.0.0.1", self.port)
             connection.request("HEAD", path)
             response = connection.getresponse()
@@ -99,7 +104,7 @@ class HealthTest(ControllerServerTestCase):
         connection.close()
 
     def test_health_head_method_not_allowed_returns_405_and_empty_body(self):
-        for path in ("/health", "/healthz", "/readyz"):
+        for path in ("/health", "/healthz", "/readyz", "/livez"):
             for method in ("POST", "PUT", "DELETE", "PATCH"):
                 connection = http.client.HTTPConnection("127.0.0.1", self.port)
                 connection.request(method, path)

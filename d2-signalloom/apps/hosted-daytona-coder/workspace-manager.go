@@ -56,7 +56,22 @@ var (
 	pvcRegex    = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
 	userRegex   = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`)
 	branchRegex = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_\-\.\/]*$`)
+	tenantRegex = regexp.MustCompile(`^[a-zA-Z0-9][-a-zA-Z0-9_.]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$`)
 )
+
+func validateTenant(tenant string) error {
+	tenant = strings.TrimSpace(tenant)
+	if tenant == "" || tenant == "*" {
+		return nil
+	}
+	if len(tenant) > 63 {
+		return errors.New("tenant must be 63 characters or fewer")
+	}
+	if strings.Contains(tenant, "..") || strings.Contains(tenant, "/") || !tenantRegex.MatchString(tenant) {
+		return errors.New("tenant contains invalid characters or path traversal")
+	}
+	return nil
+}
 
 func validatePVC(pvc string) error {
 	pvc = strings.TrimSpace(pvc)
@@ -122,10 +137,14 @@ func extractTenant(r *http.Request) (string, error) {
 	if headerTenant != "" && queryTenant != "" && headerTenant != queryTenant {
 		return "", fmt.Errorf("conflicting tenant in header (%s) and query (%s)", headerTenant, queryTenant)
 	}
-	if headerTenant != "" {
-		return headerTenant, nil
+	tenant := headerTenant
+	if tenant == "" {
+		tenant = queryTenant
 	}
-	return queryTenant, nil
+	if err := validateTenant(tenant); err != nil {
+		return "", err
+	}
+	return tenant, nil
 }
 
 // WorkspaceManager tracks active workspaces.
@@ -164,6 +183,22 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
+	pruneTicker := time.NewTicker(5 * time.Minute)
+	defer pruneTicker.Stop()
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-pruneTicker.C:
+				pruned := mgr.PruneExpired(24 * time.Hour)
+				if pruned > 0 {
+					slog.Info("periodic background prune completed", "pruned", pruned)
+				}
+			}
+		}
+	}()
+
 	go func() {
 		slog.Info("hosted-daytona-coder workspace manager listening", "addr", httpServer.Addr)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -199,6 +234,8 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	mux.HandleFunc("HEAD /healthz", healthHandler)
 	mux.HandleFunc("GET /readyz", healthHandler)
 	mux.HandleFunc("HEAD /readyz", healthHandler)
+	mux.HandleFunc("GET /livez", healthHandler)
+	mux.HandleFunc("HEAD /livez", healthHandler)
 
 	mux.HandleFunc("POST /workspaces", func(w http.ResponseWriter, r *http.Request) {
 		tenant, err := extractTenant(r)
@@ -227,6 +264,10 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 		}
 
 		req.TenantID = strings.TrimSpace(req.TenantID)
+		if err := validateTenant(req.TenantID); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		if tenant != "" {
 			if req.TenantID != "" && req.TenantID != tenant {
 				writeError(w, http.StatusForbidden, fmt.Sprintf("cross-tenant operation forbidden: authenticated tenant %q cannot operate on %q", tenant, req.TenantID))
@@ -256,6 +297,11 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 		}
 
 		id := r.PathValue("id")
+		if id == "prune" {
+			w.Header().Set("Allow", "POST")
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed on /workspaces/prune")
+			return
+		}
 		ws, ok := mgr.Get(id, tenant)
 		if !ok {
 			writeError(w, http.StatusNotFound, "workspace not found: "+id)
@@ -279,6 +325,11 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 		}
 
 		id := r.PathValue("id")
+		if id == "prune" {
+			w.Header().Set("Allow", "POST")
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed on /workspaces/prune")
+			return
+		}
 		deleted, delErr := mgr.Delete(id, tenant)
 		if delErr != nil {
 			writeError(w, http.StatusForbidden, delErr.Error())
@@ -289,6 +340,51 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	})
+
+	mux.HandleFunc("POST /workspaces/{id}/teardown", func(w http.ResponseWriter, r *http.Request) {
+		tenant, err := extractTenant(r)
+		if err != nil {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+
+		id := r.PathValue("id")
+		ws, tearErr := mgr.Teardown(id, tenant)
+		if tearErr != nil {
+			if strings.Contains(tearErr.Error(), "not found") {
+				writeError(w, http.StatusNotFound, tearErr.Error())
+				return
+			}
+			if strings.Contains(tearErr.Error(), "forbidden") {
+				writeError(w, http.StatusForbidden, tearErr.Error())
+				return
+			}
+			writeError(w, http.StatusInternalServerError, tearErr.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(ws)
+	})
+
+	mux.HandleFunc("POST /workspaces/prune", func(w http.ResponseWriter, r *http.Request) {
+		tenant, err := extractTenant(r)
+		if err != nil {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		_ = tenant
+		ttl := 1 * time.Hour
+		if rawTTL := r.URL.Query().Get("ttl"); rawTTL != "" {
+			if parsed, err := time.ParseDuration(rawTTL); err == nil && parsed > 0 {
+				ttl = parsed
+			}
+		}
+		pruned := mgr.PruneExpired(ttl)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]int{"pruned": pruned})
 	})
 
 	listWorkspacesHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -441,6 +537,22 @@ func (m *WorkspaceManager) Delete(id, tenant string) (bool, error) {
 	delete(m.workspaces, id)
 	slog.Info("workspace deleted", "workspace_id", id, "tenant_id", ws.TenantID)
 	return true, nil
+}
+
+// Teardown marks a workspace as terminated or tears down its resources, ensuring tenant isolation.
+func (m *WorkspaceManager) Teardown(id, tenant string) (*WorkspaceResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ws, ok := m.workspaces[id]
+	if !ok {
+		return nil, errors.New("workspace not found: " + id)
+	}
+	if tenant != "" && tenant != "*" && ws.TenantID != "" && ws.TenantID != tenant {
+		return nil, fmt.Errorf("cross-tenant teardown forbidden: authenticated tenant %q cannot teardown workspace belonging to %q", tenant, ws.TenantID)
+	}
+	ws.Status = "terminated"
+	slog.Info("workspace torn down", "workspace_id", id, "tenant_id", ws.TenantID)
+	return cloneWorkspace(ws), nil
 }
 
 // List returns active workspaces filtered by tenant if provided.

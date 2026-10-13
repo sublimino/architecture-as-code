@@ -218,6 +218,7 @@ def _job_status_count(status: dict[str, object], field: str) -> int:
 
 class ControllerHandler(BaseHTTPRequestHandler):
     server_version = "NetassertController/1.0"
+    timeout = 10.0
 
     def log_message(self, format: str, *args: object) -> None:
         return
@@ -319,6 +320,12 @@ class ControllerHandler(BaseHTTPRequestHandler):
                 if deleting is None:
                     break
                 time.sleep(0.3)
+            if deleting is not None:
+                self._json(
+                    HTTPStatus.CONFLICT,
+                    {"error": "previous scan deletion timed out, still terminating"},
+                )
+                return
 
         try:
             _create_kubernetes_job(base_url, token, context, NETASSERT_JOB_NAMESPACE, _netassert_job_manifest())
@@ -331,7 +338,7 @@ class ControllerHandler(BaseHTTPRequestHandler):
 
     def _dispatch(self) -> None:
         path = urlparse(self.path).path
-        if path in ("/health", "/healthz", "/readyz"):
+        if path in ("/health", "/healthz", "/readyz", "/livez"):
             if self.command in ("GET", "HEAD"):
                 self._json(HTTPStatus.OK, {"status": "ok"})
             else:

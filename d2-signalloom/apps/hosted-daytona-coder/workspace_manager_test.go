@@ -15,7 +15,7 @@ func TestHealth(t *testing.T) {
 	mgr := NewWorkspaceManager("test-ns")
 	srv := newServer(mgr)
 
-	for _, path := range []string{"/health", "/healthz", "/readyz"} {
+	for _, path := range []string{"/health", "/healthz", "/readyz", "/livez"} {
 		req := httptest.NewRequest("GET", path, nil)
 		rec := httptest.NewRecorder()
 		srv.ServeHTTP(rec, req)
@@ -501,8 +501,8 @@ func TestWorkspaceManager_MethodGates(t *testing.T) {
 		}
 	}
 
-	// 3. /health, /healthz, /readyz: allowed GET, HEAD; disallowed POST, PUT, DELETE
-	for _, path := range []string{"/health", "/healthz", "/readyz"} {
+	// 3. /health, /healthz, /readyz, /livez: allowed GET, HEAD; disallowed POST, PUT, DELETE
+	for _, path := range []string{"/health", "/healthz", "/readyz", "/livez"} {
 		for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
 			req := httptest.NewRequest(m, path, nil)
 			rec := httptest.NewRecorder()
@@ -580,6 +580,140 @@ func TestHeadErrorBodySuppression_AllStatuses(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkspaceTeardownLifecycle(t *testing.T) {
+	mgr := NewWorkspaceManager("test-ns")
+	srv := newServer(mgr)
+
+	ws, err := mgr.Create(WorkspaceRequest{PVC: "valid-pvc", User: "alice", TenantID: "tenant-a"})
+	if err != nil {
+		t.Fatalf("failed to create: %v", err)
+	}
+
+	// 1. Cross-tenant teardown should be rejected with 403 Forbidden
+	reqCross := httptest.NewRequest(http.MethodPost, "/workspaces/"+ws.WorkspaceID+"/teardown", nil)
+	reqCross.Header.Set("X-Tenant-ID", "tenant-b")
+	recCross := httptest.NewRecorder()
+	srv.ServeHTTP(recCross, reqCross)
+	if recCross.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden on cross-tenant teardown, got %d: %s", recCross.Code, recCross.Body.String())
+	}
+
+	// 2. Non-existent workspace teardown should return 404 Not Found
+	req404 := httptest.NewRequest(http.MethodPost, "/workspaces/nonexistent-id/teardown", nil)
+	req404.Header.Set("X-Tenant-ID", "tenant-a")
+	rec404 := httptest.NewRecorder()
+	srv.ServeHTTP(rec404, req404)
+	if rec404.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found on nonexistent teardown, got %d", rec404.Code)
+	}
+
+	// 3. Proper teardown transitions status to "terminated" and returns 200 OK
+	reqTeardown := httptest.NewRequest(http.MethodPost, "/workspaces/"+ws.WorkspaceID+"/teardown", nil)
+	reqTeardown.Header.Set("X-Tenant-ID", "tenant-a")
+	recTeardown := httptest.NewRecorder()
+	srv.ServeHTTP(recTeardown, reqTeardown)
+	if recTeardown.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on teardown, got %d: %s", recTeardown.Code, recTeardown.Body.String())
+	}
+	var tornDown WorkspaceResponse
+	if err := json.NewDecoder(recTeardown.Body).Decode(&tornDown); err != nil {
+		t.Fatalf("failed to decode teardown response: %v", err)
+	}
+	if tornDown.Status != "terminated" {
+		t.Fatalf("expected status 'terminated', got %q", tornDown.Status)
+	}
+
+	// 4. Method gates: GET, HEAD, PUT, DELETE, PATCH on teardown endpoint return 405 Method Not Allowed
+	for _, m := range []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		reqMethod := httptest.NewRequest(m, "/workspaces/"+ws.WorkspaceID+"/teardown", nil)
+		reqMethod.Header.Set("X-Tenant-ID", "tenant-a")
+		recMethod := httptest.NewRecorder()
+		srv.ServeHTTP(recMethod, reqMethod)
+		if recMethod.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s teardown: expected 405, got %d", m, recMethod.Code)
+		}
+		allow := recMethod.Header().Get("Allow")
+		if !strings.Contains(allow, "POST") {
+			t.Errorf("%s teardown: expected Allow header containing POST, got %q", m, allow)
+		}
+		if m == http.MethodHead && recMethod.Body.Len() != 0 {
+			t.Errorf("HEAD teardown: expected 0 body bytes, got %d", recMethod.Body.Len())
+		}
+	}
+}
+
+func TestWorkspacePruneEndpoint(t *testing.T) {
+	mgr := NewWorkspaceManager("test-ns")
+	srv := newServer(mgr)
+
+	ws, err := mgr.Create(WorkspaceRequest{PVC: "valid-pvc", User: "alice", TenantID: "tenant-a"})
+	if err != nil {
+		t.Fatalf("failed to create: %v", err)
+	}
+	// Age workspace
+	mgr.mu.Lock()
+	mgr.workspaces[ws.WorkspaceID].CreatedAt = time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339)
+	mgr.mu.Unlock()
+
+	// 1. POST /workspaces/prune
+	reqPrune := httptest.NewRequest(http.MethodPost, "/workspaces/prune?ttl=1h", nil)
+	reqPrune.Header.Set("X-Tenant-ID", "tenant-a")
+	recPrune := httptest.NewRecorder()
+	srv.ServeHTTP(recPrune, reqPrune)
+	if recPrune.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on prune, got %d: %s", recPrune.Code, recPrune.Body.String())
+	}
+	var pruneResult map[string]int
+	if err := json.NewDecoder(recPrune.Body).Decode(&pruneResult); err != nil {
+		t.Fatalf("failed to decode prune result: %v", err)
+	}
+	if pruneResult["pruned"] != 1 {
+		t.Fatalf("expected 1 pruned, got %d", pruneResult["pruned"])
+	}
+
+	// 2. Method gates: GET, HEAD, PUT, DELETE, PATCH return 405 and Allow: POST
+	for _, m := range []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		reqMethod := httptest.NewRequest(m, "/workspaces/prune", nil)
+		recMethod := httptest.NewRecorder()
+		srv.ServeHTTP(recMethod, reqMethod)
+		if recMethod.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s prune: expected 405, got %d", m, recMethod.Code)
+		}
+		allow := recMethod.Header().Get("Allow")
+		if !strings.Contains(allow, "POST") {
+			t.Errorf("%s prune: expected Allow header containing POST, got %q", m, allow)
+		}
+		if m == http.MethodHead && recMethod.Body.Len() != 0 {
+			t.Errorf("HEAD prune: expected 0 body bytes, got %d", recMethod.Body.Len())
+		}
+	}
+}
+
+func TestTenantValidation(t *testing.T) {
+	validTenants := []string{"", "*", "default", "tenant-1", "fe-signalloom", "alpha_beta.gamma", "a"}
+	for _, vt := range validTenants {
+		if err := validateTenant(vt); err != nil {
+			t.Errorf("expected tenant %q to be valid, got: %v", vt, err)
+		}
+	}
+
+	invalidTenants := []string{
+		"../../escape",
+		"tenant/sub",
+		"-leading-dash",
+		"trailing-dash-",
+		"tenant!bad",
+		"tenant with spaces",
+		strings.Repeat("a", 64),
+	}
+	for _, it := range invalidTenants {
+		if err := validateTenant(it); err == nil {
+			t.Errorf("expected tenant %q to be invalid, got nil", it)
+		}
+	}
+}
+
 
 
 

@@ -118,10 +118,30 @@ install_fleet_operator_api(app)
 install_invites_api(app)
 install_features_api(app)
 install_admin_users_api(app)
+class HeadBodySuppressingMiddleware:
+    """Suppress response body bytes on HTTP HEAD requests per RFC 9110 Section 6.4.1."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope.get("method") == "HEAD":
+            async def wrapped_send(message):
+                if message["type"] == "http.response.body":
+                    message = dict(message)
+                    message["body"] = b""
+                await send(message)
+
+            await self.app(scope, receive, wrapped_send)
+            return
+        await self.app(scope, receive, send)
+
+
 # Added last so it is the OUTERMOST middleware (Starlette wraps later additions
 # around earlier ones): identity headers are gone before any other middleware,
 # dependency or handler can read them, for http and websocket scopes alike.
 app.add_middleware(IdentityHeaderStripMiddleware)
+app.add_middleware(HeadBodySuppressingMiddleware)
 
 
 @app.api_route("/api/health", methods=["GET", "HEAD"])

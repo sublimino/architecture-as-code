@@ -92,7 +92,14 @@ class ApiHandler(BaseHTTPRequestHandler):
             if self.command != "HEAD":
                 self.wfile.write(body)
             return
-        super().send_error(code, message, explain)
+        err_msg = message or (BaseHTTPRequestHandler.responses.get(code, ("error",))[0])
+        body = json.dumps({"error": err_msg, "code": code}).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
 
 class ResolverTest(unittest.TestCase):
@@ -255,6 +262,19 @@ class ResolverTest(unittest.TestCase):
         ])
         mock_handler.end_headers.assert_called_once()
         self.assertEqual(b"", mock_wfile.getvalue())
+
+        # Verify HEAD suppresses body and formats JSON when send_error(404) executes
+        mock_handler_404 = mock.MagicMock(spec=ApiHandler)
+        mock_handler_404.command = "HEAD"
+        mock_wfile_404 = io.BytesIO()
+        mock_handler_404.wfile = mock_wfile_404
+        ApiHandler.send_error(mock_handler_404, 404)
+        mock_handler_404.send_response.assert_called_once_with(404)
+        mock_handler_404.send_header.assert_has_calls([
+            mock.call("Content-Type", "application/json"),
+        ])
+        mock_handler_404.end_headers.assert_called_once()
+        self.assertEqual(b"", mock_wfile_404.getvalue())
 
 
 if __name__ == "__main__":

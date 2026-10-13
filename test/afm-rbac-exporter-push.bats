@@ -43,6 +43,32 @@ class KubeHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
+    def _send_json(self, status, payload):
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def do_HEAD(self):
+        self.do_GET()
+
+    def send_error(self, code, message=None, explain=None):
+        if code == 501:
+            body = b"method not allowed"
+            self.send_response(405)
+            self.send_header("Allow", "GET, HEAD")
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+            return
+        err_msg = message or (http.server.BaseHTTPRequestHandler.responses.get(code, ("error",))[0])
+        self._send_json(code, {"error": err_msg, "code": code})
+
     def do_GET(self):
         req_entry = {
             "method": "GET",
@@ -60,10 +86,7 @@ class KubeHandler(http.server.BaseHTTPRequestHandler):
                     cfg = json.load(f)
                 if cfg.get("path_match") in self.path:
                     status = cfg.get("status", 403)
-                    self.send_response(status)
-                    self.send_header("Content-Type", "application/json")
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"kind": "Status", "status": "Failure", "code": status}).encode())
+                    self._send_json(status, {"kind": "Status", "status": "Failure", "code": status})
                     return
             except Exception:
                 pass
@@ -91,10 +114,7 @@ class KubeHandler(http.server.BaseHTTPRequestHandler):
                         {"metadata": {"name": "page1-role-2"}, "rules": [{"verbs": ["watch"], "apiGroups": [""], "resources": ["services"]}]},
                     ]
                 }
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(resp_data).encode())
+            self._send_json(200, resp_data)
             return
 
         # Default fixtures
@@ -139,14 +159,34 @@ class KubeHandler(http.server.BaseHTTPRequestHandler):
             "metadata": {},
             "items": items
         }
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps(resp_data).encode())
+        self._send_json(200, resp_data)
 
 class AFMHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
+
+    def _send_json(self, status, payload):
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def send_error(self, code, message=None, explain=None):
+        if code == 501:
+            body = b"method not allowed"
+            self.send_response(405)
+            self.send_header("Allow", "POST")
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+            return
+        err_msg = message or (http.server.BaseHTTPRequestHandler.responses.get(code, ("error",))[0])
+        self._send_json(code, {"error": err_msg, "code": code})
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -181,18 +221,12 @@ class AFMHandler(http.server.BaseHTTPRequestHandler):
             try:
                 with open(status_file) as f:
                     status = int(f.read().strip())
-                self.send_response(status)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"error": "injected_status", "code": status}).encode())
+                self._send_json(status, {"error": "injected_status", "code": status})
                 return
             except Exception:
                 pass
 
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps({"status": "imported", "cluster": "kind-osramp"}).encode())
+        self._send_json(200, {"status": "imported", "cluster": "kind-osramp"})
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     allow_reuse_address = True

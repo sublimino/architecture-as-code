@@ -215,6 +215,24 @@ func newMux(username, password string) http.Handler {
 }
 
 
+// resolveCredentials retrieves the cardvault username and password from
+// environment variables or fallback credential files.
+func resolveCredentials(uEnv, pEnv, uFile, pFile string) (string, string) {
+	username := strings.TrimSpace(uEnv)
+	if username == "" && uFile != "" {
+		if data, err := os.ReadFile(uFile); err == nil {
+			username = strings.TrimSpace(string(data))
+		}
+	}
+	password := strings.TrimSpace(pEnv)
+	if password == "" && pFile != "" {
+		if data, err := os.ReadFile(pFile); err == nil {
+			password = strings.TrimSpace(string(data))
+		}
+	}
+	return username, password
+}
+
 func main() {
 	log.SetOutput(os.Stderr)
 	log.SetFlags(log.Ldate | log.Ltime | log.LUTC)
@@ -224,10 +242,14 @@ func main() {
 		port = "8080"
 	}
 
-	username := os.Getenv("CARDVAULT_USERNAME")
-	password := os.Getenv("CARDVAULT_PASSWORD")
+	username, password := resolveCredentials(
+		os.Getenv("CARDVAULT_USERNAME"),
+		os.Getenv("CARDVAULT_PASSWORD"),
+		os.Getenv("CARDVAULT_USERNAME_FILE"),
+		os.Getenv("CARDVAULT_PASSWORD_FILE"),
+	)
 	if username == "" || password == "" {
-		log.Fatal("CARDVAULT_USERNAME and CARDVAULT_PASSWORD must be set")
+		log.Fatal("CARDVAULT_USERNAME and CARDVAULT_PASSWORD must be set (or via CARDVAULT_USERNAME_FILE / CARDVAULT_PASSWORD_FILE)")
 	}
 
 	mux := newMux(username, password)

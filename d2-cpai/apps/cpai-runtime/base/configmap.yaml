@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cpai-runtime-config
+  labels:
+    app.kubernetes.io/name: cpai-runtime
+    app.kubernetes.io/part-of: demo-cpai
+data:
+  GOOGLE_CLOUD_PROJECT: cc-vertex-test

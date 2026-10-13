@@ -46,7 +46,7 @@ The prerequisites, the `make demo-cpai-*` targets, and the fast path
 
 `make demo-cpai-up` creates the `cpai-gcp-adc` Secret from your ADC file. Run
 `gcloud auth application-default login` first. The GCP project defaults to
-`cc-vertex-test` ([`deployment.yaml`](apps/cpai-runtime/base/deployment.yaml)).
+`cc-vertex-test` ([`configmap.yaml`](apps/cpai-runtime/base/configmap.yaml)) and can be overridden via `GOOGLE_CLOUD_PROJECT`.
 `CPAI_CLI_ROOT` defaults to `/home/andy/src/cp/cpai-cli`. Set it to your
 cpai-cli checkout.
 
@@ -114,7 +114,7 @@ d2-cpai/
 | `CPAI_TEST_MODEL` | `google-vertex/gemini-2.5-flash` | Model the smoke test asks for |
 | `CPAI_PORT_FORWARD_PORT` | `18080` | Local port the tests forward to |
 | `PORT` | `8080` | Public API port in the container |
-| `GOOGLE_CLOUD_PROJECT` | `cc-vertex-test` | Vertex project (set in `deployment.yaml`) |
+| `GOOGLE_CLOUD_PROJECT` | `cc-vertex-test` | Vertex project (set in `configmap.yaml`) |
 | `CPAI_CONTEXT_ROOT` | `/context` | Artefact mount path |
 
 ## Pitfalls

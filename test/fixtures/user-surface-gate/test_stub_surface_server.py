@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import socket
 import threading
 import unittest
 import urllib.error
@@ -84,6 +85,75 @@ class StubSurfaceServerContractTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 405)
         self.assertEqual(ctx.exception.headers.get("Allow"), "POST")
         ctx.exception.close()
+
+    def test_chunked_post_decodes_correctly(self):
+        s = socket.create_connection(("127.0.0.1", self.port))
+        payload = b'{"step": 1}'
+        chunk = f"{len(payload):x}\r\n".encode() + payload + b"\r\n0\r\n\r\n"
+        raw_req = (
+            b"POST /api/demo/testdemo/runs HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Authorization: Bearer stub-id-token-for-gate-tests\r\n"
+            b"Transfer-Encoding: chunked\r\n"
+            b"Content-Type: application/json\r\n\r\n" + chunk
+        )
+        s.sendall(raw_req)
+        s.settimeout(2.0)
+        data = b""
+        while True:
+            recv = s.recv(4096)
+            if not recv:
+                break
+            data += recv
+            if b"\r\n\r\n" in data:
+                break
+        s.close()
+        self.assertTrue(data.startswith(b"HTTP/1.1 202 Accepted") or data.startswith(b"HTTP/1.0 202 Accepted"))
+
+    def test_malformed_chunk_returns_400_and_closes_connection(self):
+        s = socket.create_connection(("127.0.0.1", self.port))
+        raw_req = (
+            b"POST /api/demo/testdemo/runs HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Authorization: Bearer stub-id-token-for-gate-tests\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n"
+            b"ZZ\r\ninvalid\r\n0\r\n\r\n"
+        )
+        s.sendall(raw_req)
+        s.settimeout(2.0)
+        data = b""
+        while True:
+            recv = s.recv(4096)
+            if not recv:
+                break
+            data += recv
+            if b"\r\n\r\n" in data:
+                break
+        s.close()
+        self.assertTrue(data.startswith(b"HTTP/1.1 400 Bad Request") or data.startswith(b"HTTP/1.0 400 Bad Request"))
+        self.assertIn(b"Connection: close", data)
+
+    def test_negative_content_length_returns_400_and_closes_connection(self):
+        s = socket.create_connection(("127.0.0.1", self.port))
+        raw_req = (
+            b"POST /api/demo/testdemo/runs HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Authorization: Bearer stub-id-token-for-gate-tests\r\n"
+            b"Content-Length: -5\r\n\r\n"
+        )
+        s.sendall(raw_req)
+        s.settimeout(2.0)
+        data = b""
+        while True:
+            recv = s.recv(4096)
+            if not recv:
+                break
+            data += recv
+            if b"\r\n\r\n" in data:
+                break
+        s.close()
+        self.assertTrue(data.startswith(b"HTTP/1.1 400 Bad Request") or data.startswith(b"HTTP/1.0 400 Bad Request"))
+        self.assertIn(b"Connection: close", data)
 
     def test_send_error_override_direct(self):
         class MockHandler:

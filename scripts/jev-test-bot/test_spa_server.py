@@ -222,6 +222,59 @@ class SpaServerContractTest(unittest.TestCase):
         self.assertEqual(payload["error"], "Malformed syntax")
         self.assertEqual(payload["code"], 400)
 
+    def test_non_hex_chunk_closes_connection(self):
+        s = socket.create_connection(("127.0.0.1", self.port))
+        raw_req = (
+            b"OPTIONS / HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n"
+            b"ZZ\r\nhello\r\n0\r\n\r\n"
+        )
+        s.sendall(raw_req)
+        s.settimeout(2.0)
+        data = b""
+        while True:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+            if b"\r\n\r\n" in data:
+                break
+        s.close()
+        self.assertIn(b"Connection: close", data)
+
+    def test_malformed_chunk_delimiter_closes_connection(self):
+        s = socket.create_connection(("127.0.0.1", self.port))
+        # Chunk delimiter is "XX" instead of \r\n
+        raw_req = (
+            b"OPTIONS / HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n"
+            b"5\r\nhelloXX0\r\n\r\n"
+        )
+        s.sendall(raw_req)
+        s.settimeout(2.0)
+        data = b""
+        while True:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+            if b"\r\n\r\n" in data:
+                break
+        s.close()
+        self.assertIn(b"Connection: close", data)
+
+    def test_negative_content_length_closes_connection(self):
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/",
+            headers={"Content-Length": "-10"},
+            method="OPTIONS",
+        )
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 204)
+            self.assertEqual(resp.headers.get("Connection"), "close")
+
 
 if __name__ == "__main__":
     unittest.main()

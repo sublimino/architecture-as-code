@@ -10,6 +10,14 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 echo "==> Applying CPAI runtime manifests to cpai namespace"
 kubectl apply -k d2-cpai/apps/cpai-runtime/local
 
+GCP_PROJECT="${GOOGLE_CLOUD_PROJECT:-}"
+if [[ -n "${GCP_PROJECT}" ]]; then
+  echo "==> Configuring GOOGLE_CLOUD_PROJECT=${GCP_PROJECT} in cpai-runtime-config"
+  kubectl -n cpai create configmap cpai-runtime-config \
+    --from-literal=GOOGLE_CLOUD_PROJECT="${GCP_PROJECT}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+fi
+
 # The runtime calls Vertex AI, so it needs Application Default Credentials
 # mounted as the cpai-gcp-adc secret. Create/refresh it from the local ADC so a
 # clean `make up` -> `make demo-cpai-up` works hands-off. The deployment mounts

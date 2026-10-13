@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 
@@ -44,6 +45,16 @@ class SpaHandler(SimpleHTTPRequestHandler):
             return os.path.join(root, self.index_name)
         return resolved
 
+    def end_headers(self) -> None:
+        if getattr(self, "close_connection", False):
+            has_conn = any(
+                line.lower().startswith(b"connection:")
+                for line in getattr(self, "_headers_buffer", [])
+            )
+            if not has_conn:
+                self.send_header("Connection", "close")
+        super().end_headers()
+
     def _drain_body(self) -> None:
         if not hasattr(self, "headers") or not self.headers:
             return
@@ -54,15 +65,23 @@ class SpaHandler(SimpleHTTPRequestHandler):
                 while total <= 1048576:
                     line = self.rfile.readline(128)
                     if not line:
+                        self.close_connection = True
                         break
                     chunk_len_str = line.split(b";")[0].strip()
-                    if not chunk_len_str:
+                    if not chunk_len_str or not re.fullmatch(rb"[0-9a-fA-F]+", chunk_len_str):
+                        self.close_connection = True
                         break
                     chunk_len = int(chunk_len_str, 16)
+                    if chunk_len < 0:
+                        self.close_connection = True
+                        break
                     if chunk_len == 0:
                         while True:
                             trailer = self.rfile.readline(1024)
-                            if not trailer or trailer in (b"\r\n", b"\n", b""):
+                            if not trailer:
+                                self.close_connection = True
+                                break
+                            if trailer in (b"\r\n", b"\n"):
                                 break
                         break
                     total += chunk_len
@@ -76,7 +95,10 @@ class SpaHandler(SimpleHTTPRequestHandler):
                             self.close_connection = True
                             return
                         rem -= len(b)
-                    self.rfile.readline(4)
+                    delim = self.rfile.readline(4)
+                    if delim not in (b"\r\n", b"\n"):
+                        self.close_connection = True
+                        break
             except Exception:
                 self.close_connection = True
             return
@@ -85,7 +107,10 @@ class SpaHandler(SimpleHTTPRequestHandler):
             raw_len = self.headers.get("Content-Length", "0")
             length = int(raw_len.strip()) if raw_len else 0
         except (ValueError, TypeError, AttributeError):
-            length = 0
+            length = -1
+        if length < 0 or length > 1048576:
+            self.close_connection = True
+            return
         if 0 < length <= 1048576:
             try:
                 rem = length
@@ -96,9 +121,7 @@ class SpaHandler(SimpleHTTPRequestHandler):
                         break
                     rem -= len(b)
             except (OSError, ValueError):
-                pass
-        elif length > 1048576:
-            self.close_connection = True
+                self.close_connection = True
 
     def _send_405(self):
         if hasattr(self, "_drain_body"):

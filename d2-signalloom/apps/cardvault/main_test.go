@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -507,6 +508,38 @@ func TestCardvaultOptionsRequests(t *testing.T) {
 	}
 }
 
+func TestResolveCredentials(t *testing.T) {
+	// Case 1: Plain environment variables
+	u, p := resolveCredentials("envUser", "envPass", "", "")
+	if u != "envUser" || p != "envPass" {
+		t.Fatalf("expected envUser/envPass, got %s/%s", u, p)
+	}
 
+	// Case 2: File fallback
+	tmpDir := t.TempDir()
+	uFile := tmpDir + "/u.txt"
+	pFile := tmpDir + "/p.txt"
+	if err := os.WriteFile(uFile, []byte("fileUser\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pFile, []byte("filePass  \n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 
+	u, p = resolveCredentials("", "", uFile, pFile)
+	if u != "fileUser" || p != "filePass" {
+		t.Fatalf("expected fileUser/filePass, got %s/%s", u, p)
+	}
 
+	// Case 3: Env variables take precedence over files
+	u, p = resolveCredentials("overrideUser", "overridePass", uFile, pFile)
+	if u != "overrideUser" || p != "overridePass" {
+		t.Fatalf("expected overrideUser/overridePass, got %s/%s", u, p)
+	}
+
+	// Case 4: Missing files return empty strings
+	u, p = resolveCredentials("", "", tmpDir+"/nonexistent", tmpDir+"/nonexistent2")
+	if u != "" || p != "" {
+		t.Fatalf("expected empty strings, got %s/%s", u, p)
+	}
+}

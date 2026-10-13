@@ -46,6 +46,12 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_args):  # keep bats output readable
         pass
 
+    def handle_one_request(self):
+        try:
+            super().handle_one_request()
+        except (ConnectionResetError, BrokenPipeError):
+            self.close_connection = True
+
     def _send(self, code: int, payload: dict, extra_headers: dict | None = None):
         body = json.dumps(payload).encode()
         self.send_response(code)
@@ -54,6 +60,8 @@ class Handler(BaseHTTPRequestHandler):
         if extra_headers:
             for k, v in extra_headers.items():
                 self.send_header(k, v)
+        if getattr(self, "close_connection", False):
+            self.send_header("Connection", "close")
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
@@ -123,19 +131,84 @@ class Handler(BaseHTTPRequestHandler):
             self._send_405("GET, HEAD")
             return
 
-        raw_len = self.headers.get("Content-Length")
-        if raw_len is not None:
-            try:
-                length = int(raw_len.strip())
-            except ValueError:
-                self._err(400, "invalid_length", "invalid Content-Length header")
-                return
-            if length < 0:
-                self._err(400, "invalid_length", "negative Content-Length header")
-                return
+        te = self.headers.get("Transfer-Encoding", "").lower()
+        if "chunked" in te:
+            chunks = []
+            total = 0
+            while total <= 1048576:
+                line = self.rfile.readline(128)
+                if not line:
+                    self.close_connection = True
+                    break
+                chunk_len_str = line.split(b";")[0].strip()
+                if not chunk_len_str or not re.fullmatch(rb"[0-9a-fA-F]+", chunk_len_str):
+                    self.close_connection = True
+                    self._err(400, "invalid_chunk", "invalid chunk length")
+                    return
+                chunk_len = int(chunk_len_str, 16)
+                if chunk_len < 0:
+                    self.close_connection = True
+                    self._err(400, "invalid_chunk", "negative chunk length")
+                    return
+                if chunk_len == 0:
+                    while True:
+                        trailer = self.rfile.readline(1024)
+                        if not trailer:
+                            self.close_connection = True
+                            break
+                        if trailer in (b"\r\n", b"\n"):
+                            break
+                    break
+                total += chunk_len
+                if total > 1048576:
+                    self.close_connection = True
+                    self._err(413, "payload_too_large", "payload exceeds limit")
+                    return
+                rem = chunk_len
+                chunk_bytes = bytearray()
+                while rem > 0:
+                    b = self.rfile.read(min(rem, 65536))
+                    if not b:
+                        self.close_connection = True
+                        self._err(400, "premature_eof", "premature EOF reading chunk data")
+                        return
+                    chunk_bytes.extend(b)
+                    rem -= len(b)
+                chunks.append(bytes(chunk_bytes))
+                delim = self.rfile.readline(4)
+                if delim not in (b"\r\n", b"\n"):
+                    self.close_connection = True
+                    self._err(400, "invalid_chunk", "malformed chunk delimiter")
+                    return
+            raw = b"".join(chunks).decode("utf-8", errors="replace")
         else:
-            length = 0
-        raw = self.rfile.read(length).decode() if length else ""
+            raw_len = self.headers.get("Content-Length")
+            if raw_len is not None:
+                try:
+                    length = int(raw_len.strip())
+                except ValueError:
+                    self.close_connection = True
+                    self._err(400, "invalid_length", "invalid Content-Length header")
+                    return
+                if length < 0:
+                    self.close_connection = True
+                    self._err(400, "invalid_length", "negative Content-Length header")
+                    return
+            else:
+                length = 0
+            if length > 1048576:
+                self.close_connection = True
+                self._err(413, "payload_too_large", "payload exceeds limit")
+                return
+            if length > 0:
+                raw_bytes = self.rfile.read(length)
+                if len(raw_bytes) < length:
+                    self.close_connection = True
+                    self._err(400, "premature_eof", "premature EOF reading body")
+                    return
+                raw = raw_bytes.decode("utf-8", errors="replace")
+            else:
+                raw = ""
         if self.path.rstrip("/") == "/dex/token":
             if SCENARIO.get("_dex") == "down":
                 self._err(500, "dex_down", "stub Dex refuses to mint")
@@ -250,6 +323,12 @@ class Handler(BaseHTTPRequestHandler):
 
 class ReusableThreadingHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
+
+    def handle_error(self, request, client_address):
+        exc_type, _, _ = sys.exc_info()
+        if exc_type in (ConnectionResetError, BrokenPipeError):
+            return
+        super().handle_error(request, client_address)
 
 
 def main(argv: list[str]) -> int:

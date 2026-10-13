@@ -35,9 +35,15 @@ spec:
               containerPort: 8080
           env:
             - name: CARDVAULT_USERNAME
-              value: cardvault-svc-account
+              valueFrom:
+                secretKeyRef:
+                  name: cardvault-credentials
+                  key: username
             - name: CARDVAULT_PASSWORD
-              value: supercred-demo-password-2026
+              valueFrom:
+                secretKeyRef:
+                  name: cardvault-credentials
+                  key: password
           startupProbe:
             httpGet:
               path: /healthz

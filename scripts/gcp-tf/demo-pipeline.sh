@@ -205,6 +205,7 @@ esac
 
 MAKE_BIN="${MAKE_BIN:-make}"
 KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
+export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}"
 BATS_BIN="${BATS_BIN:-bats}"
 SUDO_BIN="${SUDO_BIN:-sudo}"
 CHROME_BIN="${DEMO_CHROME_BIN:-/opt/google/chrome/chrome}"

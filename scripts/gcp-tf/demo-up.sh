@@ -2715,7 +2715,16 @@ fi
 # systemd does not: a unit with no KUBECONFIG runs with HOME=/root, finds
 # nothing, and fails authenticating to localhost:6443, which reads like a broken
 # cluster rather than a missing variable.
-KUBECONFIG_PATH="\${KUBECONFIG:-\${HOME}/.kube/config}"
+KUBECONFIG_PATH="\${KUBECONFIG:-}"
+if [ -z "\$KUBECONFIG_PATH" ]; then
+  if [ -r "\${HOME}/.kube/config" ]; then
+    KUBECONFIG_PATH="\${HOME}/.kube/config"
+  elif [ -r "/tmp/osramp-kubeconfig.yaml" ]; then
+    KUBECONFIG_PATH="/tmp/osramp-kubeconfig.yaml"
+  else
+    KUBECONFIG_PATH="\${HOME}/.kube/config"
+  fi
+fi
 if [ ! -r "\$KUBECONFIG_PATH" ]; then
   echo "NO_KUBECONFIG:\${KUBECONFIG_PATH}" >&2
   exit 4

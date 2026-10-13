@@ -1,6 +1,6 @@
 ---
 name: cp-sl-pyramid-verify
-description: "Scheduled-run offline test pyramid and contract drift verification guard for the #partner-signal-loom platform. Executes docs-lint across 700+ Markdown documents, runs the full offline test suite (Go unit tests, 160+ Vitest suites, Python API tests), verifies zero drift between migration SQL and discovery portal bootstrap SQL, and checks mutation test falsifiability. USE WHEN verify pyramid, test all offline, docs lint test, verify test pyramid, cp-sl-pyramid-verify, or on schedule '0 3 * * *'."
+description: "Scheduled-run offline test pyramid guard. Executes docs-lint across documents. Runs offline tests for Go, Vitest, and Python. Verifies zero schema drift. USE WHEN verify pyramid, test all offline, docs lint test, or on schedule '0 3 * * *'."
 ---
 
 # cp-sl-pyramid-verify
@@ -9,10 +9,10 @@ Scheduled offline test pyramid verification and schema drift guard for the **Sig
 
 ## Loop Lens & Schedule Contract
 
-- **Cadence**: `0 3 * * *` (Daily at 03:00 UTC, or prior to branch integration).
+- **Cadence**: `0 3 * * *` (Daily at 03:00 UTC, or before branch integration).
 - **Trigger**: Cron notification, `/cp-sl-pyramid-verify`, or manual prompt "run test pyramid".
 - **Checkpoint**: Push right. Executes the entire offline verification pyramid without requiring a running Kind cluster or cloud connectivity. Emits a clean decision brief.
-- **Brief**: Emit a 4-bullet executive status: (1) Docs lint status (0 errors across 700+ docs), (2) Offline test suite passes (Go, Vitest, Python, KPAI), (3) Bootstrap SQL alignment status, (4) Regression count.
+- **Brief**: Emit a 4-bullet status: (1) Docs lint status, (2) Offline test suite passes, (3) Bootstrap SQL alignment status, (4) Regression count.
 
 ---
 
@@ -74,4 +74,4 @@ Scheduled offline test pyramid verification and schema drift guard for the **Sig
 ## Completion Criteria
 
 - **Clarity**: 100% test pass record with zero skipped suites and zero doc lint warnings.
-- **Demand**: All 6 offline layers executed and logged; schema diff confirmed 0 lines.
+- **Demand**: All 6 offline layers executed and logged. Schema diff confirmed zero lines.

@@ -1,6 +1,6 @@
 ---
 name: cp-sl-silent-failure-audit
-description: "Scheduled-run silent failure and architectural invariant sentinel for the #partner-signal-loom platform. Audits the 17 cataloged silent failure patterns: CRI image layer validity (crictl vs ctr), PostgreSQL audit_events dotted-name constraints, nginx proxy prefix collisions with App.tsx routes, agent discovery RBAC coverage, POOL_IMPORTERS connection pool binding, and BATS silent skip detection. USE WHEN silent failures, audit invariants, verify signal loom invariants, check silent bugs, cp-sl-silent-failure-audit, or on schedule '0 */4 * * *'."
+description: "Scheduled-run silent failure and invariant sentinel for #partner-signal-loom. Audits the 17 cataloged silent failure patterns across runtime and contracts. USE WHEN silent failures, audit invariants, verify signal loom invariants, check silent bugs, cp-sl-silent-failure-audit, or on schedule '0 */4 * * *'."
 ---
 
 # cp-sl-silent-failure-audit
@@ -71,4 +71,4 @@ Scheduled invariant audit and silent failure detector for the **Signal Loom** (`
 ## Completion Criteria
 
 - **Clarity**: Unambiguous PASS/FAIL on all 17 invariants with zero uninvestigated warnings.
-- **Demand**: All derivation tests executed; zero AST discrepancies; zero route collisions.
+- **Demand**: All derivation tests executed. Zero AST discrepancies and zero route collisions found.

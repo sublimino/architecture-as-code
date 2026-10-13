@@ -39,7 +39,7 @@ Emit the numbered **Cleanup Job Manifest** with non-overlapping file ownership p
 ## Phase 2: Shared Pattern Extraction & Isolated Worktree Partitioning
 
 ### Step 2.1: Commit or Triage Working Tree First
-If the base branch has uncommitted work that belongs on the branch, verify its tests and commit it onto the active branch *before* branching worktrees so every subagent starts from the same clean HEAD.
+If the base branch has uncommitted work, verify its tests and commit it first. Every subagent must start from the same clean HEAD.
 
 ### Step 2.2: Provision Isolated Worktrees Outside `$REPO_ROOT`
 Never create worktrees inside `$REPO_ROOT/.claude/worktrees/`. Use `/tmp/osramp-worktrees/` (or `~/src/.worktrees/osramp-demo/` when writable):
@@ -82,7 +82,7 @@ Every subagent prompt must include:
 
 Spawn all chunk subagents concurrently via `invoke_subagent`. Each subagent MUST execute the **4-step Mutation Falsifiability Protocol** before committing:
 1. **Baseline Green**: Run the focused test suite (`go test`, `pytest`, `bun test`, or `bats`) and confirm pass.
-2. **Forced Mutation + Diff Proof**: Mutate the production helper/script (e.g., drop `OPTIONS` from `Allow`, skip body drain, or invert a guard boundary) and assert `git diff <file>` is non-empty (proving the `sed`/edit actually landed).
+2. **Forced Mutation + Diff Proof**: Mutate the production helper or script (such as dropping `OPTIONS` from `Allow`). Assert `git diff <file>` is non-empty on disk.
 3. **Mutated Red**: Re-run the test suite and confirm it exits non-zero on the expected assertion failure (never a syntax error or unrelated setup failure).
 4. **Restored Green**: Restore the file from backup, confirm `git diff` is clean, and re-run the test suite to confirm pass.
 

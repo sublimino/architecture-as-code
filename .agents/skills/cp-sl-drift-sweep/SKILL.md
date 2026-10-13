@@ -1,6 +1,6 @@
 ---
 name: cp-sl-drift-sweep
-description: "Two-axis codebase drift, multi-agent churn, and code-smell remediation sweeper for the #partner-signal-loom platform. Runs Matt Pocock's two-axis review (Standards + Fowler smell baseline vs Spec + proposal sprawl) across branch history, emits a partitioned Cleanup Job Manifest, pauses for approval by default (or executes end-to-end with --auto / /goal) using isolated git worktrees, shared helper extraction, mandatory fail-to-fix mutation proofs, and sequential fast-forward merges. USE WHEN drift sweep, clean up drift and mess, review jobs, multi-agent churn cleanup, consolidate proposals, deduplicate boilerplate, cp-sl-drift-sweep, /cp-sl-drift-sweep, or on schedule '0 4 * * *'."
+description: "Two-axis codebase drift and code-smell remediation sweeper for #partner-signal-loom. Runs Standards and Spec review across branch history. Pauses by default or runs end-to-end with --auto. USE WHEN drift sweep, clean up drift, review jobs, cp-sl-drift-sweep, /cp-sl-drift-sweep, or on schedule '0 4 * * *'."
 ---
 
 # cp-sl-drift-sweep
@@ -12,10 +12,10 @@ Two-axis codebase drift auditor and parallel worktree remediation orchestrator f
 - **Cadence**: `0 4 * * *` (Daily post-sprint sweep, or on demand after a multi-agent commit wave).
 - **Trigger**: `/cp-sl-drift-sweep`, `/cp-sl-drift-sweep --auto`, `/goal`, or manual prompt "sweep repo drift and mess".
 - **Default Mode (`PAUSE_FOR_APPROVAL`)**:
-  - Executes **Phase 1 (Two-Axis Drift & Churn Triage)** via `Tools/drift-sweep.sh`, presents the findings along both axes (**Standards** and **Spec**) plus the partitioned **Cleanup Job Manifest**, and **STOPS** for explicit user sign-off before creating worktrees or spawning remediation subagents.
+  - Executes **Phase 1 (Two-Axis Drift & Churn Triage)** via `Tools/drift-sweep.sh`. Presents the **Standards** and **Spec** findings plus the **Cleanup Job Manifest**, then **STOPS** for user sign-off.
 - **Autonomous Flag (`--auto` or `/goal` active)**:
-  - Proceeds automatically from Phase 1 through **Phase 2 (Shared Pattern & Worktree Partitioning)**, **Phase 3 (Parallel Subagent Execution with Mandatory Mutation Proofs)**, and **Phase 4 (Sequential Rebase, One-by-One Verification, Fast-Forward Merge & Teardown)**.
-- **Brief**: Emit a 4-bullet executive status: (1) Standards & smell findings count, (2) Spec & proposal sprawl findings count, (3) Partitioned cleanup jobs ready/executed, (4) End-to-end verification and worktree hygiene status.
+  - Proceeds automatically from Phase 1 through **Phase 2 (Worktree Partitioning)**, **Phase 3 (Parallel Subagents with Mutation Proofs)**, and **Phase 4 (Rebase, Merge & Teardown)**.
+- **Brief**: Emit a 4-bullet status: (1) Standards findings, (2) Spec findings, (3) Cleanup jobs ready or executed, and (4) Verification and hygiene status.
 
 ---
 
@@ -32,13 +32,13 @@ Two-axis codebase drift auditor and parallel worktree remediation orchestrator f
    - Every remediation worktree must own a strictly non-overlapping set of file globs. Shared index files (such as `docs/README.md`) belong to at most one agent so sequential fast-forward merges (`git merge --ff-only`) never conflict.
 
 4. **Shared Pattern Extraction Before Fan-Out**:
-   - Before spawning code-refactoring agents, define the canonical helper contract per runtime (Go `httputil.go`, Python `normalize_allow` / `_gate_route`, TypeScript `http-gate.ts`) and verify static BATS grep tokens (`rg` across `test/*.bats`) so refactoring never breaks static contract tests.
+   - Define canonical helpers per runtime (`httputil.go`, `normalize_allow` / `_gate_route`, `http-gate.ts`) before fan-out. Check BATS grep tokens (`rg` across `test/*.bats`) so refactoring preserves contract tests.
 
 5. **Mandatory Empirical Mutation Proof (Red → Green → Mutate-Red → Restore-Green)**:
-   - Every subagent must prove its tests are falsifiable: apply a forced mutation to the implementation, confirm via `git diff` that the mutation landed on disk, run the test suite to observe a real assertion failure (no fake green-lights), and restore the code to green before committing.
+   - Every subagent must prove its tests are falsifiable. Apply a forced mutation, confirm `git diff` is non-empty, observe a real assertion failure, and restore the code to green before committing.
 
 6. **Sequential Rebase, One-by-One Test, Fast-Forward Merge**:
-   - Never octopus-merge untested branches. Rebase each completed worktree branch onto the target branch tip, run its focused test suite, fast-forward merge one by one, run the full cross-cutting contract suite (`bats test/http-guard-dedup-contracts.bats test/worktree-hygiene.bats test/docs-index-sync.bats` and `make docs-lint`), and remove all temporary worktrees.
+   - Never octopus-merge untested branches. Rebase each branch onto the target tip, run its focused test suite, and fast-forward merge one by one. Run the cross-cutting contract suite (`bats test/http-guard-dedup-contracts.bats test/worktree-hygiene.bats test/docs-index-sync.bats` and `make docs-lint`), then remove temporary worktrees.
 
 ---
 

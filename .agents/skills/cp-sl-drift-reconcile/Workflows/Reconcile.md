@@ -41,7 +41,7 @@ The audit script outputs machine-readable key-value pairs:
   kubectl get configmap flux-runtime-info -n flux-system -o yaml
   ```
 - **Case 4: Corrupted Patch Indexes**:
-  Stop immediately and raise alert: "Index drift detected in `tenants/local/kustomization.yaml`. Do not insert resources before existing indexed patches; append to the end."
+  Stop immediately and raise alert: "Index drift detected in `tenants/local/kustomization.yaml`. Do not insert resources before existing indexed patches. Append to the end instead."
 
 ### Step 5: Final Brief Generation
 Generate concise brief:

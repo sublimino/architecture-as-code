@@ -1,6 +1,6 @@
 ---
 name: cp-sl-drift-reconcile
-description: "Scheduled-run GitOps and cluster drift reconciler for the #partner-signal-loom platform. Reconciles Flux ResourceSets and Kustomizations against git HEAD, audits JSON6902 patch index drift, verifies postBuild.substituteFrom tokens, checks in-cluster Zot registry artifacts, and detects untracked manual kubectl interventions. USE WHEN gitops drift, reconcile signal loom, flux drift, flux reconcile, patch index drift, cp-sl-drift-reconcile, or on schedule '*/30 * * * *'."
+description: "Scheduled-run GitOps and cluster drift reconciler for #partner-signal-loom. Reconciles Flux ResourceSets and Kustomizations against git HEAD, audits JSON6902 patch indexes, and checks Zot artifacts. USE WHEN gitops drift, reconcile signal loom, flux drift, flux reconcile, patch index drift, cp-sl-drift-reconcile, or on schedule '*/30 * * * *'."
 ---
 
 # cp-sl-drift-reconcile
@@ -74,4 +74,4 @@ Scheduled GitOps and cluster drift reconciliation for the **Signal Loom** (`#par
 ## Completion Criteria
 
 - **Clarity**: Binary verdict (`DRIFT_FREE` or `DRIFT_DETECTED` with specific remediation action).
-- **Demand**: All 4 invariant checks executed; zero uninvestigated `${VAR}` tokens; patch indexes verified; brief delivered.
+- **Demand**: All 4 invariant checks executed. Zero uninvestigated `${VAR}` tokens, patch indexes verified, and brief delivered.

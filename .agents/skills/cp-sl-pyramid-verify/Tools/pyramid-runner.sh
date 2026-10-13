@@ -37,7 +37,7 @@ fi
 
 # 3. Go Controller Unit Tests
 echo "--> [Tier 3/6] Running Go unit tests for Fleet Manager..."
-if (cd d2-signalloom/apps/fleet-manager && GOTOOLCHAIN=local GONOSUMDB=* GOCACHE=/tmp/gocache CGO_ENABLED=0 go test ./...); then
+if (cd d2-signalloom/apps/fleet-manager && GOPATH=/tmp/gopath GOTOOLCHAIN=auto GONOSUMDB=* GOCACHE=/tmp/gocache CGO_ENABLED=0 go test ./...); then
   echo "  [PASS] Fleet Manager controller tests pass"
 else
   echo "  [FAIL] Fleet Manager controller tests failed."

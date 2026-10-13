@@ -2,7 +2,7 @@
 
 ## 1. GitOps Suspension Contract (SL-GSC-001)
 
-When a rogue or compromised agent is stunned, the containment action takes place in the live Kubernetes cluster (eBPF network block, cgroup freezer, process freeze, revocation of SPIRE SVIDs).
+When an agent is stunned, containment acts in the live cluster. Actions include eBPF network blocks, cgroup freezing, and revocation of SPIRE SVIDs.
 
 ### The Invariant
 Because the Signal Loom platform is managed via GitOps (Flux Operator), any live cluster change is subject to periodic reconciliation. If the Git repository declares `replicas: 1` and normal labels, Flux will detect drift and attempt to restore the un-stunned workload.

@@ -1,6 +1,6 @@
 ---
 name: cp-sl-worktree-governor
-description: "Scheduled-run multi-agent worktree and lease governor for the #partner-signal-loom platform. Audits active worktrees across ~/src/.worktrees/ and ~/.cline/worktrees/, detects uncommitted dirty files and stranded branches, verifies Kanban controller lease locks (kanban-check.sh doctor), and safely prunes merged/abandoned worktrees. USE WHEN clean worktrees, worktree audit, stale worktrees, kanban lease status, cp-sl-worktree-governor, or on schedule '0 */6 * * *'."
+description: "Scheduled-run multi-agent worktree and lease governor for #partner-signal-loom. Audits active worktrees, detects dirty files and stranded branches, checks Kanban controller leases, and prunes merged worktrees. USE WHEN clean worktrees, worktree audit, stale worktrees, kanban lease status, cp-sl-worktree-governor, or on schedule '0 */6 * * *'."
 ---
 
 # cp-sl-worktree-governor
@@ -12,7 +12,7 @@ Scheduled multi-agent worktree hygiene and lease governor for the **Signal Loom*
 - **Cadence**: `0 */6 * * *` (Every 6 hours, or before initiating large multi-agent cards).
 - **Trigger**: Cron notification, `/cp-sl-worktree-governor`, or manual prompt "audit agent worktrees".
 - **Checkpoint**: Push right. Scan all worktrees for dirty state and unpushed commits. Automatically report clean candidates for pruning. Never delete a dirty worktree or unmerged branch without explicit confirmation.
-- **Brief**: Emit a 4-bullet executive status: (1) Total active worktrees, (2) Dirty / uncommitted worktrees requiring preservation, (3) Merged worktrees safe to prune, (4) Active Kanban leases.
+- **Brief**: Emit a 4-bullet status: (1) Total worktrees, (2) Dirty worktrees to preserve, (3) Merged worktrees safe to prune, and (4) Active Kanban leases.
 
 ---
 
@@ -65,4 +65,4 @@ Scheduled multi-agent worktree hygiene and lease governor for the **Signal Loom*
 ## Completion Criteria
 
 - **Clarity**: Complete ledger of every active worktree, its branch tip, dirty status, and action.
-- **Demand**: All worktree paths evaluated; zero accidental deletion of unpushed commits.
+- **Demand**: All worktree paths evaluated, with zero accidental deletion of unpushed commits.

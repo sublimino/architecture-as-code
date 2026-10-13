@@ -1,6 +1,6 @@
 ---
 name: cp-sl-containment-guard
-description: "Scheduled-run agent stun, containment, and GitOps suspension integrity guard for the #partner-signal-loom platform. Enforces the GitOps suspension invariant (kustomize.toolkit.fluxcd.io/reconcile: disabled) on stunned workloads, verifies H1 forensic preservation with liveness probe suppression, audits Fleet Manager in-memory DAG state synchronization, and verifies agent-monitor immunity. USE WHEN agent stun check, containment integrity, verify stunned agent, flux reconcile disabled, cp-sl-containment-guard, or on schedule '*/15 * * * *'."
+description: "Scheduled-run agent stun, containment, and GitOps suspension guard for #partner-signal-loom. Enforces Flux reconcile suspension on stunned workloads, verifies H1 forensic preservation, and audits DAG state. USE WHEN agent stun check, containment integrity, verify stunned agent, flux reconcile disabled, cp-sl-containment-guard, or on schedule '*/15 * * * *'."
 ---
 
 # cp-sl-containment-guard
@@ -12,7 +12,7 @@ Scheduled containment invariant and forensic state verification for the **Signal
 - **Cadence**: `*/15 * * * *` (Every 15 minutes, or immediately following an agent containment or stun drill).
 - **Trigger**: Cron notification, `/cp-sl-containment-guard`, or manual prompt "check agent containment".
 - **Checkpoint**: Push right. Audit all agent workloads across namespaces (`fe-signalloom-agents`, `inf-signalloom`). Automatically patch missing GitOps suspension annotations. Emit brief to human if uncontained network egress or DAG desynchronization is detected.
-- **Brief**: Emit a 4-bullet executive status: (1) Total agents inspected, (2) Active vs Stunned agent count, (3) GitOps suspension compliance status, (4) Fleet Manager DAG state alignment.
+- **Brief**: Emit a 4-bullet status: (1) Total agents inspected, (2) Active vs Stunned count, (3) GitOps suspension compliance, and (4) Fleet Manager DAG alignment.
 
 ---
 
@@ -33,7 +33,7 @@ Scheduled containment invariant and forensic state verification for the **Signal
    - Fleet Manager in-memory DAG state (`s.dag.SetAgentState(agentID, AgentStateStunned)`) must strictly match `GET /api/v1/fleet/topology`. Stunned agents must not appear as `active` in audience views.
 
 4. **Observability Agent Immunity**:
-   - Telemetry and security monitor agents (e.g. `agent-monitor`) are strictly exempt from stun cascades and must remain active under all conditions.
+   - Telemetry and security monitor agents (such as `agent-monitor`) are strictly exempt from stun cascades and must remain active under all conditions.
 
 ---
 
@@ -72,4 +72,4 @@ Scheduled containment invariant and forensic state verification for the **Signal
 ## Completion Criteria
 
 - **Clarity**: Complete visibility into all active/stunned workloads with verified Flux suspension.
-- **Demand**: 100% of stunned workloads checked for Flux suspension; DAG state verified; brief delivered.
+- **Demand**: 100% of stunned workloads checked for Flux suspension. DAG state verified and brief delivered.

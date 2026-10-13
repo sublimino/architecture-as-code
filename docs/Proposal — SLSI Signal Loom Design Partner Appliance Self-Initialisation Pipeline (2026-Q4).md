@@ -1050,7 +1050,7 @@ I am stopping. The commit stays `d79c34cd`. The card closes green with no P1-4 c
 **Created:** 2026-10-13 01:55:00+01:00
 **Last Updated:** 2026-10-13 01:55:00+01:00
 **Status:** Completed
-**Commit:** pending on `integration/slsi-v0.1.0`.
+**Commit:** `0de58237` on `integration/slsi-v0.1.0`.
 
 ##### Day-2 Upgrade and Rollback Verification
 - **In-Place Architecture**: `scripts/upgrade-tenant.sh` executes Day-2 updates without destroying or recreating the Kind cluster, preserving cluster identity and running pods during the upgrade sequence.

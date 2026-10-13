@@ -47,8 +47,9 @@ type columnarFakeStore struct {
 	labelKeys   []string
 	labelVals   []string
 
-	queryRangeCalls int
-	scanIDsCalls    int
+	queryRangeCalls       int
+	scanIDsCalls          int
+	scanObservationsCalls int
 }
 
 // newColumnarFakeStore builds n rows whose payload weight is set by descriptionBytes and
@@ -150,6 +151,37 @@ func (s *columnarFakeStore) ScanIDs(_ context.Context, q store.Query, fn func(id
 		}
 	}
 	return nil
+}
+
+// ScanObservations materialises rows the same way QueryRange does, so a caller that streams
+// whole observations is still measured honestly against one that streams IDs.
+func (s *columnarFakeStore) ScanObservations(_ context.Context, q store.Query, fn func(o *model.Observation) error) error {
+	s.scanObservationsCalls++
+	emitted, skipped := 0, 0
+	for i := range s.ids {
+		if !s.matches(i, q) {
+			continue
+		}
+		if skipped < q.Offset {
+			skipped++
+			continue
+		}
+		row := s.rowAt(i)
+		if err := fn(&row); err != nil {
+			return err
+		}
+		emitted++
+		if q.Limit > 0 && emitted >= q.Limit {
+			break
+		}
+	}
+	return nil
+}
+
+func (s *columnarFakeStore) ObservationStats(context.Context, store.Query) (store.ObservationStats, error) {
+	// Warm never asks for stats; a zero value with initialised maps keeps the fake a valid
+	// SignalStore without inventing numbers a test might read.
+	return store.ObservationStats{ByLayer: map[string]int{}, ByFidelity: map[string]int{}}, nil
 }
 
 func (s *columnarFakeStore) DropPartition(context.Context, time.Time) error { return nil }

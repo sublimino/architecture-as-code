@@ -38,6 +38,12 @@ func matchesFilters(o *model.Observation, q Query, layerSet map[model.Layer]stru
 	if !q.matchesIDs(o.ID) {
 		return false
 	}
+	// Tenancy is a row predicate like any other, so it belongs here rather than at a call
+	// site. Applying it in the store is what lets a paging read stop early: filtering after
+	// the read means the reader cannot know how many rows it needs until it has them all.
+	if q.TenantID != "" && o.Labels[TenantLabelKey] != q.TenantID {
+		return false
+	}
 	if !q.After.IsZero() && o.Timestamp.Before(q.After) {
 		return false
 	}
@@ -131,6 +137,58 @@ func (m *MemoryStore) ScanIDs(_ context.Context, q Query, fn func(id string) err
 		}
 	}
 	return nil
+}
+
+// ScanObservations streams matching observations without copying the result set.
+//
+// fn receives a pointer into the store's own slice, valid only for the duration of the call.
+func (m *MemoryStore) ScanObservations(_ context.Context, q Query, fn func(o *model.Observation) error) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	layerSet := layerSetOf(q)
+
+	emitted, skipped := 0, 0
+	for i := range m.data {
+		if !matchesFilters(&m.data[i], q, layerSet) {
+			continue
+		}
+		if skipped < q.Offset {
+			skipped++
+			continue
+		}
+		if err := fn(&m.data[i]); err != nil {
+			return err
+		}
+		emitted++
+		if q.Limit > 0 && emitted >= q.Limit {
+			return nil
+		}
+	}
+	return nil
+}
+
+// ObservationStats tallies in place. The in-memory store holds the rows already, so there is
+// nothing to materialise and the only thing to avoid is building a second copy of them.
+func (m *MemoryStore) ObservationStats(_ context.Context, q Query) (ObservationStats, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	layerSet := layerSetOf(q)
+	out := ObservationStats{ByLayer: map[string]int{}, ByFidelity: map[string]int{}}
+	for i := range m.data {
+		if !matchesFilters(&m.data[i], q, layerSet) {
+			continue
+		}
+		out.Total++
+		out.ByLayer[string(m.data[i].Layer)]++
+		out.ByFidelity[string(m.data[i].Fidelity)]++
+		if ts := m.data[i].Timestamp; out.LastIngestion == nil || ts.After(*out.LastIngestion) {
+			t := ts
+			out.LastIngestion = &t
+		}
+	}
+	return out, nil
 }
 
 // DropPartition removes all observations before the given time.

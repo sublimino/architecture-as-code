@@ -9,6 +9,14 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 )
 
+// TenantLabelKey is the label column carrying the owning tenant of an observation.
+//
+// Declared here, not in api, because tenancy is now a pushed-down store predicate and store
+// cannot import api. api.ObservationTenantLabel must stay equal to it; TestTenantLabelKeysAgree
+// in the api package fails if the two ever diverge, which would silently scope every read to
+// a column nothing writes.
+const TenantLabelKey = "tenant_id"
+
 // MinAggregateGroupSize enforces k-anonymity (small-cell suppression floor) for grouped/statistical queries.
 const MinAggregateGroupSize = 5
 
@@ -51,8 +59,50 @@ type SignalStore interface {
 	// pin that entire buffer — every column of every row — for as long as the ID is held.
 	ScanIDs(ctx context.Context, q Query, fn func(id string) error) error
 
+	// ScanObservations streams the observations matching q, one at a time, with the same row
+	// SELECTION and ordering as QueryRange and the same Offset and Limit semantics as ScanIDs.
+	// fn is called once per matching row; returning an error aborts the scan and is returned
+	// unwrapped, which is how a caller stops early once it has the page it asked for.
+	//
+	// Callers that page or aggregate must use this and not QueryRange. GET
+	// /api/v1/observations discarded the caller's limit before the read and materialised the
+	// whole store on every dashboard page load; streaming with an early stop makes the cost
+	// the page rather than the table.
+	//
+	// The *model.Observation handed to fn is valid only for the duration of the call. An
+	// implementation may point it at its own storage or at a decode buffer, so a caller that
+	// retains a row must copy it — and must bound how many it keeps, or it has rebuilt the
+	// defect this method exists to remove.
+	//
+	// fn must not call back into the store. Implementations may hold a read lock across the
+	// scan.
+	ScanObservations(ctx context.Context, q Query, fn func(o *model.Observation) error) error
+
+	// ObservationStats answers the counting questions GET /api/v1/store/stats asks, without
+	// handing any observation across the interface.
+	//
+	// Counting is the one read that legitimately concerns every row, so it cannot be bounded
+	// by paging; it is bounded by never materialising. The handler used to call
+	// QueryRange(Query{}) and tally the result in Go, which is one live Observation per row
+	// in the store and was half of the pair of full-store scans that OOM-killed
+	// signal-ingest. An implementation must aggregate in its engine and return only the
+	// totals.
+	//
+	// q is honoured as a filter; Offset and Limit are meaningless for an aggregate and are
+	// ignored.
+	ObservationStats(ctx context.Context, q Query) (ObservationStats, error)
+
 	DropPartition(ctx context.Context, before time.Time) error
 	Close() error
+}
+
+// ObservationStats is the summary GET /api/v1/store/stats reports. Counts are over rows, not
+// over distinct IDs, matching what the handler reported before it was bounded.
+type ObservationStats struct {
+	Total         int
+	ByLayer       map[string]int
+	ByFidelity    map[string]int
+	LastIngestion *time.Time
 }
 
 // Query specifies filters for observation retrieval.
@@ -63,6 +113,7 @@ type Query struct {
 	Before    time.Time     // end of range
 	ActorID   string        // optional: filter by correlated actor
 	SubjectID string        // optional: filter by data subject identity across pseudonymised columns
+	TenantID  string        // optional: filter to one tenant's rows (the tenant_id label)
 	Offset    int           // optional: offset for pagination
 	Limit     int           // max results (0 = no limit)
 }

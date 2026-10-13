@@ -50,10 +50,52 @@ func (c *countingStore) QueryRange(ctx context.Context, q store.Query) ([]model.
 	return out, err
 }
 
+// ScanObservations and ScanIDs count the rows a STREAMING read pulled out of the store.
+//
+// Without these the harness measures nothing once a handler stops calling QueryRange: cs.queries
+// stays empty and every per-query assertion below is vacuously true. Counting streamed rows keeps
+// "rows the handler pulled out of the store" the measured quantity whichever door it used, so a
+// streaming read that still visits the whole table fails exactly as the materialising one did.
+func (c *countingStore) ScanObservations(ctx context.Context, q store.Query, fn func(o *model.Observation) error) error {
+	n := 0
+	err := c.SignalStore.ScanObservations(ctx, q, func(o *model.Observation) error {
+		n++
+		return fn(o)
+	})
+	c.queries = append(c.queries, q)
+	c.rows = append(c.rows, n)
+	c.totalRows += n
+	return err
+}
+
+func (c *countingStore) ScanIDs(ctx context.Context, q store.Query, fn func(id string) error) error {
+	n := 0
+	err := c.SignalStore.ScanIDs(ctx, q, func(id string) error {
+		n++
+		return fn(id)
+	})
+	c.queries = append(c.queries, q)
+	c.rows = append(c.rows, n)
+	c.totalRows += n
+	return err
+}
+
+// ObservationStats records the query and ZERO rows, which is the honest count: an aggregate
+// returns totals, not observations, so nothing crosses the interface for the handler to hold.
+// Recording it keeps the call visible to the per-query assertions rather than invisible — a
+// handler that quietly went back to QueryRange would otherwise look the same as this one.
+func (c *countingStore) ObservationStats(ctx context.Context, q store.Query) (store.ObservationStats, error) {
+	out, err := c.SignalStore.ObservationStats(ctx, q)
+	c.queries = append(c.queries, q)
+	c.rows = append(c.rows, 0)
+	return out, err
+}
+
 // unfiltered reports whether q asks the store for everything it holds.
 func unfiltered(q store.Query) bool {
 	return q.IDs == nil && q.After.IsZero() && q.Before.IsZero() &&
-		len(q.Layers) == 0 && q.ActorID == "" && q.SubjectID == "" && q.Limit == 0
+		len(q.Layers) == 0 && q.ActorID == "" && q.SubjectID == "" &&
+		q.TenantID == "" && q.Limit == 0
 }
 
 // fillStore adds n observations that are NOT the row under test, so a handler that reads the

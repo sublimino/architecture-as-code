@@ -634,6 +634,152 @@ func (f *FrostDBStore) ScanIDs(ctx context.Context, q Query, fn func(id string) 
 	}
 }
 
+// ScanObservations streams matching observations one row at a time.
+//
+// Unlike ScanIDs this must decode whole rows, so it projects everything. What it does not do
+// is accumulate: peak memory is one Arrow record plus whatever the caller chooses to retain,
+// instead of the entire result set. A paging caller stops early and pays for its page.
+//
+// The *model.Observation passed to fn points at a slice this function owns and reuses per
+// record; a caller retaining a row must copy it.
+func (f *FrostDBStore) ScanObservations(ctx context.Context, q Query, fn func(o *model.Observation) error) error {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	if !f.droppedBefore.IsZero() {
+		if q.After.IsZero() || q.After.Before(f.droppedBefore) {
+			q.After = f.droppedBefore
+		}
+	}
+
+	filter, err := buildFilter(q, f.pseudonymiser)
+	if err != nil {
+		return fmt.Errorf("frostdb: build filter: %w", err)
+	}
+	builder := f.engine.ScanTable(tableName)
+	if filter != nil {
+		builder = builder.Filter(filter)
+	}
+	builder = builder.Project(logicalplan.All())
+
+	emitted, skipped := 0, 0
+	var callbackErr error
+	execErr := builder.Execute(ctx, func(_ context.Context, r arrow.Record) error {
+		rows := recordToObservations(r)
+		for i := range rows {
+			if skipped < q.Offset {
+				skipped++
+				continue
+			}
+			if err := fn(&rows[i]); err != nil {
+				callbackErr = err
+				return err
+			}
+			emitted++
+			if q.Limit > 0 && emitted >= q.Limit {
+				return errScanLimitReached
+			}
+		}
+		return nil
+	})
+
+	switch {
+	case callbackErr != nil:
+		return callbackErr
+	case execErr != nil && !errors.Is(execErr, errScanLimitReached):
+		return fmt.Errorf("frostdb: scan observations: %w", execErr)
+	default:
+		return nil
+	}
+}
+
+// ObservationStats aggregates in the engine and returns only the totals.
+//
+// One grouped query does all of it: count and max(timestamp) grouped by (layer, fidelity).
+// The result is one row per distinct pair — a couple of dozen at most, against a table of
+// millions — so the totals cross the interface instead of the rows. byLayer, byFidelity, the
+// grand total and the last ingestion all derive from that one result.
+func (f *FrostDBStore) ObservationStats(ctx context.Context, q Query) (ObservationStats, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	if !f.droppedBefore.IsZero() {
+		if q.After.IsZero() || q.After.Before(f.droppedBefore) {
+			q.After = f.droppedBefore
+		}
+	}
+
+	out := ObservationStats{ByLayer: map[string]int{}, ByFidelity: map[string]int{}}
+
+	filter, err := buildFilter(q, f.pseudonymiser)
+	if err != nil {
+		return out, fmt.Errorf("frostdb: build filter: %w", err)
+	}
+	builder := f.engine.ScanTable(tableName)
+	if filter != nil {
+		builder = builder.Filter(filter)
+	}
+	builder = builder.Aggregate(
+		[]*logicalplan.AggregationFunction{
+			// Counted over timestamp, not id: FrostDB refuses an aggregation whose
+			// expression is not Int64/Uint64/Float64, and id is a string column. Every row
+			// carries a timestamp — Append writes it unconditionally — so counting non-null
+			// timestamps is counting rows. The contract suite asserts this equals a
+			// QueryRange tally, against both implementations.
+			logicalplan.Count(colRef(colTimestamp)),
+			logicalplan.Max(colRef(colTimestamp)),
+		},
+		[]logicalplan.Expr{colRef(colLayer), colRef(colFidelity)},
+	)
+
+	execErr := builder.Execute(ctx, func(_ context.Context, r arrow.Record) error {
+		cols := map[string]int{}
+		for i, fld := range r.Schema().Fields() {
+			cols[fld.Name] = i
+		}
+		// Aggregate output column names are engine-chosen (count(id), max(timestamp)), so
+		// they are located by suffix rather than assumed. A rename upstream must fail loudly
+		// here rather than silently reporting zero observations.
+		countIdx, maxIdx := -1, -1
+		for name, i := range cols {
+			switch {
+			case strings.HasPrefix(name, "count("):
+				countIdx = i
+			case strings.HasPrefix(name, "max("):
+				maxIdx = i
+			}
+		}
+		if countIdx < 0 {
+			return errors.New("frostdb: observation stats: aggregate result has no count column")
+		}
+		layerIdx, hasLayer := cols[colLayer]
+		fidelityIdx, hasFidelity := cols[colFidelity]
+
+		for i := 0; i < int(r.NumRows()); i++ {
+			n := int(int64At(r.Column(countIdx), i))
+			out.Total += n
+			if hasLayer {
+				out.ByLayer[stringAt(r.Column(layerIdx), i)] += n
+			}
+			if hasFidelity {
+				out.ByFidelity[stringAt(r.Column(fidelityIdx), i)] += n
+			}
+			if maxIdx >= 0 {
+				ts := time.Unix(0, int64At(r.Column(maxIdx), i)).UTC()
+				if out.LastIngestion == nil || ts.After(*out.LastIngestion) {
+					t := ts
+					out.LastIngestion = &t
+				}
+			}
+		}
+		return nil
+	})
+	if execErr != nil {
+		return ObservationStats{}, fmt.Errorf("frostdb: observation stats: %w", execErr)
+	}
+	return out, nil
+}
+
 // matchesQuery applies query filters to an observation. Retained as a correctness
 // oracle for testing equivalence between pushed-down FrostDB execution and in-memory evaluation.
 //
@@ -938,6 +1084,10 @@ const (
 	// expressible without a key or the key's absence would turn every lookup into a full scan —
 	// which is the defect this column was added to the filter set to remove.
 	colID = "id"
+	// colFidelity is a GROUP BY column for ObservationStats, not a filter column, so it is
+	// deliberately absent from validateFilterColumns' required set: nothing pushes a
+	// predicate down on it.
+	colFidelity = "fidelity"
 )
 
 // validateFilterColumns ensures that the column names targeted by query pushdown
@@ -1008,6 +1158,12 @@ func buildFilter(q Query, p *SegmentPseudonymiser) (logicalplan.Expr, error) {
 			layerExprs[i] = colRef(colLayer).Eq(logicalplan.Literal(string(l)))
 		}
 		exprs = append(exprs, logicalplan.Or(layerExprs...))
+	}
+
+	// Tenancy pushed down to the label column so a scoped page can stop early in the engine
+	// rather than being filtered after every row is already decoded.
+	if q.TenantID != "" {
+		exprs = append(exprs, colRef(LabelColumnPrefix+TenantLabelKey).Eq(logicalplan.Literal(q.TenantID)))
 	}
 
 	if q.ActorID != "" {

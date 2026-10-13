@@ -129,35 +129,50 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
             if not hasattr(self, "headers") or not self.headers:
                 return
             te = self.headers.get("Transfer-Encoding", "").lower()
+            has_cl = "content-length" in [k.lower() for k in self.headers.keys()]
+            if "chunked" in te and has_cl:
+                self.close_connection = True
+                return
             if "chunked" in te:
                 try:
                     total = 0
+                    terminated = False
                     while total <= 1048576:
                         line = self.rfile.readline(128)
-                        if not line:
+                        if not line or not line.endswith(b"\n"):
                             self.close_connection = True
-                            break
+                            return
                         chunk_len_str = line.split(b";")[0].strip()
                         if not chunk_len_str or not re.fullmatch(rb"[0-9a-fA-F]+", chunk_len_str):
                             self.close_connection = True
-                            break
-                        chunk_len = int(chunk_len_str, 16)
+                            return
+                        try:
+                            chunk_len = int(chunk_len_str, 16)
+                        except ValueError:
+                            self.close_connection = True
+                            return
                         if chunk_len < 0:
                             self.close_connection = True
-                            break
+                            return
                         if chunk_len == 0:
-                            while True:
+                            trailer_count = 0
+                            while trailer_count < 32:
                                 trailer = self.rfile.readline(1024)
-                                if not trailer:
+                                if not trailer or not trailer.endswith(b"\n"):
                                     self.close_connection = True
-                                    break
+                                    return
                                 if trailer in (b"\r\n", b"\n"):
                                     break
+                                trailer_count += 1
+                            else:
+                                self.close_connection = True
+                                return
+                            terminated = True
                             break
                         total += chunk_len
                         if total > 1048576:
                             self.close_connection = True
-                            break
+                            return
                         rem = chunk_len
                         while rem > 0:
                             b = self.rfile.read(min(rem, 65536))
@@ -168,7 +183,10 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                         crlf = self.rfile.readline(4)
                         if crlf not in (b"\r\n", b"\n"):
                             self.close_connection = True
-                            break
+                            return
+                    if not terminated:
+                        self.close_connection = True
+                        return
                 except Exception:
                     self.close_connection = True
                 return
@@ -215,7 +233,7 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
 
         def do_OPTIONS(self):
             self._drain_body()
-            path = self.path.split("?")[0].rstrip("/") or "/"
+            path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
             if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
                 self.send_response(204)
                 self.send_header("Allow", "GET, HEAD, OPTIONS")
@@ -235,7 +253,7 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
             self._send_json(404, {"error": "not found"})
 
         def do_GET(self):
-            path = self.path.split("?")[0].rstrip("/") or "/"
+            path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
             if path in ("/health", "/healthz", "/readyz"):
                 self._send_json(200, {"status": "ok"})
                 return
@@ -256,7 +274,7 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                 self.wfile.write(card)
 
         def do_HEAD(self):
-            path = self.path.split("?")[0].rstrip("/") or "/"
+            path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
             if path in ("/health", "/healthz", "/readyz"):
                 self._send_json(200, {"status": "ok"})
                 return
@@ -275,7 +293,7 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
             self.end_headers()
 
         def do_POST(self):
-            path = self.path.split("?")[0].rstrip("/") or "/"
+            path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
             if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
                 self._drain_body()
                 self._send_json(405, {"error": "method not allowed"}, allow="GET, HEAD, OPTIONS")
@@ -283,6 +301,16 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
             if path != "/a2a":
                 self._drain_body()
                 self._send_json(404, {"error": "not found"})
+                return
+            te = self.headers.get("Transfer-Encoding", "").lower()
+            has_cl = "content-length" in [k.lower() for k in self.headers.keys()]
+            if te and has_cl:
+                self.close_connection = True
+                self._send_json(400, {"error": "unsupported Transfer-Encoding or TE.CL conflict"})
+                return
+            if te:
+                self.close_connection = True
+                self._send_json(400, {"error": "unsupported Transfer-Encoding"})
                 return
             raw_len = self.headers.get("Content-Length")
             if raw_len is None:
@@ -309,7 +337,8 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                     self._send_json(400, {"error": "truncated request body"})
                     return
                 body = json.loads(raw_body)
-            except (ValueError, json.JSONDecodeError):
+            except (OSError, ValueError, json.JSONDecodeError):
+                self.close_connection = True
                 self._send_json(400, {"error": "invalid JSON"})
                 return
             if not isinstance(body, dict):
@@ -337,7 +366,7 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
 
         def _handle_unsupported_method(self):
             self._drain_body()
-            path = self.path.split("?")[0].rstrip("/") or "/"
+            path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
             if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
                 self._send_json(405, {"error": "method not allowed"}, allow="GET, HEAD, OPTIONS")
                 return
@@ -346,18 +375,19 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                 return
             self._send_json(404, {"error": "not found"})
         def send_error(self, code: int, message: str | None = None, explain: str | None = None):
-            path = getattr(self, "path", "/").split("?")[0].rstrip("/") or "/"
+            path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
+            cmd = getattr(self, "command", "") or ""
             if code in (405, 501):
                 if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
                     self._drain_body()
-                    self._send_json(405, {"error": f"method {getattr(self, 'command', '')} not allowed on {path}"}, allow="GET, HEAD, OPTIONS")
+                    self._send_json(405, {"error": f"method {cmd} not allowed on {path}"}, allow="GET, HEAD, OPTIONS")
                     return
                 if path == "/a2a":
                     self._drain_body()
-                    self._send_json(405, {"error": f"method {getattr(self, 'command', '')} not allowed on {path}"}, allow="POST, OPTIONS")
+                    self._send_json(405, {"error": f"method {cmd} not allowed on {path}"}, allow="POST, OPTIONS")
                     return
                 self._drain_body()
-                self._send_json(404, {"error": f"no route {getattr(self, 'command', '')} {path}"})
+                self._send_json(404, {"error": f"no route {cmd} {path}"})
                 return
             self._drain_body()
             msg = message or self.responses.get(code, ("error", ""))[0]

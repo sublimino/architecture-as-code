@@ -272,6 +272,41 @@ class A2A(unittest.TestCase):
    resp.read()
    conn.close()
 
+
+   # TE.CL conflict on drain route closes connection
+   conn = http.client.HTTPConnection("127.0.0.1", s.server_port)
+   conn.request("POST", "/health", body="3\r\nfoo\r\n0\r\n\r\n", headers={"Transfer-Encoding": "chunked", "Content-Length": "3"})
+   resp = conn.getresponse()
+   self.assertEqual("close", resp.getheader("Connection"))
+   resp.read()
+   conn.close()
+
+   # TE.CL conflict on /a2a returns 400 and closes connection
+   conn = http.client.HTTPConnection("127.0.0.1", s.server_port)
+   conn.request("POST", "/a2a", body="3\r\nfoo\r\n0\r\n\r\n", headers={"Transfer-Encoding": "chunked", "Content-Length": "3"})
+   resp = conn.getresponse()
+   self.assertEqual(400, resp.status)
+   self.assertEqual("close", resp.getheader("Connection"))
+   resp.read()
+   conn.close()
+
+   # Premature EOF on chunk length line closes connection
+   import socket
+   raw_s = socket.create_connection(("127.0.0.1", s.server_port))
+   raw_s.sendall(b"POST /health HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n3")
+   raw_s.shutdown(socket.SHUT_WR)
+   raw_s.settimeout(2.0)
+   raw_resp = b""
+   while True:
+    try:
+     chunk = raw_s.recv(4096)
+     if not chunk: break
+     raw_resp += chunk
+    except OSError:
+     break
+   raw_s.close()
+   self.assertIn(b"Connection: close", raw_resp)
+
    # Negative chunk size closes connection
    conn = http.client.HTTPConnection("127.0.0.1", s.server_port)
    conn.request("POST", "/health", body="-1\r\n0000000000\r\n0\r\n\r\n", headers={"Transfer-Encoding": "chunked"})

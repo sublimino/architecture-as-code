@@ -1117,7 +1117,7 @@ I am stopping. The commit stays `d79c34cd`. The card closes green with no P1-4 c
 **Created:** 2026-10-13 03:00:00+01:00
 **Last Updated:** 2026-10-13 03:00:00+01:00
 **Status:** Completed
-**Commit:** `PENDING` on `integration/slsi-v0.1.0`.
+**Commit:** `cb341204` on `integration/slsi-v0.1.0`.
 
 ##### Host Security and Containment Chain Verification
 - **Host Disk Key Permission Enforcement**: Verified that `scripts/init-tenant.sh --stage p2-1` strictly creates the tenant key storage directory with permission `0700` (`rwx------`), all private keys (`cosign.key`, `witness.pem`, `orbit-approval.pem`) with permission `0600` (`rw-------`), and public keys (`cosign.pub`, `witness-pub.pem`) with permission `0644` (`rw-r--r--`). Group and other access attempts fail closed (`perm:1:1 == 0` and `perm:2:1 == 0`).

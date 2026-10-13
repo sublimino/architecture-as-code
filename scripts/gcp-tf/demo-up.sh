@@ -5295,11 +5295,63 @@ cmd_surfaces() {
   exit 1
 }
 
+cmd_acceptance() {
+  require_env acceptance
+  capture_source_identity
+
+  HANDOFF_FILE="${HANDOFF_DIR}/${ENV_KEY}.handoff.json"
+  if [ -f "$HANDOFF_FILE" ]; then
+    log "reading ${HANDOFF_FILE}"
+  fi
+
+  local target="${DASHBOARD_URL:-}"
+  if [ -z "$target" ]; then
+    # Try Tailscale resolution first
+    if ts_resolve_node 2>/dev/null; then
+      target="https://${TS_FQDN}"
+      log "resolved tailnet target: ${target}"
+    else
+      # Check if an IAP tunnel is already listening locally
+      local local_port origin
+      local_port="$(local_tunnel_port)"
+      origin="$(iap_origin)"
+      if nc -z 127.0.0.1 "$local_port" 2>/dev/null; then
+        target="$origin"
+        log "using active IAP tunnel target: ${target}"
+      else
+        die "no target available for ${ENV_KEY}: Tailscale node is not online and no IAP tunnel is listening on port ${local_port}. Run 'make gcp-tf-ts-up ENV=${ENV_KEY}' or 'make gcp-tf-connect ENV=${ENV_KEY}' first."
+      fi
+    fi
+  fi
+
+  echo "════════════════════════════════════════════════════════════"
+  echo "  Signal Loom — REMOTE acceptance tests"
+  echo "  ENV: ${ENV_KEY}  |  target: ${target}"
+  echo "════════════════════════════════════════════════════════════"
+
+  local specs=("$@")
+  if [ "${#specs[@]}" -eq 0 ]; then
+    specs=(signalloom-test-1.spec.ts smoke.spec.ts live-data.spec.ts)
+  fi
+
+  log "running acceptance suite against ${target}: ${specs[*]}"
+  DASHBOARD_URL="$target" \
+  SKIP_DOCTOR=1 \
+  SIGNALLOOM_UI_URL="$target" \
+  SIGNALLOOM_API_URL="$target" \
+  SIGNALLOOM_DEX_URL="$target" \
+  "${REPO_ROOT}/scripts/acceptance-test.sh" "${specs[@]}"
+}
+
 case "${1:-up}" in
   up) cmd_up ;;
   test) cmd_test ;;
   ts-test) cmd_ts_test ;;
   test-surfaces) cmd_surfaces ;;
+  acceptance)
+    shift
+    cmd_acceptance "$@"
+    ;;
   connect) cmd_connect ;;
   ssh)
     shift
@@ -5322,5 +5374,5 @@ case "${1:-up}" in
     cmd_payload "${1:-}"
     ;;
   -h | --help | help) sed -n '2,28p' "$0" ;;
-  *) die "usage: $(basename "$0") {up|test|ts-test|test-surfaces|connect|ssh|ts-up|ts-status|ts-logout|funnel-up|funnel-down|public|public-down|public-status|status|payload <file>}" ;;
+  *) die "usage: $(basename "$0") {up|test|ts-test|test-surfaces|acceptance [specs...]|connect|ssh|ts-up|ts-status|ts-logout|funnel-up|funnel-down|public|public-down|public-status|status|payload <file>}" ;;
 esac

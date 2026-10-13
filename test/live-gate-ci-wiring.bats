@@ -29,8 +29,7 @@ setup() {
 live_suites() {
   local own
   own="$(sed -n 's/^# @tests[[:space:]]*//p' scripts/lib/live-gate.sh | tr ' ,' '\n\n' | grep . )"
-  # Suites that SOURCE the gate, not files that only mention it.
-  rg -l --glob '*.bats' '^\s*(source|\.)\s+\S*scripts/lib/live-gate\.sh' test d2-signalloom/test | sort \
+  grep -rlE --include='*.bats' '^[[:space:]]*(source|\.)[[:space:]]+[^[:space:]]*scripts/lib/live-gate\.sh' test d2-signalloom/test | sort \
     | grep -vxF -f <(printf '%s\n' "${own}")
 }
 

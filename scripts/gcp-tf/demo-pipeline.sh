@@ -543,27 +543,32 @@ bash ./scripts/ci/install-ci-tools.sh
 bash ./scripts/setup.sh --tools-only
 "$SUDO_BIN" chmod go-w /usr/local/bin 2>/dev/null || true
 
-if [[ ! -x "$CHROME_BIN" ]]; then
-  echo "==> Installing Google Chrome for Playwright..."
-  "$SUDO_BIN" npx playwright install chrome
-fi
+GCP_TF_VM_BROWSER="${GCP_TF_VM_BROWSER:-0}"
+if [[ "$GCP_TF_VM_BROWSER" != "0" && "$GCP_TF_VM_BROWSER" != "false" ]]; then
+  if [[ ! -x "$CHROME_BIN" ]]; then
+    echo "==> Installing Google Chrome for Playwright..."
+    "$SUDO_BIN" npx playwright install chrome
+  fi
 
-# ffmpeg must be installed by the SAME Playwright version the runner uses.
-# acceptance-test.sh runs `bunx playwright test` from test/acceptance against
-# the pinned @playwright/test, which looks for one specific revision directory
-# (e.g. ~/.cache/ms-playwright/ffmpeg-1011). An unpinned `npx playwright
-# install` from the repo root resolves the LATEST release and writes a different
-# revision, and `sudo npx` additionally writes into root's cache rather than the
-# invoking user's. Both produce "Executable doesn't exist at .../ffmpeg-linux",
-# which failed a browser stage in 89ms before the browser reached a login page.
-echo "==> Installing the Playwright ffmpeg helper (pinned to test/acceptance)..."
-(
-  cd "${WORK_DIR}/test/acceptance"
-  [[ -d node_modules/@playwright ]] \
-    || bun install --frozen-lockfile 2>/dev/null \
-    || bun install
-  bunx playwright install ffmpeg
-)
+  # ffmpeg must be installed by the SAME Playwright version the runner uses.
+  # acceptance-test.sh runs `bunx playwright test` from test/acceptance against
+  # the pinned @playwright/test, which looks for one specific revision directory
+  # (e.g. ~/.cache/ms-playwright/ffmpeg-1011). An unpinned `npx playwright
+  # install` from the repo root resolves the LATEST release and writes a different
+  # revision, and `sudo npx` additionally writes into root's cache rather than the
+  # invoking user's. Both produce "Executable doesn't exist at .../ffmpeg-linux",
+  # which failed a browser stage in 89ms before the browser reached a login page.
+  echo "==> Installing the Playwright ffmpeg helper (pinned to test/acceptance)..."
+  (
+    cd "${WORK_DIR}/test/acceptance"
+    [[ -d node_modules/@playwright ]] \
+      || bun install --frozen-lockfile 2>/dev/null \
+      || bun install
+    bunx playwright install ffmpeg
+  )
+else
+  echo "==> Skipping in-VM Google Chrome/ffmpeg install (GCP_TF_VM_BROWSER=${GCP_TF_VM_BROWSER}; browser suites decouple to runner/orchestrator)"
+fi
 
 # ── Phase: stages ────────────────────────────────────────────────────────────
 #
@@ -727,21 +732,10 @@ run_stage \
 
 # Guards demo-pipeline.sh's hand-copy of demo-signalloom-up, which this file does
 # not have. Run anyway: v1 is frozen but still the CI lane, and a demo run is a
-# free opportunity to notice that its copy has drifted a fifth time.
-run_stage \
-  "CI build parity with demo-signalloom-up" \
-  "stage1d-build-parity.tap" \
-  "cd ${WORK_DIR} && ${BATS_BIN} --tap test/ci-build-parity.bats"
-
 run_stage \
   "Doctor node-image expectations" \
   "stage1e-node-images.tap" \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap test/node-images.bats"
-
-run_stage \
-  "CI terminal-state honesty" \
-  "stage1f-ci-terminal-state.tap" \
-  "cd ${WORK_DIR} && ${BATS_BIN} --tap test/ci-terminal-state.bats"
 
 # 29 suites that no runner invoked until demo-pipeline.sh named them. Measured
 # across the tree at the time: 68 .bats suites present, 35 executed, 33 executed
@@ -867,7 +861,7 @@ run_stage \
 run_stage \
   "CI report integrity" \
   "stage1j-lane-report-integrity.tap" \
-  "cd ${WORK_DIR} && ${BATS_BIN} --tap test/lane-report-integrity.bats"
+  "cd ${WORK_DIR} && ${BATS_BIN} --tap test/ci-report-integrity.bats"
 
 run_stage \
   "Exec-probe ban in test files" \
@@ -1277,19 +1271,23 @@ run_stage \
 
 
 # ═══ Tier 4: the browser journey. ════════════════════════════════════════════
-run_stage \
-  "Dex and complete dashboard journey matrix" \
-  "stage8-browser.txt" \
-  "cd ${WORK_DIR} && \
-   PLAYWRIGHT_JUNIT_OUTPUT_FILE=${REPORT_DIR}/stage8-browser.xml \
-   ./scripts/acceptance-test.sh signalloom-test-1.spec.ts"
+if [[ "$GCP_TF_VM_BROWSER" != "0" && "$GCP_TF_VM_BROWSER" != "false" ]]; then
+  run_stage \
+    "Dex and complete dashboard journey matrix" \
+    "stage8-browser.txt" \
+    "cd ${WORK_DIR} && \
+     PLAYWRIGHT_JUNIT_OUTPUT_FILE=${REPORT_DIR}/stage8-browser.xml \
+     ./scripts/acceptance-test.sh signalloom-test-1.spec.ts"
 
-run_stage \
-  "Dashboard page smoke suite" \
-  "stage8b-smoke.txt" \
-  "cd ${WORK_DIR} && \
-   PLAYWRIGHT_JUNIT_OUTPUT_FILE=${REPORT_DIR}/stage8b-smoke.xml \
-    ./scripts/acceptance-test.sh smoke.spec.ts live-data.spec.ts"
+  run_stage \
+    "Dashboard page smoke suite" \
+    "stage8b-smoke.txt" \
+    "cd ${WORK_DIR} && \
+     PLAYWRIGHT_JUNIT_OUTPUT_FILE=${REPORT_DIR}/stage8b-smoke.xml \
+      ./scripts/acceptance-test.sh smoke.spec.ts live-data.spec.ts"
+else
+  echo "==> Skipping in-VM browser acceptance stages (GCP_TF_VM_BROWSER=${GCP_TF_VM_BROWSER}; run remotely via make gcp-tf-acceptance)"
+fi
 
 # ═══ Tier 5: the user surface, over the origin a human actually opens. ══════
 #

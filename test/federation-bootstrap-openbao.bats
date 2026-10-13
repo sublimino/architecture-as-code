@@ -139,7 +139,7 @@ no_bao_writes() { if grep -Eq '^bao (write|policy|auth enable|secrets enable)' "
 @test "signal-ingest: the JWKS ConfigMap carries only jwt-svid keys" {
   run "$SCRIPT" signal-ingest
   [ "$status" -eq 0 ]
-  jwks=$(yq -r '.data."jwks.json"' "$F/applied" | rg -v '^(---|null)$' | tail -1)
+  jwks=$(yq -r '.data."jwks.json"' "$F/applied" | grep -Ev '^(---|null)$' | tail -1)
   [ "$(jq -c '[.keys[].kid]' <<<"$jwks")" = '["jwt-a"]' ]
 }
 

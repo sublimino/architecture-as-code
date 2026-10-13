@@ -3242,6 +3242,15 @@ gcp-tf-ts-test: ## REMOTE surface: test the lane from here, over the tailnet. No
 	fi
 	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' ts-test
 
+.PHONY: gcp-tf-acceptance
+gcp-tf-acceptance: ## Run Playwright acceptance tests remotely from host against VM (ENV=<key> [SPECS=...]).
+	$(gcp_tf_require_env)
+	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' acceptance $(SPECS)
+
 # Asserts the PROPERTY, rather than trusting whoever typed the two commands.
 #
 # "Run the tests on the VM and also over the tailnet" is a claim about two runs,

@@ -344,7 +344,7 @@ setup() {
   local kube_paths
   kube_paths="$(jq -r '.path' "${T}/kube_requests.jsonl" | sort -u)"
   [[ "${kube_paths}" != *"secrets"* ]]
-  [ "$(echo "${kube_paths}" | rg -c 'clusterroles|clusterrolebindings|roles|rolebindings|namespaces|serviceaccounts')" -ge 6 ]
+  [ "$(echo "${kube_paths}" | grep -Ec 'clusterroles|clusterrolebindings|roles|rolebindings|namespaces|serviceaccounts')" -ge 6 ]
 }
 
 @test "exporter push: pagination follows metadata.continue and includes all items (T5b-page)" {

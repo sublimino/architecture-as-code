@@ -68,6 +68,7 @@ setup() {
 	export HOME="$BATS_TEST_TMPDIR/home"
 	stubdir="$HOME/.local/bin"
 	mkdir -p "$stubdir"
+	export GCP_TF_VM_BROWSER=1
 
 	local n
 	for n in make kubectl bats bun bunx uv go node npx sudo curl nc sleep git; do
@@ -594,6 +595,16 @@ script_code() {
 	run bash "$script"
 	[ "$status" -eq 0 ]
 	assert_before '^supervise up ' 'acceptance-test\.sh'
+}
+
+@test "DEMOPIPE BROWSER DECOUPLED when GCP_TF_VM_BROWSER=0 in-VM browser stages are skipped" {
+	run env GCP_TF_VM_BROWSER=0 bash "$script"
+	[ "$status" -eq 0 ]
+	[ "$(summary_field outcome)" = "PASS" ]
+	[ ! -f "$reports/stage8-browser.txt" ]
+	[ ! -f "$reports/stage8b-smoke.txt" ]
+	run grep 'acceptance-test\.sh' "$LOG"
+	[ "$status" -ne 0 ]
 }
 
 # ═══ Publishing ══════════════════════════════════════════════════════════════

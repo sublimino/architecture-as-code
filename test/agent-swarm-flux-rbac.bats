@@ -30,7 +30,7 @@ rendered_cluster_rbac() {
   while read -r p; do
     [ -n "$p" ] || continue
     kubectl kustomize "${ROOT}/${p}" | yq -r 'select(.kind == "ClusterRole" or .kind == "ClusterRoleBinding") | .kind + "/" + .metadata.name'
-  done <<<"${PATHS}" | rg -v '^---$' | sort -u
+  done <<<"${PATHS}" | grep -v '^---$' | sort -u
 }
 
 # flux_can_write_cluster_rbac — names of ClusterRoles bound cluster-wide to

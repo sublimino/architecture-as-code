@@ -714,6 +714,99 @@ func TestTenantValidation(t *testing.T) {
 	}
 }
 
+func TestWorkspaceTeardownDuringProvisioningDoesNotResurrect(t *testing.T) {
+	mgr := NewWorkspaceManager("test-ns")
+	ws, err := mgr.Create(WorkspaceRequest{PVC: "valid-pvc", User: "alice", TenantID: "tenant-a"})
+	if err != nil {
+		t.Fatalf("failed to create: %v", err)
+	}
+	if ws.Status != "provisioning" {
+		t.Fatalf("expected initial status provisioning, got %q", ws.Status)
+	}
+
+	// Immediately teardown while still in provisioning
+	tornDown, err := mgr.Teardown(ws.WorkspaceID, "tenant-a")
+	if err != nil {
+		t.Fatalf("failed to teardown: %v", err)
+	}
+	if tornDown.Status != "terminated" {
+		t.Fatalf("expected status terminated, got %q", tornDown.Status)
+	}
+
+	// Wait 2.1s to allow background goroutine in Create to trigger
+	time.Sleep(2100 * time.Millisecond)
+
+	current, ok := mgr.Get(ws.WorkspaceID, "tenant-a")
+	if !ok {
+		t.Fatalf("workspace missing after delay")
+	}
+	if current.Status != "terminated" {
+		t.Fatalf("workspace status was resurrected! expected terminated, got %q", current.Status)
+	}
+}
+
+func TestWorkspacePruneTenantIsolation(t *testing.T) {
+	mgr := NewWorkspaceManager("test-ns")
+	srv := newServer(mgr)
+
+	wsA, err := mgr.Create(WorkspaceRequest{PVC: "pvc-a", User: "alice", TenantID: "tenant-a"})
+	if err != nil {
+		t.Fatalf("failed to create wsA: %v", err)
+	}
+	wsB, err := mgr.Create(WorkspaceRequest{PVC: "pvc-b", User: "bob", TenantID: "tenant-b"})
+	if err != nil {
+		t.Fatalf("failed to create wsB: %v", err)
+	}
+
+	// Age both workspaces
+	mgr.mu.Lock()
+	mgr.workspaces[wsA.WorkspaceID].CreatedAt = time.Now().UTC().Add(-3 * time.Hour).Format(time.RFC3339)
+	mgr.workspaces[wsB.WorkspaceID].CreatedAt = time.Now().UTC().Add(-3 * time.Hour).Format(time.RFC3339)
+	mgr.mu.Unlock()
+
+	// Tenant-A calls prune
+	reqA := httptest.NewRequest(http.MethodPost, "/workspaces/prune?ttl=1h", nil)
+	reqA.Header.Set("X-Tenant-ID", "tenant-a")
+	recA := httptest.NewRecorder()
+	srv.ServeHTTP(recA, reqA)
+	if recA.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recA.Code, recA.Body.String())
+	}
+	var resA map[string]int
+	_ = json.NewDecoder(recA.Body).Decode(&resA)
+	if resA["pruned"] != 1 {
+		t.Fatalf("expected 1 pruned for tenant-a, got %d", resA["pruned"])
+	}
+
+	// Verify wsA is gone, wsB is still present
+	if _, ok := mgr.Get(wsA.WorkspaceID, "tenant-a"); ok {
+		t.Fatalf("wsA was not pruned")
+	}
+	if _, ok := mgr.Get(wsB.WorkspaceID, "tenant-b"); !ok {
+		t.Fatalf("wsB was improperly pruned by tenant-a!")
+	}
+
+	// Tenant-B calls prune
+	reqB := httptest.NewRequest(http.MethodPost, "/workspaces/prune?ttl=1h", nil)
+	reqB.Header.Set("X-Tenant-ID", "tenant-b")
+	recB := httptest.NewRecorder()
+	srv.ServeHTTP(recB, reqB)
+	if recB.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recB.Code, recB.Body.String())
+	}
+	var resB map[string]int
+	_ = json.NewDecoder(recB.Body).Decode(&resB)
+	if resB["pruned"] != 1 {
+		t.Fatalf("expected 1 pruned for tenant-b, got %d", resB["pruned"])
+	}
+
+	// Verify wsB is now gone
+	if _, ok := mgr.Get(wsB.WorkspaceID, "tenant-b"); ok {
+		t.Fatalf("wsB was not pruned after tenant-b prune request")
+	}
+}
+
+
 
 
 

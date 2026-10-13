@@ -121,7 +121,7 @@ class HealthTest(ControllerServerTestCase):
         connection.request("NONSTANDARD", "/health")
         response = connection.getresponse()
         self.assertEqual(405, response.status)
-        self.assertEqual("GET, HEAD, POST", response.getheader("Allow"))
+        self.assertEqual("GET, HEAD, POST, DELETE", response.getheader("Allow"))
         self.assertEqual("application/json", response.getheader("Content-Type"))
         body = json.loads(response.read())
         self.assertEqual({"error": "method not allowed"}, body)
@@ -267,15 +267,41 @@ class ScanTest(ControllerServerTestCase):
         self.assertRegex(server.NETASSERT_SCANNER_IMAGE, r"@sha256:[0-9a-f]{64}$")
         self.assertRegex(server.NETASSERT_SNIFFER_IMAGE, r"@sha256:[0-9a-f]{64}$")
 
+    def test_scan_delete_aborts_active_or_completed_job(self):
+        job = {"status": {"active": 1}}
+        state = self.install(job=job)
+        status, body = self.request("DELETE", "/scan")
+        self.assertEqual(200, status)
+        self.assertEqual("deleted", body["status"])
+        self.assertEqual(server.NETASSERT_JOB_NAME, body["job"])
+        self.assertEqual(1, len(state.deleted))
+        self.assertEqual((server.NETASSERT_JOB_NAMESPACE, server.NETASSERT_JOB_NAME), state.deleted[0])
+
+    def test_scan_delete_returns_404_when_no_job_exists(self):
+        state = self.install(job=None)
+        status, body = self.request("DELETE", "/scan")
+        self.assertEqual(404, status)
+        self.assertIn("no scan found", body["error"])
+        self.assertEqual(0, len(state.deleted))
+
+    def test_scan_delete_reports_bad_gateway_on_k8s_failure(self):
+        state = self.install(job={"status": {"active": 1}})
+        del_patch = mock.patch.object(
+            server, "_delete_kubernetes_job", mock.Mock(side_effect=error.URLError("deletion failed"))
+        )
+        del_patch.start()
+        self.addCleanup(del_patch.stop)
+        status, body = self.request("DELETE", "/scan")
+        self.assertEqual(502, status)
+        self.assertIn("could not delete scan", body["error"])
+
     def test_scan_method_not_allowed_returns_405_and_allow_header(self):
-
-
-        for method in ("GET", "PUT", "DELETE", "PATCH"):
+        for method in ("GET", "PUT", "PATCH"):
             connection = http.client.HTTPConnection("127.0.0.1", self.port)
             connection.request(method, "/scan")
             response = connection.getresponse()
             self.assertEqual(405, response.status)
-            self.assertEqual("POST", response.getheader("Allow"))
+            self.assertEqual("POST, DELETE", response.getheader("Allow"))
             self.assertEqual("application/json", response.getheader("Content-Type"))
             body = json.loads(response.read())
             self.assertEqual({"error": "method not allowed"}, body)
@@ -286,7 +312,7 @@ class ScanTest(ControllerServerTestCase):
         connection.request("HEAD", "/scan")
         response = connection.getresponse()
         self.assertEqual(405, response.status)
-        self.assertEqual("POST", response.getheader("Allow"))
+        self.assertEqual("POST, DELETE", response.getheader("Allow"))
         self.assertEqual("application/json", response.getheader("Content-Type"))
         self.assertEqual(b"", response.read())
         connection.close()

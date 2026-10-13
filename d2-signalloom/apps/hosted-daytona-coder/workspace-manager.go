@@ -374,14 +374,13 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 			writeError(w, http.StatusForbidden, err.Error())
 			return
 		}
-		_ = tenant
 		ttl := 1 * time.Hour
 		if rawTTL := r.URL.Query().Get("ttl"); rawTTL != "" {
 			if parsed, err := time.ParseDuration(rawTTL); err == nil && parsed > 0 {
 				ttl = parsed
 			}
 		}
-		pruned := mgr.PruneExpired(ttl)
+		pruned := mgr.PruneExpired(ttl, tenant)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]int{"pruned": pruned})
@@ -499,11 +498,11 @@ func (m *WorkspaceManager) Create(req WorkspaceRequest) (*WorkspaceResponse, err
 	go func() {
 		time.Sleep(2 * time.Second)
 		m.mu.Lock()
-		if ws, ok := m.workspaces[id]; ok {
+		if ws, ok := m.workspaces[id]; ok && ws.Status == "provisioning" {
 			ws.Status = "running"
+			slog.Info("workspace running", "workspace_id", id)
 		}
 		m.mu.Unlock()
-		slog.Info("workspace running", "workspace_id", id)
 	}()
 
 	return cloneWorkspace(ws), nil
@@ -568,19 +567,26 @@ func (m *WorkspaceManager) List(tenant string) []*WorkspaceResponse {
 	return result
 }
 
-// PruneExpired removes workspaces older than ttl and returns the count pruned.
-func (m *WorkspaceManager) PruneExpired(ttl time.Duration) int {
+// PruneExpired removes workspaces older than ttl, filtered by tenant if provided, and returns the count pruned.
+func (m *WorkspaceManager) PruneExpired(ttl time.Duration, tenant ...string) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	targetTenant := ""
+	if len(tenant) > 0 {
+		targetTenant = tenant[0]
+	}
 	now := time.Now().UTC()
 	pruned := 0
 	for id, ws := range m.workspaces {
+		if targetTenant != "" && targetTenant != "*" && ws.TenantID != targetTenant {
+			continue
+		}
 		if ws.CreatedAt != "" {
 			if t, err := time.Parse(time.RFC3339, ws.CreatedAt); err == nil {
 				if now.Sub(t) > ttl {
 					delete(m.workspaces, id)
 					pruned++
-					slog.Info("workspace pruned due to expiry", "workspace_id", id, "age", now.Sub(t))
+					slog.Info("workspace pruned due to expiry", "workspace_id", id, "tenant_id", ws.TenantID, "age", now.Sub(t))
 				}
 			}
 		}

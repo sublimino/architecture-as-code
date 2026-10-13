@@ -240,7 +240,7 @@ class ControllerHandler(BaseHTTPRequestHandler):
             self._json(
                 HTTPStatus.METHOD_NOT_ALLOWED,
                 {"error": "method not allowed"},
-                {"Allow": "GET, HEAD, POST"},
+                {"Allow": "GET, HEAD, POST, DELETE"},
             )
             return
         try:
@@ -336,6 +336,37 @@ class ControllerHandler(BaseHTTPRequestHandler):
 
         self._json(HTTPStatus.ACCEPTED, {"job": NETASSERT_JOB_NAME, "status": "started"})
 
+    def _handle_scan_delete(self) -> None:
+        """DELETE /scan — teardown/abort the running or completed netassert-run Job."""
+        self._drain_body()
+        try:
+            token = _read_service_account_token()
+            context = _kubernetes_ssl_context()
+            base_url = _kubernetes_api_base()
+        except (OSError, ValueError, TypeError, ssl.SSLError) as exc:
+            self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
+            return
+
+        try:
+            existing = _get_kubernetes_job(
+                base_url, token, context, NETASSERT_JOB_NAMESPACE, NETASSERT_JOB_NAME
+            )
+        except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
+            self._json(HTTPStatus.BAD_GATEWAY, {"error": f"failed to inspect scan: {exc}"})
+            return
+
+        if existing is None:
+            self._json(HTTPStatus.NOT_FOUND, {"error": "no scan found to delete"})
+            return
+
+        try:
+            _delete_kubernetes_job(base_url, token, context, NETASSERT_JOB_NAMESPACE, NETASSERT_JOB_NAME)
+        except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
+            self._json(HTTPStatus.BAD_GATEWAY, {"error": f"could not delete scan: {exc}"})
+            return
+
+        self._json(HTTPStatus.OK, {"job": NETASSERT_JOB_NAME, "status": "deleted"})
+
     def _dispatch(self) -> None:
         path = urlparse(self.path).path
         if path in ("/health", "/healthz", "/readyz", "/livez"):
@@ -351,12 +382,14 @@ class ControllerHandler(BaseHTTPRequestHandler):
         elif path == "/scan":
             if self.command == "POST":
                 self._handle_scan()
+            elif self.command == "DELETE":
+                self._handle_scan_delete()
             else:
                 self._drain_body()
                 self._json(
                     HTTPStatus.METHOD_NOT_ALLOWED,
                     {"error": "method not allowed"},
-                    {"Allow": "POST"},
+                    {"Allow": "POST, DELETE"},
                 )
         else:
             self._drain_body()

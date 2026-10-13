@@ -549,6 +549,7 @@ func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.freezer.HealthCheck(); err != nil {
 		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
@@ -565,6 +566,7 @@ func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		keyCount = len(s.keyRegistry.AllKeys())
 	}
 	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		return
 	}

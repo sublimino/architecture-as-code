@@ -935,6 +935,9 @@ func TestHealthMethodRejectionAndHead(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("HEAD %s status = %d, want 200", path, rec.Code)
 		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("HEAD %s Content-Type = %q, want application/json", path, ct)
+		}
 		if rec.Body.Len() != 0 {
 			t.Errorf("HEAD %s body length = %d, want 0", path, rec.Body.Len())
 		}

@@ -234,6 +234,21 @@ if kubectl get ns cert-manager >/dev/null 2>&1; then
     fi
   fi
 
+  mapfile -t LEAKED_CHALLENGES < <(
+    kubectl get challenges.acme.cert-manager.io -n cert-manager -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null \
+      | grep -E '^(tenant-|test-tenant-|redteam-)' || true
+  )
+  if [[ "${#LEAKED_CHALLENGES[@]}" -gt 0 ]]; then
+    record_finding "${#LEAKED_CHALLENGES[@]} leaked ACME Challenge(s) in cert-manager"
+    if [[ "$MODE" == "clean" ]]; then
+      for ch in "${LEAKED_CHALLENGES[@]}"; do
+        kubectl patch challenge.acme.cert-manager.io "$ch" -n cert-manager --type=json -p='[{"op":"remove","path":"/metadata/finalizers"}]' >/dev/null 2>&1 || true
+        kubectl delete challenge.acme.cert-manager.io "$ch" -n cert-manager --ignore-not-found >/dev/null 2>&1 || true
+      done
+      record_cleaned "Deleted ${#LEAKED_CHALLENGES[@]} leaked ACME Challenge(s) in cert-manager"
+    fi
+  fi
+
   mapfile -t LEAKED_ORDERS < <(
     kubectl get orders.acme.cert-manager.io -n cert-manager -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null \
       | grep -E '^(tenant-|test-tenant-|redteam-)' || true
@@ -241,7 +256,10 @@ if kubectl get ns cert-manager >/dev/null 2>&1; then
   if [[ "${#LEAKED_ORDERS[@]}" -gt 0 ]]; then
     record_finding "${#LEAKED_ORDERS[@]} leaked ACME Order(s) in cert-manager"
     if [[ "$MODE" == "clean" ]]; then
-      kubectl delete orders.acme.cert-manager.io -n cert-manager "${LEAKED_ORDERS[@]}" --ignore-not-found >/dev/null 2>&1 || true
+      for ord in "${LEAKED_ORDERS[@]}"; do
+        kubectl patch order.acme.cert-manager.io "$ord" -n cert-manager --type=json -p='[{"op":"remove","path":"/metadata/finalizers"}]' >/dev/null 2>&1 || true
+        kubectl delete order.acme.cert-manager.io "$ord" -n cert-manager --ignore-not-found >/dev/null 2>&1 || true
+      done
       record_cleaned "Deleted ${#LEAKED_ORDERS[@]} leaked ACME Order(s) in cert-manager"
     fi
   fi

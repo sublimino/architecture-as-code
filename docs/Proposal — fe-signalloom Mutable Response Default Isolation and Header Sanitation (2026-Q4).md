@@ -35,13 +35,13 @@ The exception handler converts this valid response into HTTP 503 upstream_unavai
 ### Mutable Response Default Elimination
 
 In `d2-signalloom/apps/fe-signalloom/src/api_compat.py`:
-1. Change the signature of `get_capabilities` to `response: Response | None = None`.
+1. Change the signature of `get_capabilities` to `response: Response = None`.
 Allocate a fresh `Response` instance when `response is None`.
 Set both `X-Source-Health` and `source_health` headers on the allocated response.
-2. Change the signature of `agents` to `response: Response | None = None`.
+2. Change the signature of `agents` to `response: Response = None`.
 Allocate a fresh `Response` instance when `response is None`.
 Set both `source_health` and `X-Source-Health` headers on the allocated response.
-3. Change the signature of `crypto_health` to `response: Response | None = None`.
+3. Change the signature of `crypto_health` to `response: Response = None`.
 Allocate a fresh `Response` instance when `response is None`.
 Set both `source_health` and `X-Source-Health` headers on the allocated response.
 

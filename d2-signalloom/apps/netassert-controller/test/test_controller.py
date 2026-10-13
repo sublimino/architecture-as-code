@@ -71,6 +71,7 @@ class HealthTest(ControllerServerTestCase):
         connection.request("GET", "/health", headers={"Content-Length": "invalid-len"})
         response = connection.getresponse()
         self.assertEqual(200, response.status)
+        self.assertEqual("close", response.getheader("Connection"))
         connection.close()
 
     def test_negative_content_length_drains_safely(self):
@@ -78,7 +79,50 @@ class HealthTest(ControllerServerTestCase):
         connection.request("GET", "/health", headers={"Content-Length": "-5"})
         response = connection.getresponse()
         self.assertEqual(200, response.status)
+        self.assertEqual("close", response.getheader("Connection"))
         connection.close()
+
+    def test_malformed_chunk_header_closes_connection(self):
+        s = socket.create_connection(("127.0.0.1", self.port))
+        s.sendall(
+            b"GET /health HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n"
+            b"zz\r\n"
+        )
+        s.settimeout(2.0)
+        data = b""
+        while True:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+            if b"\r\n\r\n" in data:
+                break
+        s.close()
+        self.assertIn(b"200 OK", data)
+        self.assertIn(b"Connection: close", data)
+
+    def test_chunk_missing_crlf_closes_connection(self):
+        s = socket.create_connection(("127.0.0.1", self.port))
+        s.sendall(
+            b"GET /health HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n"
+            b"3\r\nfooXX"
+        )
+        s.settimeout(2.0)
+        data = b""
+        while True:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+            if b"\r\n\r\n" in data:
+                break
+        s.close()
+        self.assertIn(b"200 OK", data)
+        self.assertIn(b"Connection: close", data)
 
     def test_unknown_route_is_404(self):
         self.assertEqual(404, self.request("GET", "/nope")[0])

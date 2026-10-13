@@ -147,5 +147,34 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                 resp_data = json.dumps(decision).encode()
                 self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(resp_data))); self.end_headers(); self.wfile.write(resp_data)
             except (KeyError, ValueError, AttributeError, PermissionError): self.send_error(403)
+        def _handle_unsupported_method(self):
+            path = self.path.split("?")[0].rstrip("/") or "/"
+            if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
+                body = b'{"error":"method not allowed"}'
+                self.send_response(405)
+                self.send_header("Allow", "GET, HEAD")
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                if self.command != "HEAD":
+                    self.wfile.write(body)
+                return
+            if path == "/a2a":
+                body = b'{"error":"method not allowed"}'
+                self.send_response(405)
+                self.send_header("Allow", "POST")
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                if self.command != "HEAD":
+                    self.wfile.write(body)
+                return
+            self.send_error(404)
+        def do_PUT(self): self._handle_unsupported_method()
+        def do_DELETE(self): self._handle_unsupported_method()
+        def do_PATCH(self): self._handle_unsupported_method()
+        def do_OPTIONS(self): self._handle_unsupported_method()
         def log_message(self,*_): pass
-    return ThreadingHTTPServer(("127.0.0.1",port),H)
+    class ReusableThreadingHTTPServer(ThreadingHTTPServer):
+        allow_reuse_address = True
+    return ReusableThreadingHTTPServer(("127.0.0.1",port),H)

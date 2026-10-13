@@ -1933,6 +1933,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
     do_DELETE = _dispatch
 
 
+ThreadingHTTPServer.allow_reuse_address = True
+
+
 def main() -> None:
     port = int(os.environ.get("PORT", "8080"))
     ThreadingHTTPServer(("0.0.0.0", port), ProxyHandler).serve_forever()

@@ -662,6 +662,9 @@ func TestHealthz_Endpoint(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected healthz 200 OK, got %d", rec.Code)
 	}
+	if ct := rec.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+		t.Fatalf("expected healthz Content-Type %q, got %q", "text/plain; charset=utf-8", ct)
+	}
 
 	// HEAD should succeed
 	reqHead := httptest.NewRequest(http.MethodHead, "/healthz", nil)
@@ -670,6 +673,9 @@ func TestHealthz_Endpoint(t *testing.T) {
 
 	if recHead.Code != http.StatusOK {
 		t.Fatalf("expected healthz HEAD 200 OK, got %d", recHead.Code)
+	}
+	if ct := recHead.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+		t.Fatalf("expected healthz HEAD Content-Type %q, got %q", "text/plain; charset=utf-8", ct)
 	}
 	if recHead.Body.Len() != 0 {
 		t.Fatalf("expected healthz HEAD empty body, got %q", recHead.Body.String())

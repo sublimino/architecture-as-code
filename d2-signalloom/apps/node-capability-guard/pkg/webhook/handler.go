@@ -479,6 +479,7 @@ func HandleHealthz(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	store := GetDefaultStore()
 	if store != nil {
 		if err := store.Health(r.Context()); err != nil {

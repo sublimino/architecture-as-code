@@ -60,6 +60,9 @@ class ProxyTest(ProxyServerTestCase):
     def setUp(self):
         self.request("DELETE", "/_test/requests")
 
+    def test_server_allows_address_reuse(self):
+        self.assertTrue(self.httpd.allow_reuse_address)
+
     def test_health_and_healthz_return_ok(self):
         for path in ("/health", "/healthz", "/readyz"):
             status, body = self.request("GET", path)

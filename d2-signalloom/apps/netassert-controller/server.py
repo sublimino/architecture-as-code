@@ -224,9 +224,21 @@ class ControllerHandler(BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
     def _drain_body(self) -> None:
-        length = int(self.headers.get("Content-Length", "0"))
-        if length:
-            self.rfile.read(length)
+        try:
+            raw_len = self.headers.get("Content-Length", "0")
+            length = int(raw_len.strip()) if raw_len else 0
+        except (ValueError, TypeError, AttributeError):
+            length = 0
+        if 0 < length <= 1048576:
+            try:
+                self.rfile.read(length)
+            except (OSError, ValueError):
+                pass
+        elif length > 1048576:
+            try:
+                self.rfile.read(1048576)
+            except (OSError, ValueError):
+                pass
 
     def _handle_scan(self) -> None:
         """POST /scan — (re)create the fixed netassert-run Job.
@@ -293,7 +305,7 @@ class ControllerHandler(BaseHTTPRequestHandler):
 
     def _dispatch(self) -> None:
         path = urlparse(self.path).path
-        if path == "/health" and self.command == "GET":
+        if path in ("/health", "/healthz") and self.command == "GET":
             self._json(HTTPStatus.OK, {"status": "ok"})
         elif path == "/scan" and self.command == "POST":
             self._handle_scan()

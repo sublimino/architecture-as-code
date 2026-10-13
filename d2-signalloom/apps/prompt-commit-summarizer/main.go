@@ -85,10 +85,13 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", makeSummarizeHandler(llmEndpoint, model))
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "ok")
-	})
+	}
+	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/healthz", healthHandler)
+	mux.HandleFunc("/readyz", healthHandler)
 
 	srv := &http.Server{
 		Addr:              ":" + port,
@@ -123,7 +126,7 @@ func makeSummarizeHandler(llmEndpoint, model string) http.HandlerFunc {
 		}
 
 		// Validate CloudEvent type header if present.
-		ceType := r.Header.Get("Ce-Type")
+		ceType := strings.TrimSpace(r.Header.Get("Ce-Type"))
 		if ceType != "" && ceType != "dev.knative.source.github.push" {
 			slog.Warn("ignoring event", "ce-type", ceType)
 			w.WriteHeader(http.StatusNoContent)

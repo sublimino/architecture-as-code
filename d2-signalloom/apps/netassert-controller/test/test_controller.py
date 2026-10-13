@@ -49,6 +49,25 @@ class HealthTest(ControllerServerTestCase):
         self.assertEqual(200, status)
         self.assertEqual({"status": "ok"}, body)
 
+    def test_healthz_returns_ok(self):
+        status, body = self.request("GET", "/healthz")
+        self.assertEqual(200, status)
+        self.assertEqual({"status": "ok"}, body)
+
+    def test_malformed_content_length_drains_safely(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port)
+        connection.request("GET", "/health", headers={"Content-Length": "invalid-len"})
+        response = connection.getresponse()
+        self.assertEqual(200, response.status)
+        connection.close()
+
+    def test_negative_content_length_drains_safely(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port)
+        connection.request("GET", "/health", headers={"Content-Length": "-5"})
+        response = connection.getresponse()
+        self.assertEqual(200, response.status)
+        connection.close()
+
     def test_unknown_route_is_404(self):
         self.assertEqual(404, self.request("GET", "/nope")[0])
 

@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHealth(t *testing.T) {
@@ -225,5 +227,106 @@ func TestPayloadLimit(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 Bad Request for oversized payload, got %d", rec.Code)
+	}
+}
+
+func TestTenantIDWhitespaceNormalization(t *testing.T) {
+	mgr := NewWorkspaceManager("test-ns")
+	srv := newServer(mgr)
+
+	body, _ := json.Marshal(WorkspaceRequest{
+		PVC:      "valid-pvc",
+		User:     "alice",
+		TenantID: "  tenant-auth  \n",
+	})
+	req := httptest.NewRequest("POST", "/workspaces", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", "tenant-auth")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created with whitespace-padded tenant, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var created WorkspaceResponse
+	if err := json.NewDecoder(rec.Body).Decode(&created); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if created.TenantID != "tenant-auth" {
+		t.Fatalf("expected tenant-auth, got %q", created.TenantID)
+	}
+}
+
+func TestWorkspaceCloningIsolation(t *testing.T) {
+	mgr := NewWorkspaceManager("test-ns")
+	ws, err := mgr.Create(WorkspaceRequest{PVC: "valid-pvc", User: "alice", TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("failed to create: %v", err)
+	}
+
+	// Mutate returned copy
+	ws.Status = "tampered"
+	ws.PodName = "evil-pod"
+
+	// Fetch fresh copy via Get
+	fetched, ok := mgr.Get(ws.WorkspaceID, "tenant-1")
+	if !ok {
+		t.Fatalf("workspace not found")
+	}
+	if fetched.Status == "tampered" || fetched.PodName == "evil-pod" {
+		t.Fatalf("mutation leaked into internal state: status=%q, pod=%q", fetched.Status, fetched.PodName)
+	}
+
+	// List check
+	list := mgr.List("tenant-1")
+	if len(list) != 1 || list[0].Status == "tampered" {
+		t.Fatalf("mutation leaked into list")
+	}
+}
+
+func TestPruneExpiredWorkspaces(t *testing.T) {
+	mgr := NewWorkspaceManager("test-ns")
+	ws, err := mgr.Create(WorkspaceRequest{PVC: "valid-pvc", User: "alice", TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("failed to create: %v", err)
+	}
+
+	// Manually age the workspace in manager map
+	mgr.mu.Lock()
+	mgr.workspaces[ws.WorkspaceID].CreatedAt = time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339)
+	mgr.mu.Unlock()
+
+	// Create fresh workspace
+	freshWs, err := mgr.Create(WorkspaceRequest{PVC: "valid-pvc-2", User: "bob", TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("failed to create fresh: %v", err)
+	}
+
+	pruned := mgr.PruneExpired(1 * time.Hour)
+	if pruned != 1 {
+		t.Fatalf("expected 1 pruned, got %d", pruned)
+	}
+
+	if _, ok := mgr.Get(ws.WorkspaceID, "tenant-1"); ok {
+		t.Fatalf("expired workspace was not pruned")
+	}
+	if _, ok := mgr.Get(freshWs.WorkspaceID, "tenant-1"); !ok {
+		t.Fatalf("fresh workspace was erroneously pruned")
+	}
+}
+
+func TestWorkspaceCapacityLimit(t *testing.T) {
+	mgr := NewWorkspaceManager("test-ns")
+	for i := 0; i < maxWorkspaces; i++ {
+		_, err := mgr.Create(WorkspaceRequest{PVC: fmt.Sprintf("pvc-%d", i), User: "user", TenantID: "tenant-1"})
+		if err != nil {
+			t.Fatalf("unexpected error at %d: %v", i, err)
+		}
+	}
+
+	// 501st creation should fail
+	_, err := mgr.Create(WorkspaceRequest{PVC: "pvc-overflow", User: "user", TenantID: "tenant-1"})
+	if err == nil {
+		t.Fatalf("expected capacity exceeded error, got nil")
 	}
 }

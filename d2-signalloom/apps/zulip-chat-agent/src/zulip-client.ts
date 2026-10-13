@@ -46,14 +46,19 @@ export class ZulipClient {
   private async request<T>(
     method: string,
     path: string,
-    body?: Record<string, unknown>
+    body?: Record<string, unknown>,
+    timeoutMs: number = 15000
   ): Promise<T> {
     const url = `${this.baseURL}/api/v1${path}`;
     const headers: Record<string, string> = {
       Authorization: this.authHeader,
     };
 
-    const options: RequestInit = { method, headers };
+    const options: RequestInit = {
+      method,
+      headers,
+      signal: AbortSignal.timeout(timeoutMs),
+    };
 
     if (body) {
       headers["Content-Type"] = "application/x-www-form-urlencoded";
@@ -111,7 +116,9 @@ export class ZulipClient {
     });
     const result = await this.request<{ events: ZulipEvent[] }>(
       "GET",
-      `/events?${params.toString()}`
+      `/events?${params.toString()}`,
+      undefined,
+      90000
     );
     return result.events;
   }

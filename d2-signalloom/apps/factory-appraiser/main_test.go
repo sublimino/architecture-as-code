@@ -152,3 +152,13 @@ func TestAppraiseHandlerRejectsMalformedBody(t *testing.T) {
 		t.Fatalf("a rejected request must never read as healthy: %s", rec.Body.String())
 	}
 }
+
+// TestAppraiseHandlerRejectsOversizedBody verifies MaxBytesReader bounds payloads to 4 MiB.
+func TestAppraiseHandlerRejectsOversizedBody(t *testing.T) {
+	hugeString := strings.Repeat("x", 5<<20)
+	body := `{"candidates": [{"candidate_id": "` + hugeString + `", "intent_id": "i", "created_at": "2026-10-12T08:00:00Z"}]}`
+	rec, _ := postAppraise(t, body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for oversized payload, got %d: %s", rec.Code, rec.Body.String())
+	}
+}

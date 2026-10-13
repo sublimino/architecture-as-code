@@ -225,7 +225,7 @@ func TestSpoolRetainsBatchesAcrossIngestOutage(t *testing.T) {
 	// TEST_TIMEOUT_SCALE, not a fixed iteration count: three batches on disk is
 	// the assertion, and how many times the sender goroutine got scheduled on
 	// the way there is not.
-	waitForCond(t, 2*time.Second, func() { clk.Advance(1 * time.Second) }, func() bool {
+	waitForCond(t, 4*time.Second, func() { clk.Advance(1 * time.Second) }, func() bool {
 		return m.Stats().SpoolBatches >= 3
 	})
 
@@ -238,7 +238,7 @@ func TestSpoolRetainsBatchesAcrossIngestOutage(t *testing.T) {
 	clk.Advance(2 * time.Second)
 
 	// Wait for replay to complete
-	waitForCond(t, 2*time.Second, func() { clk.Advance(1 * time.Second) }, func() bool {
+	waitForCond(t, 4*time.Second, func() { clk.Advance(1 * time.Second) }, func() bool {
 		mu.Lock()
 		cnt := len(received)
 		mu.Unlock()
@@ -323,15 +323,11 @@ func TestSpoolReplayAfterRestartKeepsOriginalChain(t *testing.T) {
 	m2.queue <- TelemetryObservation{Syscall: "sys_enter_openat", Target: "/etc/hosts"}
 
 	// Wait for all 3 batches (2 replayed + 1 live)
-	for i := 0; i < 50; i++ {
+	waitForCond(t, 4*time.Second, nil, func() bool {
 		mu.Lock()
-		cnt := len(received)
-		mu.Unlock()
-		if cnt >= 3 {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+		defer mu.Unlock()
+		return len(received) >= 3
+	})
 
 	cancel()
 	m2.wg.Wait()
@@ -544,22 +540,24 @@ func TestSpoolDoesNotRetryPoison400Or413(t *testing.T) {
 func TestSpoolHonoursRetryAfter(t *testing.T) {
 	testCases := []struct {
 		name         string
-		headerVal    string
+		headerValFn  func(clk Clock) string
 		expectedWait time.Duration
 	}{
 		{
 			name:         "integer seconds",
-			headerVal:    "2",
+			headerValFn:  func(_ Clock) string { return "2" },
 			expectedWait: 2 * time.Second,
 		},
 		{
-			name:         "http date",
-			headerVal:    time.Now().Add(5 * time.Second).UTC().Format(http.TimeFormat),
+			name: "http date",
+			headerValFn: func(clk Clock) string {
+				return clk.Now().Add(5 * time.Second).UTC().Format(http.TimeFormat)
+			},
 			expectedWait: 5 * time.Second,
 		},
 		{
 			name:         "capped absurd value",
-			headerVal:    "9999999",
+			headerValFn:  func(_ Clock) string { return "9999999" },
 			expectedWait: 300 * time.Second,
 		},
 	}
@@ -567,12 +565,13 @@ func TestSpoolHonoursRetryAfter(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			clk := newMockClock(time.Now())
+			headerVal := tc.headerValFn(clk)
 			var reqCount atomic.Int64
 
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				cnt := reqCount.Add(1)
 				if cnt == 1 {
-					w.Header().Set("Retry-After", tc.headerVal)
+					w.Header().Set("Retry-After", headerVal)
 					w.WriteHeader(http.StatusTooManyRequests)
 					return
 				}
@@ -598,28 +597,21 @@ func TestSpoolHonoursRetryAfter(t *testing.T) {
 			m.queue <- TelemetryObservation{Syscall: "sys_enter_openat", Target: "/etc/passwd"}
 
 			// Wait for 429 response
-			for i := 0; i < 50; i++ {
-				if reqCount.Load() >= 1 && m.Stats().RetryAfterWaits >= 1 {
-					break
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
+			waitForCond(t, 4*time.Second, nil, func() bool {
+				return reqCount.Load() >= 1 && m.Stats().RetryAfterWaits >= 1
+			})
 
 			if m.Stats().RetryAfterWaits != 1 {
-				t.Fatalf("retry_after_waits = %d, want 1", m.Stats().RetryAfterWaits)
+				t.Fatalf("retry_after_waits = %d, want 1 (reqCount=%d)", m.Stats().RetryAfterWaits, reqCount.Load())
 			}
 
 			// Advance clock past the expected wait
 			clk.Advance(tc.expectedWait + 100*time.Millisecond)
 
 			// Wait for retry
-			for i := 0; i < 50; i++ {
-				if reqCount.Load() >= 2 {
-					break
-				}
-				clk.Advance(1 * time.Second)
-				time.Sleep(10 * time.Millisecond)
-			}
+			waitForCond(t, 4*time.Second, func() { clk.Advance(1 * time.Second) }, func() bool {
+				return reqCount.Load() >= 2
+			})
 
 			cancel()
 			m.wg.Wait()

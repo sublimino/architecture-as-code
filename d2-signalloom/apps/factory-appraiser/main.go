@@ -34,6 +34,7 @@ type appraiseRequest struct {
 func appraiseHandler(clock func() time.Time) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
 
 		var req appraiseRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -83,12 +84,16 @@ func main() {
 	flag.Parse()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+	healthHandler := func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	})
+	}
+	mux.HandleFunc("GET /healthz", healthHandler)
+	mux.HandleFunc("GET /readyz", healthHandler)
+	mux.HandleFunc("GET /health", healthHandler)
 	mux.HandleFunc("POST /api/v1/factory/appraise", appraiseHandler(func() time.Time { return time.Now().UTC() }))
 	mux.HandleFunc("POST /api/v1/factory/validate-promotion", func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
 		var req struct {
 			Candidate validator.Candidate  `json:"candidate"`
 			Evidence  validator.QAEvidence `json:"evidence"`

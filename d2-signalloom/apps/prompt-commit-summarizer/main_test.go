@@ -11,21 +11,26 @@ import (
 )
 
 func TestHealth(t *testing.T) {
-	req := httptest.NewRequest("GET", "/health", nil)
-	rec := httptest.NewRecorder()
-
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok\n"))
-	})
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "ok") {
-		t.Fatalf("expected body to contain ok, got %s", rec.Body.String())
+	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/healthz", healthHandler)
+	mux.HandleFunc("/readyz", healthHandler)
+
+	for _, endpoint := range []string{"/health", "/healthz", "/readyz"} {
+		req := httptest.NewRequest("GET", endpoint, nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status 200 for %s, got %d", endpoint, rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), "ok") {
+			t.Fatalf("expected body to contain ok, got %s", rec.Body.String())
+		}
 	}
 }
 
@@ -42,6 +47,18 @@ func TestCloudEventTypeFiltering(t *testing.T) {
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected status 204 for ignored Ce-Type, got %d", rec.Code)
+	}
+
+	// Event with padded unhandled Ce-Type should also be ignored
+	reqPadded := httptest.NewRequest("POST", "/", bytes.NewReader([]byte(`{"diff":"test"}`)))
+	reqPadded.Header.Set("Content-Type", "application/json")
+	reqPadded.Header.Set("Ce-Type", "  some.other.event.type \n")
+	recPadded := httptest.NewRecorder()
+
+	handler(recPadded, reqPadded)
+
+	if recPadded.Code != http.StatusNoContent {
+		t.Fatalf("expected status 204 for padded ignored Ce-Type, got %d", recPadded.Code)
 	}
 }
 

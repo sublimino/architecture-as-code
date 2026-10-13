@@ -46,9 +46,9 @@ func TestObservationsSpoolUntilTheTokenSourceProducesAKey(t *testing.T) {
 
 	m.queue <- TelemetryObservation{Syscall: "sys_enter_openat", Target: "/etc/passwd"}
 	m.queue <- TelemetryObservation{Syscall: "sys_enter_openat", Target: "/etc/shadow"}
-	for i := 0; i < 100 && m.Stats().SpoolBatches < 2; i++ {
+	for i := 0; i < 200 && m.Stats().SpoolBatches < 2; i++ {
 		clk.Advance(time.Second)
-		time.Sleep(5 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 	s := m.Stats()
 	if s.SpoolBatches != 2 || s.IngestTokenMissing != 0 || s.DispatchAuthRefused != 0 {

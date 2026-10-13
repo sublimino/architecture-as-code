@@ -185,6 +185,7 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 			return
 		}
 
+		req.TenantID = strings.TrimSpace(req.TenantID)
 		if tenant != "" {
 			if req.TenantID != "" && req.TenantID != tenant {
 				writeError(w, http.StatusForbidden, fmt.Sprintf("cross-tenant operation forbidden: authenticated tenant %q cannot operate on %q", tenant, req.TenantID))
@@ -195,7 +196,11 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 			req.TenantID = "default"
 		}
 
-		ws := mgr.Create(req)
+		ws, err := mgr.Create(req)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -253,12 +258,27 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	return mux
 }
 
+// maxWorkspaces bounds total concurrent workspace allocations in memory.
+const maxWorkspaces = 500
+
+func cloneWorkspace(ws *WorkspaceResponse) *WorkspaceResponse {
+	if ws == nil {
+		return nil
+	}
+	clone := *ws
+	return &clone
+}
+
 // Create provisions a new workspace. In production this creates a K8s pod
 // from the workspace-pod-template; in the demo it records the workspace
 // metadata and generates synthetic endpoints.
-func (m *WorkspaceManager) Create(req WorkspaceRequest) *WorkspaceResponse {
+func (m *WorkspaceManager) Create(req WorkspaceRequest) (*WorkspaceResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if len(m.workspaces) >= maxWorkspaces {
+		return nil, errors.New("workspace capacity exceeded")
+	}
 
 	id := uuid.New().String()[:8]
 	podName := fmt.Sprintf("daytona-ws-%s", id)
@@ -302,7 +322,7 @@ func (m *WorkspaceManager) Create(req WorkspaceRequest) *WorkspaceResponse {
 		slog.Info("workspace running", "workspace_id", id)
 	}()
 
-	return ws
+	return cloneWorkspace(ws), nil
 }
 
 // Get returns a workspace by ID, ensuring tenant isolation.
@@ -316,7 +336,7 @@ func (m *WorkspaceManager) Get(id, tenant string) (*WorkspaceResponse, bool) {
 	if tenant != "" && tenant != "*" && ws.TenantID != "" && ws.TenantID != tenant {
 		return nil, false
 	}
-	return ws, true
+	return cloneWorkspace(ws), true
 }
 
 // Delete removes a workspace, ensuring tenant isolation.
@@ -342,10 +362,30 @@ func (m *WorkspaceManager) List(tenant string) []*WorkspaceResponse {
 	result := make([]*WorkspaceResponse, 0, len(m.workspaces))
 	for _, ws := range m.workspaces {
 		if tenant == "" || tenant == "*" || ws.TenantID == tenant {
-			result = append(result, ws)
+			result = append(result, cloneWorkspace(ws))
 		}
 	}
 	return result
+}
+
+// PruneExpired removes workspaces older than ttl and returns the count pruned.
+func (m *WorkspaceManager) PruneExpired(ttl time.Duration) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now().UTC()
+	pruned := 0
+	for id, ws := range m.workspaces {
+		if ws.CreatedAt != "" {
+			if t, err := time.Parse(time.RFC3339, ws.CreatedAt); err == nil {
+				if now.Sub(t) > ttl {
+					delete(m.workspaces, id)
+					pruned++
+					slog.Info("workspace pruned due to expiry", "workspace_id", id, "age", now.Sub(t))
+				}
+			}
+		}
+	}
+	return pruned
 }
 
 func writeError(w http.ResponseWriter, code int, msg string) {

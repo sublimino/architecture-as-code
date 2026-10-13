@@ -33,15 +33,42 @@ const COMMANDS = [
 
 export type Command = (typeof COMMANDS)[number];
 
+export const MAX_SESSIONS = 1000;
+
 export class TaskMapper {
   private sessions = new Map<string, TaskSession>();
   private nextTaskId = 0;
+
+  /** Evict the oldest session when capacity is reached. */
+  private evictOldest(): void {
+    let oldestKey: string | null = null;
+    let oldestTime = Infinity;
+
+    for (const [key, session] of this.sessions.entries()) {
+      // Prioritize sessions without active tasks
+      const hasActive = session.tasks.some(
+        (t) => t.status === "pending" || t.status === "running"
+      );
+      const timeScore = session.lastActivity.getTime() + (hasActive ? 1e12 : 0);
+      if (timeScore < oldestTime) {
+        oldestTime = timeScore;
+        oldestKey = key;
+      }
+    }
+
+    if (oldestKey) {
+      this.sessions.delete(oldestKey);
+    }
+  }
 
   /** Get or create a session for a topic. */
   getSession(topic: string, streamId: number): TaskSession {
     const key = `${streamId}:${topic}`;
     let session = this.sessions.get(key);
     if (!session) {
+      if (this.sessions.size >= MAX_SESSIONS) {
+        this.evictOldest();
+      }
       session = {
         topic,
         streamId,
@@ -113,6 +140,22 @@ export class TaskMapper {
   /** Get all sessions (for status reporting). */
   allSessions(): TaskSession[] {
     return Array.from(this.sessions.values());
+  }
+
+  /** Prune sessions inactive for longer than maxAgeMs. Returns count pruned. */
+  pruneInactiveSessions(maxAgeMs: number): number {
+    const now = Date.now();
+    let pruned = 0;
+    for (const [key, session] of this.sessions.entries()) {
+      const isInactive = !session.tasks.some(
+        (t) => t.status === "pending" || t.status === "running"
+      );
+      if (isInactive && now - session.lastActivity.getTime() > maxAgeMs) {
+        this.sessions.delete(key);
+        pruned++;
+      }
+    }
+    return pruned;
   }
 }
 

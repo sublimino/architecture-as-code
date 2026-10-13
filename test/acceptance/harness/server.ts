@@ -317,10 +317,22 @@ const INDEX_HTML = `<!doctype html>
 </html>
 `
 
-function json(body: unknown, status = 200): Response {
+function json(
+  body: unknown,
+  status = 200,
+  req?: Request,
+  extraHeaders: Record<string, string> = {},
+): Response {
+  const headers = { 'content-type': 'application/json', 'cache-control': 'no-store', ...extraHeaders }
+  if (req?.method === 'HEAD') {
+    return new Response(null, {
+      status,
+      headers,
+    })
+  }
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+    headers,
   })
 }
 
@@ -408,14 +420,31 @@ export function startHarness(options: HarnessOptions = {}): Harness {
       const path = url.pathname
 
       if (path === '/' || path === '/index.html') {
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+        }
+        if (request.method === 'HEAD') {
+          return new Response(null, { headers: { 'content-type': 'text/html; charset=utf-8' } })
+        }
         return new Response(INDEX_HTML, { headers: { 'content-type': 'text/html; charset=utf-8' } })
       }
       if (path === '/harness.js') {
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+        }
+        if (request.method === 'HEAD') {
+          return new Response(null, {
+            headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' },
+          })
+        }
         return new Response(await bundle(), {
           headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' },
         })
       }
       if (path === '/global.css') {
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+        }
         const css = Bun.file(GLOBAL_CSS)
         if (!(await css.exists())) {
           // Loud rather than silent: a missing stylesheet degrades to "the page
@@ -423,12 +452,12 @@ export function startHarness(options: HarnessOptions = {}): Harness {
           // assertions and fails the layout ones with a message about the
           // component. Serving a comment that says so puts the cause in the
           // page instead.
-          return new Response(`/* harness: ${GLOBAL_CSS} not found — did the app move? */`, {
+          return new Response(request.method === 'HEAD' ? null : `/* harness: ${GLOBAL_CSS} not found — did the app move? */`, {
             status: 404,
             headers: { 'content-type': 'text/css; charset=utf-8' },
           })
         }
-        return new Response(css, {
+        return new Response(request.method === 'HEAD' ? null : css, {
           headers: { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'no-store' },
         })
       }
@@ -437,31 +466,54 @@ export function startHarness(options: HarnessOptions = {}): Harness {
       // Answering it keeps phase 4 drivable here; the panel treats a non-ok
       // response as a user-visible error, which would confuse a streaming
       // failure with an audit failure.
-      if (path === '/api/agents/agent-cardvault/stun') return json({ ok: true })
+      if (path === '/api/agents/agent-cardvault/stun') {
+        if (request.method !== 'POST') {
+          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'POST' })
+        }
+        return json({ ok: true }, 200, request)
+      }
 
-      if (path === '/demo-api/steps') return json({ steps: STEPS })
+      if (path === '/demo-api/steps') {
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+        }
+        return json({ steps: STEPS }, 200, request)
+      }
 
       if (path === '/demo-api/status') {
-        return json({ active: active ? view(active) : null, recent: history.map(view), script_available: true })
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+        }
+        return json({ active: active ? view(active) : null, recent: history.map(view), script_available: true }, 200, request)
       }
 
       if (path === '/demo-api/runs' && request.method === 'POST') {
-        if (active) return json({ detail: 'a run is already in flight' }, 409)
+        if (active) return json({ detail: 'a run is already in flight' }, 409, request)
         const body = (await request.json().catch(() => ({}))) as { step?: string }
-        return json(view(begin(String(body.step ?? '1'), 'step')), 202)
+        return json(view(begin(String(body.step ?? '1'), 'step')), 202, request)
+      }
+      if (path === '/demo-api/runs') {
+        return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'POST' })
       }
 
       if (path === '/demo-api/reset' && request.method === 'POST') {
-        if (active) return json({ detail: 'a run is already in flight' }, 409)
-        return json(view(begin('5', 'reset')), 202)
+        if (active) return json({ detail: 'a run is already in flight' }, 409, request)
+        return json(view(begin('5', 'reset')), 202, request)
+      }
+      if (path === '/demo-api/reset') {
+        return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'POST' })
       }
 
       const runMatch = path.match(/^\/demo-api\/runs\/([^/]+)(\/log|\/stream)?$/)
       if (runMatch) {
-        const run = runs.get(decodeURIComponent(runMatch[1]))
-        if (!run) return json({ detail: 'no such run' }, 404)
+        const sub = runMatch[2]
 
-        if (runMatch[2] === '/log') {
+        if (sub === '/log') {
+          if (request.method !== 'GET' && request.method !== 'HEAD') {
+            return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+          }
+          const run = runs.get(decodeURIComponent(runMatch[1]))
+          if (!run) return json({ detail: 'no such run' }, 404, request)
           const offset = Number(url.searchParams.get('offset') ?? '0')
 
           // ── The long poll ────────────────────────────────────────────────
@@ -506,10 +558,25 @@ export function startHarness(options: HarnessOptions = {}): Harness {
             chunk,
             truncated: false,
             eof: run.status !== 'running' && from + chunk.length >= available.length,
-          })
+          }, 200, request)
         }
 
-        if (runMatch[2] === '/stream') {
+        if (sub === '/stream') {
+          if (request.method !== 'GET' && request.method !== 'HEAD') {
+            return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+          }
+          const run = runs.get(decodeURIComponent(runMatch[1]))
+          if (!run) return json({ detail: 'no such run' }, 404, request)
+
+          if (request.method === 'HEAD') {
+            return new Response(null, {
+              headers: {
+                'content-type': 'text/event-stream',
+                'cache-control': 'no-store',
+                connection: 'keep-alive',
+              },
+            })
+          }
           // The frame contract is api/demoRunner.ts's, not one invented here.
           // It dispatches on the event NAME — `log` carries a DemoRunLogChunk,
           // `end` carries that plus `status` and `exit_code` — and a frame with
@@ -618,10 +685,16 @@ export function startHarness(options: HarnessOptions = {}): Harness {
           })
         }
 
-        return json(view(run))
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+        }
+        const run = runs.get(decodeURIComponent(runMatch[1]))
+        if (!run) return json({ detail: 'no such run' }, 404, request)
+
+        return json(view(run), 200, request)
       }
 
-      return json({ detail: `harness has no route for ${path}` }, 404)
+      return json({ detail: `harness has no route for ${path}` }, 404, request)
     },
   })
 

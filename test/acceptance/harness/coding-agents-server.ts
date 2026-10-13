@@ -141,20 +141,33 @@ function emptyLog(): RequestLog {
   return { total: 0, list: 0, aggregate: 0, byTenant: {}, unmatched: [] }
 }
 
-function json(body: unknown, status = 200): Response {
+function json(
+  body: unknown,
+  status = 200,
+  req?: Request,
+  extraHeaders: Record<string, string> = {},
+): Response {
+  const headers = {
+    'content-type': 'application/json',
+    'cache-control': 'no-store',
+    // The spec drives two browser contexts at one origin, so CORS never
+    // fires — but the control plane is also called from the Playwright
+    // process via `request`, and a stray preflight answered with a 404 would
+    // read as "the harness has no control plane".
+    'access-control-allow-origin': '*',
+    'access-control-allow-headers': 'authorization,content-type',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    ...extraHeaders,
+  }
+  if (req?.method === 'HEAD') {
+    return new Response(null, {
+      status,
+      headers,
+    })
+  }
   return new Response(JSON.stringify(body), {
     status,
-    headers: {
-      'content-type': 'application/json',
-      'cache-control': 'no-store',
-      // The spec drives two browser contexts at one origin, so CORS never
-      // fires — but the control plane is also called from the Playwright
-      // process via `request`, and a stray preflight answered with a 404 would
-      // read as "the harness has no control plane".
-      'access-control-allow-origin': '*',
-      'access-control-allow-headers': 'authorization,content-type',
-      'access-control-allow-methods': 'GET,POST,OPTIONS',
-    },
+    headers,
   })
 }
 
@@ -287,15 +300,34 @@ export function startCodingAgentsHarness(options: { port?: number } = {}): Codin
       const url = new URL(request.url)
       const path = url.pathname
 
-      if (request.method === 'OPTIONS') return json({ ok: true })
+      if (request.method === 'OPTIONS') return json({ ok: true }, 200, request)
 
       // ─── Static ────────────────────────────────────────────────────────
       if (path === '/' || path === '/index.html') {
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+        }
+        if (request.method === 'HEAD') {
+          return new Response(null, {
+            headers: { 'content-type': 'text/html; charset=utf-8' },
+          })
+        }
         return new Response(INDEX_HTML, {
           headers: { 'content-type': 'text/html; charset=utf-8' },
         })
       }
       if (path === '/coding-agents-harness.js') {
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+        }
+        if (request.method === 'HEAD') {
+          return new Response(null, {
+            headers: {
+              'content-type': 'text/javascript; charset=utf-8',
+              'cache-control': 'no-store',
+            },
+          })
+        }
         return new Response(await bundle(), {
           headers: {
             'content-type': 'text/javascript; charset=utf-8',
@@ -304,17 +336,20 @@ export function startCodingAgentsHarness(options: { port?: number } = {}): Codin
         })
       }
       if (path === '/global.css') {
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+        }
         const css = Bun.file(GLOBAL_CSS)
         if (!(await css.exists())) {
           // Loud rather than silent: a missing stylesheet degrades to "renders
           // with browser defaults", which passes every text assertion here and
           // would only surface later as an inexplicable layout complaint.
-          return new Response(`/* harness: ${GLOBAL_CSS} not found — did the app move? */`, {
+          return new Response(request.method === 'HEAD' ? null : `/* harness: ${GLOBAL_CSS} not found — did the app move? */`, {
             status: 404,
             headers: { 'content-type': 'text/css; charset=utf-8' },
           })
         }
-        return new Response(css, {
+        return new Response(request.method === 'HEAD' ? null : css, {
           headers: { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'no-store' },
         })
       }
@@ -324,46 +359,61 @@ export function startCodingAgentsHarness(options: { port?: number } = {}): Codin
       // Namespaced under /harness so it can never collide with a path
       // api/client.ts might one day request, and so a stray call shows up in
       // `unmatched` rather than being absorbed by a telemetry route.
-      if (path === '/harness/reset' && request.method === 'POST') {
+      if (path === '/harness/reset') {
+        if (request.method !== 'POST') {
+          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'POST' })
+        }
         tenants.clear()
         log = emptyLog()
-        return json({ ok: true, tenants: 0 })
+        return json({ ok: true, tenants: 0 }, 200, request)
       }
 
-      if (path === '/harness/state' && request.method === 'POST') {
-        const body = (await request.json().catch(() => null)) as {
-          tenant?: string
-          records?: unknown[]
-          aggregate?: unknown | null
-          listStatus?: number
-        } | null
-        if (!body?.tenant) return json({ detail: 'body.tenant is required' }, 400)
-        tenants.set(body.tenant, {
-          records: body.records ?? [],
-          aggregate: body.aggregate ?? null,
-          listStatus: body.listStatus ?? 200,
-        })
-        return json({ ok: true, tenant: body.tenant, records: (body.records ?? []).length })
+      if (path === '/harness/state') {
+        if (request.method === 'POST') {
+          const body = (await request.json().catch(() => null)) as {
+            tenant?: string
+            records?: unknown[]
+            aggregate?: unknown | null
+            listStatus?: number
+          } | null
+          if (!body?.tenant) return json({ detail: 'body.tenant is required' }, 400, request)
+          tenants.set(body.tenant, {
+            records: body.records ?? [],
+            aggregate: body.aggregate ?? null,
+            listStatus: body.listStatus ?? 200,
+          })
+          return json({ ok: true, tenant: body.tenant, records: (body.records ?? []).length }, 200, request)
+        }
+        if (request.method === 'GET' || request.method === 'HEAD') {
+          return json(
+            Object.fromEntries(
+              [...tenants.entries()].map(([t, s]) => [
+                t,
+                { records: s.records.length, aggregate: s.aggregate !== null, listStatus: s.listStatus },
+              ]),
+            ),
+            200,
+            request,
+          )
+        }
+        return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD, POST' })
       }
 
-      if (path === '/harness/state' && request.method === 'GET') {
-        return json(
-          Object.fromEntries(
-            [...tenants.entries()].map(([t, s]) => [
-              t,
-              { records: s.records.length, aggregate: s.aggregate !== null, listStatus: s.listStatus },
-            ]),
-          ),
-        )
+      if (path === '/harness/requests') {
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+        }
+        return json(log, 200, request)
       }
-
-      if (path === '/harness/requests') return json(log)
 
       // ─── Telemetry ─────────────────────────────────────────────────────
       const isList = LIST_PATHS.includes(path)
       const isAggregate = AGGREGATE_PATHS.includes(path)
 
       if (isList || isAggregate) {
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+        }
         const tenant = tenantOf(request)
         log.total += 1
         if (isList) log.list += 1
@@ -374,29 +424,29 @@ export function startCodingAgentsHarness(options: { port?: number } = {}): Codin
           // Never a default tenant. A request with no usable identity that got
           // answered with somebody's data would make the isolation assertions
           // pass for exactly the wrong reason.
-          return json({ detail: 'missing or malformed Bearer harness-token:<tenant>' }, 401)
+          return json({ detail: 'missing or malformed Bearer harness-token:<tenant>' }, 401, request)
         }
 
         const state = stateFor(tenant)
 
         if (isList) {
           if (state.listStatus !== 200) {
-            return json({ detail: `scripted list failure for ${tenant}` }, state.listStatus)
+            return json({ detail: `scripted list failure for ${tenant}` }, state.listStatus, request)
           }
-          return json(state.records)
+          return json(state.records, 200, request)
         }
 
         // 422, not 404 and not an empty object: signal-ingest refuses to
         // COMPUTE the aggregate below the k=5 floor. CodingAgentsTab reads that
         // rejection as a null aggregate and must render "Withheld".
         if (state.aggregate === null) {
-          return json({ detail: 'cohort below k=5 anonymity floor' }, 422)
+          return json({ detail: 'cohort below k=5 anonymity floor' }, 422, request)
         }
-        return json(state.aggregate)
+        return json(state.aggregate, 200, request)
       }
 
       log.unmatched.push(`${request.method} ${path}`)
-      return json({ detail: `coding-agents harness has no route for ${path}` }, 404)
+      return json({ detail: `coding-agents harness has no route for ${path}` }, 404, request)
     },
   })
 

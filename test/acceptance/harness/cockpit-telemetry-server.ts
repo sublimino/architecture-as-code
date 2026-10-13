@@ -65,8 +65,12 @@ function emptyLog(): RequestLog {
   return { streams: 0, perPodStreams: 0, estateStreams: 0, unauthenticated: 0, tokenInUrl: 0, unmatched: [] }
 }
 
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+function json(body: unknown, status = 200, req?: Request, extraHeaders: Record<string, string> = {}): Response {
+  const headers = { 'content-type': 'application/json', ...extraHeaders }
+  if (req?.method === 'HEAD') {
+    return new Response(null, { status, headers })
+  }
+  return new Response(JSON.stringify(body), { status, headers })
 }
 
 let cachedBundle: string | null = null
@@ -173,33 +177,56 @@ export function startCockpitHarness(options: { port?: number } = {}) {
       const path = url.pathname
 
       if (path === '/' || path === '/index.html') {
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+        }
+        if (request.method === 'HEAD') {
+          return new Response(null, { headers: { 'content-type': 'text/html; charset=utf-8' } })
+        }
         return new Response(INDEX_HTML, { headers: { 'content-type': 'text/html; charset=utf-8' } })
       }
       if (path === '/cockpit-harness.js') {
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+        }
+        if (request.method === 'HEAD') {
+          return new Response(null, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' } })
+        }
         return new Response(await bundle(), { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' } })
       }
-      if (path === '/favicon.ico') return new Response(null, { status: 204 })
+      if (path === '/favicon.ico') {
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+        }
+        return new Response(null, { status: 204 })
+      }
       if (path === '/global.css') {
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+        }
         const css = Bun.file(GLOBAL_CSS)
-        if (!(await css.exists())) return new Response(`/* ${GLOBAL_CSS} not found */`, { status: 404 })
-        return new Response(css, { headers: { 'content-type': 'text/css; charset=utf-8' } })
+        if (!(await css.exists())) return new Response(request.method === 'HEAD' ? null : `/* ${GLOBAL_CSS} not found */`, { status: 404, headers: { 'content-type': 'text/css; charset=utf-8' } })
+        return new Response(request.method === 'HEAD' ? null : css, { headers: { 'content-type': 'text/css; charset=utf-8' } })
       }
 
       // ─── Control plane ───────────────────────────────────────────────
-      if (path === '/harness/reset' && request.method === 'POST') {
+      if (path === '/harness/reset') {
+        if (request.method !== 'POST') return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'POST' })
         phase = 'idle'
         log = emptyLog()
-        return json({ ok: true, phase })
+        return json({ ok: true, phase }, 200, request)
       }
-      if (path === '/harness/phase' && request.method === 'POST') {
+      if (path === '/harness/phase') {
+        if (request.method !== 'POST') return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'POST' })
         const body = (await request.json().catch(() => null)) as { phase?: Phase } | null
         if (!body?.phase || !['idle', 'spike', 'frozen', 'terminated'].includes(body.phase)) {
-          return json({ detail: 'phase must be idle|spike|frozen|terminated' }, 400)
+          return json({ detail: 'phase must be idle|spike|frozen|terminated' }, 400, request)
         }
         phase = body.phase
-        return json({ ok: true, phase })
+        return json({ ok: true, phase }, 200, request)
       }
-      if (path === '/harness/drop' && request.method === 'POST') {
+      if (path === '/harness/drop') {
+        if (request.method !== 'POST') return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'POST' })
         // Sever every open stream, as a proxy restart or network blip would.
         const n = open.size
         for (const c of [...open]) {
@@ -210,18 +237,28 @@ export function startCockpitHarness(options: { port?: number } = {}) {
           }
           open.delete(c)
         }
-        return json({ ok: true, dropped: n })
+        return json({ ok: true, dropped: n }, 200, request)
       }
-      if (path === '/harness/state') return json({ phase, open: open.size })
-      if (path === '/harness/requests') return json(log)
+      if (path === '/harness/state') {
+        if (request.method !== 'GET' && request.method !== 'HEAD') return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+        return json({ phase, open: open.size }, 200, request)
+      }
+      if (path === '/harness/requests') {
+        if (request.method !== 'GET' && request.method !== 'HEAD') return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
+        return json(log, 200, request)
+      }
 
       // ─── Telemetry ───────────────────────────────────────────────────
       if (path === '/api/telemetry/agents' || path.startsWith('/api/telemetry/agents/')) {
+        if (request.method !== 'GET' && request.method !== 'HEAD') return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
         log.streams += 1
         if ([...url.searchParams.keys()].some((k) => /token/i.test(k))) log.tokenInUrl += 1
         if (!/^Bearer \S+/.test(request.headers.get('authorization') ?? '')) {
           log.unauthenticated += 1
-          return json({ detail: 'Bearer token required' }, 401)
+          return json({ detail: 'Bearer token required' }, 401, request)
+        }
+        if (request.method === 'HEAD') {
+          return new Response(null, { headers: { 'content-type': 'text/event-stream' } })
         }
         if (path === '/api/telemetry/agents') {
           log.estateStreams += 1
@@ -233,7 +270,7 @@ export function startCockpitHarness(options: { port?: number } = {}) {
       }
 
       log.unmatched.push(`${request.method} ${path}`)
-      return json({ detail: `cockpit harness has no route for ${path}` }, 404)
+      return json({ detail: `cockpit harness has no route for ${path}` }, 404, request)
     },
   })
 

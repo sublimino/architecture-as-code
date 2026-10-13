@@ -99,24 +99,42 @@ function reply(id: string, echoed: string): { status: number; body: unknown } {
   }
 }
 
+function jsonReply(req: Request, data: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
+  const headers = { "content-type": "application/json", ...extraHeaders };
+  if (req.method === "HEAD") {
+    return new Response(null, { status, headers });
+  }
+  return new Response(JSON.stringify(data), { status, headers });
+}
+
+function methodNotAllowed(req: Request, allow: string): Response {
+  return jsonReply(req, { error: "Method Not Allowed" }, 405, { Allow: allow });
+}
+
 const server = Bun.serve({
   port,
   hostname: "127.0.0.1",
   async fetch(req) {
     const url = new URL(req.url);
 
-    if (scenario === "no-card" && url.pathname.endsWith("/.well-known/agent.json")) {
-      return new Response("404 page not found", { status: 404 });
-    }
     if (url.pathname.endsWith("/.well-known/agent.json")) {
-      return Response.json(card);
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        return methodNotAllowed(req, "GET, HEAD");
+      }
+      if (scenario === "no-card") {
+        return jsonReply(req, { error: "not found" }, 404);
+      }
+      return jsonReply(req, card, 200);
     }
 
     // Match the documented prefix exactly. A server that answered any path
     // would let a malformed URL in the script pass unnoticed.
     const m = url.pathname.match(/^\/api\/a2a\/([^/]+)\/([^/]+)\/$/);
-    if (!m || req.method !== "POST") {
-      return new Response("not found", { status: 404 });
+    if (!m) {
+      return jsonReply(req, { error: "not found" }, 404);
+    }
+    if (req.method !== "POST") {
+      return methodNotAllowed(req, "POST");
     }
 
     let id = "unknown";
@@ -129,22 +147,30 @@ const server = Bun.serve({
       // Reject an envelope that is not what A2A specifies, rather than
       // answering anyway — otherwise a malformed request looks like success.
       if (body.jsonrpc !== "2.0" || body.method !== "message/send") {
-        return Response.json(
+        return jsonReply(
+          req,
           { jsonrpc: "2.0", id, error: { code: -32600, message: "invalid A2A envelope" } },
-          { status: 200 },
+          200,
         );
       }
     } catch {
-      return Response.json(
+      return jsonReply(
+        req,
         { jsonrpc: "2.0", id, error: { code: -32700, message: "parse error" } },
-        { status: 200 },
+        200,
       );
     }
 
     const r = reply(id, echoed);
+    if (req.method === "HEAD") {
+      const headers: Record<string, string> = typeof r.body === "string"
+        ? { "content-type": "text/html; charset=utf-8" }
+        : { "content-type": "application/json" };
+      return new Response(null, { status: r.status, headers });
+    }
     return typeof r.body === "string"
       ? new Response(r.body, { status: r.status, headers: { "content-type": "text/html" } })
-      : Response.json(r.body, { status: r.status });
+      : jsonReply(req, r.body, r.status);
   },
 });
 

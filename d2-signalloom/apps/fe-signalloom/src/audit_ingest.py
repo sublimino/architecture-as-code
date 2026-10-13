@@ -267,11 +267,7 @@ def verify_session_signature(session: SignedAuditSession) -> tuple[bool, str | N
             return True, None
         return False, f"SPIFFE signature token digest mismatch: {digest} != {expected_digest}"
 
-    # 2. Mock / Test token format
-    if sig.startswith("test-valid-sig-") or sig.startswith("mock-valid-sig-"):
-        return True, None
-
-    # 3. Asymmetric Public Key Verification (ECDSA / RSA / Ed25519)
+    # 2. Asymmetric Public Key Verification (ECDSA / RSA / Ed25519)
     if session.public_key:
         try:
             pub_bytes = session.public_key.encode("utf-8")

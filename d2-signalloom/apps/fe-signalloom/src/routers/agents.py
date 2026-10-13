@@ -175,7 +175,15 @@ async def transition_agent_state(
         # Memory storage path
         api_compat._ensure_seeded(tenant_id)
         with _STORE_LOCK:
-            agent = _AGENTS.get(tenant_id, {}).get(agent_id)
+            tenant_store = _AGENTS.get(tenant_id, {})
+            agent = tenant_store.get(agent_id)
+            target_key = agent_id
+            if agent is None:
+                for k, a in tenant_store.items():
+                    if a.get("name") == agent_id:
+                        agent = a
+                        target_key = k
+                        break
             if agent is None:
                 _record_memory_audit(
                     tenant_id=tenant_id,
@@ -200,7 +208,7 @@ async def transition_agent_state(
             agent["lifecycle_state"] = normalized_to_state
             agent["last_transition_at"] = now
             agent["last_transition_by"] = principal.actor
-            _AGENTS.setdefault(tenant_id, {})[agent_id] = agent
+            _AGENTS.setdefault(tenant_id, {})[target_key] = agent
 
             _record_memory_audit(
                 tenant_id=tenant_id,

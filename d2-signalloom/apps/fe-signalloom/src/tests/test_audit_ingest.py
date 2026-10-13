@@ -1057,6 +1057,29 @@ def test_ingest_finalized_session_rejects_forged_signature(client: TestClient):
     assert "signature" in res.text.lower()
 
 
+def test_mock_and_test_signature_backdoors_rejected(client: TestClient):
+    """Ensure mock-valid-sig- and test-valid-sig- prefixes are rejected in production audit ingest."""
+    events, root_hash = _build_hash_chained_events(3)
+    spiffe_id = "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/agent-nono-evidenced"
+
+    for fake_sig in ("mock-valid-sig-12345", "test-valid-sig-99999"):
+        payload = {
+            "session_id": f"sess-test-backdoor-{fake_sig}",
+            "agent_id": "agent-nono-evidenced",
+            "spiffe_id": spiffe_id,
+            "started_at": "2026-09-10T10:00:00Z",
+            "ended_at": "2026-09-10T10:05:00Z",
+            "events_count": 3,
+            "root_hash": root_hash,
+            "signature": fake_sig,
+            "algorithm": "ECDSA_SHA256",
+            "events": events,
+        }
+        res = client.post("/api/audit/sessions/finalized", json=payload, headers=_bearer("audit-tester"))
+        assert res.status_code == 400, f"Expected 400 for {fake_sig}, got {res.status_code}: {res.text}"
+        assert "signature" in res.text.lower()
+
+
 def test_verify_probe_with_require_finalized(client: TestClient):
     """Test /sessions/verify probe endpoint behavior with require_finalized."""
     events, root_hash = _build_hash_chained_events(3)

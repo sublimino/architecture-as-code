@@ -148,6 +148,17 @@ class TestAgentStateTransitionsAdversarial:
         assert data["from_state"] == "discovered"
         assert data["to_state"] == "governed"
 
+    def test_valid_transition_by_agent_name(self, client: TestClient):
+        """Transitioning an agent by its human-readable name succeeds in memory mode."""
+        res = client.post(
+            "/api/v1/agents/Discovered Pod/transition",
+            json={"to_state": "governed", "reason": "Operator verified by name"},
+            headers=_bearer(ALICE_SUB),
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["to_state"] == "governed"
+
     def test_valid_transition_governed_to_suspended(self, client: TestClient):
         """Valid transition from governed to suspended succeeds."""
         # First transition discovered to governed

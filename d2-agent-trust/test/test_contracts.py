@@ -81,6 +81,12 @@ class A2A(unittest.TestCase):
    bad_body=urllib.request.Request(url,data=b'[]',headers={'Authorization':'Bearer '+c,'X-SPIFFE-JWT-SVID':'good-svid'},method='POST')
    with self.assertRaises(urllib.error.HTTPError) as err_body: urllib.request.urlopen(bad_body)
    self.assertEqual(400,err_body.exception.code); err_body.exception.close()
+   malformed_json=urllib.request.Request(url,data=b'{not json',headers={'Authorization':'Bearer '+c,'X-SPIFFE-JWT-SVID':'good-svid'},method='POST')
+   with self.assertRaises(urllib.error.HTTPError) as err_malformed: urllib.request.urlopen(malformed_json)
+   self.assertEqual(400,err_malformed.exception.code); err_malformed.exception.close()
+   bad_len=urllib.request.Request(url,data=b'{}',headers={'Authorization':'Bearer '+c,'X-SPIFFE-JWT-SVID':'good-svid','Content-Length':'invalid'},method='POST')
+   with self.assertRaises(urllib.error.HTTPError) as err_len: urllib.request.urlopen(bad_len)
+   self.assertEqual(400,err_len.exception.code); err_len.exception.close()
   finally: s.shutdown(); th.join(); s.server_close()
   restarted=serve(self.public,0,identity_validator=validator,receiver_instance='post-restart'); restarted_thread=threading.Thread(target=restarted.serve_forever); restarted_thread.start()
   try:

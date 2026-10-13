@@ -179,7 +179,15 @@ def _free_port() -> int:
 @pytest.fixture(scope="module")
 def engine_url(tmp_path_factory):
     binary = tmp_path_factory.mktemp("engine") / "policy-engine"
-    subprocess.run(["go", "build", "-o", str(binary), "."], cwd=ENGINE_SRC, check=True, timeout=600)
+    go_env = {
+        **os.environ,
+        "GOPATH": os.environ.get("GOPATH", "/tmp/gopath"),
+        "GOCACHE": os.environ.get("GOCACHE", "/tmp/gocache"),
+        "GOMODCACHE": os.environ.get("GOMODCACHE", "/tmp/gomodcache"),
+        "GONOSUMDB": "*",
+        "CGO_ENABLED": "0",
+    }
+    subprocess.run(["go", "build", "-o", str(binary), "."], cwd=ENGINE_SRC, env=go_env, check=True, timeout=600)
     port = _free_port()
     log = (tmp_path_factory.mktemp("engine-log") / "engine.log").open("w")
     proc = subprocess.Popen(

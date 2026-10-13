@@ -98,7 +98,7 @@ class RequestLifecycleMiddleware:
                 response_status = message.get("status", 200)
                 if response_status == 405:
                     allowed = get_allowed_methods(root_app, path)
-                    if allowed is not None:
+                    if allowed is not None and method not in allowed:
                         allow_bytes = ", ".join(allowed).encode("latin-1")
                         headers = [
                             (k, v) for k, v in message.get("headers", [])

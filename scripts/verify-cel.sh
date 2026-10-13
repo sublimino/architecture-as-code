@@ -148,7 +148,7 @@ go_tier() {
 	local tier="$1" start end rc passed skipped failed note="" status=PASS
 	shift
 	start="$(now_ms)"
-	(cd "${ENGINE_DIR}" && "${GO_BIN}" test -count=1 -v "$@") \
+	(cd "${ENGINE_DIR}" && env GOPATH="${GOPATH:-/tmp/gopath}" GONOSUMDB=* GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" CGO_ENABLED=0 "${GO_BIN}" test -count=1 -v "$@") \
 		>"${LOG_DIR}/${tier}.log" 2>&1
 	rc=$?
 	end="$(now_ms)"

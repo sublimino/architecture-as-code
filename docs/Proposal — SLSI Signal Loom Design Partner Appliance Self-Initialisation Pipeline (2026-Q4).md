@@ -1073,7 +1073,7 @@ I am stopping. The commit stays `d79c34cd`. The card closes green with no P1-4 c
 **Created:** 2026-10-13 02:00:00+01:00
 **Last Updated:** 2026-10-13 02:00:00+01:00
 **Status:** Completed
-**Commit:** `a28151fa` on `integration/slsi-v0.1.0`.
+**Commit:** `0965ba0f` on `integration/slsi-v0.1.0`.
 
 ##### Diagnostics Packaging & Encryption Verification
 - **Encrypted Archive Format**: `scripts/export-diagnostics.sh` aggregates tenant audit records, Witness attestations, OpenBao audit logs, and FrostDB segment metadata from `/opt/tenants/<id>/audit/` and `/opt/tenants/<id>/data/`.

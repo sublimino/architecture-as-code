@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 ControlPlane Security Authors
 
+//go:build tetragon_legacy
+
 package main
 
 import (

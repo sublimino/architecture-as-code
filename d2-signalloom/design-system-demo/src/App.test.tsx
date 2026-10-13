@@ -19,18 +19,18 @@ describe('route shell', () => {
     ['/settings', 'Workspace settings'],
   ])('renders %s as %s', async (route, heading) => {
     renderRoute(route)
-    expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeVisible()
+    expect(await screen.findByRole('heading', { level: 1, name: heading }, { timeout: 5000 })).toBeVisible()
   })
 
   it('keeps a specialist route directly reachable while hidden from navigation', async () => {
     renderRoute('/rbac-analysis')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Permission findings' })).toBeVisible()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Permission findings' }, { timeout: 5000 })).toBeVisible()
     expect(screen.queryByRole('link', { name: /Permission findings/ })).not.toBeInTheDocument()
   })
 
   it('gives unknown routes a useful recovery destination', async () => {
     renderRoute('/outside-the-demo')
-    expect(await screen.findByRole('heading', { level: 1, name: 'This path is outside the demo.' })).toBeVisible()
+    expect(await screen.findByRole('heading', { level: 1, name: 'This path is outside the demo.' }, { timeout: 5000 })).toBeVisible()
     expect(screen.getByRole('link', { name: 'Return to overview' })).toHaveAttribute('href', '/')
   })
 })

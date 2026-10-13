@@ -231,6 +231,7 @@ func TestInputValidation(t *testing.T) {
 		{"invalid char pvc", WorkspaceRequest{PVC: "invalid_pvc!", User: "alice"}},
 		{"empty user", WorkspaceRequest{PVC: "valid-pvc", User: ""}},
 		{"path traversal user", WorkspaceRequest{PVC: "valid-pvc", User: "../root"}},
+		{"user starting with dash", WorkspaceRequest{PVC: "valid-pvc", User: "-alice"}},
 	}
 
 	for _, tc := range cases {

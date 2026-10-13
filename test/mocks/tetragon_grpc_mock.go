@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 ControlPlane Security Authors
 
+//go:build tetragon_legacy
+
 // Command tetragon_grpc_mock runs an offline mock of Tetragon's
 // FineGuidanceSensors gRPC service on a unix socket.
 //

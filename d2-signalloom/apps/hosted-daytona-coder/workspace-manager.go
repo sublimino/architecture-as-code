@@ -95,6 +95,9 @@ func validateUser(user string) error {
 	if len(user) > 63 {
 		return errors.New("user must be 63 characters or fewer")
 	}
+	if strings.HasPrefix(user, "-") {
+		return errors.New("user cannot start with a dash")
+	}
 	if strings.Contains(user, "..") || strings.Contains(user, "/") || !userRegex.MatchString(user) {
 		return errors.New("user must be an alphanumeric identifier without path traversal")
 	}
@@ -255,11 +258,6 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	})
 
 	mux.HandleFunc("POST /workspaces", func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-		}()
-
 		tenant, err := extractTenant(r)
 		if err != nil {
 			writeError(w, http.StatusForbidden, err.Error())
@@ -323,11 +321,6 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	})
 
 	getWorkspaceHandler := func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-		}()
-
 		tenant, err := extractTenant(r)
 		if err != nil {
 			writeError(w, http.StatusForbidden, err.Error())
@@ -356,11 +349,6 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	mux.HandleFunc("HEAD /workspaces/{id}", getWorkspaceHandler)
 
 	mux.HandleFunc("DELETE /workspaces/{id}", func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-		}()
-
 		tenant, err := extractTenant(r)
 		if err != nil {
 			writeError(w, http.StatusForbidden, err.Error())
@@ -391,11 +379,6 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	})
 
 	mux.HandleFunc("POST /workspaces/{id}/teardown", func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-		}()
-
 		tenant, err := extractTenant(r)
 		if err != nil {
 			writeError(w, http.StatusForbidden, err.Error())
@@ -427,11 +410,6 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	})
 
 	mux.HandleFunc("POST /workspaces/prune", func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-		}()
-
 		tenant, err := extractTenant(r)
 		if err != nil {
 			writeError(w, http.StatusForbidden, err.Error())
@@ -450,11 +428,6 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	})
 
 	listWorkspacesHandler := func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-		}()
-
 		tenant, err := extractTenant(r)
 		if err != nil {
 			writeError(w, http.StatusForbidden, err.Error())
@@ -471,7 +444,17 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	mux.HandleFunc("GET /workspaces", listWorkspacesHandler)
 	mux.HandleFunc("HEAD /workspaces", listWorkspacesHandler)
 
-	return headBodySuppressingMiddleware(mux)
+	return headBodySuppressingMiddleware(bodyDrainingMiddleware(mux))
+}
+
+func bodyDrainingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20))
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 type headResponseWriter struct {

@@ -182,11 +182,6 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 	})
 
 	mux.HandleFunc("POST /tasks", func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-		}()
-
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		var req TaskRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -284,7 +279,17 @@ func newServer(executor *Executor, store *SessionStore) http.Handler {
 	mux.HandleFunc("GET /.well-known/agent-card.json", agentCardHandler)
 	mux.HandleFunc("HEAD /.well-known/agent-card.json", agentCardHandler)
 
-	return withLogging(headBodySuppressingMiddleware(mux))
+	return withLogging(headBodySuppressingMiddleware(bodyDrainingMiddleware(mux)))
+}
+
+func bodyDrainingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20))
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 type headResponseWriter struct {

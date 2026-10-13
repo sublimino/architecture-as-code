@@ -592,8 +592,8 @@ attached-mode-preflight: ## Assert the two centrally issued Secrets exist before
 # meaning.
 test-all-offline: offline-deps ## Run all offline test suites (Go unit, Vitest, Python, KPAI, static BATS/config/registry).
 	@echo "=== [Offline 1/5] All Go Unit Tests (29 modules via dynamic discovery loop) ==="
-	@modules=$$(find . -type d \( -name ".cache" -o -name "node_modules" \) -prune -o -type f -name "go.mod" -exec dirname {} \; | sort -u); \
-	printf '%s\n' $$modules | xargs -I {} -P $${GO_TEST_JOBS:-8} sh -c 'echo "--- Running go test in $$1 ---" && (cd "$$1" && env GOPATH=$${GOPATH:-/tmp/gopath} GONOSUMDB=* GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./...)' _ {} || exit 1
+	@modules=$$(find . -type d \( -name ".cache" -o -name "node_modules" -o -name ".git" -o -name ".claude" \) -prune -o -type f -name "go.mod" -exec dirname {} \; | sort -u); \
+	printf '%s\n' $$modules | xargs -I {} -P $${GO_TEST_JOBS:-8} sh -c 'echo "--- Running go test in $$1 ---" && (cd "$$1" && gp="$${GOPATH:-/tmp/gopath}"; [ "$$gp" = "/usr/local/src/gocode" ] && gp="/tmp/gopath"; env GOPATH="$$gp" GONOSUMDB=* GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./...)' _ {} || exit 1
 	$(MAKE) test-signal-ingest-frostdb
 	@echo "=== [Offline 2/5] Frontend Vitest Suites (162 files across dashboard, design-system, harness-dash) ==="
 	$(MAKE) test-dashboard-weave

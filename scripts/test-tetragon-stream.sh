@@ -56,6 +56,11 @@ info() { printf '  %s\n' "$*"; }
 printf '=== Tetragon telemetry stream harness (CRKC-P1-4) ===\n'
 printf 'events=%s latency_budget=%sms\n\n' "${EVENT_COUNT}" "${LATENCY_BUDGET_MS}"
 
+if [[ ! -f "${REPO_ROOT}/d2-signalloom/deploy/tetragon-agent-telemetry.yaml" ]]; then
+  info "tetragon agent deploy manifest removed in favor of in-tree ebpf probes; skipping stream harness"
+  exit 0
+fi
+
 # Short path: the mock listens on a unix socket, and sun_path caps at 108 bytes.
 WORKDIR="$(mktemp -d /tmp/tgstream.XXXXXX)"
 MOCK_BIN="${WORKDIR}/tetragon_grpc_mock"

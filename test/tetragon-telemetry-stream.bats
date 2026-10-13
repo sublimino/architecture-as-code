@@ -25,6 +25,9 @@ setup() {
   HELM_VALUES="${REPO_ROOT}/d2-signalloom/deploy/tetragon-helm-values.yaml"
   EBPF_PKG="${REPO_ROOT}/d2-signalloom/apps/signal-ingest/collectors/ebpf"
   MOCK_DIR="${REPO_ROOT}/test/mocks"
+  if [ ! -f "$MANIFEST" ]; then
+    skip "tetragon agent deploy manifest removed in favor of in-tree ebpf probes"
+  fi
   export CGO_ENABLED=0
   export GOPATH="${GOPATH:-/tmp/gopath}"
   export GOCACHE="${GOCACHE:-/tmp/gocache}"

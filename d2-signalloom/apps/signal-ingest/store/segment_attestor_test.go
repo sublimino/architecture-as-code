@@ -26,6 +26,41 @@ import (
 	"github.com/thanos-io/objstore"
 )
 
+type headResponseWriter struct {
+	http.ResponseWriter
+	wroteHeader bool
+}
+
+func (w *headResponseWriter) WriteHeader(status int) {
+	w.wroteHeader = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *headResponseWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	// Per RFC 9110 Section 6.4.1, responses to HEAD requests MUST NOT contain
+	// a message body, regardless of status code.
+	return len(b), nil
+}
+
+func (w *headResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func headBodySuppressingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			next.ServeHTTP(&headResponseWriter{ResponseWriter: w}, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func testSigningKey(t testing.TB) string {
 	t.Helper()
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -121,14 +156,20 @@ func TestSlowPublicationOverflowsVisiblyWithoutBlockingUpload(t *testing.T) {
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
 	var blockFirst sync.Once
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		blockFirst.Do(func() {
 			entered <- struct{}{}
 			<-release
 		})
 		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{"gitoid":"%s"}`, testArchivistaGitoid(body))
-	}))
+	})))
 	defer server.Close()
 	dir := t.TempDir()
 	a, err := NewSegmentAttestor(SegmentAttestorConfig{
@@ -381,9 +422,15 @@ func TestConcurrentEnqueueAndWaitDuringCloseDoesNotPanic(t *testing.T) {
 }
 
 func TestArchivistaPublicationRejectsMalformedReceipt(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"accepted"}`))
-	}))
+	})))
 	defer server.Close()
 	a := &SegmentAttestor{cfg: SegmentAttestorConfig{ArchivistaURL: server.URL, HTTPClient: server.Client()}}
 	if err := a.publishArchivista([]byte(`{}`)); err == nil || !strings.Contains(err.Error(), "gitoid") {
@@ -392,10 +439,16 @@ func TestArchivistaPublicationRejectsMalformedReceipt(t *testing.T) {
 }
 
 func TestArchivistaPublicationAcceptsPlainGitBlobReceipt(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, testArchivistaGitoid(body))
-	}))
+	})))
 	defer server.Close()
 	a := &SegmentAttestor{cfg: SegmentAttestorConfig{ArchivistaURL: server.URL, HTTPClient: server.Client()}}
 	if err := a.publishArchivista([]byte(`{}`)); err != nil {
@@ -404,9 +457,15 @@ func TestArchivistaPublicationAcceptsPlainGitBlobReceipt(t *testing.T) {
 }
 
 func TestArchivistaPublicationRejectsMismatchedGitBlobReceipt(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{"gitoid":"%s"}`, strings.Repeat("0", 64))
-	}))
+	})))
 	defer server.Close()
 	a := &SegmentAttestor{cfg: SegmentAttestorConfig{ArchivistaURL: server.URL, HTTPClient: server.Client()}}
 	if err := a.publishArchivista([]byte(`{}`)); err == nil || !strings.Contains(err.Error(), "does not match") {
@@ -416,7 +475,12 @@ func TestArchivistaPublicationRejectsMismatchedGitBlobReceipt(t *testing.T) {
 
 func TestArchivistaPublishesSegmentAndCheckpointEnvelopes(t *testing.T) {
 	var subjects []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		body, _ := io.ReadAll(r.Body)
 		var envelope dsseEnvelope
 		if err := json.Unmarshal(body, &envelope); err != nil {
@@ -432,8 +496,9 @@ func TestArchivistaPublishesSegmentAndCheckpointEnvelopes(t *testing.T) {
 			t.Error(err)
 		}
 		subjects = append(subjects, statement.Subject[0].Name)
+		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{"gitoid":"%s"}`, testArchivistaGitoid(body))
-	}))
+	})))
 	defer server.Close()
 	dir := t.TempDir()
 	a, err := NewSegmentAttestor(SegmentAttestorConfig{
@@ -703,9 +768,14 @@ func TestSecondaryErrorBufferIsBoundedAndLossIsProtected(t *testing.T) {
 
 func TestPublicationTimeoutBoundsCustomClientWithoutTimeout(t *testing.T) {
 	release := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		<-release
-	}))
+	})))
 	defer func() {
 		close(release)
 		server.Close()
@@ -759,4 +829,60 @@ func readJSONLines(t *testing.T, path string) []map[string]any {
 		records = append(records, record)
 	}
 	return records
+}
+
+func TestArchivistaMockServerMethodGatingAndHEAD(t *testing.T) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"gitoid":"%s"}`, testArchivistaGitoid(body))
+	})))
+	defer server.Close()
+
+	client := server.Client()
+
+	// 1. Mutating / non-POST methods must return 405 Method Not Allowed with Allow: POST
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req, err := http.NewRequest(method, server.URL+"/upload", nil)
+		if err != nil {
+			t.Fatalf("NewRequest(%s): %v", method, err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("Do(%s): %v", method, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("%s returned %d, want 405", method, resp.StatusCode)
+		}
+		if allow := resp.Header.Get("Allow"); allow != "POST" {
+			t.Errorf("%s Allow header = %q, want POST", method, allow)
+		}
+	}
+
+	// 2. HEAD must return 405 with empty body and Allow: POST
+	headReq, err := http.NewRequest(http.MethodHead, server.URL+"/upload", nil)
+	if err != nil {
+		t.Fatalf("NewRequest(HEAD): %v", err)
+	}
+	headResp, err := client.Do(headReq)
+	if err != nil {
+		t.Fatalf("Do(HEAD): %v", err)
+	}
+	headBody, _ := io.ReadAll(headResp.Body)
+	headResp.Body.Close()
+	if headResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD returned %d, want 405", headResp.StatusCode)
+	}
+	if allow := headResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("HEAD Allow header = %q, want POST", allow)
+	}
+	if len(headBody) != 0 {
+		t.Errorf("HEAD body length = %d, want 0", len(headBody))
+	}
 }

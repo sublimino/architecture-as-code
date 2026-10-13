@@ -169,7 +169,12 @@ func TestEmptyDiff(t *testing.T) {
 }
 
 func TestSummarizeHandlerSuccess(t *testing.T) {
-	mockLLM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockLLM := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		var req llmRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -197,7 +202,7 @@ func TestSummarizeHandlerSuccess(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
-	}))
+	})))
 	defer mockLLM.Close()
 
 	handler := makeSummarizeHandler(mockLLM.URL, "gemini-test")
@@ -229,7 +234,12 @@ func TestSummarizeHandlerSuccess(t *testing.T) {
 
 func TestSummarizeHandlerLargeDiffTruncated(t *testing.T) {
 	receivedDiff := ""
-	mockLLM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockLLM := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		body, _ := io.ReadAll(r.Body)
 		var req llmRequest
 		_ = json.Unmarshal(body, &req)
@@ -250,7 +260,7 @@ func TestSummarizeHandlerLargeDiffTruncated(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
-	}))
+	})))
 	defer mockLLM.Close()
 
 	handler := makeSummarizeHandler(mockLLM.URL, "gemini-test")
@@ -274,9 +284,14 @@ func TestSummarizeHandlerLargeDiffTruncated(t *testing.T) {
 }
 
 func TestSummarizeHandlerLLMFailure(t *testing.T) {
-	mockLLM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockLLM := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		http.Error(w, "upstream rate limit exceeded", http.StatusTooManyRequests)
-	}))
+	})))
 	defer mockLLM.Close()
 
 	handler := makeSummarizeHandler(mockLLM.URL, "gemini-test")
@@ -334,3 +349,58 @@ func TestHeadErrorBodySuppression(t *testing.T) {
 		}
 	}
 }
+
+func TestPromptSummarizerMockServerMethodGatingAndHEAD(t *testing.T) {
+	mockLLM := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"feat: test"}}]}`))
+	})))
+	defer mockLLM.Close()
+
+	client := mockLLM.Client()
+
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req, err := http.NewRequest(method, mockLLM.URL, nil)
+		if err != nil {
+			t.Fatalf("NewRequest(%s): %v", method, err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("Do(%s): %v", method, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("%s status = %d, want 405", method, resp.StatusCode)
+		}
+		if allow := resp.Header.Get("Allow"); allow != "POST" {
+			t.Errorf("%s Allow = %q, want POST", method, allow)
+		}
+	}
+
+	headReq, err := http.NewRequest(http.MethodHead, mockLLM.URL, nil)
+	if err != nil {
+		t.Fatalf("NewRequest(HEAD): %v", err)
+	}
+	headResp, err := client.Do(headReq)
+	if err != nil {
+		t.Fatalf("Do(HEAD): %v", err)
+	}
+	body, _ := io.ReadAll(headResp.Body)
+	headResp.Body.Close()
+	if headResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD status = %d, want 405", headResp.StatusCode)
+	}
+	if allow := headResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("HEAD Allow = %q, want POST", allow)
+	}
+	if len(body) != 0 {
+		t.Errorf("HEAD body length = %d, want 0", len(body))
+	}
+}
+

@@ -17,6 +17,41 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/pkg/obscel"
 )
 
+type headResponseWriter struct {
+	http.ResponseWriter
+	wroteHeader bool
+}
+
+func (w *headResponseWriter) WriteHeader(status int) {
+	w.wroteHeader = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *headResponseWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	// Per RFC 9110 Section 6.4.1, responses to HEAD requests MUST NOT contain
+	// a message body, regardless of status code.
+	return len(b), nil
+}
+
+func (w *headResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func headBodySuppressingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			next.ServeHTTP(&headResponseWriter{ResponseWriter: w}, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func testDecision() obscel.Decision {
 	return obscel.Decision{
 		ID:            "decision-1",
@@ -52,7 +87,12 @@ func newTestWebhook(url string, m *Metrics, slept *[]time.Duration) *Webhook {
 func TestWebhook_RetriesTwiceThenSucceeds(t *testing.T) {
 	var calls atomic.Int32
 	var bodies []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		b, _ := io.ReadAll(r.Body)
 		bodies = append(bodies, string(b))
 		if calls.Add(1) <= 2 {
@@ -60,7 +100,7 @@ func TestWebhook_RetriesTwiceThenSucceeds(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-	}))
+	})))
 	defer srv.Close()
 
 	m := NewMetrics()
@@ -103,10 +143,15 @@ func TestWebhook_RetriesTwiceThenSucceeds(t *testing.T) {
 // returns an error rather than retrying for ever.
 func TestWebhook_AlwaysFailingIsBoundedAndCounted(t *testing.T) {
 	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		calls.Add(1)
 		w.WriteHeader(http.StatusBadGateway)
-	}))
+	})))
 	defer srv.Close()
 
 	m := NewMetrics()
@@ -132,10 +177,15 @@ func TestWebhook_AlwaysFailingIsBoundedAndCounted(t *testing.T) {
 // and still loses the alert.
 func TestWebhook_DoesNotRetryAPermanentRejection(t *testing.T) {
 	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		calls.Add(1)
 		w.WriteHeader(http.StatusBadRequest)
-	}))
+	})))
 	defer srv.Close()
 
 	var slept []time.Duration
@@ -155,13 +205,18 @@ func TestWebhook_DoesNotRetryAPermanentRejection(t *testing.T) {
 // 429 is the one 4xx that IS retried.
 func TestWebhook_RetriesTooManyRequests(t *testing.T) {
 	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		if calls.Add(1) == 1 {
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-	}))
+	})))
 	defer srv.Close()
 
 	var slept []time.Duration
@@ -177,10 +232,15 @@ func TestWebhook_RetriesTooManyRequests(t *testing.T) {
 // The budget, not the attempt count, bounds the worst case.
 func TestWebhook_BudgetStopsRetryingEvenWithAttemptsLeft(t *testing.T) {
 	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		calls.Add(1)
 		w.WriteHeader(http.StatusInternalServerError)
-	}))
+	})))
 	defer srv.Close()
 
 	// A clock that jumps past the budget after the first attempt.
@@ -359,3 +419,57 @@ func TestMetrics_NilIsANoOp(t *testing.T) {
 		t.Errorf("a nil Metrics must snapshot zero, got %+v", snap)
 	}
 }
+
+func TestWebhookMockServerMethodGatingAndHEAD(t *testing.T) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	defer srv.Close()
+
+	client := srv.Client()
+
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req, err := http.NewRequest(method, srv.URL, nil)
+		if err != nil {
+			t.Fatalf("NewRequest(%s): %v", method, err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("Do(%s): %v", method, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("%s status = %d, want 405", method, resp.StatusCode)
+		}
+		if allow := resp.Header.Get("Allow"); allow != "POST" {
+			t.Errorf("%s Allow = %q, want POST", method, allow)
+		}
+	}
+
+	headReq, err := http.NewRequest(http.MethodHead, srv.URL, nil)
+	if err != nil {
+		t.Fatalf("NewRequest(HEAD): %v", err)
+	}
+	headResp, err := client.Do(headReq)
+	if err != nil {
+		t.Fatalf("Do(HEAD): %v", err)
+	}
+	body, _ := io.ReadAll(headResp.Body)
+	headResp.Body.Close()
+	if headResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD status = %d, want 405", headResp.StatusCode)
+	}
+	if allow := headResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("HEAD Allow = %q, want POST", allow)
+	}
+	if len(body) != 0 {
+		t.Errorf("HEAD body length = %d, want 0", len(body))
+	}
+}
+

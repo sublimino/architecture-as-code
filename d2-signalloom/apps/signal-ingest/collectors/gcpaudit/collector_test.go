@@ -17,6 +17,41 @@ import (
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 )
 
+type headResponseWriter struct {
+	http.ResponseWriter
+	wroteHeader bool
+}
+
+func (w *headResponseWriter) WriteHeader(status int) {
+	w.wroteHeader = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *headResponseWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	// Per RFC 9110 Section 6.4.1, responses to HEAD requests MUST NOT contain
+	// a message body, regardless of status code.
+	return len(b), nil
+}
+
+func (w *headResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func headBodySuppressingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			next.ServeHTTP(&headResponseWriter{ResponseWriter: w}, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 type mockSink struct {
 	mu           sync.Mutex
 	observations []*model.Observation
@@ -272,10 +307,15 @@ func TestGCPAuditCollector_LiveModeSingleEventEndToEnd(t *testing.T) {
 	var mu sync.Mutex
 	var acknowledgedIDs []string
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case strings.Contains(r.URL.Path, ":pull"):
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", "POST")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
 			resp := pubSubPullResponse{
 				ReceivedMessages: []pubSubReceivedMessage{
 					{
@@ -291,6 +331,11 @@ func TestGCPAuditCollector_LiveModeSingleEventEndToEnd(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(resp)
 
 		case strings.Contains(r.URL.Path, ":acknowledge"):
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", "POST")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
 			body, _ := io.ReadAll(r.Body)
 			var ackReq pubSubAckRequest
 			_ = json.Unmarshal(body, &ackReq)
@@ -303,7 +348,7 @@ func TestGCPAuditCollector_LiveModeSingleEventEndToEnd(t *testing.T) {
 		default:
 			http.NotFound(w, r)
 		}
-	}))
+	})))
 	defer server.Close()
 
 	sink := &mockSink{}
@@ -383,10 +428,15 @@ func TestGCPAuditCollector_AckBeforePersistOrdering_SinkError(t *testing.T) {
 	var mu sync.Mutex
 	var acknowledgedIDs []string
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case strings.Contains(r.URL.Path, ":pull"):
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", "POST")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
 			resp := pubSubPullResponse{
 				ReceivedMessages: []pubSubReceivedMessage{
 					{
@@ -400,6 +450,11 @@ func TestGCPAuditCollector_AckBeforePersistOrdering_SinkError(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(resp)
 
 		case strings.Contains(r.URL.Path, ":acknowledge"):
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", "POST")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
 			body, _ := io.ReadAll(r.Body)
 			var ackReq pubSubAckRequest
 			_ = json.Unmarshal(body, &ackReq)
@@ -408,7 +463,7 @@ func TestGCPAuditCollector_AckBeforePersistOrdering_SinkError(t *testing.T) {
 			mu.Unlock()
 			w.WriteHeader(http.StatusOK)
 		}
-	}))
+	})))
 	defer server.Close()
 
 	sink := &mockSink{err: errors.New("database connection refused")}
@@ -439,9 +494,14 @@ func TestGCPAuditCollector_SilentErrorSwallow_ParseErrorCounter(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if strings.Contains(r.URL.Path, ":pull") {
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", "POST")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
 			resp := pubSubPullResponse{
 				ReceivedMessages: []pubSubReceivedMessage{
 					{
@@ -454,7 +514,7 @@ func TestGCPAuditCollector_SilentErrorSwallow_ParseErrorCounter(t *testing.T) {
 			}
 			_ = json.NewEncoder(w).Encode(resp)
 		}
-	}))
+	})))
 	defer server.Close()
 
 	sink := &mockSink{}
@@ -490,7 +550,12 @@ func TestGCPAuditCollector_SilentErrorSwallow_ParseErrorCounter(t *testing.T) {
 func TestGCPAuditCollector_NonBlockingStart(t *testing.T) {
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		select {
 		case entered <- struct{}{}:
 		default:
@@ -499,9 +564,10 @@ func TestGCPAuditCollector_NonBlockingStart(t *testing.T) {
 		case <-release:
 		case <-r.Context().Done():
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{}`))
-	}))
+	})))
 	defer server.Close()
 	defer close(release)
 
@@ -540,3 +606,75 @@ func TestGCPAuditCollector_NonBlockingStart(t *testing.T) {
 		t.Fatal("Start returned but no background subscription pull ever reached the endpoint")
 	}
 }
+
+func TestGCPAuditMockServerMethodGatingAndHEAD(t *testing.T) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, ":pull"):
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", "POST")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"receivedMessages":[]}`))
+
+		case strings.Contains(r.URL.Path, ":acknowledge"):
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", "POST")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+
+		default:
+			http.NotFound(w, r)
+		}
+	})))
+	defer server.Close()
+
+	client := server.Client()
+
+	for _, endpoint := range []string{"/v1/projects/p/subscriptions/s:pull", "/v1/projects/p/subscriptions/s:acknowledge"} {
+		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+			req, err := http.NewRequest(method, server.URL+endpoint, nil)
+			if err != nil {
+				t.Fatalf("NewRequest(%s, %s): %v", method, endpoint, err)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("Do(%s, %s): %v", method, endpoint, err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s status = %d, want 405", method, endpoint, resp.StatusCode)
+			}
+			if allow := resp.Header.Get("Allow"); allow != "POST" {
+				t.Errorf("%s %s Allow = %q, want POST", method, endpoint, allow)
+			}
+		}
+
+		headReq, err := http.NewRequest(http.MethodHead, server.URL+endpoint, nil)
+		if err != nil {
+			t.Fatalf("NewRequest(HEAD, %s): %v", endpoint, err)
+		}
+		headResp, err := client.Do(headReq)
+		if err != nil {
+			t.Fatalf("Do(HEAD, %s): %v", endpoint, err)
+		}
+		body, _ := io.ReadAll(headResp.Body)
+		headResp.Body.Close()
+		if headResp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("HEAD %s status = %d, want 405", endpoint, headResp.StatusCode)
+		}
+		if allow := headResp.Header.Get("Allow"); allow != "POST" {
+			t.Errorf("HEAD %s Allow = %q, want POST", endpoint, allow)
+		}
+		if len(body) != 0 {
+			t.Errorf("HEAD %s body length = %d, want 0", endpoint, len(body))
+		}
+	}
+}
+

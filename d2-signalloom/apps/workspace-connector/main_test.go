@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -82,10 +83,16 @@ func TestServer_Routes(t *testing.T) {
 }
 
 func TestServer_PollAndIngest_ErrorOn500(t *testing.T) {
-	fakeIngest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	fakeIngest := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(`{"error":"internal ingest failure"}`))
-	}))
+	})))
 	defer fakeIngest.Close()
 
 	srv := &Server{
@@ -101,9 +108,15 @@ func TestServer_PollAndIngest_ErrorOn500(t *testing.T) {
 }
 
 func TestServer_ConcurrentAccess(t *testing.T) {
-	fakeIngest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	fakeIngest := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-	}))
+	})))
 	defer fakeIngest.Close()
 
 	srv := &Server{
@@ -179,9 +192,15 @@ func TestHeadErrorBodySuppression(t *testing.T) {
 	}
 
 	// 3. Direct handler invocation with HEAD when handlePoll fails (simulated by 500 ingest)
-	fakeIngest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	fakeIngest := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-	}))
+	})))
 	defer fakeIngest.Close()
 
 	errSrv := &Server{
@@ -202,4 +221,59 @@ func TestHeadErrorBodySuppression(t *testing.T) {
 		t.Errorf("handlePoll HEAD error: want Content-Type application/json, got %q", ct)
 	}
 }
+
+func TestWorkspaceIngestMockServerMethodGatingAndHEAD(t *testing.T) {
+	fakeIngest := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"received":1}`))
+	})))
+	defer fakeIngest.Close()
+
+	client := fakeIngest.Client()
+
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req, err := http.NewRequest(method, fakeIngest.URL, nil)
+		if err != nil {
+			t.Fatalf("NewRequest(%s): %v", method, err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("Do(%s): %v", method, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("%s status = %d, want 405", method, resp.StatusCode)
+		}
+		if allow := resp.Header.Get("Allow"); allow != "POST" {
+			t.Errorf("%s Allow = %q, want POST", method, allow)
+		}
+	}
+
+	headReq, err := http.NewRequest(http.MethodHead, fakeIngest.URL, nil)
+	if err != nil {
+		t.Fatalf("NewRequest(HEAD): %v", err)
+	}
+	headResp, err := client.Do(headReq)
+	if err != nil {
+		t.Fatalf("Do(HEAD): %v", err)
+	}
+	body, _ := io.ReadAll(headResp.Body)
+	headResp.Body.Close()
+	if headResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD status = %d, want 405", headResp.StatusCode)
+	}
+	if allow := headResp.Header.Get("Allow"); allow != "POST" {
+		t.Errorf("HEAD Allow = %q, want POST", allow)
+	}
+	if len(body) != 0 {
+		t.Errorf("HEAD body length = %d, want 0", len(body))
+	}
+}
+
 

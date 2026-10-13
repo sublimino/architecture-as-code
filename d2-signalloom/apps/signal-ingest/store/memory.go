@@ -27,46 +27,66 @@ func (m *MemoryStore) Append(_ context.Context, observations []model.Observation
 	return nil
 }
 
+// matchesFilters reports whether o satisfies q's row predicates. Offset and Limit are
+// positional and are applied by the caller, not here.
+//
+// Shared by QueryRange and ScanIDs so the two cannot drift: a row that one returns and the
+// other skips would make a warmed ID set disagree with the rows it was warmed from.
+func matchesFilters(o *model.Observation, q Query, layerSet map[model.Layer]struct{}) bool {
+	// Kept here, not in QueryRange: ScanIDs shares this predicate, and the by-ID
+	// bound must apply to both reads or they drift apart.
+	if !q.matchesIDs(o.ID) {
+		return false
+	}
+	if !q.After.IsZero() && o.Timestamp.Before(q.After) {
+		return false
+	}
+	if !q.Before.IsZero() && !o.Timestamp.Before(q.Before) {
+		return false
+	}
+	if len(layerSet) > 0 {
+		if _, ok := layerSet[o.Layer]; !ok {
+			return false
+		}
+	}
+	if q.ActorID != "" && o.ActorHint != q.ActorID {
+		return false
+	}
+	if q.SubjectID != "" {
+		matchSubject := (o.ActorHint == q.SubjectID) ||
+			(o.Labels != nil && (o.Labels["actor_id"] == q.SubjectID ||
+				o.Labels["principal_id"] == q.SubjectID ||
+				o.Labels["impersonated_user"] == q.SubjectID ||
+				o.Labels["user"] == q.SubjectID))
+		if !matchSubject {
+			return false
+		}
+	}
+	return true
+}
+
+// layerSetOf indexes q.Layers for membership tests.
+func layerSetOf(q Query) map[model.Layer]struct{} {
+	set := make(map[model.Layer]struct{}, len(q.Layers))
+	for _, l := range q.Layers {
+		set[l] = struct{}{}
+	}
+	return set
+}
+
 // QueryRange returns observations matching the query filters.
 func (m *MemoryStore) QueryRange(_ context.Context, q Query) ([]model.Observation, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	layerSet := make(map[model.Layer]struct{}, len(q.Layers))
-	for _, l := range q.Layers {
-		layerSet[l] = struct{}{}
-	}
+	layerSet := layerSetOf(q)
 
 	var matched []model.Observation
-	for _, o := range m.data {
-		if !q.matchesIDs(o.ID) {
+	for i := range m.data {
+		if !matchesFilters(&m.data[i], q, layerSet) {
 			continue
 		}
-		if !q.After.IsZero() && o.Timestamp.Before(q.After) {
-			continue
-		}
-		if !q.Before.IsZero() && !o.Timestamp.Before(q.Before) {
-			continue
-		}
-		if len(layerSet) > 0 {
-			if _, ok := layerSet[o.Layer]; !ok {
-				continue
-			}
-		}
-		if q.ActorID != "" && o.ActorHint != q.ActorID {
-			continue
-		}
-		if q.SubjectID != "" {
-			matchSubject := (o.ActorHint == q.SubjectID) ||
-				(o.Labels != nil && (o.Labels["actor_id"] == q.SubjectID ||
-					o.Labels["principal_id"] == q.SubjectID ||
-					o.Labels["impersonated_user"] == q.SubjectID ||
-					o.Labels["user"] == q.SubjectID))
-			if !matchSubject {
-				continue
-			}
-		}
-		matched = append(matched, o)
+		matched = append(matched, m.data[i])
 	}
 
 	if q.Offset > 0 {
@@ -81,6 +101,36 @@ func (m *MemoryStore) QueryRange(_ context.Context, q Query) ([]model.Observatio
 	}
 
 	return matched, nil
+}
+
+// ScanIDs streams matching observation IDs without copying rows.
+//
+// The strings are already independently allocated Go strings owned by m.data, not views into
+// a decode buffer, so they satisfy the interface's ownership requirement as they stand.
+func (m *MemoryStore) ScanIDs(_ context.Context, q Query, fn func(id string) error) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	layerSet := layerSetOf(q)
+
+	emitted, skipped := 0, 0
+	for i := range m.data {
+		if !matchesFilters(&m.data[i], q, layerSet) {
+			continue
+		}
+		if skipped < q.Offset {
+			skipped++
+			continue
+		}
+		if err := fn(m.data[i].ID); err != nil {
+			return err
+		}
+		emitted++
+		if q.Limit > 0 && emitted >= q.Limit {
+			return nil
+		}
+	}
+	return nil
 }
 
 // DropPartition removes all observations before the given time.

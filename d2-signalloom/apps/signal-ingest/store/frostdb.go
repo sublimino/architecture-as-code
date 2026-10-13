@@ -4,6 +4,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -544,6 +545,93 @@ func (f *FrostDBStore) QueryRange(ctx context.Context, q Query) ([]model.Observa
 	}
 
 	return results, nil
+}
+
+// errScanLimitReached unwinds out of the engine callback once q.Limit rows have been
+// emitted. It never escapes ScanIDs: a sentinel is the only way to stop a push-based scan
+// early, and it is matched by identity with errors.Is so a real engine error of any shape
+// still propagates.
+var errScanLimitReached = errors.New("store: scan limit reached")
+
+// ScanIDs streams observation IDs without materialising rows.
+//
+// Two things make this cheap where QueryRange is not. The projection is the id column alone,
+// so the engine never decodes the free-text description, the six pseudonym columns or any
+// dynamic label column; and nothing is accumulated, so peak memory is one Arrow record
+// rather than the whole result.
+//
+// The filter is applied BEFORE the projection in the plan, so the timestamp predicate still
+// pushes down to partition pruning even though timestamp is not in the output.
+func (f *FrostDBStore) ScanIDs(ctx context.Context, q Query, fn func(id string) error) error {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	// Same retention floor QueryRange applies, so a dropped partition cannot be warmed back
+	// into an ID set after it has been swept.
+	if !f.droppedBefore.IsZero() {
+		if q.After.IsZero() || q.After.Before(f.droppedBefore) {
+			q.After = f.droppedBefore
+		}
+	}
+
+	filter, err := buildFilter(q, f.pseudonymiser)
+	if err != nil {
+		return fmt.Errorf("frostdb: build filter: %w", err)
+	}
+	builder := f.engine.ScanTable(tableName)
+	if filter != nil {
+		builder = builder.Filter(filter)
+	}
+	builder = builder.Project(colRef("id"))
+
+	emitted, skipped := 0, 0
+	var callbackErr error
+	execErr := builder.Execute(ctx, func(_ context.Context, r arrow.Record) error {
+		idx := -1
+		for i, fld := range r.Schema().Fields() {
+			if fld.Name == "id" {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			// The projection asked for exactly this column. Its absence means the plan did
+			// not do what this code assumes, and silently scanning zero IDs would warm an
+			// empty dedupe set and re-admit every replayed record.
+			callbackErr = errors.New("frostdb: scan ids: projected record has no id column")
+			return callbackErr
+		}
+		col := r.Column(idx)
+		for i := 0; i < int(r.NumRows()); i++ {
+			if skipped < q.Offset {
+				skipped++
+				continue
+			}
+			// Clone: arrow-go returns a string aliasing the record's buffer, and the caller
+			// retains these. Without the copy, one warmed ID pins the whole Arrow record —
+			// every column of every row in it — for as long as the ID set holds it.
+			if err := fn(strings.Clone(stringAt(col, i))); err != nil {
+				callbackErr = err
+				return err
+			}
+			emitted++
+			if q.Limit > 0 && emitted >= q.Limit {
+				return errScanLimitReached
+			}
+		}
+		return nil
+	})
+
+	switch {
+	case callbackErr != nil:
+		// fn's own error, or the missing-column failure. Reported as-is; the engine may have
+		// wrapped it on the way out, and the caller is owed the error it returned.
+		return callbackErr
+	case execErr != nil && !errors.Is(execErr, errScanLimitReached):
+		return fmt.Errorf("frostdb: scan ids: %w", execErr)
+	default:
+		return nil
+	}
 }
 
 // matchesQuery applies query filters to an observation. Retained as a correctness

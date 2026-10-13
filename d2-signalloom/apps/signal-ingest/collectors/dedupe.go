@@ -204,11 +204,23 @@ func (d *Deduper) Release(batch []model.Observation) {
 // Warm seeds the set from st with the IDs already durable in the last window,
 // so a restart does not re-admit them.
 //
-// The read is bounded twice — by the window and by the capacity — because this
-// runs before any collector starts and must not become a full-store scan on a
-// pod that has been ingesting for a month. Rows outside the window are
-// deliberately NOT warmed: the set is finite, and spending it on history older
-// than any plausible redelivery would evict the IDs that are about to arrive.
+// The read is bounded three ways: by the window, by the capacity, and — the one
+// that was missing — by the projection. Warm wants identity and nothing else, so
+// it streams IDs through store.ScanIDs rather than reading rows.
+//
+// It used to call QueryRange and look at nothing but rows[i].ID. The window and
+// capacity bounds in the old comment bound ROWS, not bytes, and capacity is a
+// million: every row came back as a fully decoded model.Observation with its own
+// Labels map, measured at 2,635 bytes against roughly 200 for an ID. On
+// kind-osramp with 192,312 rows in the 24h window that took the pod from 147 MiB
+// to 1,123 MiB inside the warm-up second and left under 1 GiB of a 2Gi limit for
+// everything else, so any concurrent read tipped it over — exit 137, 15 restarts,
+// worst container lifetime 21 seconds (2026-10-13). Raising the limit 512Mi ->
+// 1Gi -> 2Gi each only bought time, because rows_read grows with ingest volume.
+//
+// Rows outside the window are deliberately NOT warmed: the set is finite, and
+// spending it on history older than any plausible redelivery would evict the IDs
+// that are about to arrive.
 func (d *Deduper) Warm(ctx context.Context, st store.SignalStore, window time.Duration, now time.Time, log *slog.Logger) error {
 	if d == nil || st == nil {
 		return nil
@@ -219,23 +231,36 @@ func (d *Deduper) Warm(ctx context.Context, st store.SignalStore, window time.Du
 	if window <= 0 {
 		window = d.window
 	}
-	rows, err := st.QueryRange(ctx, store.Query{After: now.Add(-window), Limit: d.capacity})
-	if err != nil {
-		return fmt.Errorf("collectors: dedupe warm-up: %w", err)
-	}
+
+	// Limit stays at capacity so the scan warms exactly the ID set it warmed
+	// before: this is a change of projection, not of which IDs are admitted.
+	q := store.Query{After: now.Add(-window), Limit: d.capacity}
 
 	var n uint64
+	rowsRead := 0
+
+	// Held across the whole scan rather than taken per ID. Warm runs before any
+	// collector starts, so there is no contention to yield to, and re-acquiring a
+	// million times would cost more than the scan.
 	d.mu.Lock()
-	for i := range rows {
-		id := rows[i].ID
+	err := st.ScanIDs(ctx, q, func(id string) error {
+		rowsRead++
 		if id == "" {
-			continue
+			return nil
 		}
 		if _, ok := d.index[id]; ok {
-			continue
+			return nil
 		}
 		d.index[id] = d.order.PushFront(id)
 		n++
+		return nil
+	})
+	if err != nil {
+		// Unlock before returning: the partial set stays, which is safe — a warmed
+		// ID is only ever a reason to REFUSE a record, so a short set re-admits a
+		// replay rather than dropping a new record.
+		d.mu.Unlock()
+		return fmt.Errorf("collectors: dedupe warm-up: %w", err)
 	}
 	d.evictLocked()
 	d.warmed += n
@@ -243,7 +268,7 @@ func (d *Deduper) Warm(ctx context.Context, st store.SignalStore, window time.Du
 	d.mu.Unlock()
 
 	log.Info("ingest idempotency warmed from the durable store",
-		"warmed_ids", n, "tracked_ids", tracked, "rows_read", len(rows),
+		"warmed_ids", n, "tracked_ids", tracked, "rows_read", rowsRead,
 		"window", window.String(), "capacity", d.capacity)
 	return nil
 }

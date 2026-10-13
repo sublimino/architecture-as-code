@@ -241,6 +241,30 @@
       "annotations": {
         "org.opencontainers.image.ref.name": "registry.k8s.io/metrics-server/metrics-server@sha256:b2d2efaf5ac3b366ed0f839d2412a2c4279d4fc2a2a733f12c52133faed36c41"
       }
+    },
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "size": 3030,
+      "digest": "sha256:a024ff8a68c1229e8266e38cbe8ca239fa7ce0264787a85208b0d64b82a6b9fb",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom@sha256:a024ff8a68c1229e8266e38cbe8ca239fa7ce0264787a85208b0d64b82a6b9fb"
+      }
+    },
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "size": 3669,
+      "digest": "sha256:dd06c2cf78699e788716d6a89392d1141cfdb2e3bc8896ca6bfc829823b692ff",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/docs-signalloom@sha256:dd06c2cf78699e788716d6a89392d1141cfdb2e3bc8896ca6bfc829823b692ff"
+      }
+    },
+    {
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "size": 2054,
+      "digest": "sha256:260c71e576106d9c690f55be8cdac9e10ae6631e37d5e04d7774d56e932c6023",
+      "annotations": {
+        "org.opencontainers.image.ref.name": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom@sha256:260c71e576106d9c690f55be8cdac9e10ae6631e37d5e04d7774d56e932c6023"
+      }
     }
   ]
 }

@@ -359,7 +359,7 @@ Obey these. They are the phase constitution.
 | P2-3 | implementation | Implement Kind cluster bootstrap and Zot seeder in `init-tenant.sh`: launch Kind cluster with generated config, deploy in-cluster Zot registry from pre-cached archives, and preload all platform container images into Zot without external network calls. | P2-2 | Kind cluster answers `Ready=True`; `curl -fsS http://localhost:5000/v2/_catalog` returns preloaded images | M | antigravity | pass — delivered: d8e9a58b (see Errata — SLSI-P2-3) | $0.00 | N/A — subscription | 45m04s | agy://open?id=f2017&dir=/home/andy/.cline/worktrees/f2017/osramp-demo&host=fortuna&model=gemini-3.7-flash |
 | P2-4 | implementation | Implement dual-trust supply chain configuration in `init-tenant.sh`: configure `OCIRepository.spec.verify` against the static release public key for manifest artifacts and the tenant key for tenant manifests, and extend `policy/kyverno-verify-images.yaml` past its `admission-demo` scope so container images are admitted only on a trusted static-key signature or a pinned digest. Decisions 8 and 9 are both settled: honour `APPLIANCE_MODE` (in `attached` mode verify against the central issuer credentials rather than minting local ones), and trust platform images via the release **public** key plus their pinned digests. | P2-3 | Admission rejects an image signed by an untrusted key; a digest-pinned platform image and a tenant-signed workload are both admitted; `OCIRepository` reconciles only on a valid static-key signature | M | antigravity | pass — delivered: 2d500664 (see Errata — SLSI-P2-4) | $0.00 | N/A — subscription | 6m56s | agy://open?id=8123a&dir=/home/andy/.cline/worktrees/8123a/osramp-demo&host=fortuna&model=gemini-3.7-flash |
 | P2-5 | test | Author BATS integration test `test/slsi-bootstrap-persistence.bats` asserting: (1) two consecutive runs of `init-tenant.sh` produce disjoint cryptographic keys, (2) PostgreSQL and OpenBao data written during run 1 survives a full `kind delete cluster` and redeploy, and (3) **the Decision 8 mode switch does not leak**: `APPLIANCE_MODE=hub` mints local issuers and renders no `remote-tenant` overlay, while `APPLIANCE_MODE=attached` renders the warden-only overlay, consumes the copied central issuer Secrets, and mints **no** local issuer — asserted by inspecting the rendered manifest set and the key directory in both modes. | P2-4 | `bats test/slsi-bootstrap-persistence.bats` exits 0 with 100% data persistence and both mode assertions passing; a leak in either direction fails the card and escalates to the Decision 8 fallback | M | antigravity | pass — delivered: bd17f74d (see Errata — SLSI-P2-5) | $0.00 | N/A — subscription | 5m00s | agy://open?id=d9bb1&dir=/home/andy/.cline/worktrees/d9bb1/osramp-demo&host=fortuna&model=gemini-3.7-flash |
-| P2-GOV | governor | Merge P2 cards in order, execute `bats test/slsi-bootstrap-persistence.bats`, verify zero-egress boot, run `make test-all-offline`, and record Phase 2 completion errata. | P2-5 | Clean merge, BATS persistence suite exits 0, zero egress verified, errata recorded | M | antigravity | - | $0.00 | N/A — no session | N/A | agy://open?id=74dda&dir=/home/andy/.cline/worktrees/74dda/osramp-demo&host=fortuna&model=gemini-3.7-flash |
+| P2-GOV | governor | Merge P2 cards in order, execute `bats test/slsi-bootstrap-persistence.bats`, verify zero-egress boot, run `make test-all-offline`, and record Phase 2 completion errata. | P2-5 | Clean merge, BATS persistence suite exits 0, zero egress verified, errata recorded | M | antigravity | pass — Phase 2 certified: 5 suites / 36 BATS pass, zero egress verified, ledger emitted (see Errata — SLSI-P2-GOV) | $0.00 | N/A — no session | N/A | agy://open?id=74dda&dir=/home/andy/.cline/worktrees/74dda/osramp-demo&host=fortuna&model=gemini-3.7-flash |
 | P3-PRE | preflight | Audit Envoy Gateway Gateway API configurations, cert-manager ClusterIssuers, and telemetry emitter hooks. Publish Phase 3 gap table in errata covering ingress modes, upgrade rollback mechanisms, and diagnostic packaging. No code changes. | P2-GOV | Gap table in errata detailing ingress, upgrade, and diagnostic paths | S | antigravity | - | - | - | - | - |
 | P3-1 | implementation | Implement multi-mode ingress configuration in `init-tenant.sh`: generate Envoy Gateway `Gateway`, `HTTPRoute`, and `ClientTrafficPolicy` resources supporting: (1) Air-gapped `*.<tenant>.local`, (2) Automated ACME for `signal-loom.ai`, (3) Cloud Load Balancer with PROXY protocol, and (4) BYO custom PKI. | P3-PRE | Envoy Gateway route tests exit 0 across all 4 modes; TLS certificates terminate cleanly | M | antigravity | - | - | - | - | - |
 | P3-2 | implementation | Implement in-place Day-2 upgrade engine `scripts/upgrade-tenant.sh`: load new OCI images into local Zot, execute pre-upgrade atomic database snapshot to `/opt/tenants/<id>/snapshots/`, and reconcile updated Flux GitOps manifests without cluster destruction. Include automatic rollback on failure. | P3-1 | Upgrade test script upgrades mock v0.1.0 to v0.2.0, preserves records, and verifies rollback on error | M | antigravity | - | - | - | - | - |
@@ -949,6 +949,41 @@ I am stopping. The commit stays `d79c34cd`. The card closes green with no P1-4 c
 - Verified Decision 8 mode isolation: in `APPLIANCE_MODE=hub`, verified local issuers minted and zero `remote-tenant` overlay rendered; in `APPLIANCE_MODE=attached`, verified zero local issuers minted, local key generation bypassed, central issuer credentials consumed, and `remote-tenant-rendered.yaml` rendered with zero local cert-manager issuers.
 **Deviations:** None.
 **Notes:** 36/36 Phase 2 tests (slsi-tenant-keys, slsi-host-mounts, slsi-zot-preload, slsi-dual-trust, slsi-bootstrap-persistence) pass cleanly with 0 failures.
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLSI-P2-GOV Phase 2 Governor certification
+**Created:** 2026-10-13 01:35:00+01:00
+**Last Updated:** 2026-10-13 01:35:00+01:00
+**Status:** Passed. Phase 2 certified complete and unblocked.
+**Commit:** 6cdb1fb96316238b97b0a79a77ef79ddc27599cb
+
+##### Phase 2 Certification Ledger
+
+| Stage | Card | Status | Primary Artefact / Proof |
+| :--- | :--- | :--- | :--- |
+| Preflight | `SLSI-P2-PRE` | `done` | Five-way landing contract, measured UIDs (`ownership.json`), zero-leak boundary |
+| Keys | `SLSI-P2-1` | `done` | `init-tenant.sh stage_p2_1_keys`, disjoint keys, AES-256-GCM escrow, `signing-config.json` |
+| Mounts | `SLSI-P2-2` | `done` | `init-tenant.sh stage_p2_2_hostmounts`, measured UIDs (postgres 999:999, openbao 100:1000, zot 65532:65532), Kind config generator |
+| Preload | `SLSI-P2-3` | `done` | `init-tenant.sh stage_p2_3_cluster_and_zot`, Kind cluster boot, zero-egress Zot preload, catalog verified |
+| Dual-Trust | `SLSI-P2-4` | `done` | `init-tenant.sh stage_p2_4_dualtrust`, Kyverno image admission, Decision 8 attached mode dual-trust |
+| Persistence | `SLSI-P2-5` | `done` | `test/slsi-bootstrap-persistence.bats` (4/4 passed), 100% data recovery across cluster recreation |
+| Governance | `SLSI-P2-GOV` | `pass` | Clean branch integration, 5 suites / 36 BATS pass, zero egress verified, ledger emitted |
+
+##### Invariants & Scope Decisions Certified
+1. **Zero-Egress Air-Gap Invariant:** Confirmed zero external network egress during Kind cluster initialization, Zot deployment, and image preload (`test/slsi-zot-preload.bats`).
+2. **Cryptographic Disjointness:** Confirmed consecutive runs generate disjoint Cosign ECDSA P-256, Witness Ed25519, and Orbit Ed25519 keypairs with unique fingerprints and encrypted escrow archives (`test/slsi-tenant-keys.bats`, `test/slsi-bootstrap-persistence.bats`).
+3. **Host Mount Data Persistence:** Confirmed PostgreSQL and OpenBao host persistence across cluster teardown and redeployment without data truncation or corruption (`test/slsi-host-mounts.bats`, `test/slsi-bootstrap-persistence.bats`).
+4. **Decision 8 Mode Isolation:** Confirmed strict boundary enforcement: `APPLIANCE_MODE=hub` provisions local cluster issuers and renders no `remote-tenant` overlay; `APPLIANCE_MODE=attached` suppresses local issuer generation, consumes central credentials, and renders the warden-only overlay without local cert-manager issuers.
+5. **Persistence Ledger Emitted:** Ledger artifact recorded at `docs/slsi-p2-persistence-ledger.json` under schema `slsi.phase2-ledger/v1`.
+
+##### Test Evidence
+- `bats test/slsi-tenant-keys.bats`: **11 passed, 0 failed, 0 skipped**.
+- `bats test/slsi-host-mounts.bats`: **7 passed, 0 failed, 0 skipped**.
+- `bats test/slsi-zot-preload.bats`: **9 passed, 0 failed, 0 skipped**.
+- `bats test/slsi-dual-trust.bats`: **5 passed, 0 failed, 0 skipped**.
+- `bats test/slsi-bootstrap-persistence.bats`: **4 passed, 0 failed, 0 skipped**.
+- **Total Phase 2 BATS:** **36 passed, 0 failed, 0 skipped**.
+
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 
 ---

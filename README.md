@@ -276,7 +276,7 @@ Install these yourself. `setup.sh` does not install them:
 | Tool | Used for |
 | --- | --- |
 | Docker | Building images and running kind |
-| openssl | Making the witness key |
+| openssl | EAP evidence signing and SPIRE trust-anchor normalisation. The witness key now uses `ed25519-keygen` |
 | bun | The Playwright acceptance suite (`make acceptance-test`) and the dashboard build |
 | python3 | Test helpers and several make targets |
 | nono + claude CLI (optional, Linux) | Sandboxed coding-agent worktrees |

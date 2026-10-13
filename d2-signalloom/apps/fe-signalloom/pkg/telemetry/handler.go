@@ -28,8 +28,16 @@ func (h *TelemetryHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/telemetry/agents", h.handleList)
 }
 
+func drainAndCloseBody(r *http.Request) {
+	if r != nil && r.Body != nil {
+		_, _ = io.CopyN(io.Discard, r.Body, 4096)
+		_ = r.Body.Close()
+	}
+}
+
 // ServeHTTP handles /api/telemetry/agents/{pod} and /api/v1/telemetry/agents/{pod}.
 func (h *TelemetryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	defer drainAndCloseBody(r)
 	pod := extractPodName(r.URL.Path)
 	if pod == "" {
 		h.handleList(w, r)
@@ -65,12 +73,6 @@ func (h *TelemetryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // Per RFC 9110 Section 9.3.7, OPTIONS requests are answered with 204 No Content
 // and CORS preflight headers without requiring recent collector scrapes.
 func (h *TelemetryHandler) admit(w http.ResponseWriter, r *http.Request) bool {
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.CopyN(io.Discard, r.Body, 4096)
-			_ = r.Body.Close()
-		}()
-	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -80,7 +82,7 @@ func (h *TelemetryHandler) admit(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "Method is not allowed")
 		return false
 	}
@@ -132,6 +134,7 @@ func (h *TelemetryHandler) handleJSON(w http.ResponseWriter, r *http.Request, po
 }
 
 func (h *TelemetryHandler) handleList(w http.ResponseWriter, r *http.Request) {
+	defer drainAndCloseBody(r)
 	if !h.admit(w, r) {
 		return
 	}

@@ -388,8 +388,8 @@ func TestHandler_ErrorStatuses(t *testing.T) {
 			if got := errorCode(t, rr); got != tc.wantCode {
 				t.Fatalf("error.code %q, want %q", got, tc.wantCode)
 			}
-			if tc.wantStatus == 405 && rr.Header().Get("Allow") != "GET, HEAD" {
-				t.Fatalf("405 without Allow: GET, HEAD")
+			if tc.wantStatus == 405 && rr.Header().Get("Allow") != "GET, HEAD, OPTIONS" {
+				t.Fatalf("405 without Allow: GET, HEAD, OPTIONS, got %q", rr.Header().Get("Allow"))
 			}
 		})
 	}

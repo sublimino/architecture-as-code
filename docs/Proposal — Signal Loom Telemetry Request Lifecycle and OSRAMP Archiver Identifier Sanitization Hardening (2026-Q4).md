@@ -39,15 +39,16 @@ In `d2-signalloom/apps/fe-signalloom/pkg/telemetry/handler.go`:
 - Return HTTP 204 No Content with `Allow: GET, HEAD, OPTIONS` on OPTIONS preflight requests.
 - Set CORS preflight headers `Access-Control-Allow-Origin: *`, `Access-Control-Allow-Methods: GET, HEAD, OPTIONS`, and `Access-Control-Allow-Headers: Content-Type, Accept, Authorization`.
 - Ensure zero response body bytes on OPTIONS responses.
-- In `admit`, close and drain unconsumed request bodies using `io.LimitReader(r.Body, 4096)`.
-- Preserve existing `Allow: GET, HEAD` header values on HTTP 405 responses for contract compatibility.
+- Implement `drainAndCloseBody` to drain up to 4096 bytes and close request bodies upon handler completion.
+- Defer `drainAndCloseBody` across `ServeHTTP` and `handleList`.
+- Set `Allow: GET, HEAD, OPTIONS` on HTTP 405 responses to comply with RFC 9110 Section 15.5.6.
 
 ### 2. OSRAMP Task Archiver Identifier Sanitization and Length Bounding
 
 In `d2-osramp-apps/apps/archiver/archiver.go`:
-- Introduce `sanitizeTaskID` to strip whitespace, control characters, newlines, carriage returns, and invalid symbols from task identifiers.
-- Introduce `sanitizeIdentifier` to sanitize worker IDs, statuses, result types, algorithms, and SBOM IDs.
-- Bound identifier string lengths to database column limits.
+- Update `sanitizeTaskID` to collapse directory traversal sequences and bound lengths to 255 characters.
+- Update `sanitizeIdentifier` bounds to 255 characters for task ID, correlation ID, worker ID, package name, and package version.
+- Introduce `sanitizeFilePath` to strip control characters and bound file paths to 500 characters.
 - Apply sanitization in `processTaskResult`, `processTaskSignature`, and `processSBOMData` before logging and database operations.
 - Preserve strict rejection of empty or whitespace-only keys to maintain schema integrity and test contracts.
 

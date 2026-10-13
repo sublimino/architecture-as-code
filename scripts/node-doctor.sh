@@ -264,11 +264,18 @@ collect_probe() {
   # The knobs are prepended as assignments rather than passed through the
   # environment for the same reason: `gcloud ... --command` does not carry the
   # caller's environment to the far side either.
+  local ssh_key_arg=()
+  if [ -n "${GCP_SSH_KEY_FILE:-}" ] && [ -f "$GCP_SSH_KEY_FILE" ]; then
+    ssh_key_arg=(--ssh-key-file="$GCP_SSH_KEY_FILE")
+  elif [ -f "/tmp/gcp_ssh_key" ]; then
+    ssh_key_arg=(--ssh-key-file="/tmp/gcp_ssh_key")
+  fi
   script="$(printf 'ND_APP_PORT=%q\nND_ZOT_PUSH=%q\n%s\n' \
               "$APP_PORT" "${ND_ZOT_PUSH:-1}" "$(cat "${LIB_DIR}/probe.sh")")"
   out="$(timeout "$SSH_TIMEOUT" env SSH_AUTH_SOCK='' gcloud compute ssh "$INSTANCE_NAME" \
         --zone="$ZONE" --project="$PROJECT_ID" \
         ${OPERATOR_SA:+--impersonate-service-account="$OPERATOR_SA"} \
+        "${ssh_key_arg[@]}" \
         --tunnel-through-iap --quiet \
         --command="$script" 2>&1 </dev/null)" || rc=$?
   printf '%s' "$out" | grep -v '^WARNING: This command is using service account impersonation'

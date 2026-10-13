@@ -936,8 +936,14 @@ run_filtered() {
 vm_ssh() {
   local args=()
   mapfile -t args < <(gcloud_common)
+  local ssh_key_arg=()
+  if [ -n "${GCP_SSH_KEY_FILE:-}" ] && [ -f "$GCP_SSH_KEY_FILE" ]; then
+    ssh_key_arg=(--ssh-key-file="$GCP_SSH_KEY_FILE")
+  elif [ -f "/tmp/gcp_ssh_key" ]; then
+    ssh_key_arg=(--ssh-key-file="/tmp/gcp_ssh_key")
+  fi
   run_filtered env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute ssh "$INSTANCE_NAME" \
-    --zone="$ZONE" "${args[@]}" --tunnel-through-iap \
+    --zone="$ZONE" "${args[@]}" "${ssh_key_arg[@]}" --tunnel-through-iap \
     --command="$1"
 }
 
@@ -960,8 +966,14 @@ remote_run() {
 vm_scp() {
   local args=()
   mapfile -t args < <(gcloud_common)
+  local ssh_key_arg=()
+  if [ -n "${GCP_SSH_KEY_FILE:-}" ] && [ -f "$GCP_SSH_KEY_FILE" ]; then
+    ssh_key_arg=(--ssh-key-file="$GCP_SSH_KEY_FILE")
+  elif [ -f "/tmp/gcp_ssh_key" ]; then
+    ssh_key_arg=(--ssh-key-file="/tmp/gcp_ssh_key")
+  fi
   run_filtered env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute scp --tunnel-through-iap \
-    --zone="$ZONE" "${args[@]}" "$@"
+    --zone="$ZONE" "${args[@]}" "${ssh_key_arg[@]}" "$@"
 }
 
 # An unreadable state is not an absent VM. Distinguishing them matters: acting
@@ -1895,10 +1907,17 @@ run_pipeline() {
   #
   # PIPESTATUS[0], not $?, because tee is what the shell sees last.
   set +e
+  local ssh_key_arg=()
+  if [ -n "${GCP_SSH_KEY_FILE:-}" ] && [ -f "$GCP_SSH_KEY_FILE" ]; then
+    ssh_key_arg=(--ssh-key-file="$GCP_SSH_KEY_FILE")
+  elif [ -f "/tmp/gcp_ssh_key" ]; then
+    ssh_key_arg=(--ssh-key-file="/tmp/gcp_ssh_key")
+  fi
   "$TIMEOUT_CMD" -k 60s "${TIMEOUT_MINUTES}m" \
     env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute ssh "$INSTANCE_NAME" \
     --zone="$ZONE" --project="$PROJECT_ID" \
     --impersonate-service-account="$OPERATOR_SA" \
+    "${ssh_key_arg[@]}" \
     --tunnel-through-iap \
     --command="$invocation" \
     2>&1 | strip_impersonation_warning | tee -a "${REPORT_DIR}/pipeline.log"
@@ -2198,8 +2217,14 @@ cmd_ssh() {
 
   local args=()
   mapfile -t args < <(gcloud_common)
+  local ssh_key_arg=()
+  if [ -n "${GCP_SSH_KEY_FILE:-}" ] && [ -f "$GCP_SSH_KEY_FILE" ]; then
+    ssh_key_arg=(--ssh-key-file="$GCP_SSH_KEY_FILE")
+  elif [ -f "/tmp/gcp_ssh_key" ]; then
+    ssh_key_arg=(--ssh-key-file="/tmp/gcp_ssh_key")
+  fi
   exec env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute ssh "$INSTANCE_NAME" \
-    --zone="$ZONE" "${args[@]}" --tunnel-through-iap "$@"
+    --zone="$ZONE" "${args[@]}" "${ssh_key_arg[@]}" --tunnel-through-iap "$@"
 }
 
 cmd_connect() {

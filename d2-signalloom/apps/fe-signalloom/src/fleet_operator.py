@@ -42,7 +42,7 @@ from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Body, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from api_compat import (
     ERROR_RESPONSES,
@@ -93,7 +93,7 @@ async def _forward(
     *,
     path: str,
     body: dict[str, Any] | None,
-) -> JSONResponse:
+) -> Response:
     """Send one already-audited, already-authorised request to fleet-manager.
 
     Deliberately does *not* audit: ``test_audit_event_types`` resolves an event
@@ -123,6 +123,28 @@ async def _forward(
             502, "fleet_manager_unreachable", f"fleet-manager unreachable: {type(exc).__name__}",
         ) from None
 
+    # Collect upstream headers to propagate per RFC 9110
+    from collections.abc import Mapping
+
+    forwarded_headers: dict[str, str] = {}
+    resp_headers_map: dict[str, str] = {}
+    headers_obj = getattr(response, "headers", None)
+    if isinstance(headers_obj, Mapping):
+        resp_headers_map = {str(k).lower(): str(v) for k, v in headers_obj.items()}
+    for header_key in ("allow", "etag", "location", "x-tenant-id", "retry-after", "x-request-id"):
+        if header_key in resp_headers_map:
+            forwarded_headers[header_key] = resp_headers_map[header_key]
+
+    # For 204 No Content, 205 Reset Content, 304 Not Modified, or empty bodies, return Response directly without JSON parsing
+    if response.status_code in (204, 205, 304) or not response.content:
+        if "content-type" in resp_headers_map and response.status_code not in (204, 205, 304):
+            forwarded_headers["content-type"] = resp_headers_map["content-type"]
+        return Response(
+            status_code=response.status_code,
+            content=b"",
+            headers=forwarded_headers,
+        )
+
     try:
         payload: Any = response.json()
     except ValueError:
@@ -130,13 +152,13 @@ async def _forward(
 
     # fleet-manager's status is passed through rather than flattened: the
     # operator needs to see its refusal as its refusal.
-    return JSONResponse(status_code=response.status_code, content=payload)
+    return JSONResponse(status_code=response.status_code, content=payload, headers=forwarded_headers)
 
 
 @router.post("/api/v1/fleet/recover", responses=ERROR_RESPONSES)
 async def recover_fleet(
     principal: Annotated[Principal, Depends(require_superadmin)],
-) -> JSONResponse:
+) -> Response:
     """Thaw every stunned agent. Superadmin only, operator key presented server-side."""
     _require_operator_key()
     # Audited before the call, not after: if the write fails the request fails
@@ -156,7 +178,7 @@ async def resume_agent(
     agent_id: str,
     principal: Annotated[Principal, Depends(require_superadmin)],
     payload: dict[str, Any] | None = Body(default=None),
-) -> JSONResponse:
+) -> Response:
     """Resume one agent, local or remote. Superadmin only, operator key server-side.
 
     The superadmin gate says who may ask. It does not say who approved: that is

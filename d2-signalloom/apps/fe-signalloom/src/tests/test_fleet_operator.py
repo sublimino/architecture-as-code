@@ -35,6 +35,8 @@ class _FleetManagerSpy:
     posts: list[dict[str, Any]] = []
     status: int = 200
     body: Any = {"recovered": 5}
+    content: bytes | None = None
+    headers: dict[str, str] = {}
 
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         pass
@@ -47,7 +49,12 @@ class _FleetManagerSpy:
 
     async def post(self, url: str, json: Any = None, headers: Any = None) -> httpx.Response:
         type(self).posts.append({"url": url, "json": json, "headers": dict(headers or {})})
-        return httpx.Response(type(self).status, json=type(self).body)
+        resp_headers = dict(type(self).headers)
+        if type(self).content is not None:
+            return httpx.Response(type(self).status, content=type(self).content, headers=resp_headers)
+        if type(self).body is not None:
+            return httpx.Response(type(self).status, json=type(self).body, headers=resp_headers)
+        return httpx.Response(type(self).status, headers=resp_headers)
 
     async def get(self, *_args: Any, **_kwargs: Any) -> httpx.Response:
         return httpx.Response(200, json={"agents": []})
@@ -59,6 +66,8 @@ def fleet(monkeypatch: pytest.MonkeyPatch):
     _FleetManagerSpy.posts = []
     _FleetManagerSpy.status = 200
     _FleetManagerSpy.body = {"recovered": 5}
+    _FleetManagerSpy.content = None
+    _FleetManagerSpy.headers = {}
     return _FleetManagerSpy
 
 
@@ -283,3 +292,91 @@ def test_an_unreachable_fleet_manager_is_502_not_a_fabricated_success(monkeypatc
 
     assert response.status_code == 502
     assert response.json()["error"]["code"] == "fleet_manager_unreachable"
+
+
+def test_fleet_operator_proxy_handles_204_no_content(monkeypatch, fleet):
+    """204 No Content must not emit a body or error payload per RFC 9110 Section 15.3.5."""
+    fleet.status = 204
+    fleet.content = b""
+    fleet.body = None
+
+    with client_for(monkeypatch, fleet) as client:
+        # Test recover
+        resp_recover = client.post("/api/v1/fleet/recover", headers=_as_superadmin(monkeypatch, client))
+        assert resp_recover.status_code == 204
+        assert resp_recover.content == b""
+        assert resp_recover.text == ""
+
+        # Test resume
+        resp_resume = client.post(
+            "/api/v1/fleet/resume/demo-agent",
+            json={"reason": "test-204"},
+            headers=_as_superadmin(monkeypatch, client),
+        )
+        assert resp_resume.status_code == 204
+        assert resp_resume.content == b""
+        assert resp_resume.text == ""
+
+
+def test_fleet_operator_proxy_handles_empty_body(monkeypatch, fleet):
+    """Empty upstream response bodies must pass through without synthesizing fake detail payload."""
+    fleet.status = 200
+    fleet.content = b""
+    fleet.body = None
+
+    with client_for(monkeypatch, fleet) as client:
+        response = client.post("/api/v1/fleet/recover", headers=_as_superadmin(monkeypatch, client))
+
+    assert response.status_code == 200
+    assert response.content == b""
+    assert response.text == ""
+    assert "detail" not in response.text
+
+
+def test_fleet_operator_proxy_propagates_allow_header_on_405(monkeypatch, fleet):
+    """405 Method Not Allowed responses must preserve RFC 9110 Section 15.5.6 Allow header."""
+    fleet.status = 405
+    fleet.body = {"error": "method not allowed"}
+    fleet.headers = {"Allow": "POST"}
+
+    with client_for(monkeypatch, fleet) as client:
+        response = client.post("/api/v1/fleet/recover", headers=_as_superadmin(monkeypatch, client))
+
+    assert response.status_code == 405
+    assert response.headers.get("allow") == "POST"
+    assert response.json() == {"error": "method not allowed"}
+
+
+def test_fleet_operator_proxy_propagates_location_and_etag_headers(monkeypatch, fleet):
+    """201 Created responses must propagate Location and ETag headers."""
+    fleet.status = 201
+    fleet.body = {"task_id": "task-recover-99"}
+    fleet.headers = {"Location": "/api/v1/fleet/tasks/task-recover-99", "ETag": '"tag-fleet-99"'}
+
+    with client_for(monkeypatch, fleet) as client:
+        response = client.post("/api/v1/fleet/recover", headers=_as_superadmin(monkeypatch, client))
+
+    assert response.status_code == 201
+    assert response.headers.get("location") == "/api/v1/fleet/tasks/task-recover-99"
+    assert response.headers.get("etag") == '"tag-fleet-99"'
+    assert response.json() == {"task_id": "task-recover-99"}
+
+
+def test_fleet_operator_proxy_propagates_retry_after_and_tenant_headers(monkeypatch, fleet):
+    """Retry-After, X-Tenant-ID, and X-Request-ID headers must be forwarded."""
+    fleet.status = 429
+    fleet.body = {"error": "rate limit exceeded"}
+    fleet.headers = {
+        "Retry-After": "45",
+        "X-Tenant-ID": "tenant-prod-1",
+        "X-Request-ID": "req-op-xyz",
+    }
+
+    with client_for(monkeypatch, fleet) as client:
+        response = client.post("/api/v1/fleet/recover", headers=_as_superadmin(monkeypatch, client))
+
+    assert response.status_code == 429
+    assert response.headers.get("retry-after") == "45"
+    assert response.headers.get("x-tenant-id") == "tenant-prod-1"
+    assert response.headers.get("x-request-id") == "req-op-xyz"
+

@@ -573,11 +573,11 @@ func TestHTTPEndpoints(t *testing.T) {
 	if delResp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 on DELETE /api/v1/policies, got %d", delResp.StatusCode)
 	}
-	if allow := delResp.Header.Get("Allow"); allow != "GET, HEAD" {
-		t.Errorf("expected Allow: GET, HEAD on DELETE /api/v1/policies, got %q", allow)
+	if allow := delResp.Header.Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Errorf("expected Allow: GET, HEAD, OPTIONS on DELETE /api/v1/policies, got %q", allow)
 	}
 
-	// 12. HEAD /api/v1/policies/evaluate returns 405 Method Not Allowed with Allow: POST and 0 body bytes
+	// 12. HEAD /api/v1/policies/evaluate returns 405 Method Not Allowed with Allow: POST, OPTIONS and 0 body bytes
 	headEvalReq, _ := http.NewRequest(http.MethodHead, server.URL+"/api/v1/policies/evaluate", nil)
 	headEvalResp, err := client.Do(headEvalReq)
 	if err != nil {
@@ -586,8 +586,8 @@ func TestHTTPEndpoints(t *testing.T) {
 	if headEvalResp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 on HEAD /api/v1/policies/evaluate, got %d", headEvalResp.StatusCode)
 	}
-	if allow := headEvalResp.Header.Get("Allow"); allow != "POST" {
-		t.Errorf("expected Allow: POST on HEAD /api/v1/policies/evaluate, got %q", allow)
+	if allow := headEvalResp.Header.Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("expected Allow: POST, OPTIONS on HEAD /api/v1/policies/evaluate, got %q", allow)
 	}
 	headEvalBytes, _ := io.ReadAll(headEvalResp.Body)
 	headEvalResp.Body.Close()
@@ -595,7 +595,7 @@ func TestHTTPEndpoints(t *testing.T) {
 		t.Errorf("expected 0 body bytes on HEAD /api/v1/policies/evaluate, got %d", len(headEvalBytes))
 	}
 
-	// 13. GET /api/v1/policies/evaluate returns 405 Method Not Allowed with Allow: POST
+	// 13. GET /api/v1/policies/evaluate returns 405 Method Not Allowed with Allow: POST, OPTIONS
 	getEvalReq, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/policies/evaluate", nil)
 	getEvalResp, err := client.Do(getEvalReq)
 	if err != nil {
@@ -605,11 +605,11 @@ func TestHTTPEndpoints(t *testing.T) {
 	if getEvalResp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 on GET /api/v1/policies/evaluate, got %d", getEvalResp.StatusCode)
 	}
-	if allow := getEvalResp.Header.Get("Allow"); allow != "POST" {
-		t.Errorf("expected Allow: POST on GET /api/v1/policies/evaluate, got %q", allow)
+	if allow := getEvalResp.Header.Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("expected Allow: POST, OPTIONS on GET /api/v1/policies/evaluate, got %q", allow)
 	}
 
-	// 14. HEAD /api/v1/policies/bundles returns 405 Method Not Allowed with Allow: POST and 0 body bytes
+	// 14. HEAD /api/v1/policies/bundles returns 405 Method Not Allowed with Allow: POST, OPTIONS and 0 body bytes
 	headBundleReq, _ := http.NewRequest(http.MethodHead, server.URL+"/api/v1/policies/bundles", nil)
 	headBundleResp, err := client.Do(headBundleReq)
 	if err != nil {
@@ -618,8 +618,8 @@ func TestHTTPEndpoints(t *testing.T) {
 	if headBundleResp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 on HEAD /api/v1/policies/bundles, got %d", headBundleResp.StatusCode)
 	}
-	if allow := headBundleResp.Header.Get("Allow"); allow != "POST" {
-		t.Errorf("expected Allow: POST on HEAD /api/v1/policies/bundles, got %q", allow)
+	if allow := headBundleResp.Header.Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("expected Allow: POST, OPTIONS on HEAD /api/v1/policies/bundles, got %q", allow)
 	}
 	headBundleBytes, _ := io.ReadAll(headBundleResp.Body)
 	headBundleResp.Body.Close()
@@ -627,7 +627,7 @@ func TestHTTPEndpoints(t *testing.T) {
 		t.Errorf("expected 0 body bytes on HEAD /api/v1/policies/bundles, got %d", len(headBundleBytes))
 	}
 
-	// 15. HEAD /api/v1/policies/rollback returns 405 Method Not Allowed with Allow: POST and 0 body bytes
+	// 15. HEAD /api/v1/policies/rollback returns 405 Method Not Allowed with Allow: POST, OPTIONS and 0 body bytes
 	headRbReq, _ := http.NewRequest(http.MethodHead, server.URL+"/api/v1/policies/rollback", nil)
 	headRbResp, err := client.Do(headRbReq)
 	if err != nil {
@@ -636,8 +636,8 @@ func TestHTTPEndpoints(t *testing.T) {
 	if headRbResp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 on HEAD /api/v1/policies/rollback, got %d", headRbResp.StatusCode)
 	}
-	if allow := headRbResp.Header.Get("Allow"); allow != "POST" {
-		t.Errorf("expected Allow: POST on HEAD /api/v1/policies/rollback, got %q", allow)
+	if allow := headRbResp.Header.Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("expected Allow: POST, OPTIONS on HEAD /api/v1/policies/rollback, got %q", allow)
 	}
 	headRbBytes, _ := io.ReadAll(headRbResp.Body)
 	headRbResp.Body.Close()
@@ -739,8 +739,8 @@ func TestPolicyEngineHandlers_DirectInvocationMethodMatrixAndHEAD(t *testing.T) 
 			if rec.Code != http.StatusMethodNotAllowed {
 				t.Fatalf("[%s] expected 405, got %d", m, rec.Code)
 			}
-			if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
-				t.Fatalf("[%s] expected Allow: GET, HEAD, got %q", m, allow)
+			if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+				t.Fatalf("[%s] expected Allow: GET, HEAD, OPTIONS, got %q", m, allow)
 			}
 		}
 	})
@@ -764,8 +764,8 @@ func TestPolicyEngineHandlers_DirectInvocationMethodMatrixAndHEAD(t *testing.T) 
 				if rec.Code != http.StatusMethodNotAllowed {
 					t.Fatalf("[%s] expected 405, got %d", m, rec.Code)
 				}
-				if allow := rec.Header().Get("Allow"); allow != "POST" {
-					t.Fatalf("[%s] expected Allow: POST, got %q", m, allow)
+				if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+					t.Fatalf("[%s] expected Allow: POST, OPTIONS, got %q", m, allow)
 				}
 				if m == http.MethodHead && rec.Body.Len() != 0 {
 					t.Fatalf("[%s] expected 0 body bytes on HEAD, got %d", m, rec.Body.Len())

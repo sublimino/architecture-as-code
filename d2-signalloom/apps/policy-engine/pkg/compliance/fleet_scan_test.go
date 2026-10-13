@@ -536,11 +536,25 @@ func TestHandleScanFleet_HTTP(t *testing.T) {
 	if getRec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405 Method Not Allowed, got %d", getRec.Code)
 	}
-	if allow := getRec.Header().Get("Allow"); allow != "POST" {
-		t.Fatalf("expected Allow: POST, got %q", allow)
+	if allow := getRec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Fatalf("expected Allow: POST, OPTIONS, got %q", allow)
 	}
 	if ct := getRec.Header().Get("Content-Type"); ct != "application/json" {
 		t.Fatalf("expected Content-Type: application/json, got %q", ct)
+	}
+
+	// Test OPTIONS method allowed per RFC 9110 Section 9.3.7
+	optsReq := httptest.NewRequest(http.MethodOptions, "/api/v1/compliance/scan-fleet", nil)
+	optsRec := httptest.NewRecorder()
+	HandleScanFleet(optsRec, optsReq)
+	if optsRec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 No Content for OPTIONS, got %d", optsRec.Code)
+	}
+	if allow := optsRec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Fatalf("expected Allow: POST, OPTIONS for OPTIONS, got %q", allow)
+	}
+	if optsRec.Body.Len() != 0 {
+		t.Fatalf("expected 0 bytes body on OPTIONS, got %d bytes", optsRec.Body.Len())
 	}
 
 	// Test POST valid request
@@ -590,8 +604,8 @@ func TestHandleScanFleet_HTTP(t *testing.T) {
 	if headRec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405 Method Not Allowed for HEAD, got %d", headRec.Code)
 	}
-	if allow := headRec.Header().Get("Allow"); allow != "POST" {
-		t.Fatalf("expected Allow: POST for HEAD, got %q", allow)
+	if allow := headRec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Fatalf("expected Allow: POST, OPTIONS for HEAD, got %q", allow)
 	}
 	if headRec.Body.Len() != 0 {
 		t.Fatalf("expected 0 bytes body on HEAD, got %d bytes: %q", headRec.Body.Len(), headRec.Body.String())

@@ -328,7 +328,7 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 
 		id := r.PathValue("id")
 		if id == "prune" {
-			w.Header().Set("Allow", "POST")
+			w.Header().Set("Allow", "POST, OPTIONS")
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed on /workspaces/prune")
 			return
 		}
@@ -356,7 +356,7 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 
 		id := r.PathValue("id")
 		if id == "prune" {
-			w.Header().Set("Allow", "POST")
+			w.Header().Set("Allow", "POST, OPTIONS")
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed on /workspaces/prune")
 			return
 		}

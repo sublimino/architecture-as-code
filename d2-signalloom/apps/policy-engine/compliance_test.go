@@ -217,8 +217,8 @@ func TestComplianceScan_MethodNotAllowed(t *testing.T) {
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", w.Code)
 	}
-	if allow := w.Header().Get("Allow"); allow != "POST" {
-		t.Fatalf("expected Allow: POST, got %q", allow)
+	if allow := w.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Fatalf("expected Allow: POST, OPTIONS, got %q", allow)
 	}
 	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
 		t.Fatalf("expected Content-Type: application/json, got %q", ct)
@@ -406,8 +406,8 @@ func TestComplianceFrameworks_MethodsAndHEAD(t *testing.T) {
 	if recPost.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("POST code=%d, want 405", recPost.Code)
 	}
-	if allow := recPost.Header().Get("Allow"); allow != "GET, HEAD" {
-		t.Fatalf("POST Allow=%q, want 'GET, HEAD'", allow)
+	if allow := recPost.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Fatalf("POST Allow=%q, want 'GET, HEAD, OPTIONS'", allow)
 	}
 
 	// HEAD returns 200 OK with empty body and Content-Type: application/json
@@ -447,14 +447,14 @@ func TestComplianceFrameworks_MethodsAndHEAD(t *testing.T) {
 func TestComplianceSummary_MethodsAndHEAD(t *testing.T) {
 	h := testComplianceHandler(t)
 
-	// POST returns 405 Method Not Allowed with Allow: GET, HEAD
+	// POST returns 405 Method Not Allowed with Allow: GET, HEAD, OPTIONS
 	recPost := httptest.NewRecorder()
 	h.handleSummary(recPost, httptest.NewRequest(http.MethodPost, "/api/v1/compliance/summary", nil))
 	if recPost.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("POST code=%d, want 405", recPost.Code)
 	}
-	if allow := recPost.Header().Get("Allow"); allow != "GET, HEAD" {
-		t.Fatalf("POST Allow=%q, want 'GET, HEAD'", allow)
+	if allow := recPost.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Fatalf("POST Allow=%q, want 'GET, HEAD, OPTIONS'", allow)
 	}
 
 	// HEAD without prior scan returns 404 with empty body
@@ -504,8 +504,8 @@ func TestComplianceScan_HEADMethodNotAllowed(t *testing.T) {
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("scan HEAD code=%d, want 405", rec.Code)
 	}
-	if allow := rec.Header().Get("Allow"); allow != "POST" {
-		t.Fatalf("scan HEAD Allow=%q, want 'POST'", allow)
+	if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Fatalf("scan HEAD Allow=%q, want 'POST, OPTIONS'", allow)
 	}
 	if rec.Body.Len() != 0 {
 		t.Fatalf("scan HEAD body len=%d, want 0", rec.Body.Len())

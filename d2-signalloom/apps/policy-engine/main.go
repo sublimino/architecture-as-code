@@ -143,13 +143,16 @@ func evaluateCheck(name string, spec *PodSpec) CheckResult {
 // Handlers
 
 func handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		if r.Method == http.MethodHead {
@@ -166,13 +169,16 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		if r.Method == http.MethodHead {
@@ -189,13 +195,16 @@ func handleReadyz(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleEvaluate(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "POST, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		if r.Method == http.MethodHead {
@@ -205,7 +214,6 @@ func handleEvaluate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer r.Body.Close()
 	defer func() {
 		_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
 	}()

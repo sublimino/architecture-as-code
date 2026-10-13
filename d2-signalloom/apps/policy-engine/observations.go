@@ -60,13 +60,16 @@ func NewObservationHandlers(store *PolicyStore, evaluator obscel.Evaluator) *Obs
 // hide what the other rules found. Fail-closed behaviour belongs to the ingest
 // drain loop, not to a read-only dry-run surface.
 func (h *ObservationHandlers) HandleEvaluateObservation(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "POST, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		if r.Method == http.MethodHead {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -76,7 +79,6 @@ func (h *ObservationHandlers) HandleEvaluateObservation(w http.ResponseWriter, r
 		return
 	}
 
-	defer r.Body.Close()
 	defer func() {
 		_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
 	}()

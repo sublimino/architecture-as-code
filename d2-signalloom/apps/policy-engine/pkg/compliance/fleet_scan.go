@@ -509,8 +509,16 @@ func summariseFleetPosture(total, compliant, nonCompliant int, unmappedChecks []
 
 // HandleScanFleet handles POST /api/v1/compliance/scan-fleet HTTP requests.
 func HandleScanFleet(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		if r.Method != http.MethodHead {

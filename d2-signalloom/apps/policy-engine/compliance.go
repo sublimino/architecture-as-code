@@ -452,13 +452,16 @@ func newComplianceHandler(policyRoot string, optEngine ...*CELEngine) (*complian
 
 // handleScan evaluates CEL checks from requested frameworks against a manifest.
 func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "POST, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		if r.Method != http.MethodHead {
@@ -467,7 +470,6 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	defer r.Body.Close()
 	defer func() {
 		_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
 	}()
@@ -738,13 +740,16 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 
 // handleFrameworks returns available frameworks and their versions, or 404 for non-existent framework ID.
 func (ch *complianceHandler) handleFrameworks(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
@@ -802,13 +807,16 @@ func (ch *complianceHandler) handleFrameworks(w http.ResponseWriter, r *http.Req
 
 // handleSummary returns aggregate posture from the last scan.
 func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})

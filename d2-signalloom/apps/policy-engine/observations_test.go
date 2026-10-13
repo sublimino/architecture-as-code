@@ -563,8 +563,8 @@ func TestEvaluateObservationRequestValidation(t *testing.T) {
 			if w.Code != tc.want {
 				t.Fatalf("got %d want %d: %s", w.Code, tc.want, w.Body.String())
 			}
-			if tc.want == http.StatusMethodNotAllowed && w.Header().Get("Allow") != "POST" {
-				t.Fatalf("Allow header = %q, want POST", w.Header().Get("Allow"))
+			if tc.want == http.StatusMethodNotAllowed && w.Header().Get("Allow") != "POST, OPTIONS" {
+				t.Fatalf("Allow header = %q, want POST, OPTIONS", w.Header().Get("Allow"))
 			}
 			if tc.method == http.MethodHead && w.Body.Len() != 0 {
 				t.Fatalf("expected 0 body bytes on HEAD, got %d: %q", w.Body.Len(), w.Body.String())
@@ -941,14 +941,14 @@ func TestObservationRoutes_MethodGatingAndHEAD(t *testing.T) {
 	if headResp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 on HEAD, got %d", headResp.StatusCode)
 	}
-	if allow := headResp.Header.Get("Allow"); allow != "POST" {
-		t.Errorf("expected Allow: POST on HEAD, got %q", allow)
+	if allow := headResp.Header.Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("expected Allow: POST, OPTIONS on HEAD, got %q", allow)
 	}
 	if len(headBody) != 0 {
 		t.Errorf("expected 0 body bytes on HEAD, got %d", len(headBody))
 	}
 
-	// 2. GET /api/v1/observations/evaluate -> 405 Method Not Allowed with Allow: POST
+	// 2. GET /api/v1/observations/evaluate -> 405 Method Not Allowed with Allow: POST, OPTIONS
 	getReq, err := http.NewRequest(http.MethodGet, srv.URL+"/api/v1/observations/evaluate", nil)
 	if err != nil {
 		t.Fatalf("GET request create failed: %v", err)
@@ -961,7 +961,7 @@ func TestObservationRoutes_MethodGatingAndHEAD(t *testing.T) {
 	if getResp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 on GET, got %d", getResp.StatusCode)
 	}
-	if allow := getResp.Header.Get("Allow"); allow != "POST" {
-		t.Errorf("expected Allow: POST on GET, got %q", allow)
+	if allow := getResp.Header.Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("expected Allow: POST, OPTIONS on GET, got %q", allow)
 	}
 }

@@ -681,8 +681,8 @@ func TestWorkspacePruneEndpoint(t *testing.T) {
 			t.Errorf("%s prune: expected 405, got %d", m, recMethod.Code)
 		}
 		allow := recMethod.Header().Get("Allow")
-		if !strings.Contains(allow, "POST") {
-			t.Errorf("%s prune: expected Allow header containing POST, got %q", m, allow)
+		if !strings.Contains(allow, "POST") || !strings.Contains(allow, "OPTIONS") {
+			t.Errorf("%s prune: expected Allow header containing POST and OPTIONS, got %q", m, allow)
 		}
 		if m == http.MethodHead && recMethod.Body.Len() != 0 {
 			t.Errorf("HEAD prune: expected 0 body bytes, got %d", recMethod.Body.Len())

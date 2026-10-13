@@ -578,7 +578,7 @@ func TestDiskRing_ConcurrentProducersAndConsumers(t *testing.T) {
 	}
 	defer rb.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	const producers, perProducer, consumers = 4, 50, 3

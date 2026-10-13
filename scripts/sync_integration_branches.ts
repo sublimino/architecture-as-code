@@ -241,7 +241,19 @@ function mergeDownToMainAndMaster(): boolean {
 
   if (!featInMain) {
     console.log(`     Merging ${FEATURE_BRANCH} into ${MAIN_BRANCH}...`);
-    runCmd(`git merge --no-ff -m "merge: ${FEATURE_BRANCH} into main" ${FEATURE_BRANCH}`, wt);
+    const mergeRes = runCmd(`git merge --no-ff -m "merge: ${FEATURE_BRANCH} into main" ${FEATURE_BRANCH}`, wt, false);
+    if (mergeRes.code !== 0) {
+      console.log("     Merge conflict detected, checking deployment.yaml...");
+      const deployYaml = path.join(wt, "d2-signalloom/apps/signal-ingest/base/deployment.yaml");
+      if (fs.existsSync(deployYaml)) {
+        runCmd(`git checkout --theirs "${deployYaml}"`, wt, false);
+        updateDeploymentPin(wt);
+        runCmd(`git add "${deployYaml}"`, wt);
+        runCmd(`git commit --no-gpg-sign -m "merge: ${FEATURE_BRANCH} into main (resolved image tag)"`, wt);
+      } else {
+        throw new Error(`Merge conflict on non-deployment file in main worktree: ${mergeRes.stderr}`);
+      }
+    }
   }
 
   const newMainSha = runCmd(`git rev-parse ${MAIN_BRANCH}`, wt).stdout;

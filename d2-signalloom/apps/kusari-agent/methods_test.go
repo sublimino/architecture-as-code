@@ -12,7 +12,7 @@ import (
 func TestReadOnlyRoutesRejectWritesWithAllowHeader(t *testing.T) {
 	a, _ := testAgent(t, "http://127.0.0.1:1", 5)
 	for _, path := range []string{"/quote", "/", "/stats", "/health", "/healthz", "/readyz"} {
-		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 			rec := httptest.NewRecorder()
 			a.routes().ServeHTTP(rec, httptest.NewRequest(method, path, nil))
 			var body map[string]string
@@ -132,18 +132,107 @@ func TestUpstreamMockMethodGatesAndHEADBodySuppression(t *testing.T) {
 		t.Errorf("HEAD upstream wrote %d body bytes, want 0", n)
 	}
 
-	// 3. POST returns 405 with Allow: GET, HEAD
-	postReq, _ := http.NewRequest(http.MethodPost, srv.URL, nil)
-	postResp, err := srv.Client().Do(postReq)
-	if err != nil {
-		t.Fatalf("POST upstream: %v", err)
+	// 3. POST, PUT, DELETE, PATCH return 405 with Allow: GET, HEAD
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req, _ := http.NewRequest(method, srv.URL, nil)
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatalf("%s upstream: %v", method, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("%s upstream status = %d, want 405", method, resp.StatusCode)
+		}
+		if got := resp.Header.Get("Allow"); got != "GET, HEAD" {
+			t.Errorf("%s upstream Allow = %q, want %q", method, got, "GET, HEAD")
+		}
 	}
-	defer postResp.Body.Close()
-	if postResp.StatusCode != http.StatusMethodNotAllowed {
-		t.Errorf("POST upstream status = %d, want 405", postResp.StatusCode)
+}
+
+func TestActRoutesRejectNonPostMethodsWithAllowHeader(t *testing.T) {
+	a, _, _ := actAgent(t)
+	actRoutes := []string{
+		"/act/read-passwd",
+		"/act/read-shadow",
+		"/act/cpu-burn",
+		"/act/gpu-open",
+		"/act/gpu-probe",
+		"/act/exfil",
+		"/act/kube-enum",
+		"/act/recon",
 	}
-	if got := postResp.Header.Get("Allow"); got != "GET, HEAD" {
-		t.Errorf("POST upstream Allow = %q, want %q", got, "GET, HEAD")
+	for _, path := range actRoutes {
+		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+			rec := httptest.NewRecorder()
+			a.routes().ServeHTTP(rec, httptest.NewRequest(method, path, nil))
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s = %d, want 405 Method Not Allowed", method, path, rec.Code)
+			}
+			if allow := rec.Header().Get("Allow"); allow != http.MethodPost {
+				t.Errorf("%s %s Allow = %q, want POST", method, path, allow)
+			}
+			if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+				t.Errorf("%s %s Content-Type = %q, want application/json", method, path, ct)
+			}
+			var body map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Errorf("%s %s wrote invalid JSON: %v", method, path, err)
+			}
+			if body["error"] != "POST only" {
+				t.Errorf("%s %s error = %v, want 'POST only'", method, path, body["error"])
+			}
+		}
+	}
+}
+
+func TestPostOnlyDirectMethodGatingAndHEAD(t *testing.T) {
+	a, _ := testAgent(t, "http://127.0.0.1:1", 5)
+	handlerCalled := false
+	handler := a.postOnly("unit-test", func(w http.ResponseWriter, r *http.Request) {
+		handlerCalled = true
+		writeJSON(w, http.StatusOK, map[string]string{"unit": "pass"})
+	})
+
+	// 1. POST invokes handler
+	recPost := httptest.NewRecorder()
+	handler(recPost, httptest.NewRequest(http.MethodPost, "/act/test", nil))
+	if !handlerCalled || recPost.Code != http.StatusOK {
+		t.Fatalf("POST did not invoke handler cleanly: code=%d", recPost.Code)
+	}
+
+	// 2. HEAD returns 405 with Allow: POST, Content-Type: application/json, and empty body
+	recHead := httptest.NewRecorder()
+	handler(recHead, httptest.NewRequest(http.MethodHead, "/act/test", nil))
+	if recHead.Code != http.StatusMethodNotAllowed {
+		t.Errorf("HEAD status = %d, want 405", recHead.Code)
+	}
+	if recHead.Header().Get("Allow") != http.MethodPost {
+		t.Errorf("HEAD Allow = %q, want POST", recHead.Header().Get("Allow"))
+	}
+	if ct := recHead.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("HEAD Content-Type = %q, want application/json", ct)
+	}
+	if recHead.Body.Len() != 0 {
+		t.Errorf("HEAD wrote %d body bytes, want 0", recHead.Body.Len())
+	}
+
+	// 3. GET, PUT, DELETE, PATCH return 405 with Allow: POST and JSON error body
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		rec := httptest.NewRecorder()
+		handler(rec, httptest.NewRequest(method, "/act/test", nil))
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s status = %d, want 405", method, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != http.MethodPost {
+			t.Errorf("%s Allow = %q, want POST", method, allow)
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Errorf("%s wrote invalid JSON: %v", method, err)
+		}
+		if body["error"] != "POST only" {
+			t.Errorf("%s error = %v, want 'POST only'", method, body["error"])
+		}
 	}
 }
 

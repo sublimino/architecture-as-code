@@ -159,8 +159,16 @@ func resolvePort(intOrStr intstr.IntOrString, portMap map[string]int) (int, stri
 // to prevent kubelet liveness probe timeouts while a container is frozen.
 func syntheticProbeHandler(podName, namespace string) http.Handler {
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			defer r.Body.Close()
+		}
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{

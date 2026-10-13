@@ -219,8 +219,16 @@ func headBodySuppressingMiddleware(next http.Handler) http.Handler {
 // and suppresses response bodies on HEAD per RFC 9110 Section 6.4.1.
 func SyntheticProbeHandler(podName, namespace string) http.Handler {
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			defer r.Body.Close()
+		}
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{

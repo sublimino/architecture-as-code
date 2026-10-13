@@ -75,13 +75,16 @@ func newHealthServer(addr string, dryRun bool, cgroupRoot string, reconcileCount
 func (h *HealthServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	livenessHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			defer r.Body.Close()
+		}
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
@@ -113,13 +116,16 @@ func (h *HealthServer) Handler() http.Handler {
 	})
 
 	readinessHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			defer r.Body.Close()
+		}
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
@@ -195,13 +201,16 @@ func headBodySuppressingMiddleware(next http.Handler) http.Handler {
 // serveCaptures answers /captures (ids), /captures/<id> (manifest.json) and
 // /captures/<id>/<artifact> for the served artifact set only.
 func (h *HealthServer) serveCaptures(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -330,13 +339,16 @@ func parseCIDRList(list string) ([]*net.IPNet, error) {
 
 // serveMetrics writes Prometheus text exposition without a client library.
 func (h *HealthServer) serveMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}

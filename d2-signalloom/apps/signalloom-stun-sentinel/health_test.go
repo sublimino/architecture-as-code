@@ -84,8 +84,8 @@ func TestHealthHandlerRejectsNonGetMethods(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("POST %s status = %d, want 405", endpoint, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Errorf("POST %s Allow = %q, want 'GET, HEAD'", endpoint, allow)
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("POST %s Allow = %q, want 'GET, HEAD, OPTIONS'", endpoint, allow)
 		}
 	}
 }

@@ -154,8 +154,8 @@ func TestSyntheticProbeHandlerMethodNotAllowed(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("method %s status = %d; want 405", method, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Errorf("method %s Allow = %q; want GET, HEAD", method, allow)
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("method %s Allow = %q; want GET, HEAD, OPTIONS", method, allow)
 		}
 		if ctype := rec.Header().Get("Content-Type"); ctype != "application/json" {
 			t.Errorf("method %s Content-Type = %q; want application/json", method, ctype)
@@ -194,6 +194,24 @@ func TestSyntheticProbeHandlerMethodNotAllowed(t *testing.T) {
 	}
 	if head405Rec.Body.Len() != 0 {
 		t.Errorf("HEAD /submit got body %q, want empty", head405Rec.Body.String())
+	}
+}
+
+func TestSyntheticProbeHandlerOPTIONS(t *testing.T) {
+	handler := syntheticProbeHandler("agent-cardvault", "fe-signalloom-agents")
+	req := httptest.NewRequest(http.MethodOptions, "/healthz", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("OPTIONS /healthz status = %d, want 204", rec.Code)
+	}
+	if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Errorf("OPTIONS /healthz Allow = %q, want 'GET, HEAD, OPTIONS'", allow)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("OPTIONS /healthz expected 0 body bytes, got %d", rec.Body.Len())
 	}
 }
 

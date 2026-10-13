@@ -194,19 +194,33 @@ func TestSyntheticProbeHandlerReturns200WithHeaders(t *testing.T) {
 	}
 
 	// Verify unsupported methods return 405 Method Not Allowed with Allow header
-	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodOptions, "TRACE"} {
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, "TRACE"} {
 		mReq := httptest.NewRequest(method, "/healthz", nil)
 		mRec := httptest.NewRecorder()
 		handler.ServeHTTP(mRec, mReq)
 		if mRec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s /healthz got status %d, want 405", method, mRec.Code)
 		}
-		if allow := mRec.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Errorf("%s Allow header = %q, want 'GET, HEAD'", method, allow)
+		if allow := mRec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("%s Allow header = %q, want 'GET, HEAD, OPTIONS'", method, allow)
 		}
 		if ctype := mRec.Header().Get("Content-Type"); ctype != "application/json" {
 			t.Errorf("%s Content-Type = %q, want 'application/json'", method, ctype)
 		}
+	}
+
+	// Verify OPTIONS request returns 204 No Content with Allow header and empty body
+	optsReq := httptest.NewRequest(http.MethodOptions, "/healthz", nil)
+	optsRec := httptest.NewRecorder()
+	handler.ServeHTTP(optsRec, optsReq)
+	if optsRec.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS /healthz got status %d, want 204", optsRec.Code)
+	}
+	if allow := optsRec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Errorf("OPTIONS /healthz Allow header = %q, want 'GET, HEAD, OPTIONS'", allow)
+	}
+	if optsRec.Body.Len() != 0 {
+		t.Errorf("OPTIONS /healthz got body %q, want empty", optsRec.Body.String())
 	}
 
 	// Verify HEAD request on non-existent path suppresses response body (RFC 9110 Section 6.4.1)

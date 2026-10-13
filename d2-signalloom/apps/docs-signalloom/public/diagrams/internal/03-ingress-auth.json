@@ -1,0 +1,27 @@
+{
+  "type": "flowchart",
+  "title": "Ingress and the auth_request gate",
+  "subtitle": "How a dashboard request reaches fleet-manager or KubeSec-AFM only after a superadmin check. Source: d2-signalloom/apps/dashboard-signalloom/nginx.conf.",
+  "budget": "faithful",
+  "motion": "trace",
+  "nodes": [
+    { "id": "browser", "label": "Browser", "sub": "Dex bearer token", "kind": "external", "row": 0, "col": 1 },
+    { "id": "envoy", "label": "Envoy Gateway", "sub": "TLS termination", "kind": "backend", "row": 1, "col": 1 },
+    { "id": "nginx", "label": "dashboard-signalloom nginx", "sub": "location /fleet-api/, /dashboard/", "kind": "backend", "row": 2, "col": 1 },
+    { "id": "gate", "label": "internal /_fleet_gate or /_afm_gate", "sub": "auth_request subrequest", "focal": true, "kind": "backend", "row": 3, "col": 1 },
+    { "id": "authcheck", "label": "fe-signalloom-api", "sub": "GET /api/v1/auth/check", "kind": "backend", "row": 4, "col": 1 },
+    { "id": "deny", "label": "401 / 403", "sub": "request never reaches backend", "kind": "muted", "row": 5, "col": 0 },
+    { "id": "fm", "label": "fleet-manager", "sub": "dashboard's own caller key, Bearer replaced", "kind": "backend", "row": 5, "col": 1 },
+    { "id": "afm", "label": "afm-platform", "sub": "KubeSec-AFM, reads pass untouched", "kind": "backend", "row": 5, "col": 2 }
+  ],
+  "edges": [
+    ["browser", "envoy", "HTTPS"],
+    ["envoy", "nginx", "proxy_pass"],
+    ["nginx", "gate", "auth_request", "primary"],
+    ["gate", "authcheck", "GET, no body, forwards Authorization", "primary"],
+    ["authcheck", "gate", "204 superadmin / 401 403", "primary"],
+    ["gate", "deny", "non-204 returned as-is", "default"],
+    ["gate", "fm", "204 -> proxy_pass, key swapped", "primary"],
+    ["gate", "afm", "204 (GET/HEAD/OPTIONS always 204)", "default"]
+  ]
+}

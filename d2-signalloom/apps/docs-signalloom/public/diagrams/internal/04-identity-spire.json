@@ -1,0 +1,24 @@
+{
+  "type": "architecture",
+  "title": "Identity plane: SPIRE and mTLS",
+  "subtitle": "Workload SVID issuance and the mTLS mesh. Source: d2-signalloom/apps/fleet-manager/spire_client.go, apps/signal-ingest/collectors/spirea.",
+  "budget": "faithful",
+  "motion": "trace",
+  "nodes": [
+    { "id": "spireserver", "label": "SPIRE Server", "sub": "inf-bao namespace · entry API", "tag": "CORE", "focal": true, "kind": "security", "row": 0, "col": 1 },
+    { "id": "spireagent", "label": "SPIRE Agent", "sub": "node-local · workloadapi", "kind": "security", "row": 1, "col": 1 },
+    { "id": "fm", "label": "fleet-manager", "sub": "spire_client.go · entryv1 API", "kind": "backend", "row": 2, "col": 0 },
+    { "id": "warden", "label": "signalloom-warden", "sub": "hubTLS shared trust policy", "kind": "backend", "row": 2, "col": 1 },
+    { "id": "spirea", "label": "signal-ingest spirea collector", "sub": "SVID issuance audit", "kind": "backend", "row": 2, "col": 2 },
+    { "id": "bundle", "label": "x509bundle / x509svid", "sub": "go-spiffe v2", "kind": "store", "row": 1, "col": 2 }
+  ],
+  "edges": [
+    ["spireserver", "spireagent", "attest, mint SVID", "primary"],
+    ["spireagent", "fm", "workloadapi stream", "async"],
+    ["spireagent", "warden", "workloadapi stream", "async"],
+    ["spireserver", "spirea", "SVID issuance events", "async"],
+    ["spireagent", "bundle", "x509 bundle", "default"],
+    ["fm", "spireserver", "BatchDeleteEntry (stun)", "primary"],
+    ["fm", "warden", "mTLS (grpccredentials)", "link"]
+  ]
+}

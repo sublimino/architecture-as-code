@@ -1,0 +1,134 @@
+{
+  "type": "architecture",
+  "title": "GitOps supply chain",
+  "subtitle": "Flux pulls signed OCI artefacts from Zot; admission verifies the signature. Source: d2-osramp-fleet/{clusters,tenants}, kyverno-verify-images.yaml.",
+  "budget": "faithful",
+  "motion": "trace",
+  "nodes": [
+    {
+      "id": "dev",
+      "label": "Developer / CI",
+      "sub": "git push + cosign sign",
+      "kind": "external",
+      "row": 0,
+      "col": 0
+    },
+    {
+      "id": "zot",
+      "label": "Zot registry",
+      "sub": "in-cluster OCI cache, :5000",
+      "kind": "store",
+      "row": 1,
+      "col": 1
+    },
+    {
+      "id": "fluxinstance",
+      "label": "FluxInstance",
+      "sub": "flux-operator, sync from oci://zot/.../fleet",
+      "kind": "backend",
+      "row": 2,
+      "col": 1
+    },
+    {
+      "id": "source",
+      "label": "source-controller",
+      "sub": "OCIRepository",
+      "kind": "backend",
+      "row": 3,
+      "col": 0
+    },
+    {
+      "id": "kustomize",
+      "label": "kustomize-controller",
+      "sub": "ResourceSet / Kustomization render",
+      "tag": "CORE",
+      "focal": true,
+      "kind": "backend",
+      "row": 3,
+      "col": 1
+    },
+    {
+      "id": "helm",
+      "label": "helm-controller",
+      "sub": "chart releases",
+      "kind": "backend",
+      "row": 3,
+      "col": 2
+    },
+    {
+      "id": "apiserver",
+      "label": "Kubernetes API server",
+      "sub": "apply",
+      "kind": "backend",
+      "row": 4,
+      "col": 1
+    },
+    {
+      "id": "kyverno",
+      "label": "Kyverno verify-images",
+      "sub": "ClusterPolicy, 1 trusted key",
+      "kind": "security",
+      "row": 5,
+      "col": 0
+    },
+    {
+      "id": "vap",
+      "label": "dual-trust-image-policy",
+      "sub": "ValidatingAdmissionPolicy",
+      "kind": "security",
+      "row": 5,
+      "col": 2
+    }
+  ],
+  "edges": [
+    [
+      "dev",
+      "zot",
+      "push signed image/manifest bundle",
+      "primary"
+    ],
+    [
+      "zot",
+      "fluxinstance",
+      "oci:// pull",
+      "primary"
+    ],
+    [
+      "fluxinstance",
+      "source",
+      "reconcile"
+    ],
+    [
+      "source",
+      "kustomize",
+      "artifact"
+    ],
+    [
+      "kustomize",
+      "helm",
+      "HelmRelease"
+    ],
+    [
+      "kustomize",
+      "apiserver",
+      "apply"
+    ],
+    [
+      "helm",
+      "apiserver",
+      "apply"
+    ],
+    [
+      "apiserver",
+      "kyverno",
+      "admission review",
+      "primary"
+    ],
+    [
+      "apiserver",
+      "vap",
+      "admission review",
+      "primary"
+    ]
+  ]
+}

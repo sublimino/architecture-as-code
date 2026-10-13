@@ -1,0 +1,101 @@
+{
+  "type": "state",
+  "title": "Agent lifecycle",
+  "subtitle": "The AgentStateValue enum fleet-manager and the dashboard share. Source: d2-signalloom/apps/fleet-manager/topology.go.",
+  "budget": "faithful",
+  "nodes": [
+    {
+      "id": "absent",
+      "label": "absent",
+      "row": 0,
+      "col": 1
+    },
+    {
+      "id": "deploying",
+      "label": "deploying",
+      "row": 1,
+      "col": 1
+    },
+    {
+      "id": "active",
+      "label": "active",
+      "row": 2,
+      "col": 1
+    },
+    {
+      "id": "noncompliant",
+      "label": "non-compliant",
+      "row": 2,
+      "col": 0
+    },
+    {
+      "id": "graceperiod",
+      "label": "grace-period",
+      "row": 2,
+      "col": 2
+    },
+    {
+      "id": "stunned",
+      "label": "stunned",
+      "row": 3,
+      "col": 0
+    }
+  ],
+  "edges": [
+    [
+      "absent",
+      "deploying",
+      "workload scheduled"
+    ],
+    [
+      "deploying",
+      "active",
+      "heartbeat + claim"
+    ],
+    [
+      "active",
+      "noncompliant",
+      "policy drift detected"
+    ],
+    [
+      "noncompliant",
+      "graceperiod",
+      "grace window opens"
+    ],
+    [
+      "graceperiod",
+      "active",
+      "compliance restored"
+    ],
+    [
+      "graceperiod",
+      "stunned",
+      "grace period expires"
+    ],
+    [
+      "active",
+      "stunned",
+      "operator or policy-engine stun"
+    ],
+    [
+      "noncompliant",
+      "stunned",
+      "policy-engine refusal"
+    ],
+    [
+      "stunned",
+      "active",
+      "dual-signed resume, credentials rotated"
+    ],
+    [
+      "active",
+      "absent",
+      "workload evicted"
+    ],
+    [
+      "stunned",
+      "absent",
+      "workload evicted while frozen"
+    ]
+  ]
+}

@@ -1,0 +1,127 @@
+{
+  "type": "architecture",
+  "title": "The warden: per-node enforcement",
+  "subtitle": "eBPF capture, cgroup freeze, tc network stun, and the hub connection. Source: signalloom-warden/{capture,freezer,network,hubtls,fleetpoll}.go.",
+  "budget": "faithful",
+  "motion": "trace",
+  "nodes": [
+    {
+      "id": "ebpf",
+      "label": "eBPF probe",
+      "sub": "ebpf/probe.go",
+      "kind": "backend",
+      "row": 0,
+      "col": 0
+    },
+    {
+      "id": "capture",
+      "label": "Capture + correlator",
+      "sub": "telemetry/attributor, classifier",
+      "kind": "backend",
+      "row": 0,
+      "col": 1
+    },
+    {
+      "id": "freezer",
+      "label": "cgroup freezer",
+      "sub": "write 1 to cgroup.freeze",
+      "tag": "CORE",
+      "focal": true,
+      "kind": "backend",
+      "row": 1,
+      "col": 0
+    },
+    {
+      "id": "network",
+      "label": "tc network stun",
+      "sub": "veth drop filter",
+      "kind": "backend",
+      "row": 1,
+      "col": 1
+    },
+    {
+      "id": "hubclients",
+      "label": "hubClients",
+      "sub": "ingest + fleet, one trust policy",
+      "kind": "backend",
+      "row": 2,
+      "col": 0
+    },
+    {
+      "id": "fleetpoll",
+      "label": "fleetpoll / fleetreport / fleetstun",
+      "sub": "poll, report, ack",
+      "kind": "backend",
+      "row": 2,
+      "col": 2
+    },
+    {
+      "id": "fm",
+      "label": "fleet-manager",
+      "sub": "central hub",
+      "kind": "external",
+      "row": 3,
+      "col": 1
+    },
+    {
+      "id": "ingest",
+      "label": "signal-ingest",
+      "sub": "observation sender",
+      "kind": "external",
+      "row": 3,
+      "col": 0
+    }
+  ],
+  "edges": [
+    [
+      "ebpf",
+      "capture",
+      "events"
+    ],
+    [
+      "capture",
+      "network",
+      "classified"
+    ],
+    [
+      "capture",
+      "hubclients",
+      "observations",
+      "async"
+    ],
+    [
+      "freezer",
+      "network",
+      "stun coordinated"
+    ],
+    [
+      "hubclients",
+      "ingest",
+      "observation sender",
+      "primary"
+    ],
+    [
+      "fleetpoll",
+      "fm",
+      "poll interval",
+      "primary"
+    ],
+    [
+      "fleetpoll",
+      "fm",
+      "report interval"
+    ],
+    [
+      "fm",
+      "fleetpoll",
+      "stun command",
+      "primary"
+    ],
+    [
+      "fleetpoll",
+      "freezer",
+      "apply freeze",
+      "primary"
+    ]
+  ]
+}

@@ -1,0 +1,217 @@
+{
+  "type": "architecture",
+  "title": "Signal Loom component flows",
+  "subtitle": "Runtime traffic across the core platform. Source: apps/{fe-signalloom,fleet-manager,signal-ingest,policy-engine,warden,dashboard}.",
+  "budget": "faithful",
+  "motion": "trace",
+  "nodes": [
+    {
+      "id": "operator",
+      "label": "Operator / Browser",
+      "sub": "Dex OIDC session",
+      "kind": "external",
+      "row": 0,
+      "col": 0
+    },
+    {
+      "id": "gw",
+      "label": "Envoy Gateway",
+      "sub": "Gateway API · TLS",
+      "tag": "EDGE",
+      "kind": "backend",
+      "row": 1,
+      "col": 0,
+      "group": "ingress"
+    },
+    {
+      "id": "dash",
+      "label": "dashboard-signalloom",
+      "sub": "React 18 SPA · nginx",
+      "kind": "backend",
+      "row": 2,
+      "col": 0,
+      "group": "ingress"
+    },
+    {
+      "id": "api",
+      "label": "fe-signalloom API",
+      "sub": "FastAPI · auth/check",
+      "tag": "CORE",
+      "focal": true,
+      "kind": "backend",
+      "row": 2,
+      "col": 1,
+      "group": "control"
+    },
+    {
+      "id": "fm",
+      "label": "fleet-manager",
+      "sub": "Go · multi-plane controller",
+      "kind": "backend",
+      "row": 3,
+      "col": 1,
+      "group": "control"
+    },
+    {
+      "id": "ingest",
+      "label": "signal-ingest",
+      "sub": "Go · telemetry gateway",
+      "kind": "backend",
+      "row": 2,
+      "col": 2,
+      "group": "control"
+    },
+    {
+      "id": "pe",
+      "label": "policy-engine",
+      "sub": "CEL · FAIR risk",
+      "kind": "backend",
+      "row": 3,
+      "col": 2,
+      "group": "control"
+    },
+    {
+      "id": "frostdb",
+      "label": "FrostDB",
+      "sub": "Observations · findings",
+      "kind": "store",
+      "row": 2,
+      "col": 3,
+      "group": "control"
+    },
+    {
+      "id": "pg",
+      "label": "PostgreSQL",
+      "sub": "Claims · audit_events",
+      "kind": "store",
+      "row": 3,
+      "col": 3,
+      "group": "control"
+    },
+    {
+      "id": "warden",
+      "label": "signalloom-warden",
+      "sub": "Per-node eBPF + cgroup",
+      "kind": "backend",
+      "row": 4,
+      "col": 1,
+      "group": "enforcement"
+    },
+    {
+      "id": "bao",
+      "label": "OpenBao",
+      "sub": "Per-plane tokens",
+      "kind": "security",
+      "row": 4,
+      "col": 2,
+      "group": "identity"
+    },
+    {
+      "id": "spire",
+      "label": "SPIRE",
+      "sub": "SVIDs · mTLS mesh",
+      "kind": "security",
+      "row": 4,
+      "col": 3,
+      "group": "identity"
+    }
+  ],
+  "groups": [
+    {
+      "id": "ingress",
+      "label": "Ingress"
+    },
+    {
+      "id": "control",
+      "label": "fe-signalloom (control)"
+    },
+    {
+      "id": "enforcement",
+      "label": "Enforcement"
+    },
+    {
+      "id": "identity",
+      "label": "inf-bao (identity)"
+    }
+  ],
+  "edges": [
+    [
+      "operator",
+      "gw",
+      "HTTPS",
+      "link"
+    ],
+    [
+      "gw",
+      "dash",
+      "/",
+      "primary"
+    ],
+    [
+      "gw",
+      "api",
+      "/api, /enroll",
+      "primary"
+    ],
+    [
+      "dash",
+      "api",
+      "auth_request /_fleet_gate",
+      "default"
+    ],
+    [
+      "dash",
+      "fm",
+      "/fleet-api (caller key)",
+      "primary"
+    ],
+    [
+      "api",
+      "pg",
+      "claims, audit",
+      "primary"
+    ],
+    [
+      "fm",
+      "pg",
+      "audit_events",
+      "default"
+    ],
+    [
+      "fm",
+      "warden",
+      "stun · poll · report",
+      "primary"
+    ],
+    [
+      "fm",
+      "bao",
+      "per-plane tokens",
+      "async"
+    ],
+    [
+      "fm",
+      "spire",
+      "SVID issuance",
+      "async"
+    ],
+    [
+      "warden",
+      "ingest",
+      "observations",
+      "primary"
+    ],
+    [
+      "ingest",
+      "frostdb",
+      "store",
+      "primary"
+    ],
+    [
+      "api",
+      "pe",
+      "proxy /api/v1/compliance, /policies",
+      "async"
+    ]
+  ]
+}

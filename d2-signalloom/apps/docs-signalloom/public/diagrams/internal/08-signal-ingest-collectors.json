@@ -1,0 +1,128 @@
+{
+  "type": "architecture",
+  "title": "signal-ingest: external collectors to FrostDB",
+  "subtitle": "Named collectors per DIAGRAMS.md. Source: signal-ingest/collectors/{awslogs,gcpaudit,k8saudit,baoaudit,spirea,workspacesaas}.",
+  "budget": "faithful",
+  "motion": "trace",
+  "nodes": [
+    {
+      "id": "aws",
+      "label": "AWS CloudTrail / GuardDuty",
+      "sub": "via SQS, EventBridge (awslogs)",
+      "kind": "external",
+      "row": 0,
+      "col": 0
+    },
+    {
+      "id": "gcp",
+      "label": "GCP audit logs",
+      "sub": "gcpaudit",
+      "kind": "external",
+      "row": 0,
+      "col": 1
+    },
+    {
+      "id": "k8s",
+      "label": "Kubernetes audit",
+      "sub": "k8saudit",
+      "kind": "external",
+      "row": 0,
+      "col": 2
+    },
+    {
+      "id": "bao",
+      "label": "OpenBao audit",
+      "sub": "baoaudit",
+      "kind": "external",
+      "row": 1,
+      "col": 0
+    },
+    {
+      "id": "spire",
+      "label": "SPIRE SVID issuance",
+      "sub": "spirea",
+      "kind": "external",
+      "row": 1,
+      "col": 1
+    },
+    {
+      "id": "wss",
+      "label": "Workspace SaaS",
+      "sub": "Google Workspace / M365 (planned)",
+      "kind": "optional",
+      "row": 1,
+      "col": 2
+    },
+    {
+      "id": "registry",
+      "label": "Collector registry",
+      "sub": "collectors/registry.go",
+      "kind": "backend",
+      "row": 2,
+      "col": 1
+    },
+    {
+      "id": "sink",
+      "label": "Sink",
+      "sub": "collectors/sink.go",
+      "tag": "CORE",
+      "focal": true,
+      "kind": "backend",
+      "row": 3,
+      "col": 1
+    },
+    {
+      "id": "frostdb",
+      "label": "FrostDB",
+      "sub": "observations store",
+      "kind": "store",
+      "row": 4,
+      "col": 1
+    }
+  ],
+  "edges": [
+    [
+      "aws",
+      "registry",
+      "collect"
+    ],
+    [
+      "gcp",
+      "registry",
+      "collect"
+    ],
+    [
+      "k8s",
+      "registry",
+      "collect"
+    ],
+    [
+      "bao",
+      "registry",
+      "collect"
+    ],
+    [
+      "spire",
+      "registry",
+      "collect"
+    ],
+    [
+      "wss",
+      "registry",
+      "collect (planned)",
+      "default"
+    ],
+    [
+      "registry",
+      "sink",
+      "projected events",
+      "primary"
+    ],
+    [
+      "sink",
+      "frostdb",
+      "persist",
+      "primary"
+    ]
+  ]
+}

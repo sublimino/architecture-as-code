@@ -1,0 +1,153 @@
+{
+  "type": "architecture",
+  "title": "System context and trust boundaries",
+  "subtitle": "External actors, the cluster, identity plane, and a remote pilot cluster. Source: AGENTS.md, signalloom-warden-overlays/remote-tenant.",
+  "budget": "faithful",
+  "motion": "trace",
+  "nodes": [
+    {
+      "id": "op",
+      "label": "Operator / Browser",
+      "sub": "Dex OIDC",
+      "kind": "external",
+      "row": 0,
+      "col": 0
+    },
+    {
+      "id": "cicd",
+      "label": "Developer / CI",
+      "sub": "GitOps push",
+      "kind": "external",
+      "row": 0,
+      "col": 2
+    },
+    {
+      "id": "cloud",
+      "label": "External audit sources",
+      "sub": "AWS, GCP, K8s, OpenBao, SPIRE",
+      "kind": "external",
+      "row": 0,
+      "col": 4
+    },
+    {
+      "id": "gw",
+      "label": "Envoy Gateway",
+      "sub": "TLS boundary",
+      "tag": "EDGE",
+      "kind": "backend",
+      "row": 1,
+      "col": 1,
+      "group": "control"
+    },
+    {
+      "id": "control",
+      "label": "fe-signalloom namespace",
+      "sub": "dashboard, API, fleet-manager, signal-ingest",
+      "tag": "CORE",
+      "focal": true,
+      "kind": "backend",
+      "row": 2,
+      "col": 1,
+      "group": "control"
+    },
+    {
+      "id": "identity",
+      "label": "inf-bao namespace",
+      "sub": "OpenBao + SPIRE server",
+      "kind": "security",
+      "row": 3,
+      "col": 3,
+      "group": "identity"
+    },
+    {
+      "id": "afm",
+      "label": "fe-k8s-afm namespace",
+      "sub": "KubeSec-AFM",
+      "kind": "backend",
+      "row": 2,
+      "col": 4,
+      "group": "control"
+    },
+    {
+      "id": "gitops",
+      "label": "flux-system",
+      "sub": "Flux Operator",
+      "kind": "backend",
+      "row": 1,
+      "col": 3,
+      "group": "control"
+    },
+    {
+      "id": "remote",
+      "label": "Pilot cluster (e.g. Kusari)",
+      "sub": "warden only, no SPIRE/OpenBao",
+      "kind": "external",
+      "row": 3,
+      "col": 1,
+      "group": "remote"
+    }
+  ],
+  "groups": [
+    {
+      "id": "control",
+      "label": "Signal Loom cluster"
+    },
+    {
+      "id": "identity",
+      "label": "Identity plane (trust boundary)"
+    },
+    {
+      "id": "remote",
+      "label": "Remote tenant (trust bdry)"
+    }
+  ],
+  "edges": [
+    [
+      "op",
+      "gw",
+      "HTTPS"
+    ],
+    [
+      "cicd",
+      "gitops",
+      "git push",
+      "link"
+    ],
+    [
+      "gitops",
+      "control",
+      "reconcile",
+      "link"
+    ],
+    [
+      "gw",
+      "control",
+      "auth_request",
+      "primary"
+    ],
+    [
+      "control",
+      "identity",
+      "mTLS, per-plane tokens",
+      "async"
+    ],
+    [
+      "control",
+      "afm",
+      "proxy /dashboard/",
+      "default"
+    ],
+    [
+      "cloud",
+      "control",
+      "collectors (pull/push)",
+      "primary"
+    ],
+    [
+      "remote",
+      "control",
+      "/warden-ingest, /warden-fleet",
+      "async"
+    ]
+  ]
+}

@@ -1,0 +1,119 @@
+{
+  "type": "architecture",
+  "title": "Fleet-manager control plane",
+  "subtitle": "Registry, claim, the stun/resume cascade, and dual-signed resume tokens. Source: fleet-manager/{workload_registry,cascade,resume_token}.go.",
+  "budget": "faithful",
+  "motion": "trace",
+  "nodes": [
+    {
+      "id": "registry",
+      "label": "Workload registry",
+      "sub": "tenant pattern, claim state",
+      "kind": "backend",
+      "row": 0,
+      "col": 0
+    },
+    {
+      "id": "dag",
+      "label": "DAG / topology",
+      "sub": "AgentProfile, AgentState",
+      "kind": "backend",
+      "row": 0,
+      "col": 1
+    },
+    {
+      "id": "cascade",
+      "label": "Cascade orchestrator",
+      "sub": "Stun / Recover, sub-second SLA",
+      "tag": "CORE",
+      "focal": true,
+      "kind": "backend",
+      "row": 1,
+      "col": 1
+    },
+    {
+      "id": "planes",
+      "label": "5 enforcement planes",
+      "sub": "freeze, mesh, OpenBao, SPIRE, admission",
+      "kind": "backend",
+      "row": 2,
+      "col": 1
+    },
+    {
+      "id": "resumecli",
+      "label": "resume-token CLI",
+      "sub": "keygen · mint · sign · request",
+      "kind": "external",
+      "row": 0,
+      "col": 2
+    },
+    {
+      "id": "resumeverify",
+      "label": "Resume token verifier",
+      "sub": "dual Ed25519, quorum, idempotency",
+      "kind": "backend",
+      "row": 1,
+      "col": 2
+    },
+    {
+      "id": "attest",
+      "label": "Attestation engine",
+      "sub": "pkg/attestation signer/verifier",
+      "kind": "security",
+      "row": 2,
+      "col": 2
+    },
+    {
+      "id": "audit",
+      "label": "audit_events",
+      "sub": "PostgreSQL",
+      "kind": "store",
+      "row": 2,
+      "col": 0
+    }
+  ],
+  "edges": [
+    [
+      "registry",
+      "cascade",
+      "resolve target",
+      "primary"
+    ],
+    [
+      "dag",
+      "cascade",
+      "agent state",
+      "default"
+    ],
+    [
+      "cascade",
+      "planes",
+      "fan-out write",
+      "primary"
+    ],
+    [
+      "resumecli",
+      "resumeverify",
+      "signed ResumeRequest",
+      "primary"
+    ],
+    [
+      "resumeverify",
+      "cascade",
+      "verified -> Recover",
+      "primary"
+    ],
+    [
+      "cascade",
+      "attest",
+      "witness attestation",
+      "async"
+    ],
+    [
+      "cascade",
+      "audit",
+      "outcome",
+      "default"
+    ]
+  ]
+}

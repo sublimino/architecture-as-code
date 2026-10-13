@@ -1,0 +1,107 @@
+{
+  "type": "sequence",
+  "title": "Stun: multi-plane containment",
+  "subtitle": "A cascade freezes, revokes, and records across five planes in parallel, each under its own SLA.",
+  "budget": "faithful",
+  "participants": [
+    {
+      "id": "op",
+      "label": "Operator"
+    },
+    {
+      "id": "fm",
+      "label": "fleet-manager cascade"
+    },
+    {
+      "id": "freeze",
+      "label": "cgroup freeze plane"
+    },
+    {
+      "id": "mesh",
+      "label": "mesh / network plane"
+    },
+    {
+      "id": "bao",
+      "label": "OpenBao plane"
+    },
+    {
+      "id": "spire",
+      "label": "SPIRE plane"
+    },
+    {
+      "id": "admission",
+      "label": "admission plane"
+    },
+    {
+      "id": "audit",
+      "label": "audit_events + attestation"
+    }
+  ],
+  "messages": [
+    [
+      "op",
+      "fm",
+      "POST /api/v1/fleet/stun/{id}"
+    ],
+    [
+      "fm",
+      "freeze",
+      "write cgroup.freeze=1"
+    ],
+    [
+      "fm",
+      "mesh",
+      "network policy + conntrack flush"
+    ],
+    [
+      "fm",
+      "bao",
+      "revoke leases & tokens"
+    ],
+    [
+      "fm",
+      "spire",
+      "BatchDeleteEntry"
+    ],
+    [
+      "fm",
+      "admission",
+      "block via ValidatingWebhook"
+    ],
+    [
+      "freeze",
+      "fm",
+      "PlaneResult"
+    ],
+    [
+      "mesh",
+      "fm",
+      "PlaneResult"
+    ],
+    [
+      "bao",
+      "fm",
+      "PlaneResult"
+    ],
+    [
+      "spire",
+      "fm",
+      "PlaneResult"
+    ],
+    [
+      "admission",
+      "fm",
+      "PlaneResult"
+    ],
+    [
+      "fm",
+      "audit",
+      "witness attestation + structured event"
+    ],
+    [
+      "fm",
+      "op",
+      "200 OK (state=stunned)"
+    ]
+  ]
+}

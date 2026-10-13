@@ -1,0 +1,97 @@
+{
+  "type": "sequence",
+  "title": "Remote resume: dual-signed tokens",
+  "subtitle": "Two operator signatures authorise resume on a remote tenant cluster.",
+  "budget": "faithful",
+  "participants": [
+    {
+      "id": "op1",
+      "label": "Operator 1"
+    },
+    {
+      "id": "op2",
+      "label": "Operator 2"
+    },
+    {
+      "id": "cli",
+      "label": "resume-token CLI"
+    },
+    {
+      "id": "fm",
+      "label": "fleet-manager (central)"
+    },
+    {
+      "id": "bao",
+      "label": "OpenBao"
+    },
+    {
+      "id": "spire",
+      "label": "SPIRE"
+    },
+    {
+      "id": "gw",
+      "label": "Central gateway"
+    },
+    {
+      "id": "warden",
+      "label": "Remote warden (pilot cluster)"
+    }
+  ],
+  "messages": [
+    [
+      "op1",
+      "cli",
+      "mint --agent --namespace --approval"
+    ],
+    [
+      "op1",
+      "cli",
+      "sign (key 1)"
+    ],
+    [
+      "op2",
+      "cli",
+      "sign (key 2)"
+    ],
+    [
+      "cli",
+      "fm",
+      "POST /api/v1/fleet/resume (dual-signed token)"
+    ],
+    [
+      "fm",
+      "fm",
+      "verify signatures, quorum, target binding"
+    ],
+    [
+      "fm",
+      "bao",
+      "mint fresh lease"
+    ],
+    [
+      "fm",
+      "spire",
+      "re-enter identity entry"
+    ],
+    [
+      "fm",
+      "gw",
+      "dispatch unfreeze via /warden-fleet"
+    ],
+    [
+      "gw",
+      "warden",
+      "ack stun-state"
+    ],
+    [
+      "warden",
+      "warden",
+      "clear cgroup freeze + tc filter locally"
+    ],
+    [
+      "fm",
+      "op1",
+      "200 OK (credentials_rotated: true)"
+    ]
+  ]
+}

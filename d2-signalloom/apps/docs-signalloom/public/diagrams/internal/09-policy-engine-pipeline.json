@@ -1,0 +1,129 @@
+{
+  "type": "flowchart",
+  "title": "policy-engine: bundles to decisions",
+  "subtitle": "Git-sourced CEL bundles rendered to a ConfigMap, then evaluated as observations. Source: policy/bundles/, policy-engine/{bindings,observations}.go.",
+  "budget": "faithful",
+  "motion": "trace",
+  "nodes": [
+    {
+      "id": "git",
+      "label": "policy/bundles/",
+      "sub": "CEL rule source, in git",
+      "kind": "external",
+      "row": 0,
+      "col": 0
+    },
+    {
+      "id": "render",
+      "label": "render-policy-bundles.sh",
+      "sub": "make policy-bundles-render",
+      "kind": "backend",
+      "row": 1,
+      "col": 0
+    },
+    {
+      "id": "cm",
+      "label": "ConfigMap policy-engine-bundles",
+      "sub": "generated, do not edit",
+      "kind": "store",
+      "row": 2,
+      "col": 0
+    },
+    {
+      "id": "store",
+      "label": "PolicyStore",
+      "sub": "boot-loaded bundle set",
+      "kind": "backend",
+      "row": 3,
+      "col": 0
+    },
+    {
+      "id": "eval",
+      "label": "obscel.Evaluator",
+      "sub": "cel_eval.go, shadow or enforce mode",
+      "tag": "CORE",
+      "focal": true,
+      "kind": "backend",
+      "row": 3,
+      "col": 1
+    },
+    {
+      "id": "ingestsink",
+      "label": "signal-ingest sink",
+      "sub": "in-process stage-1 evaluate",
+      "kind": "external",
+      "row": 2,
+      "col": 2
+    },
+    {
+      "id": "findings",
+      "label": "Findings",
+      "sub": "obscel.Finding",
+      "kind": "store",
+      "row": 4,
+      "col": 1
+    },
+    {
+      "id": "decisions",
+      "label": "Decisions",
+      "sub": "stored as observations",
+      "kind": "store",
+      "row": 5,
+      "col": 1
+    },
+    {
+      "id": "dryrun",
+      "label": "Dry-run API",
+      "sub": "POST /api/v1/observations/evaluate",
+      "kind": "backend",
+      "row": 4,
+      "col": 2
+    }
+  ],
+  "edges": [
+    [
+      "git",
+      "render",
+      "source"
+    ],
+    [
+      "render",
+      "cm",
+      "generate"
+    ],
+    [
+      "cm",
+      "store",
+      "mount + load at boot"
+    ],
+    [
+      "store",
+      "eval",
+      "bundles"
+    ],
+    [
+      "ingestsink",
+      "eval",
+      "observation in-process",
+      "primary"
+    ],
+    [
+      "eval",
+      "findings",
+      "per-bundle",
+      "primary"
+    ],
+    [
+      "findings",
+      "decisions",
+      "aggregate",
+      "primary"
+    ],
+    [
+      "eval",
+      "dryrun",
+      "same evaluator, not stored",
+      "default"
+    ]
+  ]
+}

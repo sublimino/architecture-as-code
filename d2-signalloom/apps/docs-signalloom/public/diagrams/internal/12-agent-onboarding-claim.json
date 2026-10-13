@@ -1,0 +1,100 @@
+{
+  "type": "sequence",
+  "title": "Agent discovery and claim",
+  "subtitle": "A workload becomes tenant-owned inventory. Source: docs-signalloom/src/content/docs/agents/dual-agent-onboarding.mdx.",
+  "budget": "faithful",
+  "participants": [
+    {
+      "id": "agent",
+      "label": "Demo agent pod"
+    },
+    {
+      "id": "api",
+      "label": "Signal Loom API"
+    },
+    {
+      "id": "db",
+      "label": "PostgreSQL"
+    },
+    {
+      "id": "ui",
+      "label": "Dashboard"
+    },
+    {
+      "id": "operator",
+      "label": "Operator"
+    }
+  ],
+  "messages": [
+    [
+      "agent",
+      "api",
+      "Heartbeat with SPIFFE identity"
+    ],
+    [
+      "api",
+      "db",
+      "Record discovered workload"
+    ],
+    [
+      "operator",
+      "ui",
+      "Open Agents page"
+    ],
+    [
+      "ui",
+      "api",
+      "GET /api/v1/agents"
+    ],
+    [
+      "api",
+      "ui",
+      "Inventory including demo agents"
+    ],
+    [
+      "operator",
+      "ui",
+      "Select Claim"
+    ],
+    [
+      "ui",
+      "api",
+      "POST /api/v1/agents/{agentId}/claim"
+    ],
+    [
+      "api",
+      "db",
+      "Check cross-tenant conflict"
+    ],
+    [
+      "db",
+      "api",
+      "No conflicting granted claim"
+    ],
+    [
+      "api",
+      "db",
+      "INSERT public.agent_claims"
+    ],
+    [
+      "api",
+      "ui",
+      "Claim granted"
+    ],
+    [
+      "operator",
+      "ui",
+      "Open Activity tab"
+    ],
+    [
+      "ui",
+      "api",
+      "GET /api/v1/agents/{agentId}/telemetry"
+    ],
+    [
+      "api",
+      "ui",
+      "Comparative telemetry"
+    ]
+  ]
+}

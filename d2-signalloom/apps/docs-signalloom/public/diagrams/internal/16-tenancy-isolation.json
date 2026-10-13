@@ -1,0 +1,92 @@
+{
+  "type": "architecture",
+  "title": "Tenancy isolation",
+  "subtitle": "Ownership, attribution, and per-tenant policy stay separated. Source: dual-agent-onboarding.mdx, warden-overlays/remote-tenant, signal-ingest/policy/convert.go.",
+  "budget": "faithful",
+  "motion": "trace",
+  "nodes": [
+    {
+      "id": "claim",
+      "label": "Claim conflict check",
+      "sub": "public.agent_claims, one tenant per workload",
+      "kind": "backend",
+      "row": 0,
+      "col": 0
+    },
+    {
+      "id": "tenantmap",
+      "label": "SENTINEL_TENANT_MAP",
+      "sub": "warden: namespace/serviceAccount -> tenant",
+      "kind": "backend",
+      "row": 0,
+      "col": 1
+    },
+    {
+      "id": "actor",
+      "label": "Pseudonymised actor",
+      "sub": "obs.actor, identity.encryption",
+      "kind": "security",
+      "row": 1,
+      "col": 1
+    },
+    {
+      "id": "bundles",
+      "label": "Per-tenant policy evaluation",
+      "sub": "signal-ingest obscel evaluator, tenant_id scoped",
+      "kind": "backend",
+      "row": 1,
+      "col": 0
+    },
+    {
+      "id": "ratelimit",
+      "label": "Per-acting-user rate limit",
+      "sub": "signal-ingest gateway key bucket",
+      "kind": "backend",
+      "row": 2,
+      "col": 0
+    },
+    {
+      "id": "frostdb",
+      "label": "FrostDB",
+      "sub": "observations scoped per tenant",
+      "kind": "store",
+      "row": 2,
+      "col": 1
+    }
+  ],
+  "edges": [
+    [
+      "claim",
+      "tenantmap",
+      "ownership established"
+    ],
+    [
+      "tenantmap",
+      "actor",
+      "attributes observation"
+    ],
+    [
+      "actor",
+      "bundles",
+      "evaluated under tenant scope"
+    ],
+    [
+      "bundles",
+      "frostdb",
+      "findings tagged tenant_id",
+      "primary"
+    ],
+    [
+      "ratelimit",
+      "frostdb",
+      "bounds ingest per tenant actor",
+      "default"
+    ],
+    [
+      "claim",
+      "bundles",
+      "unclaimed = visible inventory only",
+      "default"
+    ]
+  ]
+}

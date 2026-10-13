@@ -1,0 +1,135 @@
+{
+  "type": "architecture",
+  "title": "Remote tenant path",
+  "subtitle": "A secondary pilot cluster runs only the warden; everything else is central. Source: infra/agent-swarm/signalloom-warden-overlays/remote-tenant.",
+  "budget": "faithful",
+  "motion": "trace",
+  "nodes": [
+    {
+      "id": "pilotwarden",
+      "label": "signalloom-warden",
+      "sub": "DaemonSet, pilot cluster only",
+      "tag": "CORE",
+      "focal": true,
+      "kind": "backend",
+      "row": 0,
+      "col": 0,
+      "group": "remote"
+    },
+    {
+      "id": "secrets",
+      "label": "2 Secrets (minted centrally)",
+      "sub": "signalloom-warden-ingest-token, -fleet-key",
+      "kind": "security",
+      "row": 1,
+      "col": 0,
+      "group": "remote"
+    },
+    {
+      "id": "workloads",
+      "label": "Tenant's own workloads",
+      "sub": "fe-signalloom-agents namespace",
+      "kind": "external",
+      "row": 0,
+      "col": 1,
+      "group": "remote"
+    },
+    {
+      "id": "localenforce",
+      "label": "Local enforcement",
+      "sub": "cgroup freeze, veth drop - no round trip",
+      "kind": "backend",
+      "row": 1,
+      "col": 1,
+      "group": "remote"
+    },
+    {
+      "id": "gw",
+      "label": "Central gateway",
+      "sub": "dashboard.osramp.acme.local",
+      "kind": "backend",
+      "row": 2,
+      "col": 0,
+      "group": "central"
+    },
+    {
+      "id": "ingestroute",
+      "label": "/warden-ingest",
+      "sub": "-> signal-ingest",
+      "kind": "backend",
+      "row": 3,
+      "col": 0,
+      "group": "central"
+    },
+    {
+      "id": "fleetroute",
+      "label": "/warden-fleet",
+      "sub": "-> fleet-manager",
+      "kind": "backend",
+      "row": 3,
+      "col": 1,
+      "group": "central"
+    },
+    {
+      "id": "centralcore",
+      "label": "Central platform",
+      "sub": "OpenBao, SPIRE, signal-ingest, fe-signalloom",
+      "kind": "security",
+      "row": 4,
+      "col": 0,
+      "group": "central"
+    }
+  ],
+  "groups": [
+    {
+      "id": "remote",
+      "label": "Pilot / secondary cluster"
+    },
+    {
+      "id": "central",
+      "label": "Central cluster"
+    }
+  ],
+  "edges": [
+    [
+      "workloads",
+      "pilotwarden",
+      "observed"
+    ],
+    [
+      "pilotwarden",
+      "localenforce",
+      "freeze/stun takes effect locally"
+    ],
+    [
+      "pilotwarden",
+      "secrets",
+      "authenticates with"
+    ],
+    [
+      "pilotwarden",
+      "gw",
+      "TLS (hub-ca), observations + stun records"
+    ],
+    [
+      "gw",
+      "ingestroute",
+      "route"
+    ],
+    [
+      "gw",
+      "fleetroute",
+      "route"
+    ],
+    [
+      "ingestroute",
+      "centralcore",
+      "forward"
+    ],
+    [
+      "fleetroute",
+      "centralcore",
+      "forward"
+    ]
+  ]
+}

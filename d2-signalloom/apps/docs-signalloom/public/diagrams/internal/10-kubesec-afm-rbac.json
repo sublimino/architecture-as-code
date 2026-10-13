@@ -1,0 +1,108 @@
+{
+  "type": "architecture",
+  "title": "KubeSec-AFM: formal RBAC analysis",
+  "subtitle": "FastAPI plus a Z3 bounded-model-checking engine, proxied same-origin into the dashboard. Source: d2-k8s-afm/apps/afm-platform, nginx.conf.",
+  "budget": "faithful",
+  "motion": "trace",
+  "nodes": [
+    {
+      "id": "dash",
+      "label": "Signal Loom dashboard",
+      "sub": "/rbac-analysis, /rbac-explorer",
+      "kind": "external",
+      "row": 0,
+      "col": 1
+    },
+    {
+      "id": "gate",
+      "label": "/_afm_gate",
+      "sub": "reads pass, mutations need superadmin",
+      "kind": "backend",
+      "row": 1,
+      "col": 1
+    },
+    {
+      "id": "frontend",
+      "label": "Next.js static export",
+      "sub": "served at /dashboard by the backend",
+      "kind": "backend",
+      "row": 2,
+      "col": 1
+    },
+    {
+      "id": "backend",
+      "label": "afm-platform backend",
+      "sub": "FastAPI + Z3 BMC engine",
+      "tag": "CORE",
+      "focal": true,
+      "kind": "backend",
+      "row": 3,
+      "col": 1
+    },
+    {
+      "id": "queue",
+      "label": "Job queue",
+      "sub": "async analysis runs",
+      "kind": "backend",
+      "row": 3,
+      "col": 0
+    },
+    {
+      "id": "api",
+      "label": "REST API",
+      "sub": "/clusters, /rbac, /analysis/escalation",
+      "kind": "backend",
+      "row": 4,
+      "col": 1
+    },
+    {
+      "id": "cluster",
+      "label": "Target cluster RBAC",
+      "sub": "Roles, Bindings, ServiceAccounts",
+      "kind": "external",
+      "row": 5,
+      "col": 1
+    }
+  ],
+  "edges": [
+    [
+      "dash",
+      "gate",
+      "iframe /dashboard/",
+      "primary"
+    ],
+    [
+      "gate",
+      "frontend",
+      "204 on read",
+      "primary"
+    ],
+    [
+      "frontend",
+      "backend",
+      "same-origin API calls"
+    ],
+    [
+      "backend",
+      "queue",
+      "enqueue analysis"
+    ],
+    [
+      "backend",
+      "api",
+      "serves"
+    ],
+    [
+      "api",
+      "cluster",
+      "read RBAC objects",
+      "primary"
+    ],
+    [
+      "backend",
+      "cluster",
+      "Z3 escalation model",
+      "async"
+    ]
+  ]
+}

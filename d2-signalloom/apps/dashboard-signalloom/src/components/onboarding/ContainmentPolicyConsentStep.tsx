@@ -98,7 +98,7 @@ export default function ContainmentPolicyConsentStep({
                 id: 'strict-sandboxed',
                 name: 'Strict Sandboxed & Hash-Chained Audit (Recommended)',
                 badge: 'Recommended · Zero-Trust',
-                desc: 'Applies Linux Landlock LSM unprivileged sandboxing (nono), SPIFFE detached signatures, and real-time Tetragon eBPF telemetry with sub-second execution halt.',
+                desc: 'Applies Linux Landlock LSM unprivileged sandboxing (nono), SPIFFE detached signatures, and real-time stun-sentinel in-kernel eBPF telemetry with sub-second execution halt.',
               },
               {
                 id: 'standard-baseline',

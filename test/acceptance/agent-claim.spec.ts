@@ -6,7 +6,7 @@
  * - Distinct security profile badges (Nono Sandboxed vs Standard Container).
  * - Claim action flow on discovered agents into tenant governance.
  * - Comparative activity telemetry: cryptographically verified Nono audit event trails
- *   vs live Tetragon eBPF kernel flow events.
+ *   vs live stun-sentinel eBPF kernel flow events.
  */
 import { test, expect } from "./fixtures";
 import { login, config } from "./helpers";
@@ -54,11 +54,11 @@ test.describe("Operator Dual-Agent Claim & Comparative Telemetry (SLON-P2-3)", (
     await page.goto(`${BASE}/agents/agent-standard-baseline?tab=activity`);
     await expect(page.locator('[data-testid="dossier-panel-activity"], [role="tabpanel"]').first()).toBeVisible({ timeout: 10_000 });
 
-    // Verify comparative telemetry banner or Tetragon flow stream indicators
-    const standardBanner = page.locator('[data-testid="security-profile-telemetry-banner"], [data-testid="tetragon-flow-badge"]').first();
+    // Verify comparative telemetry banner or stun-sentinel flow stream indicators
+    const standardBanner = page.locator('[data-testid="security-profile-telemetry-banner"], [data-testid="sentinel-flow-badge"]').first();
     if (await standardBanner.isVisible()) {
       await expect(standardBanner).toBeVisible();
-      await expect(page.locator('[data-testid="tetragon-flow-badge"]').or(page.locator(':text("Standard Container")')).first()).toBeVisible();
+      await expect(page.locator('[data-testid="sentinel-flow-badge"]').or(page.locator(':text("Standard Container")')).first()).toBeVisible();
     }
   });
 });

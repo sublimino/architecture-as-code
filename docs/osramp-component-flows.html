@@ -100,7 +100,7 @@
     {"id":"si-kagent","label":"collectors/kagent","group":"ingest","parent":"signal-ingest"},
     {"id":"si-workspacesaas","label":"collectors/workspacesaas","group":"ingest","parent":"signal-ingest"},
     {"id":"si-netebpf","label":"collectors/netebpf · egress","group":"ingest","parent":"signal-ingest"},
-    {"id":"si-ebpf","label":"collectors/ebpf · Tetragon lane","group":"ingest","parent":"signal-ingest"},
+    {"id":"si-ebpf","label":"collectors/ebpf · sentinel.ebpf.syscall_trace lane","group":"ingest","parent":"signal-ingest"},
     {"id":"si-audit-writer","label":"audit · writer (Postgres/Nop)","group":"ingest","parent":"signal-ingest"},
     {"id":"si-transform","label":"transform · redactor/scrubber (unwired)","group":"ingest","parent":"signal-ingest","muted":true},
 
@@ -277,7 +277,7 @@
     {"id":"stun-containment-kill","cat":"Fleet & containment","label":"Detection → stun / containment / revoke",
      "summary":"A compromised pod is labelled stunned; the in-kernel sentinel freezes its cgroup and severs the network; admission bars unprotected agent pods.",
      "steps":[
-      {"from":"signal-ingest","to":"signal-ingest","verb":"correlate detection","passes":"Tetragon runtime telemetry + 5-layer signals → provisional actor evidence chain (audit-only, no enforcement)"},
+      {"from":"signal-ingest","to":"signal-ingest","verb":"correlate detection","passes":"stun-sentinel in-kernel eBPF runtime telemetry + 5-layer signals → provisional actor evidence chain (audit-only, no enforcement)"},
       {"from":"fleet-manager","to":"fleet-manager","verb":"compute cascade","passes":"POST /api/v1/fleet/stun/{agentId} → DAG cascade + RecoveryOrder (agent-monitor excluded)"},
       {"from":"agents-ns","to":"signalloom-warden","verb":"label pod stunned","passes":"pod label signalloom.ai/state=stunned observed by the DaemonSet reconciler"},
       {"from":"signalloom-warden","to":"kind-cluster","verb":"freeze + sever","passes":"cgroup-v2 freezer write + tc matchall drop on host veth (ingress+egress), liveness preserved"},

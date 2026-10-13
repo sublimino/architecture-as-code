@@ -30,7 +30,7 @@ export function getAgentWorkloadSecurityProfile(agent: Partial<AgentResponse> | 
       profile: 'standard-container',
       label: 'Standard Container',
       badgeVariant: 'standard',
-      description: 'Standard Linux container cgroups/namespaces with eBPF Tetragon kernel flow observability.',
+      description: 'Standard Linux container cgroups/namespaces with stun-sentinel in-kernel eBPF flow observability.',
     }
   }
   return {

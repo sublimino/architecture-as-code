@@ -346,3 +346,39 @@ func TestHeadErrorBodySuppression(t *testing.T) {
 		})
 	}
 }
+
+func TestOptionsMethods(t *testing.T) {
+	mux := newMux(func() time.Time { return fixedNow })
+
+	cases := []struct {
+		name      string
+		path      string
+		wantAllow string
+	}{
+		{"healthz", "/healthz", "GET, HEAD, OPTIONS"},
+		{"readyz", "/readyz", "GET, HEAD, OPTIONS"},
+		{"health", "/health", "GET, HEAD, OPTIONS"},
+		{"appraise", "/api/v1/factory/appraise", "POST, OPTIONS"},
+		{"validate_promotion", "/api/v1/factory/validate-promotion", "POST, OPTIONS"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodOptions, tc.path, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("want status %d, got %d: %s", http.StatusNoContent, rec.Code, rec.Body.String())
+			}
+			if rec.Body.Len() != 0 {
+				t.Fatalf("expected empty body for OPTIONS, got %d bytes: %q", rec.Body.Len(), rec.Body.String())
+			}
+			gotAllow := rec.Header().Get("Allow")
+			if gotAllow != tc.wantAllow {
+				t.Fatalf("want Allow %q, got %q", tc.wantAllow, gotAllow)
+			}
+		})
+	}
+}
+

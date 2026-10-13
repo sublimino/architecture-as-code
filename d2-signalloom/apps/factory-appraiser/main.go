@@ -33,6 +33,9 @@ type appraiseRequest struct {
 // paging, so a permanent null is a silent suppression, not a cosmetic default.
 func appraiseHandler(clock func() time.Time) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			defer r.Body.Close()
+		}
 		w.Header().Set("Content-Type", "application/json")
 		r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
 
@@ -147,8 +150,27 @@ func newMux(clock func() time.Time) http.Handler {
 	mux.HandleFunc("HEAD /readyz", healthHandler)
 	mux.HandleFunc("GET /health", healthHandler)
 	mux.HandleFunc("HEAD /health", healthHandler)
+
+	optionsHealthHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+	}
+	mux.HandleFunc("OPTIONS /healthz", optionsHealthHandler)
+	mux.HandleFunc("OPTIONS /readyz", optionsHealthHandler)
+	mux.HandleFunc("OPTIONS /health", optionsHealthHandler)
+
+	optionsPostHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+	}
+	mux.HandleFunc("OPTIONS /api/v1/factory/appraise", optionsPostHandler)
+	mux.HandleFunc("OPTIONS /api/v1/factory/validate-promotion", optionsPostHandler)
+
 	mux.HandleFunc("POST /api/v1/factory/appraise", appraiseHandler(clock))
 	mux.HandleFunc("POST /api/v1/factory/validate-promotion", func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			defer r.Body.Close()
+		}
 		r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
 		var req struct {
 			Candidate validator.Candidate  `json:"candidate"`

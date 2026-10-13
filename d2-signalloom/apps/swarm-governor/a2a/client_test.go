@@ -449,3 +449,58 @@ func TestClient_MockServersHEADBodySuppressionAcrossStatuses(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateHTTPURL(t *testing.T) {
+	valid := []string{
+		"http://localhost:8080",
+		"http://127.0.0.1:9090",
+		"https://agent.example.com/api",
+		"http://agent-svc.default.svc.cluster.local:8080",
+	}
+	for _, u := range valid {
+		if err := validateHTTPURL(u); err != nil {
+			t.Errorf("validateHTTPURL(%q) unexpected error: %v", u, err)
+		}
+	}
+
+	invalid := []struct {
+		url string
+		err string
+	}{
+		{"", "invalid URL"},
+		{"ftp://agent.example.com", "invalid URL scheme"},
+		{"file:///etc/passwd", "invalid URL scheme"},
+		{"gopher://evil.com", "invalid URL scheme"},
+		{"http://", "missing host"},
+		{"://foo", "missing protocol scheme"},
+	}
+	for _, tc := range invalid {
+		err := validateHTTPURL(tc.url)
+		if err == nil {
+			t.Errorf("validateHTTPURL(%q) expected error, got nil", tc.url)
+		} else if !strings.Contains(err.Error(), tc.err) {
+			t.Errorf("validateHTTPURL(%q) error = %q, want substring %q", tc.url, err.Error(), tc.err)
+		}
+	}
+}
+
+func TestClient_URLValidation(t *testing.T) {
+	client := NewClient()
+	ctx := context.Background()
+
+	// DiscoverCard rejects invalid URLs
+	if _, err := client.DiscoverCard(ctx, "ftp://agent.com"); err == nil {
+		t.Error("DiscoverCard should reject ftp scheme")
+	}
+
+	// SendTask rejects invalid URLs
+	if _, err := client.SendTask(ctx, "ftp://agent.com", Task{ID: "t-1"}); err == nil {
+		t.Error("SendTask should reject ftp scheme")
+	}
+
+	// GetTask rejects invalid URLs
+	if _, err := client.GetTask(ctx, "ftp://agent.com", "t-1"); err == nil {
+		t.Error("GetTask should reject ftp scheme")
+	}
+}
+

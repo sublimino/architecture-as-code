@@ -73,92 +73,92 @@ func TestSwarmGovernorHTTPContracts(t *testing.T) {
 			wantBodyEmpty: true,
 		},
 		{
-			name:          "POST /health returns 405 with Allow: GET, HEAD",
+			name:          "POST /health returns 405 with Allow: GET, HEAD, OPTIONS",
 			method:        http.MethodPost,
 			path:          "/health",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "GET, HEAD",
+			wantAllow:     "GET, HEAD, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
 		},
 		{
-			name:          "PUT /health returns 405 with Allow: GET, HEAD",
+			name:          "PUT /health returns 405 with Allow: GET, HEAD, OPTIONS",
 			method:        http.MethodPut,
 			path:          "/health",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "GET, HEAD",
+			wantAllow:     "GET, HEAD, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
 		},
 		{
-			name:          "DELETE /health returns 405 with Allow: GET, HEAD",
+			name:          "DELETE /health returns 405 with Allow: GET, HEAD, OPTIONS",
 			method:        http.MethodDelete,
 			path:          "/health",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "GET, HEAD",
+			wantAllow:     "GET, HEAD, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
 		},
 		{
-			name:          "PATCH /health returns 405 with Allow: GET, HEAD",
+			name:          "PATCH /health returns 405 with Allow: GET, HEAD, OPTIONS",
 			method:        http.MethodPatch,
 			path:          "/health",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "GET, HEAD",
+			wantAllow:     "GET, HEAD, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
 		},
 		{
-			name:          "PUT /healthz returns 405 with Allow: GET, HEAD",
+			name:          "PUT /healthz returns 405 with Allow: GET, HEAD, OPTIONS",
 			method:        http.MethodPut,
 			path:          "/healthz",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "GET, HEAD",
+			wantAllow:     "GET, HEAD, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
 		},
 		{
-			name:          "DELETE /healthz returns 405 with Allow: GET, HEAD",
+			name:          "DELETE /healthz returns 405 with Allow: GET, HEAD, OPTIONS",
 			method:        http.MethodDelete,
 			path:          "/healthz",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "GET, HEAD",
+			wantAllow:     "GET, HEAD, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
 		},
 		{
-			name:          "PATCH /healthz returns 405 with Allow: GET, HEAD",
+			name:          "PATCH /healthz returns 405 with Allow: GET, HEAD, OPTIONS",
 			method:        http.MethodPatch,
 			path:          "/healthz",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "GET, HEAD",
+			wantAllow:     "GET, HEAD, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
 		},
 		{
-			name:          "PUT /readyz returns 405 with Allow: GET, HEAD",
+			name:          "PUT /readyz returns 405 with Allow: GET, HEAD, OPTIONS",
 			method:        http.MethodPut,
 			path:          "/readyz",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "GET, HEAD",
+			wantAllow:     "GET, HEAD, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
 		},
 		{
-			name:          "DELETE /readyz returns 405 with Allow: GET, HEAD",
+			name:          "DELETE /readyz returns 405 with Allow: GET, HEAD, OPTIONS",
 			method:        http.MethodDelete,
 			path:          "/readyz",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "GET, HEAD",
+			wantAllow:     "GET, HEAD, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
 		},
 		{
-			name:          "PATCH /readyz returns 405 with Allow: GET, HEAD",
+			name:          "PATCH /readyz returns 405 with Allow: GET, HEAD, OPTIONS",
 			method:        http.MethodPatch,
 			path:          "/readyz",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "GET, HEAD",
+			wantAllow:     "GET, HEAD, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
 		},
@@ -167,7 +167,7 @@ func TestSwarmGovernorHTTPContracts(t *testing.T) {
 			method:        http.MethodHead,
 			path:          "/tasks/submit",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "POST",
+			wantAllow:     "POST, OPTIONS",
 			wantBodyEmpty: true,
 		},
 		// Agent Card endpoint
@@ -187,38 +187,38 @@ func TestSwarmGovernorHTTPContracts(t *testing.T) {
 			wantBodyEmpty: true,
 		},
 		{
-			name:          "POST /.well-known/agent-card.json returns 405 Allow: GET, HEAD",
+			name:          "POST /.well-known/agent-card.json returns 405 Allow: GET, HEAD, OPTIONS",
 			method:        http.MethodPost,
 			path:          "/.well-known/agent-card.json",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "GET, HEAD",
+			wantAllow:     "GET, HEAD, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
 		},
 		{
-			name:          "PUT /.well-known/agent-card.json returns 405 Allow: GET, HEAD",
+			name:          "PUT /.well-known/agent-card.json returns 405 Allow: GET, HEAD, OPTIONS",
 			method:        http.MethodPut,
 			path:          "/.well-known/agent-card.json",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "GET, HEAD",
+			wantAllow:     "GET, HEAD, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
 		},
 		{
-			name:          "DELETE /.well-known/agent-card.json returns 405 Allow: GET, HEAD",
+			name:          "DELETE /.well-known/agent-card.json returns 405 Allow: GET, HEAD, OPTIONS",
 			method:        http.MethodDelete,
 			path:          "/.well-known/agent-card.json",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "GET, HEAD",
+			wantAllow:     "GET, HEAD, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
 		},
 		{
-			name:          "PATCH /.well-known/agent-card.json returns 405 Allow: GET, HEAD",
+			name:          "PATCH /.well-known/agent-card.json returns 405 Allow: GET, HEAD, OPTIONS",
 			method:        http.MethodPatch,
 			path:          "/.well-known/agent-card.json",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "GET, HEAD",
+			wantAllow:     "GET, HEAD, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
 		},
@@ -239,40 +239,89 @@ func TestSwarmGovernorHTTPContracts(t *testing.T) {
 			wantBodyEmpty: true,
 		},
 		{
-			name:          "POST /tasks/submit rejects GET with 405 Allow: POST",
+			name:          "POST /tasks/submit rejects GET with 405 Allow: POST, OPTIONS",
 			method:        http.MethodGet,
 			path:          "/tasks/submit",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "POST",
+			wantAllow:     "POST, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
 		},
 		{
-			name:          "POST /tasks/submit rejects PUT with 405 Allow: POST",
+			name:          "POST /tasks/submit rejects PUT with 405 Allow: POST, OPTIONS",
 			method:        http.MethodPut,
 			path:          "/tasks/submit",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "POST",
+			wantAllow:     "POST, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
 		},
 		{
-			name:          "POST /tasks/submit rejects DELETE with 405 Allow: POST",
+			name:          "POST /tasks/submit rejects DELETE with 405 Allow: POST, OPTIONS",
 			method:        http.MethodDelete,
 			path:          "/tasks/submit",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "POST",
+			wantAllow:     "POST, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
 		},
 		{
-			name:          "POST /tasks/submit rejects PATCH with 405 Allow: POST",
+			name:          "POST /tasks/submit rejects PATCH with 405 Allow: POST, OPTIONS",
 			method:        http.MethodPatch,
 			path:          "/tasks/submit",
 			wantStatus:    http.StatusMethodNotAllowed,
-			wantAllow:     "POST",
+			wantAllow:     "POST, OPTIONS",
 			wantSubstr:    `"error":"method not allowed"`,
 			wantBodyEmpty: false,
+		},
+		// OPTIONS method parity
+		{
+			name:          "OPTIONS /health returns 204 with Allow: GET, HEAD, OPTIONS",
+			method:        http.MethodOptions,
+			path:          "/health",
+			wantStatus:    http.StatusNoContent,
+			wantAllow:     "GET, HEAD, OPTIONS",
+			wantBodyEmpty: true,
+		},
+		{
+			name:          "OPTIONS /healthz returns 204 with Allow: GET, HEAD, OPTIONS",
+			method:        http.MethodOptions,
+			path:          "/healthz",
+			wantStatus:    http.StatusNoContent,
+			wantAllow:     "GET, HEAD, OPTIONS",
+			wantBodyEmpty: true,
+		},
+		{
+			name:          "OPTIONS /readyz returns 204 with Allow: GET, HEAD, OPTIONS",
+			method:        http.MethodOptions,
+			path:          "/readyz",
+			wantStatus:    http.StatusNoContent,
+			wantAllow:     "GET, HEAD, OPTIONS",
+			wantBodyEmpty: true,
+		},
+		{
+			name:          "OPTIONS /.well-known/agent-card.json returns 204 with Allow: GET, HEAD, OPTIONS",
+			method:        http.MethodOptions,
+			path:          "/.well-known/agent-card.json",
+			wantStatus:    http.StatusNoContent,
+			wantAllow:     "GET, HEAD, OPTIONS",
+			wantBodyEmpty: true,
+		},
+		{
+			name:          "OPTIONS /tasks/submit returns 204 with Allow: POST, OPTIONS",
+			method:        http.MethodOptions,
+			path:          "/tasks/submit",
+			wantStatus:    http.StatusNoContent,
+			wantAllow:     "POST, OPTIONS",
+			wantBodyEmpty: true,
+		},
+		{
+			name:          "OPTIONS /tasks/missing returns 204 with Allow: GET, HEAD, OPTIONS",
+			method:        http.MethodOptions,
+			path:          "/tasks/missing",
+			wantStatus:    http.StatusNoContent,
+			wantAllow:     "GET, HEAD, OPTIONS",
+			wantBodyEmpty: true,
 		},
 	}
 
@@ -291,8 +340,10 @@ func TestSwarmGovernorHTTPContracts(t *testing.T) {
 				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
 			}
 
-			if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
-				t.Errorf("Content-Type = %q, want application/json", ct)
+			if rec.Code != http.StatusNoContent {
+				if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+					t.Errorf("Content-Type = %q, want application/json", ct)
+				}
 			}
 
 			if tt.wantAllow != "" {
@@ -437,8 +488,8 @@ func TestSwarmGovernor_SubmitTaskLifecycleAndEdgeCases(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s /tasks/%s: want 405, got %d", method, taskID, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Errorf("%s /tasks/%s Allow header = %q, want 'GET, HEAD'", method, taskID, allow)
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("%s /tasks/%s Allow header = %q, want 'GET, HEAD, OPTIONS'", method, taskID, allow)
 		}
 		var errResp map[string]string
 		if err := json.Unmarshal(rec.Body.Bytes(), &errResp); err != nil {
@@ -446,6 +497,20 @@ func TestSwarmGovernor_SubmitTaskLifecycleAndEdgeCases(t *testing.T) {
 		}
 		if errResp["error"] != "method not allowed" {
 			t.Errorf("%s /tasks/%s error = %q, want 'method not allowed'", method, taskID, errResp["error"])
+		}
+	}
+
+	// 8. Submit with invalid agent URLs (SSRF defense) -> 400 Bad Request
+	for _, badURL := range []string{"ftp://evil.com/card", "http://", "invalid-url", "http:///no-host"} {
+		badBody, _ := json.Marshal(SubmitRequest{
+			Description: "Scan container image",
+			AgentURLs:   []string{badURL},
+		})
+		req = httptest.NewRequest(http.MethodPost, "/tasks/submit", bytes.NewReader(badBody))
+		rec = httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("submit invalid agent URL %q: want 400, got %d", badURL, rec.Code)
 		}
 	}
 }

@@ -11,8 +11,23 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
+
+func validateHTTPURL(rawURL string) error {
+	parsed, err := url.ParseRequestURI(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL %q: %w", rawURL, err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("invalid URL scheme %q in %q: must be http or https", parsed.Scheme, rawURL)
+	}
+	if parsed.Host == "" {
+		return fmt.Errorf("missing host in URL %q", rawURL)
+	}
+	return nil
+}
 
 // Client communicates with A2A agents.
 type Client struct {
@@ -28,6 +43,9 @@ func NewClient() *Client {
 
 // DiscoverCard fetches an agent's card from its well-known endpoint.
 func (c *Client) DiscoverCard(ctx context.Context, baseURL string) (*AgentCard, error) {
+	if err := validateHTTPURL(baseURL); err != nil {
+		return nil, fmt.Errorf("validate agent base URL: %w", err)
+	}
 	cardURL := baseURL + "/.well-known/agent-card.json"
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cardURL, nil)
@@ -42,6 +60,7 @@ func (c *Client) DiscoverCard(ctx context.Context, baseURL string) (*AgentCard, 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 		return nil, fmt.Errorf("agent card at %s returned status %d", cardURL, resp.StatusCode)
 	}
 
@@ -64,6 +83,9 @@ func (c *Client) DiscoverCard(ctx context.Context, baseURL string) (*AgentCard, 
 
 // SendTask dispatches a task to an agent via JSON-RPC 2.0 tasks/send.
 func (c *Client) SendTask(ctx context.Context, agentURL string, task Task) (*TaskResult, error) {
+	if err := validateHTTPURL(agentURL); err != nil {
+		return nil, fmt.Errorf("validate agent URL: %w", err)
+	}
 	rpcReq := JSONRPCRequest{
 		JSONRPC: "2.0",
 		Method:  "tasks/send",
@@ -89,6 +111,7 @@ func (c *Client) SendTask(ctx context.Context, agentURL string, task Task) (*Tas
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 		return nil, fmt.Errorf("send task to %s returned HTTP status %d", agentURL, resp.StatusCode)
 	}
 
@@ -122,6 +145,9 @@ func (c *Client) SendTask(ctx context.Context, agentURL string, task Task) (*Tas
 
 // GetTask queries the status of a task via JSON-RPC 2.0 tasks/get.
 func (c *Client) GetTask(ctx context.Context, agentURL string, taskID string) (*TaskResult, error) {
+	if err := validateHTTPURL(agentURL); err != nil {
+		return nil, fmt.Errorf("validate agent URL: %w", err)
+	}
 	rpcReq := JSONRPCRequest{
 		JSONRPC: "2.0",
 		Method:  "tasks/get",
@@ -147,6 +173,7 @@ func (c *Client) GetTask(ctx context.Context, agentURL string, taskID string) (*
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 		return nil, fmt.Errorf("get task from %s returned HTTP status %d", agentURL, resp.StatusCode)
 	}
 

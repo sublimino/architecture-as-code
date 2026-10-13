@@ -86,7 +86,9 @@ heredoc_body() {
     kind_config=/dev/stdout
     '"$(awk '/^cat >"\$kind_config" <<EOF$/,/^EOF$/' "$script")"'
   ')"
-  printf '%s' "$out" | python3 -c 'import sys,yaml; yaml.safe_load(sys.stdin.read())'
+  local py
+  py="$(python3 -c 'import yaml' >/dev/null 2>&1 && echo python3 || echo /usr/bin/python3)"
+  printf '%s' "$out" | "$py" -c 'import sys,yaml; yaml.safe_load(sys.stdin.read())'
   printf '%s' "$out" | grep -qF 'nodeStatusMaxImages: -1'
   printf '%s' "$out" | grep -qF 'name: testcluster'
   printf '%s' "$out" | grep -qF '/tmp/zot-test'

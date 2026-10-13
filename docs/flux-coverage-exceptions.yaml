@@ -225,3 +225,11 @@ exceptions:
       `fluxcd.controlplane.io/reconcile: disabled` and is activated by
       `make demo-osramp-up`, so the blast radius is the OSRAMP demo only.
     applied_by: nothing
+
+  - path: d2-signalloom/infra/agent-swarm/agent-nono-kusari/deployment.yaml
+    class: gap
+    reason: >-
+      Second Kusari agent under nono Landlock enforcement (R8 testbed).
+      Deployed out-of-band by demo script, not yet reconciled by a Flux
+      agent-swarm Kustomization.
+    applied_by: demo script

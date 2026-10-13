@@ -56,7 +56,12 @@ import os
 import re
 import sys
 
-import yaml
+try:
+    import yaml
+except ImportError:
+    if os.path.exists('/usr/bin/python3') and sys.executable != '/usr/bin/python3':
+        os.execv('/usr/bin/python3', ['/usr/bin/python3'] + sys.argv)
+    raise
 
 # flux-operator's ResourceSet templating. `<< inputs.tenant >>` is not YAML, so
 # it is tokenised to a bare scalar before parsing. A quoted replacement would

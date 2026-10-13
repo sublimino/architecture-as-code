@@ -34,6 +34,7 @@ setup() {
 	EXC="${REPO_ROOT}/docs/flux-coverage-exceptions.yaml"
 	EXC_BACKUP="${BATS_TEST_TMPDIR}/exceptions.backup.yaml"
 	MUTANT_DIR="${REPO_ROOT}/d2-signalloom/apps/zz-coverage-mutation-probe"
+	PYTHON="$(python3 -c 'import yaml' >/dev/null 2>&1 && echo python3 || echo /usr/bin/python3)"
 	cp "$EXC" "$EXC_BACKUP"
 }
 
@@ -99,7 +100,7 @@ teardown() {
 	local victim="d2-k8s-afm/apps/afm-platform/base/deployment.yaml"
 	grep -q "$victim" "$EXC"
 
-	python3 - "$EXC" "$victim" <<-'PY'
+	"$PYTHON" - "$EXC" "$victim" <<-'PY'
 		import sys, yaml
 		path, victim = sys.argv[1], sys.argv[2]
 		doc = yaml.safe_load(open(path))
@@ -113,7 +114,7 @@ teardown() {
 }
 
 @test "4. MUTATION an exception for a path that no longer exists FAILS as stale" {
-	python3 - "$EXC" <<-'PY'
+	"$PYTHON" - "$EXC" <<-'PY'
 		import sys, yaml
 		path = sys.argv[1]
 		doc = yaml.safe_load(open(path))
@@ -136,7 +137,7 @@ teardown() {
 	local managed="d2-signalloom/apps/signal-ingest/base/deployment.yaml"
 	test -f "${REPO_ROOT}/${managed}"
 
-	python3 - "$EXC" "$managed" <<-'PY'
+	"$PYTHON" - "$EXC" "$managed" <<-'PY'
 		import sys, yaml
 		path, managed = sys.argv[1], sys.argv[2]
 		doc = yaml.safe_load(open(path))
@@ -152,7 +153,7 @@ teardown() {
 
 @test "6. MUTATION an exception with no reason FAILS as malformed" {
 	# An entry is only an exception if it says why. A bare path is a waiver.
-	python3 - "$EXC" <<-'PY'
+	"$PYTHON" - "$EXC" <<-'PY'
 		import sys, yaml
 		path = sys.argv[1]
 		doc = yaml.safe_load(open(path))
@@ -173,7 +174,7 @@ teardown() {
 	# reports a working fleet as broken. Asserting the resolver directly rather
 	# than mutating a reconciled ConfigMap keeps this suite unable to publish a
 	# mutated fleet.
-	run python3 - "$REPO_ROOT" <<-'PY'
+	run "$PYTHON" - "$REPO_ROOT" <<-'PY'
 		import importlib.util, os, sys
 		root = sys.argv[1]
 		os.chdir(root)
@@ -201,7 +202,7 @@ teardown() {
 	# reports Ready=True, which is indistinguishable from success.
 	run python3 "$GATE" --json
 	[ "$status" -eq 0 ]
-	run python3 -c "import json,subprocess,sys; d=json.loads(subprocess.run([sys.executable,'$GATE','--json'],capture_output=True,text=True).stdout); print(len(d['dangling_paths']), len(d['resolution_problems']))"
+	run "$PYTHON" -c "import json,subprocess,sys; d=json.loads(subprocess.run([sys.executable,'$GATE','--json'],capture_output=True,text=True).stdout); print(len(d['dangling_paths']), len(d['resolution_problems']))"
 	[ "$output" = "0 0" ]
 }
 
@@ -218,6 +219,6 @@ teardown() {
 @test "10. the register records the declared-gap count so it cannot drift unnoticed" {
 	# Not an upper bound on quality -- an explicit number, so closing a gap or
 	# admitting a new one is a visible diff rather than a silent reclassification.
-	run python3 -c "import json,subprocess,sys; d=json.loads(subprocess.run([sys.executable,'$GATE','--json'],capture_output=True,text=True).stdout); print(len(d['declared_gaps']))"
-	[ "$output" = "10" ]
+	run "$PYTHON" -c "import json,subprocess,sys; d=json.loads(subprocess.run([sys.executable,'$GATE','--json'],capture_output=True,text=True).stdout); print(len(d['declared_gaps']))"
+	[ "$output" = "11" ]
 }

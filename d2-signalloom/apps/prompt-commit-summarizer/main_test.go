@@ -44,16 +44,21 @@ func TestHealth(t *testing.T) {
 			t.Fatalf("expected empty body for HEAD %s, got %d bytes", endpoint, rec.Body.Len())
 		}
 
-		// POST rejected
-		req = httptest.NewRequest("POST", endpoint, nil)
-		rec = httptest.NewRecorder()
-		mux.ServeHTTP(rec, req)
+		// Disallowed methods rejected: POST, PUT, DELETE, PATCH
+		for _, m := range []string{"POST", "PUT", "DELETE", "PATCH"} {
+			req = httptest.NewRequest(m, endpoint, nil)
+			rec = httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
 
-		if rec.Code != http.StatusMethodNotAllowed {
-			t.Fatalf("expected status 405 for POST %s, got %d", endpoint, rec.Code)
-		}
-		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Fatalf("expected Allow GET, HEAD for POST %s, got %s", endpoint, allow)
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("expected status 405 for %s %s, got %d", m, endpoint, rec.Code)
+			}
+			if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
+				t.Fatalf("expected Allow GET, HEAD for %s %s, got %s", m, endpoint, allow)
+			}
+			if rec.Body.Len() == 0 {
+				t.Fatalf("expected non-empty error body for %s %s", m, endpoint)
+			}
 		}
 	}
 }
@@ -61,7 +66,7 @@ func TestHealth(t *testing.T) {
 func TestSummarizeHandlerMethodGatesAndHead(t *testing.T) {
 	mux := newRouter("http://mock-llm", "test-model")
 
-	for _, method := range []string{"GET", "HEAD", "PUT", "DELETE"} {
+	for _, method := range []string{"GET", "HEAD", "PUT", "DELETE", "PATCH"} {
 		req := httptest.NewRequest(method, "/", nil)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
@@ -74,6 +79,9 @@ func TestSummarizeHandlerMethodGatesAndHead(t *testing.T) {
 		}
 		if method == "HEAD" && rec.Body.Len() != 0 {
 			t.Fatalf("expected empty body for HEAD /, got %d bytes: %q", rec.Body.Len(), rec.Body.String())
+		}
+		if method != "HEAD" && rec.Body.Len() == 0 {
+			t.Fatalf("expected non-empty body for %s /", method)
 		}
 	}
 }
@@ -89,6 +97,21 @@ func TestSummarizeHandlerPathIsolation(t *testing.T) {
 
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("expected status 404 for path %s, got %d", path, rec.Code)
+		}
+		if rec.Body.Len() == 0 {
+			t.Fatalf("expected non-empty 404 body for POST path %s", path)
+		}
+
+		// Direct invocation with HEAD -> 404 with empty body
+		reqHead := httptest.NewRequest("HEAD", path, nil)
+		recHead := httptest.NewRecorder()
+		handler(recHead, reqHead)
+
+		if recHead.Code != http.StatusNotFound {
+			t.Fatalf("expected status 404 for HEAD path %s, got %d", path, recHead.Code)
+		}
+		if recHead.Body.Len() != 0 {
+			t.Fatalf("expected empty body for HEAD path %s, got %d bytes: %q", path, recHead.Body.Len(), recHead.Body.String())
 		}
 	}
 }
@@ -134,6 +157,25 @@ func TestMethodNotAllowed(t *testing.T) {
 	}
 	if allow := rec.Header().Get("Allow"); allow != "POST" {
 		t.Fatalf("expected Allow POST for GET /, got %s", allow)
+	}
+	if rec.Body.Len() == 0 {
+		t.Fatalf("expected non-empty error body for GET /")
+	}
+
+	// Direct invocation with HEAD -> 405 with empty body
+	reqHead := httptest.NewRequest("HEAD", "/", nil)
+	recHead := httptest.NewRecorder()
+
+	handler(recHead, reqHead)
+
+	if recHead.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected status 405 Method Not Allowed for HEAD /, got %d", recHead.Code)
+	}
+	if allow := recHead.Header().Get("Allow"); allow != "POST" {
+		t.Fatalf("expected Allow POST for HEAD /, got %s", allow)
+	}
+	if recHead.Body.Len() != 0 {
+		t.Fatalf("expected empty body for direct HEAD /, got %d bytes: %q", recHead.Body.Len(), recHead.Body.String())
 	}
 }
 
@@ -401,6 +443,51 @@ func TestPromptSummarizerMockServerMethodGatingAndHEAD(t *testing.T) {
 	}
 	if len(body) != 0 {
 		t.Errorf("HEAD body length = %d, want 0", len(body))
+	}
+}
+
+func TestHealthHandlerDirectMethodGatingAndHEAD(t *testing.T) {
+	for _, m := range []string{"POST", "PUT", "DELETE", "PATCH"} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(m, "/health", nil)
+		healthHandler(rec, req)
+
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected status 405 for direct %s /health, got %d", m, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "GET, HEAD" {
+			t.Fatalf("expected Allow GET, HEAD for direct %s /health, got %s", m, allow)
+		}
+		if rec.Body.Len() == 0 {
+			t.Fatalf("expected non-empty body for direct %s /health", m)
+		}
+	}
+
+	// Direct HEAD -> 200 with empty body
+	recHead := httptest.NewRecorder()
+	reqHead := httptest.NewRequest(http.MethodHead, "/health", nil)
+	healthHandler(recHead, reqHead)
+
+	if recHead.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for direct HEAD /health, got %d", recHead.Code)
+	}
+	if recHead.Body.Len() != 0 {
+		t.Fatalf("expected empty body for direct HEAD /health, got %d bytes: %q", recHead.Body.Len(), recHead.Body.String())
+	}
+}
+
+func TestHeadResponseWriterDirect(t *testing.T) {
+	innerRec := httptest.NewRecorder()
+	hw := &headResponseWriter{ResponseWriter: innerRec}
+	n, err := hw.Write([]byte("this should be suppressed"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n != 25 {
+		t.Fatalf("expected write count 25, got %d", n)
+	}
+	if innerRec.Body.Len() != 0 {
+		t.Fatalf("expected empty recorder body, got %d bytes: %q", innerRec.Body.Len(), innerRec.Body.String())
 	}
 }
 

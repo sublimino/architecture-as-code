@@ -260,21 +260,27 @@ func TestCardvaultMethodNotAllowed(t *testing.T) {
 	}
 
 	for _, ep := range endpoints {
-		req, err := http.NewRequest(http.MethodPost, srv.URL+ep, nil)
-		if err != nil {
-			t.Fatalf("NewRequest: %v", err)
-		}
-		req.SetBasicAuth("u", "p")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatalf("POST %s: %v", ep, err)
-		}
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusMethodNotAllowed {
-			t.Errorf("POST %s: expected 405 Method Not Allowed, got %d", ep, resp.StatusCode)
-		}
-		if allow := resp.Header.Get("Allow"); !strings.Contains(allow, "GET") || !strings.Contains(allow, "HEAD") {
-			t.Errorf("POST %s: expected Allow header containing GET, HEAD, got %q", ep, allow)
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+			req, err := http.NewRequest(method, srv.URL+ep, nil)
+			if err != nil {
+				t.Fatalf("NewRequest: %v", err)
+			}
+			req.SetBasicAuth("u", "p")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("%s %s: %v", method, ep, err)
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s: expected 405 Method Not Allowed, got %d", method, ep, resp.StatusCode)
+			}
+			if allow := resp.Header.Get("Allow"); !strings.Contains(allow, "GET") || !strings.Contains(allow, "HEAD") {
+				t.Errorf("%s %s: expected Allow header containing GET, HEAD, got %q", method, ep, allow)
+			}
+			if len(body) == 0 {
+				t.Errorf("%s %s: expected non-empty error body", method, ep)
+			}
 		}
 	}
 }
@@ -382,6 +388,62 @@ func TestCardvaultHeadUnknownRoute(t *testing.T) {
 		if len(body) != 0 {
 			t.Errorf("HEAD %s: want empty body, got %d bytes: %q", ep, len(body), string(body))
 		}
+	}
+}
+
+func TestCardvaultWriteJSONDirectAndHEAD(t *testing.T) {
+	statuses := []int{
+		http.StatusOK,
+		http.StatusBadRequest,
+		http.StatusUnauthorized,
+		http.StatusNotFound,
+		http.StatusMethodNotAllowed,
+		http.StatusInternalServerError,
+	}
+	payload := map[string]string{"vault": "test-token"}
+
+	for _, status := range statuses {
+		// 1. GET writes full JSON body and sets Content-Type
+		recGet := httptest.NewRecorder()
+		reqGet := httptest.NewRequest(http.MethodGet, "/unit-test", nil)
+		writeJSON(recGet, reqGet, status, payload)
+		if recGet.Code != status {
+			t.Errorf("GET writeJSON status = %d, want %d", recGet.Code, status)
+		}
+		if ct := recGet.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("GET writeJSON Content-Type = %q, want application/json", ct)
+		}
+		var got map[string]string
+		if err := json.Unmarshal(recGet.Body.Bytes(), &got); err != nil {
+			t.Errorf("GET writeJSON decode failed: %v", err)
+		}
+		if got["vault"] != payload["vault"] {
+			t.Errorf("GET writeJSON vault = %q, want %q", got["vault"], payload["vault"])
+		}
+
+		// 2. HEAD sets status and Content-Type but suppresses body bytes (0 bytes)
+		recHead := httptest.NewRecorder()
+		reqHead := httptest.NewRequest(http.MethodHead, "/unit-test", nil)
+		writeJSON(recHead, reqHead, status, payload)
+		if recHead.Code != status {
+			t.Errorf("HEAD writeJSON status = %d, want %d", recHead.Code, status)
+		}
+		if ct := recHead.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("HEAD writeJSON Content-Type = %q, want application/json", ct)
+		}
+		if recHead.Body.Len() != 0 {
+			t.Errorf("HEAD writeJSON wrote %d body bytes (%q), want 0", recHead.Body.Len(), recHead.Body.String())
+		}
+	}
+
+	// 3. nil request writes body
+	recNil := httptest.NewRecorder()
+	writeJSON(recNil, nil, http.StatusOK, payload)
+	if recNil.Code != http.StatusOK {
+		t.Errorf("nil req writeJSON status = %d, want 200", recNil.Code)
+	}
+	if recNil.Body.Len() == 0 {
+		t.Errorf("nil req writeJSON wrote empty body, want JSON payload")
 	}
 }
 

@@ -683,19 +683,24 @@ func TestHealthz_Endpoint(t *testing.T) {
 }
 
 func TestMethodNotAllowed_ProbesAndMetrics(t *testing.T) {
-	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
-		// Healthz
-		reqH := httptest.NewRequest(method, "/healthz", nil)
-		recH := httptest.NewRecorder()
-		webhook.HandleHealthz(recH, reqH)
-		if recH.Code != http.StatusMethodNotAllowed {
-			t.Errorf("HandleHealthz %s expected 405 Method Not Allowed, got %d", method, recH.Code)
+	for _, path := range []string{"/health", "/healthz", "/readyz"} {
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+			reqH := httptest.NewRequest(method, path, nil)
+			recH := httptest.NewRecorder()
+			webhook.HandleHealthz(recH, reqH)
+			if recH.Code != http.StatusMethodNotAllowed {
+				t.Errorf("HandleHealthz %s %s expected 405 Method Not Allowed, got %d", method, path, recH.Code)
+			}
+			if recH.Header().Get("Allow") != "GET, HEAD" {
+				t.Errorf("HandleHealthz %s %s expected Allow: GET, HEAD, got %q", method, path, recH.Header().Get("Allow"))
+			}
+			if recH.Body.Len() == 0 {
+				t.Errorf("HandleHealthz %s %s expected non-empty body", method, path)
+			}
 		}
-		if recH.Header().Get("Allow") != "GET, HEAD" {
-			t.Errorf("HandleHealthz %s expected Allow: GET, HEAD, got %q", method, recH.Header().Get("Allow"))
-		}
+	}
 
-		// Metrics
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		reqM := httptest.NewRequest(method, "/metrics", nil)
 		recM := httptest.NewRecorder()
 		webhook.HandleMetrics(recM, reqM)
@@ -705,12 +710,15 @@ func TestMethodNotAllowed_ProbesAndMetrics(t *testing.T) {
 		if recM.Header().Get("Allow") != "GET, HEAD" {
 			t.Errorf("HandleMetrics %s expected Allow: GET, HEAD, got %q", method, recM.Header().Get("Allow"))
 		}
+		if recM.Body.Len() == 0 {
+			t.Errorf("HandleMetrics %s expected non-empty body", method)
+		}
 	}
 }
 
 func TestMethodNotAllowed_HandleValidate(t *testing.T) {
 	server := webhook.NewWebhookServer(nil, "signalloom.demo")
-	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete} {
+	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		req := httptest.NewRequest(method, "/validate", nil)
 		rec := httptest.NewRecorder()
 		server.HandleValidate(rec, req)
@@ -727,6 +735,26 @@ func TestMethodNotAllowed_HandleValidate(t *testing.T) {
 		} else {
 			if rec.Body.Len() == 0 {
 				t.Errorf("HandleValidate %s expected non-empty error body", method)
+			}
+		}
+
+		// Also check package-level HandleValidate
+		reqPkg := httptest.NewRequest(method, "/validate", nil)
+		recPkg := httptest.NewRecorder()
+		webhook.HandleValidate(recPkg, reqPkg)
+		if recPkg.Code != http.StatusMethodNotAllowed {
+			t.Errorf("package HandleValidate %s expected 405, got %d", method, recPkg.Code)
+		}
+		if recPkg.Header().Get("Allow") != "POST" {
+			t.Errorf("package HandleValidate %s expected Allow: POST, got %q", method, recPkg.Header().Get("Allow"))
+		}
+		if method == http.MethodHead {
+			if recPkg.Body.Len() != 0 {
+				t.Errorf("package HandleValidate HEAD expected empty body, got %q", recPkg.Body.String())
+			}
+		} else {
+			if recPkg.Body.Len() == 0 {
+				t.Errorf("package HandleValidate %s expected non-empty error body", method)
 			}
 		}
 	}
@@ -752,9 +780,24 @@ func TestNewMux_RoutesAndHeadParity(t *testing.T) {
 		if recHead.Body.Len() != 0 {
 			t.Errorf("HEAD %s got body %q, want empty", path, recHead.Body.String())
 		}
+
+		// Rejection on non-GET/HEAD methods across mux
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+			recMethod := httptest.NewRecorder()
+			mux.ServeHTTP(recMethod, httptest.NewRequest(method, path, nil))
+			if recMethod.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s got status %d, want 405", method, path, recMethod.Code)
+			}
+			if allow := recMethod.Header().Get("Allow"); allow != "GET, HEAD" {
+				t.Errorf("%s %s Allow = %q, want GET, HEAD", method, path, allow)
+			}
+			if recMethod.Body.Len() == 0 {
+				t.Errorf("%s %s expected non-empty body", method, path)
+			}
+		}
 	}
 
-	// Test /metrics HEAD parity
+	// Test /metrics HEAD parity and method rejection
 	recMetHead := httptest.NewRecorder()
 	mux.ServeHTTP(recMetHead, httptest.NewRequest(http.MethodHead, "/metrics", nil))
 	if recMetHead.Code != http.StatusOK {
@@ -765,6 +808,17 @@ func TestNewMux_RoutesAndHeadParity(t *testing.T) {
 	}
 	if recMetHead.Body.Len() != 0 {
 		t.Errorf("HEAD /metrics got body %q, want empty", recMetHead.Body.String())
+	}
+
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		recMethod := httptest.NewRecorder()
+		mux.ServeHTTP(recMethod, httptest.NewRequest(method, "/metrics", nil))
+		if recMethod.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s /metrics got status %d, want 405", method, recMethod.Code)
+		}
+		if allow := recMethod.Header().Get("Allow"); allow != "GET, HEAD" {
+			t.Errorf("%s /metrics Allow = %q, want GET, HEAD", method, allow)
+		}
 	}
 
 	// Test /validate HEAD method rejection and empty body
@@ -778,6 +832,20 @@ func TestNewMux_RoutesAndHeadParity(t *testing.T) {
 	}
 	if recValHead.Body.Len() != 0 {
 		t.Errorf("HEAD /validate got body %q, want empty", recValHead.Body.String())
+	}
+
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		recMethod := httptest.NewRecorder()
+		mux.ServeHTTP(recMethod, httptest.NewRequest(method, "/validate", nil))
+		if recMethod.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s /validate got status %d, want 405", method, recMethod.Code)
+		}
+		if allow := recMethod.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("%s /validate Allow = %q, want POST", method, allow)
+		}
+		if recMethod.Body.Len() == 0 {
+			t.Errorf("%s /validate expected non-empty error body", method)
+		}
 	}
 
 	// Test unknown route HEAD 404 body suppression

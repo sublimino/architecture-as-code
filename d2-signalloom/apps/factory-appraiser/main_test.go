@@ -190,6 +190,55 @@ func TestHealthProbes(t *testing.T) {
 		if headRec.Body.Len() != 0 {
 			t.Fatalf("path %s HEAD returned %d body bytes, want 0", path, headRec.Body.Len())
 		}
+
+		// Disallowed methods (POST, PUT, DELETE, PATCH) -> 405 with Allow: GET, HEAD
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+			mReq := httptest.NewRequest(method, path, nil)
+			mRec := httptest.NewRecorder()
+			mux.ServeHTTP(mRec, mReq)
+			if mRec.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("path %s %s returned status %d, want 405", path, method, mRec.Code)
+			}
+			if allow := mRec.Header().Get("Allow"); !strings.Contains(allow, "GET") || !strings.Contains(allow, "HEAD") {
+				t.Fatalf("path %s %s expected Allow header containing GET, HEAD, got %q", path, method, allow)
+			}
+		}
+	}
+}
+
+func TestMethodRejection_FactoryRoutes(t *testing.T) {
+	mux := newMux(func() time.Time { return fixedNow })
+	factoryRoutes := []string{
+		"/api/v1/factory/appraise",
+		"/api/v1/factory/validate-promotion",
+	}
+
+	for _, path := range factoryRoutes {
+		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+			req := httptest.NewRequest(method, path, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s returned status %d, want 405", method, path, rec.Code)
+			}
+			if allow := rec.Header().Get("Allow"); !strings.Contains(allow, "POST") {
+				t.Errorf("%s %s Allow = %q, want containing POST", method, path, allow)
+			}
+		}
+
+		// HEAD -> 405 with Allow: POST and 0 body bytes
+		headReq := httptest.NewRequest(http.MethodHead, path, nil)
+		headRec := httptest.NewRecorder()
+		mux.ServeHTTP(headRec, headReq)
+		if headRec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("HEAD %s returned status %d, want 405", path, headRec.Code)
+		}
+		if allow := headRec.Header().Get("Allow"); !strings.Contains(allow, "POST") {
+			t.Errorf("HEAD %s Allow = %q, want containing POST", path, allow)
+		}
+		if headRec.Body.Len() != 0 {
+			t.Errorf("HEAD %s returned %d body bytes, want 0", path, headRec.Body.Len())
+		}
 	}
 }
 

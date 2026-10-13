@@ -96,6 +96,20 @@ func (s *spyStore) QueryRange(ctx context.Context, q store.Query) ([]model.Obser
 	return s.inner.QueryRange(ctx, q)
 }
 
+// ScanIDs carries the same hot-path prohibition QueryRange does: warm-up may read the store,
+// stage 1 may not, and which door the read came through makes no difference to that.
+func (s *spyStore) ScanIDs(ctx context.Context, q store.Query, fn func(id string) error) error {
+	s.mu.Lock()
+	warm := s.warm
+	s.queryCalls++
+	s.mu.Unlock()
+	if warm {
+		s.t.Errorf("ScanIDs called on the hot path after warm-up: stage 1 must never read the store")
+		return errors.New("spyStore: ScanIDs is forbidden after warm-up")
+	}
+	return s.inner.ScanIDs(ctx, q, fn)
+}
+
 func (s *spyStore) DropPartition(ctx context.Context, before time.Time) error {
 	return s.inner.DropPartition(ctx, before)
 }

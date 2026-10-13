@@ -105,6 +105,11 @@ func (s *Store) QueryRange(ctx context.Context, q store.Query) ([]model.Observat
 	return s.inner.QueryRange(ctx, q)
 }
 
+// ScanIDs delegates. Policy has nothing to say about identity-only reads either.
+func (s *Store) ScanIDs(ctx context.Context, q store.Query, fn func(id string) error) error {
+	return s.inner.ScanIDs(ctx, q, fn)
+}
+
 // DropPartition delegates.
 func (s *Store) DropPartition(ctx context.Context, before time.Time) error {
 	return s.inner.DropPartition(ctx, before)

@@ -20,7 +20,7 @@ GO_TEST="TestGoEvidenceAcceptedThenMutationRejectedByPythonVerifier"
 GO_CACHE_ROOT="${SFDP_GO_CACHE_ROOT:-/tmp/opencode/sfdp-p3-3-go}"
 
 mkdir -p "${PROOF_DIR}"
-mkdir -p "${GO_CACHE_ROOT}/build" "${GO_CACHE_ROOT}/mod"
+mkdir -p "${GO_CACHE_ROOT}/build" "${GO_CACHE_ROOT}/mod" "${GO_CACHE_ROOT}/gopath"
 PROOF_DIR="$(cd "${PROOF_DIR}" && pwd)"
 STORE_DIR="${PROOF_DIR}/store"
 EVIDENCE_DIR="${PROOF_DIR}/evidence"
@@ -49,8 +49,10 @@ SIGNAL_SEGMENT_HIGHWATER="${HIGH_WATER}" \
 SIGNAL_SEGMENT_SIGNING_KEY="${KEYS_DIR}/witness.pem" \
 SIGNAL_SEGMENT_PUBLIC_KEY="${KEYS_DIR}/witness-pub.pem" \
 SIGNAL_SEGMENT_EXPECTED_KEY_ID="${EXPECTED_KEY_ID}" \
+GOPATH="${GO_CACHE_ROOT}/gopath" \
 GOCACHE="${GO_CACHE_ROOT}/build" \
 GOMODCACHE="${GO_CACHE_ROOT}/mod" \
+GONOSUMDB="*" \
 CGO_ENABLED=0 \
   go -C "${GO_DIR}" test -tags=frostdb "${GO_PACKAGE}" -run "^${GO_TEST}$" -count=1 -v
 

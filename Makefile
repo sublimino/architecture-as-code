@@ -1859,7 +1859,7 @@ audit-anchor-show: ## List the published audit-trail anchors.
 
 .PHONY: audit-anchor-tamper-demo
 audit-anchor-tamper-demo: signing-keys ## Prove real audit or FrostDB tamper detection (AUDIT_ANCHOR_TAMPER_SOURCE=audit|segments|all).
-	KEYS_DIR=$(KEYS_DIR) PYTHON=$(AUDIT_ANCHOR_PY) ./scripts/audit-anchor-tamper-demo.sh
+	KEYS_DIR=$(KEYS_DIR) PYTHON="$${PYTHON:-python3}" ./scripts/audit-anchor-tamper-demo.sh
 
 .PHONY: test-sfdp-p3-3-root-wiring
 test-sfdp-p3-3-root-wiring: ## Verify local SFDP-P3-3 root script gates without cluster access.

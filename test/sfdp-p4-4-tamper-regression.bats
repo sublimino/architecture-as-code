@@ -18,11 +18,16 @@ setup() {
     KEYS_DIR="$(cd "$repo/.keys" && pwd)"
   fi
   export KEYS_DIR
+  if [ -z "${GOPATH:-}" ] || [ ! -w "${GOPATH}" ] || [ "${GOPATH}" = "/usr/local/src/gocode" ]; then
+    export GOPATH="/tmp/gopath"
+  fi
   export GOCACHE="${GOCACHE:-/tmp/gocache}"
   export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+  export GONOSUMDB="*"
   export CGO_ENABLED=0
   export LC_ALL=C
   export LANG=C
+  mkdir -p "$GOPATH" "$GOCACHE" "$GOMODCACHE"
 }
 
 teardown() {
@@ -67,7 +72,8 @@ SIGNAL_SEGMENT_HIGHWATER=\"$highwater\" \
 SIGNAL_SEGMENT_SIGNING_KEY=\"$KEYS_DIR/witness.pem\" \
 SIGNAL_SEGMENT_PUBLIC_KEY=\"$KEYS_DIR/witness-pub.pem\" \
 SIGNAL_SEGMENT_EXPECTED_KEY_ID=\"$expected_key_id\" \
-GOCACHE=\"$GOCACHE\" GOMODCACHE=\"$GOMODCACHE\" CGO_ENABLED=0 \
+PATH=\"/home/linuxbrew/.linuxbrew/bin:/usr/bin:\$PATH\" \
+GOPATH=\"$GOPATH\" GOCACHE=\"$GOCACHE\" GOMODCACHE=\"$GOMODCACHE\" GONOSUMDB=\"*\" CGO_ENABLED=0 \
 go -C \"$repo/d2-signalloom/apps/signal-ingest\" test -tags=frostdb ./store -run \"^TestGoEvidenceAcceptedThenMutationRejectedByPythonVerifier$\" -count=1"
   [ "$status" -eq 0 ]
 

@@ -350,31 +350,31 @@ func TestCallerAuth_MethodGatesAndHEADBodySuppression(t *testing.T) {
 		}
 	}
 
-	// 3. Authorized mutating routes with incorrect methods -> 405 Method Not Allowed with Allow: POST
+	// 3. Authorized mutating routes with incorrect methods -> 405 Method Not Allowed with Allow: POST, OPTIONS
 	for _, p := range []string{"/api/v1/fleet/recover", "/api/v1/fleet/deploy", "/api/v1/fleet/scan", "/api/v1/fleet/reset"} {
 		// GET request
 		wGet := call(t, h, http.MethodGet, p, "", "Bearer "+operatorKey)
 		if wGet.Code != http.StatusMethodNotAllowed {
 			t.Errorf("GET %s with operator key: got %d, want 405", p, wGet.Code)
 		}
-		if allow := wGet.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("GET %s: expected Allow: POST, got %q", p, allow)
+		if allow := wGet.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("GET %s: expected Allow: POST, OPTIONS, got %q", p, allow)
 		}
 
-		// HEAD request -> 405 with Allow: POST and 0 body bytes
+		// HEAD request -> 405 with Allow: POST, OPTIONS and 0 body bytes
 		wHead := call(t, h, http.MethodHead, p, "", "Bearer "+operatorKey)
 		if wHead.Code != http.StatusMethodNotAllowed {
 			t.Errorf("HEAD %s with operator key: got %d, want 405", p, wHead.Code)
 		}
-		if allow := wHead.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("HEAD %s: expected Allow: POST, got %q", p, allow)
+		if allow := wHead.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("HEAD %s: expected Allow: POST, OPTIONS, got %q", p, allow)
 		}
 		if wHead.Body.Len() != 0 {
 			t.Errorf("HEAD %s with operator key: expected 0 body bytes, got %d: %q", p, wHead.Body.Len(), wHead.Body.String())
 		}
 	}
 
-	// 4. Read routes HEAD -> 200 OK with 0 body bytes; disallowed methods -> 405 with Allow: GET, HEAD
+	// 4. Read routes HEAD -> 200 OK with 0 body bytes; disallowed methods -> 405 with Allow: GET, HEAD, OPTIONS
 	readRoutes := []string{"/health", "/healthz", "/api/v1/fleet/topology"}
 	for _, p := range readRoutes {
 		wHead := call(t, h, http.MethodHead, p, "")
@@ -390,8 +390,8 @@ func TestCallerAuth_MethodGatesAndHEADBodySuppression(t *testing.T) {
 			if wMethod.Code != http.StatusMethodNotAllowed {
 				t.Errorf("%s %s: got %d, want 405", m, p, wMethod.Code)
 			}
-			if allow := wMethod.Header().Get("Allow"); allow != "GET, HEAD" {
-				t.Errorf("%s %s: expected Allow: GET, HEAD, got %q", m, p, allow)
+			if allow := wMethod.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+				t.Errorf("%s %s: expected Allow: GET, HEAD, OPTIONS, got %q", m, p, allow)
 			}
 		}
 	}

@@ -183,8 +183,8 @@ func TestHandleAuditEvents_HTTPContract(t *testing.T) {
 	if rrPost.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 Method Not Allowed, got %d", rrPost.Code)
 	}
-	if allow := rrPost.Header().Get("Allow"); allow != "GET, HEAD" {
-		t.Errorf("expected Allow: GET, HEAD, got %q", allow)
+	if allow := rrPost.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Errorf("expected Allow: GET, HEAD, OPTIONS, got %q", allow)
 	}
 
 	// 4. HEAD support
@@ -205,8 +205,8 @@ func TestHandleAuditEvents_HTTPContract(t *testing.T) {
 	if rrStreamPost.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 Method Not Allowed on stream POST, got %d", rrStreamPost.Code)
 	}
-	if allow := rrStreamPost.Header().Get("Allow"); allow != "GET, HEAD" {
-		t.Errorf("expected Allow: GET, HEAD on stream, got %q", allow)
+	if allow := rrStreamPost.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Errorf("expected Allow: GET, HEAD, OPTIONS on stream, got %q", allow)
 	}
 
 	// 6. Stream HEAD support

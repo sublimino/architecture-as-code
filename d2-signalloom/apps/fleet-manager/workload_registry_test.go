@@ -717,7 +717,7 @@ func TestWorkloadHandlersRejectMissingRegistryAndWrongMethod(t *testing.T) {
 			path:      "/api/v1/fleet/workloads/report",
 			wantCode:  http.StatusMethodNotAllowed,
 			wantText:  "method not allowed",
-			wantAllow: "POST",
+			wantAllow: "POST, OPTIONS",
 		},
 		{
 			name:      "list wrong method",
@@ -727,7 +727,7 @@ func TestWorkloadHandlersRejectMissingRegistryAndWrongMethod(t *testing.T) {
 			path:      "/api/v1/fleet/workloads",
 			wantCode:  http.StatusMethodNotAllowed,
 			wantText:  "method not allowed",
-			wantAllow: "GET, HEAD",
+			wantAllow: "GET, HEAD, OPTIONS",
 		},
 		{
 			name:     "list HEAD returns 200 with empty body",

@@ -589,14 +589,14 @@ func TestConsistency_HTTPMethodsAndHEAD(t *testing.T) {
 	mux := http.NewServeMux()
 	c.register(mux)
 
-	// POST should return 405 Method Not Allowed with Allow: GET, HEAD
+	// POST should return 405 Method Not Allowed with Allow: GET, HEAD, OPTIONS
 	recPost := httptest.NewRecorder()
 	mux.ServeHTTP(recPost, httptest.NewRequest(http.MethodPost, "/api/v1/fleet/consistency/"+consTestAgent, nil))
 	if recPost.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("POST code=%d, want 405", recPost.Code)
 	}
-	if allow := recPost.Header().Get("Allow"); allow != "GET, HEAD" {
-		t.Fatalf("POST Allow=%q, want 'GET, HEAD'", allow)
+	if allow := recPost.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Fatalf("POST Allow=%q, want 'GET, HEAD, OPTIONS'", allow)
 	}
 
 	// HEAD should return 200 OK with empty body and Content-Type: application/json
@@ -627,14 +627,14 @@ func TestConsistencyMetrics_HTTPMethodsAndHEAD(t *testing.T) {
 	metrics := newConsistencyMetrics()
 	metrics.record(ConsistencyReport{AgentID: "agent-a", queried: true})
 
-	// POST should return 405 Method Not Allowed with Allow: GET, HEAD
+	// POST should return 405 Method Not Allowed with Allow: GET, HEAD, OPTIONS
 	recPost := httptest.NewRecorder()
 	metrics.serveHTTP(recPost, httptest.NewRequest(http.MethodPost, "/metrics", nil))
 	if recPost.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("POST code=%d, want 405", recPost.Code)
 	}
-	if allow := recPost.Header().Get("Allow"); allow != "GET, HEAD" {
-		t.Fatalf("POST Allow=%q, want 'GET, HEAD'", allow)
+	if allow := recPost.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+		t.Fatalf("POST Allow=%q, want 'GET, HEAD, OPTIONS'", allow)
 	}
 
 	// HEAD should return 200 OK with empty body and text/plain content type

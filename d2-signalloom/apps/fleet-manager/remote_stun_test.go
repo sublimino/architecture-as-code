@@ -775,25 +775,25 @@ func TestRemoteStunStateHandlerValidation(t *testing.T) {
 			t.Fatalf("HEAD state Content-Type = %q, want application/json", ct)
 		}
 
-		// Non-GET/HEAD on state returns 405 with Allow: GET, HEAD
+		// Non-GET/HEAD on state returns 405 with Allow: GET, HEAD, OPTIONS
 		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
 			bad := call(t, http.HandlerFunc(s.handleRemoteStunState), method, "/api/v1/fleet/stun-state?cluster_id=cluster-a", "")
 			if bad.Code != http.StatusMethodNotAllowed {
 				t.Fatalf("%s state status = %d, want 405", method, bad.Code)
 			}
-			if allow := bad.Header().Get("Allow"); allow != "GET, HEAD" {
-				t.Fatalf("%s state Allow = %q, want GET, HEAD", method, allow)
+			if allow := bad.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+				t.Fatalf("%s state Allow = %q, want GET, HEAD, OPTIONS", method, allow)
 			}
 		}
 
-		// Non-POST on ack returns 405 with Allow: POST
+		// Non-POST on ack returns 405 with Allow: POST, OPTIONS
 		for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete} {
 			bad := call(t, http.HandlerFunc(s.handleRemoteStunAck), method, "/api/v1/fleet/stun-state/ack", "")
 			if bad.Code != http.StatusMethodNotAllowed {
 				t.Fatalf("%s ack status = %d, want 405", method, bad.Code)
 			}
-			if allow := bad.Header().Get("Allow"); allow != "POST" {
-				t.Fatalf("%s ack Allow = %q, want POST", method, allow)
+			if allow := bad.Header().Get("Allow"); allow != "POST, OPTIONS" {
+				t.Fatalf("%s ack Allow = %q, want POST, OPTIONS", method, allow)
 			}
 		}
 	})

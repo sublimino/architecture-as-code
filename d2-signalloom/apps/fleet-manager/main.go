@@ -181,13 +181,19 @@ type degradedReporter interface {
 // body into a map[string]string, and a numeric field would abort that decode
 // part-way through and silently blank the keys after it.
 func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -243,13 +249,19 @@ func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleTopology(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -312,13 +324,19 @@ func (s *server) handleTopology(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "POST, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		if r.Method == http.MethodHead {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -326,12 +344,6 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
-	}
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
 	}
 
 	caller := ExtractCallerContext(r)
@@ -452,13 +464,19 @@ func writeCascadeResult(w http.ResponseWriter, result *CascadeResult) {
 }
 
 func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "POST, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		if r.Method == http.MethodHead {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -466,12 +484,6 @@ func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
-	}
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
 	}
 
 	caller := ExtractCallerContext(r)
@@ -559,13 +571,19 @@ func (s *server) handleRecover(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "POST, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		if r.Method == http.MethodHead {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -573,12 +591,6 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
-	}
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
 	}
 
 	var req ResumeRequest
@@ -656,13 +668,19 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -677,13 +695,19 @@ func (s *server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -733,13 +757,19 @@ type DeployResponse struct {
 }
 
 func (s *server) handleDeploy(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "POST, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		if r.Method == http.MethodHead {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -747,12 +777,6 @@ func (s *server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
-	}
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
 	}
 
 	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
@@ -824,13 +848,19 @@ func (s *server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleScan(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "POST, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		if r.Method == http.MethodHead {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -838,12 +868,6 @@ func (s *server) handleScan(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
-	}
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -858,13 +882,19 @@ func (s *server) handleScan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "POST, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		if r.Method == http.MethodHead {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -872,12 +902,6 @@ func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
-	}
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -897,13 +921,19 @@ func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
 // open. The two workload patterns are exact: neither ends in a slash, so the
 // list route cannot become a prefix handler that shadows the report route.
 func (s *server) handlePolicies(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -922,13 +952,19 @@ func (s *server) handlePolicies(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
+	}
 	if r.Method == http.MethodOptions {
 		w.Header().Set("Allow", "POST, OPTIONS")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		if r.Method == http.MethodHead {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -936,12 +972,6 @@ func (s *server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
-	}
-	if r.Body != nil {
-		defer func() {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
-			_ = r.Body.Close()
-		}()
 	}
 	callerCtx := ExtractCallerContext(r)
 	var input PolicyEvaluationInput

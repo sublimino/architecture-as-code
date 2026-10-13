@@ -49,7 +49,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query, Response
 from fastapi.responses import JSONResponse
 
 from api_compat import APIError, Principal, authenticated_principal
@@ -112,7 +112,7 @@ async def _proxy(
     write: bool = False,
     headers: dict[str, str] | None = None,
     **kwargs: Any,
-) -> JSONResponse:
+) -> Response:
     """Forward one request to signal-ingest as the gateway, acting for ``principal``'s tenant.
 
     The headers are built before the request so a missing gateway key is its own 503 rather than
@@ -125,13 +125,6 @@ async def _proxy(
     try:
         async with httpx.AsyncClient(base_url=_signal_ingest_url(), timeout=_TIMEOUT) as client:
             resp = await client.request(method, path, headers=headers, **kwargs)
-            try:
-                content = resp.json()
-            except ValueError:
-                # An upstream status with a non-JSON body (a proxy error page, an empty 204) must
-                # not become a 502: the status is the answer, and inventing a JSON body for it
-                # would hide which hop refused.
-                content = {"error": "upstream_non_json", "status": resp.status_code}
     except httpx.ConnectError as exc:
         logger.warning("signal-ingest service unreachable at %s", _signal_ingest_url())
         raise APIError(502, "upstream_unavailable", "signal-ingest service unreachable") from exc
@@ -144,6 +137,36 @@ async def _proxy(
         logger.exception("signal-ingest policy proxy error: %s %s", method, path)
         raise APIError(502, "upstream_unavailable", "signal-ingest proxy error") from exc
 
+    # Collect upstream headers to propagate
+    from collections.abc import Mapping
+
+    forwarded_headers: dict[str, str] = {}
+    resp_headers_map: dict[str, str] = {}
+    headers_obj = getattr(resp, "headers", None)
+    if isinstance(headers_obj, Mapping):
+        resp_headers_map = {str(k).lower(): str(v) for k, v in headers_obj.items()}
+    for header_key in ("allow", "etag", "location", "x-tenant-id", "retry-after"):
+        if header_key in resp_headers_map:
+            forwarded_headers[header_key] = resp_headers_map[header_key]
+
+    # For 204 No Content, empty bodies, or HEAD requests, return Response directly without JSON parsing
+    if resp.status_code == 204 or not resp.content or method == "HEAD":
+        if "content-type" in resp_headers_map and resp.status_code != 204:
+            forwarded_headers["content-type"] = resp_headers_map["content-type"]
+        return Response(
+            status_code=resp.status_code,
+            content=b"",
+            headers=forwarded_headers,
+        )
+
+    try:
+        content = resp.json()
+    except ValueError:
+        # An upstream status with a non-JSON body (a proxy error page) must
+        # not become a 502: the status is the answer, and inventing a JSON body for it
+        # would hide which hop refused.
+        content = {"error": "upstream_non_json", "status": resp.status_code}
+
     if not write and 200 <= resp.status_code < 300:
         # Gated on `write`, not just the response: POST .../review's own cross-tenant retry
         # (ingest_headers_for_tenant, below) is a write acting for another tenant on purpose, and
@@ -155,7 +178,10 @@ async def _proxy(
         await audit_cross_tenant_read(
             principal, f"{method} {path}", content, what=f"Reading {path} cross-tenant",
         )
-    return JSONResponse(status_code=resp.status_code, content=content)
+
+    outbound_headers = {"Content-Type": "application/json"}
+    outbound_headers.update(forwarded_headers)
+    return JSONResponse(status_code=resp.status_code, content=content, headers=outbound_headers)
 
 
 def _read_params(
@@ -200,7 +226,7 @@ async def get_policy_findings(
     since: str | None = None,
     tenant: str | None = None,
     limit: int | None = Query(default=None),
-) -> JSONResponse:
+) -> Response:
     """Stage-1 policy findings, newest first, scoped to the user's tenant."""
     params = _read_params(window, since, tenant, limit)
     return await _proxy("GET", "/api/v1/policy/findings", principal, params=params)
@@ -213,7 +239,7 @@ async def get_policy_decisions(
     since: str | None = None,
     tenant: str | None = None,
     limit: int | None = Query(default=None),
-) -> JSONResponse:
+) -> Response:
     """Stage-2 policy decisions, each carrying its latest review or ``null``."""
     params = _read_params(window, since, tenant, limit)
     return await _proxy("GET", "/api/v1/policy/decisions", principal, params=params)
@@ -226,7 +252,7 @@ async def get_policy_rates(
     since: str | None = None,
     tenant: str | None = None,
     bucket: str | None = None,
-) -> JSONResponse:
+) -> Response:
     """Bucketed observation counts per layer per source, for the live chart."""
     if bucket is not None and bucket not in BUCKETS:
         raise APIError(400, "invalid_bucket", f"bucket must be one of {sorted(BUCKETS)}")
@@ -241,7 +267,7 @@ async def review_policy_decision(
     decision_id: str,
     principal: Annotated[Principal, Depends(require_policy_reviewer)],
     body: Annotated[dict[str, Any], Body()],
-) -> JSONResponse:
+) -> Response:
     """Record an objective value judgement against one policy decision.
 
     The body is reassembled from the two fields the contract names rather than forwarded as

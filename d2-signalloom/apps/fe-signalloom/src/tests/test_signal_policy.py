@@ -90,8 +90,10 @@ def _as(subject: str, *, email: str | None = None, tenant: str = "tenant-a"):
 class _Upstream:
     """A stub signal-ingest that records what it was asked and answers what it was told to."""
 
-    def __init__(self, status=200, payload=None, exc=None, text=None):
+    def __init__(self, status=200, payload=None, exc=None, text=None, headers=None, content=None):
         self.status, self.payload, self.exc, self.text = status, payload, exc, text
+        self.headers = headers or {}
+        self.content = content
         self.calls: list[dict] = []
 
     def install(self):
@@ -105,6 +107,15 @@ class _Upstream:
                 raise self.exc
             resp = AsyncMock()
             resp.status_code = self.status
+            resp.headers = dict(self.headers)
+            if self.content is not None:
+                resp.content = self.content
+            elif self.status == 204:
+                resp.content = b""
+            elif self.text is not None:
+                resp.content = self.text.encode("utf-8")
+            else:
+                resp.content = b"{}" if self.payload is not None else b"[]"
             if self.text is not None:
                 resp.json = lambda: (_ for _ in ()).throw(ValueError("not json"))
             else:
@@ -552,6 +563,8 @@ class _SequencedUpstream:
             status, payload = self.answers.pop(0)
             resp = AsyncMock()
             resp.status_code = status
+            resp.headers = {}
+            resp.content = b"{}"
             resp.json = lambda: payload
             return resp
 
@@ -613,4 +626,71 @@ class TestCrossTenantReview:
                 json={"verdict": "false_positive", "note": "benign, known job"},
             )
         assert resp.status_code == 201
+
+
+class TestEmptyBodyAndHeaderPropagation:
+    def test_policy_proxy_handles_204_no_content(self, client):
+        """Test proxy cleanly forwards 204 No Content without manufacturing error payload."""
+        _as(READ_ONLY_SUBJECT)
+        upstream = _Upstream(status=204, headers={"X-Tenant-ID": "tenant-b"})
+        with upstream.install():
+            resp = client.get("/api/signals/policy/findings")
+        assert resp.status_code == 204
+        assert resp.content == b""
+        assert resp.headers.get("x-tenant-id") == "tenant-b"
+
+    def test_policy_proxy_handles_empty_body_and_head(self, client):
+        """Test proxy cleanly handles empty bodies and HEAD requests without error."""
+        _as(READ_ONLY_SUBJECT)
+        upstream = _Upstream(status=200, content=b"", headers={"ETag": '"etag-policy-empty"'})
+        with upstream.install():
+            resp_get = client.get("/api/signals/policy/findings")
+            assert resp_get.status_code == 200
+            assert resp_get.content == b""
+            assert resp_get.headers.get("etag") == '"etag-policy-empty"'
+
+            resp_head = client.head("/api/signals/policy/findings")
+            assert resp_head.status_code == 200
+            assert resp_head.content == b""
+            assert resp_head.headers.get("etag") == '"etag-policy-empty"'
+
+    def test_policy_proxy_propagates_allow_header_on_405(self, client):
+        """Test proxy propagates RFC 9110 Section 15.5.6 Allow header on 405 Method Not Allowed."""
+        _as(REVIEWER_SUBJECT)
+        upstream = _Upstream(
+            status=405,
+            payload={"error": "method not allowed"},
+            headers={"Allow": "GET, HEAD, POST"},
+        )
+        with upstream.install():
+            resp = client.post(
+                "/api/signals/policy/decisions/dec-1/review",
+                json={"verdict": "true_positive", "note": "ok"},
+            )
+        assert resp.status_code == 405
+        assert resp.headers.get("allow") == "GET, HEAD, POST"
+        assert resp.json() == {"error": "method not allowed"}
+
+    def test_policy_proxy_propagates_location_and_etag_headers(self, client):
+        """Test proxy propagates Location, ETag, and X-Tenant-ID headers from upstream."""
+        _as(REVIEWER_SUBJECT, tenant="tenant-a")
+        upstream = _Upstream(
+            status=201,
+            payload={"id": "review-123"},
+            headers={
+                "Location": "/api/v1/policy/decisions/dec-1/review/review-123",
+                "ETag": '"w/review-123"',
+                "X-Tenant-ID": "tenant-a",
+            },
+        )
+        with upstream.install():
+            resp = client.post(
+                "/api/signals/policy/decisions/dec-1/review",
+                json={"verdict": "true_positive", "note": "confirmed"},
+            )
+        assert resp.status_code == 201
+        assert resp.headers.get("location") == "/api/v1/policy/decisions/dec-1/review/review-123"
+        assert resp.headers.get("etag") == '"w/review-123"'
+        assert resp.headers.get("x-tenant-id") == "tenant-a"
+        assert resp.json()["id"] == "review-123"
         assert len(upstream.calls) == 1

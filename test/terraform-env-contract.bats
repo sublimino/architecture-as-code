@@ -399,7 +399,7 @@ FIXTURE
     return 1
   }
 
-  # The mutation control: DEMO_STAGE=full must NOT be refused. Without this, a
+  # The mutation control: DEMO_STAGE=full and DEMO_STAGE=deploy must NOT be refused. Without this, a
   # guard that rejected everything would pass the test above.
   run env DEMO_STAGE=full DEMO_WORK_DIR=/nonexistent-tree-for-test \
     DEMO_REPORT_DIR="${BATS_TEST_TMPDIR}/r2" \
@@ -407,6 +407,16 @@ FIXTURE
     bash "${PIPE}"
   [[ "$output" != *"cannot honour it"* ]] || {
     echo "DEMO_STAGE=full was refused, which it must not be" >&2
+    echo "$output" >&2
+    return 1
+  }
+
+  run env DEMO_STAGE=deploy DEMO_WORK_DIR=/nonexistent-tree-for-test \
+    DEMO_REPORT_DIR="${BATS_TEST_TMPDIR}/r3" \
+    DEMO_PIPELINE_LOG="${BATS_TEST_TMPDIR}/p3.log" \
+    bash "${PIPE}"
+  [[ "$output" != *"cannot honour it"* ]] || {
+    echo "DEMO_STAGE=deploy was refused, which it must not be" >&2
     echo "$output" >&2
     return 1
   }

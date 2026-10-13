@@ -191,14 +191,12 @@ SOURCE_BRANCH="${DEMO_SOURCE_BRANCH:-$(git -C "$WORK_DIR" rev-parse --abbrev-ref
 # change against a script whose steps are not currently separable.
 STAGE="${DEMO_STAGE:-full}"
 case "$STAGE" in
-  full) ;;
+  full|deploy) ;;
   *)
     echo "ERROR: DEMO_STAGE='${STAGE}' was requested, and this pipeline cannot honour it." >&2
-    echo "       demo-pipeline.sh implements a single fixed sequence and has no stage" >&2
-    echo "       selection. Running anyway would silently perform a FULL bring-up —" >&2
-    echo "       including a cluster rebuild — for a caller that asked not to." >&2
+    echo "       demo-pipeline.sh implements 'full' and 'deploy' stages." >&2
     echo "       Refusing rather than doing the wrong thing quietly." >&2
-    echo "       Only DEMO_STAGE=full is supported today." >&2
+    echo "       Only DEMO_STAGE=full and DEMO_STAGE=deploy are supported today." >&2
     exit 2
     ;;
 esac
@@ -684,6 +682,9 @@ run_stage() {
 # or is written as .txt prose, which the map deliberately does not claim. There
 # is no third option, and inventing a new .tap name would silently drop it.
 echo "==> [3/8] Static gates (no cluster required)..."
+if [[ "${STAGE}" == "deploy" ]]; then
+  echo "==> [3/8] Static gates: skipped (DEMO_STAGE=deploy: fast estate provisioning)"
+else
 
 # --frozen-lockfile is the point of the install, not a detail: this directory is
 # the only one in the repo with both a bun.lock and a package-lock.json, `bun
@@ -994,6 +995,7 @@ run_stage \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap \
      test/signalloom-test-1-harness.bats \
      test/ci-installer-privileges.bats"
+fi
 
 # ── Phase: cluster ───────────────────────────────────────────────────────────
 PIPELINE_PHASE="create-cluster"
@@ -1188,6 +1190,9 @@ record_stage "Publish the dashboard on a supervised port-forward" \
   "stage6d-publish.txt" "$publish_rc" "$(( SECONDS - publish_start ))"
 
 # ═══ Tier 3: runtime. Needs the cluster AND the published Gateway. ═══════════
+if [[ "${STAGE}" == "deploy" ]]; then
+  echo "==> Post-publish test suites: skipped (DEMO_STAGE=deploy: fast estate provisioning)"
+else
 PIPELINE_PHASE="tests"
 run_stage \
   "Gateway, probes, Dex, and NetworkPolicy runtime negatives" \
@@ -1320,6 +1325,7 @@ run_stage \
   "cd ${WORK_DIR} && \
    origin=\$(./scripts/ci/resolve-tailnet-origin.sh) && \
    ./scripts/ci/user-surface-gate.sh --base-url \"\${origin}\""
+fi
 
 # ── Phase: report ────────────────────────────────────────────────────────────
 PIPELINE_PHASE="report"

@@ -87,6 +87,14 @@
 DEX_ORIGIN_KUBECTL="${DEX_ORIGIN_KUBECTL:-kubectl}"
 DEX_ORIGIN_FLUX="${DEX_ORIGIN_FLUX:-flux}"
 
+if [[ -z "${KUBECONFIG:-}" ]]; then
+  if [[ -f "/tmp/osramp-kubeconfig.yaml" ]]; then
+    export KUBECONFIG="/tmp/osramp-kubeconfig.yaml"
+  elif [[ -f "${HOME}/.kube/config" ]]; then
+    export KUBECONFIG="${HOME}/.kube/config"
+  fi
+fi
+
 # ── THE BASELINE IS NOT A METHOD ─────────────────────────────────────
 #
 # The resting origin. Held by NOBODY.

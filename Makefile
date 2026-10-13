@@ -3251,6 +3251,16 @@ gcp-tf-acceptance: ## Run Playwright acceptance tests remotely from host against
 	fi
 	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' acceptance $(SPECS)
 
+.PHONY: gcp-tf-clean-down
+gcp-tf-clean-down: ## Reset customer database and test state to pristine baseline (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_impersonation)
+	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' clean-down
+
 # Asserts the PROPERTY, rather than trusting whoever typed the two commands.
 #
 # "Run the tests on the VM and also over the tailnet" is a claim about two runs,

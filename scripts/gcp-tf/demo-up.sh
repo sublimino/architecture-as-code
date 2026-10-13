@@ -2203,7 +2203,24 @@ run_lane() {
 
 cmd_up() {
   prepare up
-  run_lane full
+  local stage="${DEMO_STAGE:-}"
+  if [ -z "$stage" ]; then
+    case "$ENV_KEY" in
+      demo*|eap*) stage="deploy" ;;
+      *) stage="full" ;;
+    esac
+  fi
+  run_lane "$stage"
+}
+
+cmd_clean_down() {
+  prepare clean-down
+  ensure_vm_ready || exit 2
+  log "Cleaning down estate on ${INSTANCE_NAME} (resetting database and removing test artifacts)..."
+  local clean_cmd
+  clean_cmd='cd '"${REMOTE_WORK_DIR}"' && export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}" && make postgres-data-recreate && if [ -x ./scripts/clean-test-artifacts.sh ]; then ./scripts/clean-test-artifacts.sh; fi && make healthcheck'
+  remote_run "$clean_cmd"
+  log "==> PASS — estate on ${INSTANCE_NAME} is cleaned down to pristine state ready for login."
 }
 
 cmd_test() {
@@ -2400,7 +2417,7 @@ dex_origin() {
     return $?
   fi
   local remote
-  printf -v remote 'cd %q && %q %s' "$REMOTE_WORK_DIR" \
+  printf -v remote 'cd %q && export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}" && %q %s' "$REMOTE_WORK_DIR" \
     "${REMOTE_WORK_DIR}/${DEX_ORIGIN_REL}" "$(printf '%q ' "$@")"
   remote_run "$remote"
 }
@@ -5378,10 +5395,11 @@ case "${1:-up}" in
   funnel-up) cmd_funnel_up ;;
   funnel-down) cmd_funnel_down ;;
   status) cmd_status ;;
+  clean-down) cmd_clean_down ;;
   payload)
     shift
     cmd_payload "${1:-}"
     ;;
   -h | --help | help) sed -n '2,28p' "$0" ;;
-  *) die "usage: $(basename "$0") {up|test|ts-test|test-surfaces|acceptance [specs...]|connect|ssh|ts-up|ts-status|ts-logout|funnel-up|funnel-down|public|public-down|public-status|status|payload <file>}" ;;
+  *) die "usage: $(basename "$0") {up|test|ts-test|test-surfaces|acceptance [specs...]|clean-down|connect|ssh|ts-up|ts-status|ts-logout|funnel-up|funnel-down|public|public-down|public-status|status|payload <file>}" ;;
 esac

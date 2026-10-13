@@ -292,3 +292,45 @@ func TestSummarizeHandlerLLMFailure(t *testing.T) {
 		t.Fatalf("expected status 502 Bad Gateway on upstream error, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestHeadErrorBodySuppression(t *testing.T) {
+	router := newRouter("http://mock-llm", "test-model")
+
+	// 1. Unknown route HEAD -> 404 with 0 body bytes
+	reqUnknown := httptest.NewRequest(http.MethodHead, "/unknown-route", nil)
+	recUnknown := httptest.NewRecorder()
+	router.ServeHTTP(recUnknown, reqUnknown)
+	if recUnknown.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404 for HEAD /unknown-route, got %d", recUnknown.Code)
+	}
+	if recUnknown.Body.Len() != 0 {
+		t.Fatalf("expected 0 body bytes on HEAD /unknown-route, got %d bytes: %q", recUnknown.Body.Len(), recUnknown.Body.String())
+	}
+
+	// 2. Root HEAD -> 405 with 0 body bytes and Allow: POST
+	reqRoot := httptest.NewRequest(http.MethodHead, "/", nil)
+	recRoot := httptest.NewRecorder()
+	router.ServeHTTP(recRoot, reqRoot)
+	if recRoot.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected status 405 for HEAD /, got %d", recRoot.Code)
+	}
+	if recRoot.Header().Get("Allow") != "POST" {
+		t.Fatalf("expected Allow: POST for HEAD /, got %q", recRoot.Header().Get("Allow"))
+	}
+	if recRoot.Body.Len() != 0 {
+		t.Fatalf("expected 0 body bytes on HEAD /, got %d bytes: %q", recRoot.Body.Len(), recRoot.Body.String())
+	}
+
+	// 3. Health probes HEAD -> 200 with 0 body bytes
+	for _, ep := range []string{"/health", "/healthz", "/readyz"} {
+		req := httptest.NewRequest(http.MethodHead, ep, nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status 200 for HEAD %s, got %d", ep, rec.Code)
+		}
+		if rec.Body.Len() != 0 {
+			t.Fatalf("expected 0 body bytes for HEAD %s, got %d bytes: %q", ep, rec.Body.Len(), rec.Body.String())
+		}
+	}
+}

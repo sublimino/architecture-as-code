@@ -89,6 +89,27 @@ func main() {
 	_ = srv.Shutdown(ctx)
 }
 
+// headResponseWriter suppresses response bodies for HTTP HEAD requests (RFC 9110 Section 6.4.1).
+type headResponseWriter struct {
+	http.ResponseWriter
+}
+
+func (w *headResponseWriter) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
+// headBodySuppressingMiddleware wraps an http.Handler and suppresses the response body
+// when the request method is HEAD, in compliance with RFC 9110 Section 6.4.1.
+func headBodySuppressingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			next.ServeHTTP(&headResponseWriter{ResponseWriter: w}, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // methodNotAllowed sets RFC 9110 Allow headers and status 405, suppressing response bodies on HEAD requests.
 func methodNotAllowed(w http.ResponseWriter, r *http.Request, allow string) {
 	w.Header().Set("Allow", allow)
@@ -100,7 +121,7 @@ func methodNotAllowed(w http.ResponseWriter, r *http.Request, allow string) {
 	}
 }
 
-func newMux() *http.ServeMux {
+func newMux() http.Handler {
 	mux := http.NewServeMux()
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -117,7 +138,7 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/healthz", healthHandler)
 	mux.HandleFunc("/readyz", healthHandler)
 	mux.HandleFunc("/", handleCheckRun)
-	return mux
+	return headBodySuppressingMiddleware(mux)
 }
 
 func handleCheckRun(w http.ResponseWriter, r *http.Request) {

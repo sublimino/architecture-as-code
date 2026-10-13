@@ -84,6 +84,18 @@ func TestUnmatchedPathsReturn404(t *testing.T) {
 		if recPost.Code != http.StatusNotFound {
 			t.Errorf("POST %s expected 404, got %d", path, recPost.Code)
 		}
+
+		// HEAD
+		reqHead := httptest.NewRequest(http.MethodHead, path, nil)
+		recHead := httptest.NewRecorder()
+		mux.ServeHTTP(recHead, reqHead)
+
+		if recHead.Code != http.StatusNotFound {
+			t.Errorf("HEAD %s expected 404, got %d", path, recHead.Code)
+		}
+		if recHead.Body.Len() != 0 {
+			t.Errorf("HEAD %s expected empty body, got %q", path, recHead.Body.String())
+		}
 	}
 }
 

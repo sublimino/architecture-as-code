@@ -436,3 +436,25 @@ func TestA2AHandlerHealthAndChallengeMethods(t *testing.T) {
 		t.Errorf("HEAD /a2a body length = %d, want 0", recA2AHead.Body.Len())
 	}
 }
+
+func TestProofHelperHeadUnmatchedRoutes(t *testing.T) {
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := newA2AHandlerWithInstance(http.DefaultClient, "http://127.0.0.1:8200", "role", "spiffe://example.org/ns/default/sa/caller", publicKey, "test-nonce")
+
+	for _, path := range []string{"/unknown", "/api/v1/invalid", "/health/subpath"} {
+		req := httptest.NewRequest(http.MethodHead, path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("HEAD %s returned %d, want 404", path, rec.Code)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("HEAD %s body length = %d, want 0", path, rec.Body.Len())
+		}
+	}
+}
+

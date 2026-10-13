@@ -425,7 +425,28 @@ func newA2AHandlerWithInstance(client *http.Client, address, role, expectedSubje
 		response.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(response).Encode(map[string]string{"caller": expectedSubject, "decision": "allow"})
 	})
-	return mux
+	return headBodySuppressingMiddleware(mux)
+}
+
+// headResponseWriter suppresses response bodies for HTTP HEAD requests (RFC 9110 Section 6.4.1).
+type headResponseWriter struct {
+	http.ResponseWriter
+}
+
+func (w *headResponseWriter) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
+// headBodySuppressingMiddleware wraps an http.Handler and suppresses the response body
+// when the request method is HEAD, in compliance with RFC 9110 Section 6.4.1.
+func headBodySuppressingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			next.ServeHTTP(&headResponseWriter{ResponseWriter: w}, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func jwtSubject(jwt string) string {

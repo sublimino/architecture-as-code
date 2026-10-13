@@ -361,4 +361,29 @@ func TestCardvaultHeadUnauthenticated(t *testing.T) {
 	}
 }
 
+func TestCardvaultHeadUnknownRoute(t *testing.T) {
+	srv := newTestServer("u", "p")
+	defer srv.Close()
+
+	for _, ep := range []string{"/unknown", "/api/v1/unknown", "/health/subpath"} {
+		req, err := http.NewRequest(http.MethodHead, srv.URL+ep, nil)
+		if err != nil {
+			t.Fatalf("NewRequest: %v", err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("HEAD %s: %v", ep, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("HEAD %s: want 404, got %d", ep, resp.StatusCode)
+		}
+		if len(body) != 0 {
+			t.Errorf("HEAD %s: want empty body, got %d bytes: %q", ep, len(body), string(body))
+		}
+	}
+}
+
+
 

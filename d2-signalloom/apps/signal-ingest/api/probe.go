@@ -17,5 +17,5 @@ func NewProbeHandler(h *Handlers) http.Handler {
 	mux.HandleFunc("HEAD /healthz", handleHealthz)
 	mux.HandleFunc("GET /readyz", h.handleReadyz)
 	mux.HandleFunc("HEAD /readyz", h.handleReadyz)
-	return mux
+	return headBodySuppressingMiddleware(mux)
 }

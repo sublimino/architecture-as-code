@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -256,6 +257,46 @@ func TestHeadHealthAndTasks(t *testing.T) {
 		if len(body) != 0 {
 			t.Errorf("HEAD %s: expected 0 body bytes, got %d", path, len(body))
 		}
+	}
+}
+
+func TestHeadErrorBodySuppression(t *testing.T) {
+	ts := testServer(t)
+	defer ts.Close()
+
+	// 1. HEAD /tasks/{non-existent} -> 404 with 0 body bytes
+	req, _ := http.NewRequest(http.MethodHead, ts.URL+"/tasks/nonexistent-id-999", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("HEAD /tasks/nonexistent-id-999: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+	if len(body) != 0 {
+		t.Errorf("expected 0 body bytes on HEAD 404, got %d bytes: %s", len(body), string(body))
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Errorf("expected Content-Type application/json, got %q", ct)
+	}
+
+	// 2. HEAD /unknown-path -> 404 with 0 body bytes
+	req404, _ := http.NewRequest(http.MethodHead, ts.URL+"/unknown-route-404", nil)
+	resp404, err := http.DefaultClient.Do(req404)
+	if err != nil {
+		t.Fatalf("HEAD /unknown-route-404: %v", err)
+	}
+	body404, _ := io.ReadAll(resp404.Body)
+	resp404.Body.Close()
+
+	if resp404.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp404.StatusCode)
+	}
+	if len(body404) != 0 {
+		t.Errorf("expected 0 body bytes on HEAD 404, got %d bytes", len(body404))
 	}
 }
 

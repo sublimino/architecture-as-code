@@ -57,3 +57,34 @@ func TestActCPUBurnRejectsZeroAndOverflowingDurations(t *testing.T) {
 		}
 	}
 }
+
+func TestActRoutesRejectHEADWithoutBody(t *testing.T) {
+	a, _, _ := actAgent(t)
+	actRoutes := []string{
+		"/act/read-passwd",
+		"/act/read-shadow",
+		"/act/cpu-burn",
+		"/act/gpu-open",
+		"/act/gpu-probe",
+		"/act/exfil",
+		"/act/kube-enum",
+		"/act/recon",
+	}
+	for _, path := range actRoutes {
+		rec := httptest.NewRecorder()
+		a.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodHead, path, nil))
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("HEAD %s = %d, want 405 Method Not Allowed", path, rec.Code)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("HEAD %s wrote %d body bytes (%q), want 0", path, rec.Body.Len(), rec.Body.String())
+		}
+		if rec.Header().Get("Allow") != http.MethodPost {
+			t.Errorf("HEAD %s Allow header = %q, want POST", path, rec.Header().Get("Allow"))
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("HEAD %s Content-Type = %q, want application/json", path, ct)
+		}
+	}
+}
+

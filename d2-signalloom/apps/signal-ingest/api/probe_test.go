@@ -125,3 +125,37 @@ func TestProbeHandlerHEADRequests(t *testing.T) {
 	}
 }
 
+func TestProbeHandlerHEADErrorBodySuppression(t *testing.T) {
+	h, _ := newTestHandlers(t)
+	probe := NewProbeHandler(h)
+
+	// 1. 404 Not Found on probe handler returns 0 body bytes on HEAD
+	w404 := probeGet(t, probe, http.MethodHead, "/unknown-probe-path")
+	if w404.Code != http.StatusNotFound {
+		t.Errorf("HEAD /unknown-probe-path: %d, want 404", w404.Code)
+	}
+	if w404.Body.Len() != 0 {
+		t.Errorf("HEAD /unknown-probe-path returned %d body bytes, want 0", w404.Body.Len())
+	}
+
+	// 2. 401 Unauthorized on ProtectedRouter returns 0 body bytes on HEAD
+	jwt, _, _ := testJWTDelegate(t)
+	router, err := NewProtectedRouter(h, jwt, audit.NewFakeWriter(), http.NotFoundHandler(), RouterOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/healthz", "/readyz", "/api/v1/observations"} {
+		w401 := probeGet(t, router, http.MethodHead, path)
+		if w401.Code != http.StatusUnauthorized {
+			t.Errorf("anonymous HEAD %s on API router: %d, want 401", path, w401.Code)
+		}
+		if w401.Body.Len() != 0 {
+			t.Errorf("anonymous HEAD %s returned %d body bytes, want 0: %q", path, w401.Body.Len(), w401.Body.String())
+		}
+		if ct := w401.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("anonymous HEAD %s content-type = %q, want application/json", path, ct)
+		}
+	}
+}
+
+

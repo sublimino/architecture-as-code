@@ -442,6 +442,41 @@ func (a *agent) maybeHostile(n int64) bool {
 	return true
 }
 
+type headResponseWriter struct {
+	http.ResponseWriter
+	wroteHeader bool
+}
+
+func (w *headResponseWriter) WriteHeader(status int) {
+	w.wroteHeader = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *headResponseWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	// Per RFC 9110 Section 6.4.1, responses to HEAD requests MUST NOT contain
+	// a message body, regardless of status code.
+	return len(b), nil
+}
+
+func (w *headResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func headBodySuppressingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			next.ServeHTTP(&headResponseWriter{ResponseWriter: w}, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -557,6 +592,11 @@ func (a *agent) postOnly(action string, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
+			if r.Method == http.MethodHead {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
 			writeJSON(w, http.StatusMethodNotAllowed, actResult{Action: action, Error: "POST only", PID: os.Getpid()})
 			return
 		}
@@ -895,7 +935,7 @@ func (a *agent) routes() http.Handler {
 	mux.HandleFunc("/act/exfil", a.postOnly("exfil", a.handleExfil))
 	mux.HandleFunc("/act/kube-enum", a.postOnly("kube-enum", a.handleKubeEnum))
 	mux.HandleFunc("/act/recon", a.postOnly("recon", a.handleRecon))
-	return mux
+	return headBodySuppressingMiddleware(mux)
 }
 
 func run(ctx context.Context, cfg config, logW io.Writer) error {

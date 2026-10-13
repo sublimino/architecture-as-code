@@ -142,3 +142,64 @@ func TestServer_ConcurrentAccess(t *testing.T) {
 	close(done)
 }
 
+func TestHeadErrorBodySuppression(t *testing.T) {
+	srv := &Server{
+		client:    client.NewMockReportsClient(),
+		stunner:   stun.NewMemoryStunExecutor(),
+		ingestURL: "http://localhost:8090/api/v1/observations",
+	}
+
+	handler := srv.routes()
+
+	// 1. Mux-level: POST routes reject HEAD with 405 Method Not Allowed and 0 body bytes
+	for _, path := range []string{"/api/v1/workspace/poll", "/api/v1/workspace/stun"} {
+		req := httptest.NewRequest(http.MethodHead, path, nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("HEAD %s: want 405, got %d", path, w.Code)
+		}
+		if w.Body.Len() != 0 {
+			t.Errorf("HEAD %s: expected 0 body bytes, got %d: %q", path, w.Body.Len(), w.Body.String())
+		}
+	}
+
+	// 2. Direct handler invocation with HEAD on invalid JSON body for handleStun
+	badReq := httptest.NewRequest(http.MethodHead, "/api/v1/workspace/stun", bytes.NewBufferString(`{bad-json`))
+	w := httptest.NewRecorder()
+	srv.handleStun(w, badReq)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("handleStun HEAD bad json: want 400, got %d", w.Code)
+	}
+	if w.Body.Len() != 0 {
+		t.Errorf("handleStun HEAD bad json: expected 0 body bytes, got %d: %q", w.Body.Len(), w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("handleStun HEAD: want Content-Type application/json, got %q", ct)
+	}
+
+	// 3. Direct handler invocation with HEAD when handlePoll fails (simulated by 500 ingest)
+	fakeIngest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer fakeIngest.Close()
+
+	errSrv := &Server{
+		client:    client.NewMockReportsClient(),
+		stunner:   stun.NewMemoryStunExecutor(),
+		ingestURL: fakeIngest.URL,
+	}
+	pollReq := httptest.NewRequest(http.MethodHead, "/api/v1/workspace/poll", nil)
+	pollW := httptest.NewRecorder()
+	errSrv.handlePoll(pollW, pollReq)
+	if pollW.Code != http.StatusInternalServerError {
+		t.Errorf("handlePoll HEAD error: want 500, got %d", pollW.Code)
+	}
+	if pollW.Body.Len() != 0 {
+		t.Errorf("handlePoll HEAD error: expected 0 body bytes, got %d: %q", pollW.Body.Len(), pollW.Body.String())
+	}
+	if ct := pollW.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("handlePoll HEAD error: want Content-Type application/json, got %q", ct)
+	}
+}
+

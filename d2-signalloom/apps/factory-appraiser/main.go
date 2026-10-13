@@ -40,6 +40,9 @@ func appraiseHandler(clock func() time.Time) http.HandlerFunc {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
+			if r.Method == http.MethodHead {
+				return
+			}
 			_ = json.NewEncoder(w).Encode(map[string]string{
 				"error":  "malformed_request",
 				"reason": err.Error(),
@@ -50,6 +53,9 @@ func appraiseHandler(clock func() time.Time) http.HandlerFunc {
 		if len(req.Candidates) == 0 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnprocessableEntity)
+			if r.Method == http.MethodHead {
+				return
+			}
 			_ = json.NewEncoder(w).Encode(map[string]string{
 				"error": "insufficient_input",
 				"reason": "no candidates supplied: this service holds no candidate store, " +
@@ -63,6 +69,9 @@ func appraiseHandler(clock func() time.Time) http.HandlerFunc {
 			if *req.StaleTTLMinutes <= 0 {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusBadRequest)
+				if r.Method == http.MethodHead {
+					return
+				}
 				_ = json.NewEncoder(w).Encode(map[string]string{
 					"error":  "malformed_request",
 					"reason": "stale_ttl_minutes must be a positive number of minutes",
@@ -74,6 +83,10 @@ func appraiseHandler(clock func() time.Time) http.HandlerFunc {
 
 		res, esc := appraiser.Appraise(req.Candidates, req.Intents, clock(), staleTTL)
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"appraisal":        res,
 			"escalation":       esc,
@@ -83,7 +96,42 @@ func appraiseHandler(clock func() time.Time) http.HandlerFunc {
 	}
 }
 
-func newMux(clock func() time.Time) *http.ServeMux {
+type headResponseWriter struct {
+	http.ResponseWriter
+	wroteHeader bool
+}
+
+func (w *headResponseWriter) WriteHeader(status int) {
+	w.wroteHeader = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *headResponseWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	// Per RFC 9110 Section 6.4.1, responses to HEAD requests MUST NOT contain
+	// a message body, regardless of status code.
+	return len(b), nil
+}
+
+func (w *headResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func headBodySuppressingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			next.ServeHTTP(&headResponseWriter{ResponseWriter: w}, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func newMux(clock func() time.Time) http.Handler {
 	mux := http.NewServeMux()
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -110,6 +158,9 @@ func newMux(clock func() time.Time) *http.ServeMux {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
+			if r.Method == http.MethodHead {
+				return
+			}
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
@@ -117,20 +168,30 @@ func newMux(clock func() time.Time) *http.ServeMux {
 		if err := validator.ValidateSeparationOfDuties(req.Candidate, req.Evidence); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
+			if r.Method == http.MethodHead {
+				return
+			}
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 		if err := validator.ValidatePromotionContract(req.Promotion, req.Evidence); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
+			if r.Method == http.MethodHead {
+				return
+			}
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "approved", "message": "Promotion contract satisfied"})
 	})
-	return mux
+	return headBodySuppressingMiddleware(mux)
 }
 
 func main() {

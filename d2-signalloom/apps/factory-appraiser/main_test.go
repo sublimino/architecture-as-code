@@ -232,3 +232,68 @@ func TestAppraiseErrors_ContentTypeJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestHeadErrorBodySuppression(t *testing.T) {
+	mux := newMux(func() time.Time { return fixedNow })
+
+	// 1. Mux-level tests: POST-only routes should return 405 on HEAD with 0 body bytes and Allow header.
+	muxCases := []struct {
+		name string
+		path string
+		want int
+	}{
+		{"appraise_head_405", "/api/v1/factory/appraise", http.StatusMethodNotAllowed},
+		{"validate_head_405", "/api/v1/factory/validate-promotion", http.StatusMethodNotAllowed},
+		{"unknown_route_head_404", "/api/v1/factory/unknown-route-999", http.StatusNotFound},
+	}
+
+	for _, tc := range muxCases {
+		t.Run("mux_"+tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodHead, tc.path, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != tc.want {
+				t.Fatalf("want status %d, got %d", tc.want, rec.Code)
+			}
+			if rec.Body.Len() != 0 {
+				t.Fatalf("expected 0 body bytes on HEAD request, got %d: %q", rec.Body.Len(), rec.Body.String())
+			}
+			if tc.want == http.StatusMethodNotAllowed {
+				if allow := rec.Header().Get("Allow"); !strings.Contains(allow, "POST") {
+					t.Fatalf("want Allow header containing POST, got %q", allow)
+				}
+			}
+		})
+	}
+
+	// 2. Direct handler invocation with HEAD: verify writeJSON body suppression when handler errors
+	handlerCases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"empty_candidates", `{"candidates":[]}`, http.StatusUnprocessableEntity},
+		{"malformed_json", `{bad-json`, http.StatusBadRequest},
+		{"negative_stale_ttl", `{"stale_ttl_minutes": -5, "candidates":[{"candidate_id":"c1"}]}`, http.StatusBadRequest},
+	}
+
+	handler := appraiseHandler(func() time.Time { return fixedNow })
+	for _, tc := range handlerCases {
+		t.Run("handler_"+tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodHead, "/api/v1/factory/appraise", bytes.NewBufferString(tc.body))
+			rec := httptest.NewRecorder()
+			handler(rec, req)
+
+			if rec.Code != tc.want {
+				t.Fatalf("want status %d, got %d", tc.want, rec.Code)
+			}
+			if rec.Body.Len() != 0 {
+				t.Fatalf("expected 0 body bytes on HEAD request, got %d: %q", rec.Body.Len(), rec.Body.String())
+			}
+			if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+				t.Fatalf("want Content-Type application/json, got %q", ct)
+			}
+		})
+	}
+}

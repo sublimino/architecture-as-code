@@ -704,6 +704,9 @@ func isCanonicalEscapedPath(escapedPath string) bool {
 }
 
 func (p *ProtectedRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodHead {
+		w = &headResponseWriter{ResponseWriter: w}
+	}
 	principal, err := p.auth.Authenticate(r)
 	if err != nil {
 		status, outcome := http.StatusUnauthorized, "authentication_failed"

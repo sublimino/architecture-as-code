@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -252,6 +253,148 @@ func StoreTestSuite(t *testing.T, newStore func() SignalStore) {
 
 		if got, want := scanIDs(t, s, q), []string{"c", "d", "e"}; !equalIDs(got, want) {
 			t.Errorf("ScanIDs{Offset:2,Limit:3} = %v, want %v (skip offset, then take limit)", got, want)
+		}
+	})
+
+	// ScanObservations replaces QueryRange on the paging path, so the contract is that it
+	// selects the same rows in the same order. ObservationStats replaces a Go-side tally of
+	// QueryRange, so the contract is that it counts the same things. Both are asserted
+	// against every implementation: the FrostDB aggregate is computed by a different engine
+	// from the MemoryStore loop, and a silent miscount would be invisible otherwise.
+	t.Run("ScanObservations_matches_QueryRange", func(t *testing.T) {
+		s := newStore()
+		defer s.Close()
+
+		now := time.Now().UTC()
+		obs := make([]model.Observation, 10)
+		for i := range obs {
+			obs[i] = model.Observation{
+				ID:        string(rune('a' + i)),
+				Timestamp: now.Add(-time.Duration(i) * time.Minute),
+				Layer:     model.LayerNetworkEgress,
+				Fidelity:  model.FidelitySuggestive,
+				Source:    "test",
+			}
+		}
+		if err := s.Append(context.Background(), obs); err != nil {
+			t.Fatal(err)
+		}
+
+		for _, tc := range []struct {
+			name string
+			q    Query
+		}{
+			{"all", Query{}},
+			{"limit", Query{Limit: 3}},
+			{"offset", Query{Offset: 4}},
+			{"after", Query{After: now.Add(-5 * time.Minute)}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				want := queryIDs(t, s, tc.q)
+				var got []string
+				if err := s.ScanObservations(context.Background(), tc.q, func(o *model.Observation) error {
+					got = append(got, o.ID)
+					return nil
+				}); err != nil {
+					t.Fatalf("ScanObservations: %v", err)
+				}
+				if !equalIDs(got, want) {
+					t.Errorf("ScanObservations = %v, QueryRange = %v", got, want)
+				}
+			})
+		}
+	})
+
+	t.Run("ObservationStats_matches_a_QueryRange_tally", func(t *testing.T) {
+		s := newStore()
+		defer s.Close()
+
+		now := time.Now().UTC()
+		layers := []model.Layer{model.LayerNetworkEgress, model.LayerBehavioural, model.LayerIdentityAuth}
+		fidelities := []model.FidelityTier{model.FidelitySuggestive, model.FidelityStrong}
+		obs := make([]model.Observation, 0, 30)
+		for i := 0; i < 30; i++ {
+			obs = append(obs, model.Observation{
+				ID:        fmt.Sprintf("stats-%02d", i),
+				Timestamp: now.Add(-time.Duration(i) * time.Minute),
+				Layer:     layers[i%len(layers)],
+				Fidelity:  fidelities[i%len(fidelities)],
+				Source:    "test",
+			})
+		}
+		if err := s.Append(context.Background(), obs); err != nil {
+			t.Fatal(err)
+		}
+
+		rows, err := s.QueryRange(context.Background(), Query{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantLayer := map[string]int{}
+		wantFidelity := map[string]int{}
+		var wantLast *time.Time
+		for i := range rows {
+			wantLayer[string(rows[i].Layer)]++
+			wantFidelity[string(rows[i].Fidelity)]++
+			if ts := rows[i].Timestamp; wantLast == nil || ts.After(*wantLast) {
+				t := ts
+				wantLast = &t
+			}
+		}
+
+		got, err := s.ObservationStats(context.Background(), Query{})
+		if err != nil {
+			t.Fatalf("ObservationStats: %v", err)
+		}
+		if got.Total != len(rows) {
+			t.Errorf("Total = %d, QueryRange returned %d rows", got.Total, len(rows))
+		}
+		for k, v := range wantLayer {
+			if got.ByLayer[k] != v {
+				t.Errorf("ByLayer[%q] = %d, want %d", k, got.ByLayer[k], v)
+			}
+		}
+		if len(got.ByLayer) != len(wantLayer) {
+			t.Errorf("ByLayer has %d groups, want %d: %v vs %v", len(got.ByLayer), len(wantLayer), got.ByLayer, wantLayer)
+		}
+		for k, v := range wantFidelity {
+			if got.ByFidelity[k] != v {
+				t.Errorf("ByFidelity[%q] = %d, want %d", k, got.ByFidelity[k], v)
+			}
+		}
+		if got.LastIngestion == nil || wantLast == nil {
+			t.Fatalf("LastIngestion = %v, want %v", got.LastIngestion, wantLast)
+		}
+		if !got.LastIngestion.Equal(*wantLast) {
+			t.Errorf("LastIngestion = %v, want %v", got.LastIngestion, wantLast)
+		}
+	})
+
+	t.Run("ObservationStats_honours_the_tenant_filter", func(t *testing.T) {
+		s := newStore()
+		defer s.Close()
+
+		now := time.Now().UTC()
+		obs := []model.Observation{
+			{ID: "t1", Timestamp: now, Layer: model.LayerNetworkEgress, Source: "test",
+				Labels: map[string]string{TenantLabelKey: "tenant-a"}},
+			{ID: "t2", Timestamp: now, Layer: model.LayerNetworkEgress, Source: "test",
+				Labels: map[string]string{TenantLabelKey: "tenant-a"}},
+			{ID: "t3", Timestamp: now, Layer: model.LayerNetworkEgress, Source: "test",
+				Labels: map[string]string{TenantLabelKey: "tenant-b"}},
+		}
+		if err := s.Append(context.Background(), obs); err != nil {
+			t.Fatal(err)
+		}
+
+		got, err := s.ObservationStats(context.Background(), Query{TenantID: "tenant-a"})
+		if err != nil {
+			t.Fatalf("ObservationStats: %v", err)
+		}
+		// Scoping a count is not cosmetic: an unfiltered aggregate reports the whole estate's
+		// totals to a single-tenant reader.
+		if got.Total != 2 {
+			t.Errorf("Total = %d for tenant-a, want 2 (store holds 3 rows across two tenants)", got.Total)
 		}
 	})
 

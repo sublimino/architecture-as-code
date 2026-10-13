@@ -679,6 +679,10 @@ func (h *Handlers) handleIngestObservations(w http.ResponseWriter, r *http.Reque
 	})
 }
 
+// errStopObservationScan unwinds out of a streaming scan once the page is full. It never
+// escapes the handler; it is matched by identity so a real store error still propagates.
+var errStopObservationScan = errors.New("api: observation page complete")
+
 func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Request) {
 	if r != nil && r.Body != nil {
 		defer func() {
@@ -745,22 +749,50 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 		q.Limit = n
 	}
 
-	// Tenancy filter runs before the limit; see scopeObservations.
+	// Tenancy and de-duplication both have to happen before the limit, or a page comes back
+	// short of what the caller asked for. That used to be paid for by reading the whole store:
+	// the limit was dropped (q.Limit = 0), every row was decoded, and the page was sliced off
+	// the end. On kind-osramp that was ~192k rows per dashboard page load and it OOM-killed
+	// the pod at a 2Gi limit.
+	//
+	// Streaming gets the same page for the cost of the page. Tenancy is pushed into the query
+	// so the engine prunes it; de-duplication and the limit are applied as rows arrive, and
+	// the scan stops as soon as the page is full.
+	//
+	// Scoping now runs BEFORE de-duplication rather than after. The two commute: scoping is a
+	// pure function of the row, and the duplicates this collapses are copies of one
+	// observation written by a pre-Deduper segment, so they carry the same tenant label. Doing
+	// it in this order is what keeps `seen` bounded by the page instead of by the store.
 	tenant, all := observationReadScope(r)
 	limit := q.Limit
 	q.Limit = 0
-	obs, err := h.Store.QueryRange(r.Context(), q)
-	if err != nil {
+	if !all {
+		q.TenantID = tenant
+	}
+
+	var obs []model.Observation
+	seen := make(map[string]struct{})
+	err := h.Store.ScanObservations(r.Context(), q, func(o *model.Observation) error {
+		if !all && tenant == "" {
+			// No tenant and no cross-tenant grant: scopeObservations admitted nothing, and
+			// the pushed-down filter cannot express "match nothing", so it is enforced here.
+			return errStopObservationScan
+		}
+		if _, dup := seen[o.ID]; dup {
+			return nil
+		}
+		seen[o.ID] = struct{}{}
+		obs = append(obs, *o)
+		if limit > 0 && len(obs) >= limit {
+			return errStopObservationScan
+		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, errStopObservationScan) {
 		slog.Error("query failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	// One row per derived ID. The write-side Deduper stops new duplicates; it
-	// cannot repair segments written before it existed, and those are the ones
-	// Weave reads. This runs BEFORE the limit is applied, so a page is `limit`
-	// distinct observations rather than `limit` rows of which some are copies.
-	obs = store.DedupeByID(obs)
-	obs = scopeObservations(obs, tenant, all, limit)
 
 	// encoding/json marshals a nil slice as `null`, not `[]`. A caller that
 	// declared the field an array then dereferences null and crashes — which is
@@ -1038,28 +1070,37 @@ func (h *Handlers) handleStoreStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Query all observations from the store.
-	obs, err := h.Store.QueryRange(r.Context(), store.Query{})
+	// Counting concerns every row, so this read cannot be bounded by paging — it is bounded
+	// by never materialising. It used to be QueryRange(Query{}) tallied in Go, which is one
+	// live Observation per row in the store and was the first of the two full-store scans
+	// this endpoint issued. The aggregate is computed in the engine and only the totals cross
+	// the store interface.
+	tenant, all := observationReadScope(r)
+	q := store.Query{}
+	if !all {
+		if tenant == "" {
+			// No tenant and no cross-tenant grant saw nothing before and must see nothing
+			// now; an unfiltered aggregate would report the whole estate's totals.
+			writeJSON(w, http.StatusOK, StoreStatsResponse{
+				ObservationsByLayer:    map[string]int{},
+				ObservationsByFidelity: map[string]int{},
+				ActorsByStatus:         map[string]int{},
+				StoreType:              fmt.Sprintf("%T", h.Store),
+			})
+			return
+		}
+		q.TenantID = tenant
+	}
+
+	stats, err := h.Store.ObservationStats(r.Context(), q)
 	if err != nil {
 		slog.Error("store stats query failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to query store")
 		return
 	}
-	tenant, all := observationReadScope(r)
-	obs = scopeObservations(obs, tenant, all, 0)
-
-	byLayer := make(map[string]int)
-	byFidelity := make(map[string]int)
-	var lastIngestion *time.Time
-
-	for _, o := range obs {
-		byLayer[string(o.Layer)]++
-		byFidelity[string(o.Fidelity)]++
-		if lastIngestion == nil || o.Timestamp.After(*lastIngestion) {
-			t := o.Timestamp
-			lastIngestion = &t
-		}
-	}
+	byLayer := stats.ByLayer
+	byFidelity := stats.ByFidelity
+	lastIngestion := stats.LastIngestion
 
 	actors, err := h.scopedActors(r)
 	if err != nil {
@@ -1075,7 +1116,7 @@ func (h *Handlers) handleStoreStats(w http.ResponseWriter, r *http.Request) {
 	storeType := fmt.Sprintf("%T", h.Store)
 
 	resp := StoreStatsResponse{
-		TotalObservations:      len(obs),
+		TotalObservations:      stats.Total,
 		ObservationsByLayer:    byLayer,
 		ObservationsByFidelity: byFidelity,
 		ActorCount:             len(actors),

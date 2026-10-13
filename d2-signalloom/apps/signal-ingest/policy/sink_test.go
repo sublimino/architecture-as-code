@@ -110,6 +110,22 @@ func (s *spyStore) ScanIDs(ctx context.Context, q store.Query, fn func(id string
 	return s.inner.ScanIDs(ctx, q, fn)
 }
 
+func (s *spyStore) ScanObservations(ctx context.Context, q store.Query, fn func(o *model.Observation) error) error {
+	s.mu.Lock()
+	warm := s.warm
+	s.queryCalls++
+	s.mu.Unlock()
+	if warm {
+		s.t.Errorf("ScanObservations called on the hot path after warm-up: stage 1 must never read the store")
+		return errors.New("spyStore: ScanObservations is forbidden after warm-up")
+	}
+	return s.inner.ScanObservations(ctx, q, fn)
+}
+
+func (s *spyStore) ObservationStats(ctx context.Context, q store.Query) (store.ObservationStats, error) {
+	return s.inner.ObservationStats(ctx, q)
+}
+
 func (s *spyStore) DropPartition(ctx context.Context, before time.Time) error {
 	return s.inner.DropPartition(ctx, before)
 }

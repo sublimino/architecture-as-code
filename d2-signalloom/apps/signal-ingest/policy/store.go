@@ -110,6 +110,16 @@ func (s *Store) ScanIDs(ctx context.Context, q store.Query, fn func(id string) e
 	return s.inner.ScanIDs(ctx, q, fn)
 }
 
+// ScanObservations delegates.
+func (s *Store) ScanObservations(ctx context.Context, q store.Query, fn func(o *model.Observation) error) error {
+	return s.inner.ScanObservations(ctx, q, fn)
+}
+
+// ObservationStats delegates.
+func (s *Store) ObservationStats(ctx context.Context, q store.Query) (store.ObservationStats, error) {
+	return s.inner.ObservationStats(ctx, q)
+}
+
 // DropPartition delegates.
 func (s *Store) DropPartition(ctx context.Context, before time.Time) error {
 	return s.inner.DropPartition(ctx, before)

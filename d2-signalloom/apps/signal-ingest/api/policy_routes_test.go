@@ -33,6 +33,7 @@ const (
 	// evidenceReaderToken stands in for the shipped sldc-evidence-reader key: observations:read
 	// and nothing else. The contract's explicit requirement is that this key cannot review.
 	evidenceReaderToken = "policyEvidenceReaderObsReadOnlyKey000000000"
+	analysisReaderToken = "policyAnalysisReaderStoreStatsKey0000000000"
 )
 
 // policyReviewFixedNow is the injected server clock. It sits one minute before the real clock
@@ -69,6 +70,10 @@ func policyAPIFixture(t *testing.T) (http.Handler, *Handlers) {
 			TenantID: "fe-signalloom", Permissions: []Permission{PermissionActForTenant, PermissionPolicyRead}, ExpiresAt: expires},
 		{Name: "evidence-reader", Token: evidenceReaderToken, Subject: "static-key/sldc-evidence-reader",
 			TenantID: "tenant-a", Permissions: readOnly, ExpiresAt: expires},
+		// Analysis-read is what GET /api/v1/store/stats requires. Added so the bounded-read
+		// coverage for that route asserts rather than skipping on a 403.
+		{Name: "analysis-reader", Token: analysisReaderToken, Subject: "static-key/analysis-reader",
+			TenantID: "tenant-a", Permissions: []Permission{PermissionObservationRead, PermissionAnalysisRead}, ExpiresAt: expires},
 	}, delegate)
 	if err != nil {
 		t.Fatal(err)
@@ -1274,4 +1279,3 @@ func TestPolicyRoutes_MethodGatesAndHEADBodySuppression(t *testing.T) {
 		}
 	})
 }
-

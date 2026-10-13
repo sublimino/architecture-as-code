@@ -250,21 +250,52 @@ class ControllerHandler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(encoded)
 
+    @staticmethod
+    def _normalize_allow(methods: tuple[str, ...]) -> str:
+        expanded: list[str] = []
+        for method in methods:
+            if method not in expanded:
+                expanded.append(method)
+            if method == "GET" and "HEAD" not in expanded:
+                expanded.append("HEAD")
+        if "OPTIONS" not in expanded:
+            expanded.append("OPTIONS")
+        return ", ".join(expanded)
+
+    @staticmethod
+    def _allowed_methods(path: str) -> tuple[str, ...] | None:
+        if path in ("/health", "/healthz", "/readyz", "/livez"):
+            return ("GET",)
+        if path == "/scan":
+            return ("POST", "DELETE")
+        return None
+
+    def _gate_route(self, allowed: tuple[str, ...]) -> bool:
+        allow_header = self._normalize_allow(allowed)
+        effective = set(allowed) | ({"HEAD"} if "GET" in allowed else set())
+        if self.command == "OPTIONS":
+            self._drain_body()
+            self._json(HTTPStatus.NO_CONTENT, None, {"Allow": allow_header})
+            return False
+        if self.command not in effective:
+            if not self._drain_body():
+                self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                return False
+            self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": allow_header})
+            return False
+        if self.command in ("GET", "HEAD"):
+            self._drain_body()
+        return True
+
     def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
-        if code == 501:
+        if code in (405, 501):
             path = urlparse(getattr(self, "path", "/")).path
-            if path in ("/health", "/healthz", "/readyz", "/livez"):
+            allowed = self._allowed_methods(path)
+            if allowed is not None:
                 self._json(
                     HTTPStatus.METHOD_NOT_ALLOWED,
                     {"error": "method not allowed"},
-                    {"Allow": "GET, HEAD, OPTIONS"},
-                )
-                return
-            if path == "/scan":
-                self._json(
-                    HTTPStatus.METHOD_NOT_ALLOWED,
-                    {"error": "method not allowed"},
-                    {"Allow": "POST, DELETE, OPTIONS"},
+                    {"Allow": self._normalize_allow(allowed)},
                 )
                 return
             self._json(HTTPStatus.NOT_FOUND, {"error": "unknown route"})
@@ -485,52 +516,23 @@ class ControllerHandler(BaseHTTPRequestHandler):
             self.close_connection = True
             self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
             return
-        if self.command in ("GET", "HEAD", "OPTIONS"):
-            self._drain_body()
         path = urlparse(self.path).path
-        if path in ("/health", "/healthz", "/readyz", "/livez"):
-            if self.command in ("GET", "HEAD"):
-                self._json(HTTPStatus.OK, {"status": "ok"})
-            elif self.command == "OPTIONS":
-                self._json(
-                    HTTPStatus.NO_CONTENT,
-                    None,
-                    {"Allow": "GET, HEAD, OPTIONS"},
-                )
-            else:
-                if not self._drain_body():
-                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
-                    return
-                self._json(
-                    HTTPStatus.METHOD_NOT_ALLOWED,
-                    {"error": "method not allowed"},
-                    {"Allow": "GET, HEAD, OPTIONS"},
-                )
-        elif path == "/scan":
-            if self.command == "POST":
-                self._handle_scan()
-            elif self.command == "DELETE":
-                self._handle_scan_delete()
-            elif self.command == "OPTIONS":
-                self._json(
-                    HTTPStatus.NO_CONTENT,
-                    None,
-                    {"Allow": "POST, DELETE, OPTIONS"},
-                )
-            else:
-                if not self._drain_body():
-                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
-                    return
-                self._json(
-                    HTTPStatus.METHOD_NOT_ALLOWED,
-                    {"error": "method not allowed"},
-                    {"Allow": "POST, DELETE, OPTIONS"},
-                )
-        else:
+        allowed = self._allowed_methods(path)
+        if allowed is None:
             if not self._drain_body():
                 self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
                 return
             self._json(HTTPStatus.NOT_FOUND, {"error": "unknown route"})
+            return
+        if not self._gate_route(allowed):
+            return
+        if path in ("/health", "/healthz", "/readyz", "/livez"):
+            self._json(HTTPStatus.OK, {"status": "ok"})
+        elif path == "/scan":
+            if self.command == "POST":
+                self._handle_scan()
+            else:
+                self._handle_scan_delete()
 
     do_GET = _dispatch
     do_POST = _dispatch

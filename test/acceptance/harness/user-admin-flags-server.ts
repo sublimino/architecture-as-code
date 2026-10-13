@@ -13,6 +13,7 @@
  */
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { gateMethod, jsonResponse, notFoundResponse, staticResponse } from './http-gate'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ACCEPTANCE_DIR = join(HERE, '..')
@@ -201,28 +202,19 @@ const INDEX_HTML = `<!doctype html>
 </html>
 `
 
+const CORS_HEADERS: Record<string, string> = {
+  'content-type': 'application/json; charset=utf-8',
+  'cache-control': 'no-store',
+  'access-control-allow-origin': '*',
+}
+
 function json(
   data: unknown,
   status = 200,
   req?: Request,
   extraHeaders: Record<string, string> = {},
 ): Response {
-  const headers = {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store',
-    'access-control-allow-origin': '*',
-    ...extraHeaders,
-  }
-  if (req?.method === 'HEAD') {
-    return new Response(null, {
-      status,
-      headers,
-    })
-  }
-  return new Response(JSON.stringify(data), {
-    status,
-    headers,
-  })
+  return jsonResponse(data, status, req, { ...CORS_HEADERS, ...extraHeaders })
 }
 
 export interface HarnessServer {
@@ -242,64 +234,34 @@ export function startUserAdminFlagsHarness(options: { port?: number } = {}): Har
       const url = new URL(request.url)
       const path = url.pathname
 
-      if (request.method === 'OPTIONS') {
-        return new Response(null, {
-          headers: {
-            'access-control-allow-origin': '*',
-            'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-            'access-control-allow-headers': 'Authorization, Content-Type',
-          },
-        })
-      }
-
       // ─── Static assets ──────────────────────────────────────────────────
       if (path === '/' || path === '/index.html' || path.startsWith('/admin') || path.startsWith('/fleet') || path.startsWith('/agents') || path.startsWith('/compliance') || path.startsWith('/policies') || path.startsWith('/audit') || path.startsWith('/settings') || path.startsWith('/federated-services') || path.startsWith('/collusion-access') || path.startsWith('/rbac') || path.startsWith('/supercred') || path.startsWith('/demos')) {
-        if (request.method !== 'GET' && request.method !== 'HEAD') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
-        }
-        if (request.method === 'HEAD') {
-          return new Response(null, {
-            headers: { 'content-type': 'text/html; charset=utf-8' },
-          })
-        }
-        return new Response(INDEX_HTML, {
-          headers: { 'content-type': 'text/html; charset=utf-8' },
-        })
+        const gate = await gateMethod(request, ['GET', 'HEAD'])
+        if (gate) return gate
+        return staticResponse(request, INDEX_HTML, 200, { 'content-type': 'text/html; charset=utf-8' })
       }
 
       if (path === '/user-admin-flags-harness.js') {
-        if (request.method !== 'GET' && request.method !== 'HEAD') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
-        }
-        if (request.method === 'HEAD') {
-          return new Response(null, {
-            headers: {
-              'content-type': 'text/javascript; charset=utf-8',
-              'cache-control': 'no-store',
-            },
-          })
-        }
-        return new Response(await bundle(), {
-          headers: {
-            'content-type': 'text/javascript; charset=utf-8',
-            'cache-control': 'no-store',
-          },
+        const gate = await gateMethod(request, ['GET', 'HEAD'])
+        if (gate) return gate
+        return staticResponse(request, request.method === 'HEAD' ? null : await bundle(), 200, {
+          'content-type': 'text/javascript; charset=utf-8',
+          'cache-control': 'no-store',
         })
       }
 
       if (path === '/global.css') {
-        if (request.method !== 'GET' && request.method !== 'HEAD') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
-        }
+        const gate = await gateMethod(request, ['GET', 'HEAD'])
+        if (gate) return gate
         const css = Bun.file(GLOBAL_CSS)
         if (!(await css.exists())) {
-          return new Response(request.method === 'HEAD' ? null : `/* ${GLOBAL_CSS} not found */`, {
-            status: 404,
-            headers: { 'content-type': 'text/css; charset=utf-8' },
+          return staticResponse(request, `/* ${GLOBAL_CSS} not found */`, 404, {
+            'content-type': 'text/css; charset=utf-8',
           })
         }
-        return new Response(request.method === 'HEAD' ? null : css, {
-          headers: { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'no-store' },
+        return staticResponse(request, css, 200, {
+          'content-type': 'text/css; charset=utf-8',
+          'cache-control': 'no-store',
         })
       }
 
@@ -314,33 +276,29 @@ export function startUserAdminFlagsHarness(options: { port?: number } = {}): Har
 
       // ─── Control plane ─────────────────────────────────────────────────
       if (path === '/harness/reset') {
-        if (request.method !== 'POST') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'POST' })
-        }
+        const gate = await gateMethod(request, ['POST'])
+        if (gate) return gate
         users = JSON.parse(JSON.stringify(INITIAL_USERS))
         requestLog.length = 0
         return json({ ok: true, users: users.length }, 200, request)
       }
 
       if (path === '/harness/requests') {
-        if (request.method !== 'GET' && request.method !== 'HEAD') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
-        }
+        const gate = await gateMethod(request, ['GET', 'HEAD'])
+        if (gate) return gate
         return json(requestLog, 200, request)
       }
 
       if (path === '/harness/state') {
-        if (request.method !== 'GET' && request.method !== 'HEAD') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
-        }
+        const gate = await gateMethod(request, ['GET', 'HEAD'])
+        if (gate) return gate
         return json({ users, flags: TENANT_FLAGS }, 200, request)
       }
 
       // ─── Identity: /api/v1/me ──────────────────────────────────────────
       if (path === '/api/v1/me') {
-        if (request.method !== 'GET' && request.method !== 'HEAD') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
-        }
+        const gate = await gateMethod(request, ['GET', 'HEAD'])
+        if (gate) return gate
         const isKusari = authHeader.includes('kusari') || url.searchParams.get('tenant') === 'kusari'
         const isAcme = authHeader.includes('tenant-acme') || url.searchParams.get('tenant') === 'tenant-acme'
 
@@ -372,9 +330,8 @@ export function startUserAdminFlagsHarness(options: { port?: number } = {}): Har
 
       // ─── Feature Flags: /api/v1/features ───────────────────────────────
       if (path === '/api/v1/features') {
-        if (request.method !== 'GET' && request.method !== 'HEAD') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
-        }
+        const gate = await gateMethod(request, ['GET', 'HEAD'])
+        if (gate) return gate
         const requestedTenant = url.searchParams.get('tenant_id') ||
           (authHeader.includes('kusari') ? 'kusari' : (authHeader.includes('tenant-acme') ? 'tenant-acme' : 'tenant-demo'))
         const flags = TENANT_FLAGS[requestedTenant] ?? TENANT_FLAGS['tenant-demo']
@@ -391,9 +348,8 @@ export function startUserAdminFlagsHarness(options: { port?: number } = {}): Har
 
       // ─── Tenants: /api/v1/tenants ───────────────────────────────────────
       if (path === '/api/v1/tenants') {
-        if (request.method !== 'GET' && request.method !== 'HEAD') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
-        }
+        const gate = await gateMethod(request, ['GET', 'HEAD'])
+        if (gate) return gate
         return json([
           { id: 'tenant-demo', name: 'Demo Tenant' },
           { id: 'kusari', name: 'Kusari Pilot' },
@@ -403,9 +359,8 @@ export function startUserAdminFlagsHarness(options: { port?: number } = {}): Har
 
       // ─── User Administration: /api/v1/admin/users ───────────────────────
       if (path === '/api/v1/admin/users') {
-        if (request.method !== 'GET' && request.method !== 'HEAD') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
-        }
+        const gate = await gateMethod(request, ['GET', 'HEAD'])
+        if (gate) return gate
         const tenantFilter = url.searchParams.get('tenant_id')
         const searchFilter = (url.searchParams.get('search') ?? '').toLowerCase()
         const roleFilter = url.searchParams.get('role')
@@ -439,9 +394,8 @@ export function startUserAdminFlagsHarness(options: { port?: number } = {}): Har
       }
 
       if (path === '/api/v1/admin/users/invite') {
-        if (request.method !== 'POST') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'POST' })
-        }
+        const gate = await gateMethod(request, ['POST'])
+        if (gate) return gate
         const body = (await request.json().catch(() => ({}))) as Partial<PlatformUser>
         if (!body.email) {
           return json({ detail: 'email is required' }, 422, request)
@@ -467,9 +421,8 @@ export function startUserAdminFlagsHarness(options: { port?: number } = {}): Har
 
       const userMatch = path.match(/^\/api\/v1\/admin\/users\/([^/]+)$/)
       if (userMatch) {
-        if (request.method !== 'PATCH' && request.method !== 'DELETE') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'PATCH, DELETE' })
-        }
+        const gate = await gateMethod(request, ['PATCH', 'DELETE'])
+        if (gate) return gate
         const userId = decodeURIComponent(userMatch[1])
         const targetIndex = users.findIndex((u) => u.id === userId)
 
@@ -502,7 +455,7 @@ export function startUserAdminFlagsHarness(options: { port?: number } = {}): Har
         }
       }
 
-      return json({ detail: `Unhandled route: ${request.method} ${path}` }, 404, request)
+      return notFoundResponse(request, `Unhandled route: ${request.method} ${path}`, CORS_HEADERS)
     },
   })
 

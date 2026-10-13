@@ -122,6 +122,33 @@ def verify_and_authorize(context, public_key, request, peer_spiffe, replay, now=
     if not (nbf <= now < exp) or not replay.consume(claims.get("jti"), exp, now):
         raise PermissionError("authorization context time/replay")
     return {"caller": peer_spiffe, "receiver": TRIAGE, "decision": "allow"}
+_PROBE_ROUTES = ("/health", "/healthz", "/readyz")
+_CARD_ROUTES = ("/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json")
+_GET_ROUTES = (*_PROBE_ROUTES, "/challenge", *_CARD_ROUTES)
+
+
+def normalize_allow(methods: tuple[str, ...] | list[str]) -> str:
+    """Normalize route methods into an RFC 9110 Allow header with HEAD and OPTIONS parity."""
+    ordered: list[str] = []
+    for method in methods:
+        m = method.strip().upper()
+        if m and m not in ordered:
+            ordered.append(m)
+        if m == "GET" and "HEAD" not in ordered:
+            ordered.append("HEAD")
+    if "OPTIONS" not in ordered:
+        ordered.append("OPTIONS")
+    return ", ".join(ordered)
+
+
+def _route_methods(path: str) -> tuple[str, ...] | None:
+    if path in _GET_ROUTES:
+        return ("GET",)
+    if path == "/a2a":
+        return ("POST",)
+    return None
+
+
 def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, openbao_role="agent-trust-planner", receiver_instance=None):
     card = Path(__file__).with_name("agent-card.json").read_bytes(); replay = ReplayStore(); instance = receiver_instance or secrets.token_urlsafe(16)
     class H(BaseHTTPRequestHandler):
@@ -219,18 +246,18 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                     return False
             return True
 
-        def _send_json(self, status: int, payload: dict, allow: str | None = None):
+        def _send_bytes(self, status: int, body: bytes, content_type: str = "application/json", allow: str | None = None):
             try:
                 self.send_response(status)
                 if status in (204, 205, 304):
                     if allow:
                         self.send_header("Allow", allow)
+                    self.send_header("Content-Length", "0")
                     if getattr(self, "close_connection", False):
                         self.send_header("Connection", "close")
                     self.end_headers()
                     return
-                body = json.dumps(payload, separators=(',', ':')).encode()
-                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(body)))
                 if allow:
                     self.send_header("Allow", allow)
@@ -242,98 +269,62 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
             except OSError:
                 self.close_connection = True
 
-        def do_OPTIONS(self):
-            if not self._drain_body():
-                self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
-                return
+        def _send_json(self, status: int, payload: dict, allow: str | None = None):
+            body = b"" if status in (204, 205, 304) else json.dumps(payload, separators=(",", ":")).encode()
+            self._send_bytes(status, body, allow=allow)
+
+        def _gate_route(self) -> str | None:
             path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
-            if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
-                self.send_response(204)
-                self.send_header("Allow", "GET, HEAD, OPTIONS")
-                self.send_header("Content-Length", "0")
-                if getattr(self, "close_connection", False):
-                    self.send_header("Connection", "close")
-                self.end_headers()
+            cmd = (getattr(self, "command", "") or "").upper()
+            base_methods = _route_methods(path)
+            if base_methods is None:
+                if not self._drain_body():
+                    self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return None
+                self._send_json(404, {"error": f"no route {cmd} {path}"})
+                return None
+            allow = normalize_allow(base_methods)
+            allowed_set = set(allow.split(", "))
+            if cmd == "OPTIONS":
+                if not self._drain_body():
+                    self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return None
+                self._send_bytes(204, b"", allow=allow)
+                return None
+            if cmd not in allowed_set:
+                if not self._drain_body():
+                    self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
+                    return None
+                self._send_json(405, {"error": f"method {cmd} not allowed on {path}"}, allow=allow)
+                return None
+            if cmd in ("GET", "HEAD") and not self._drain_body():
+                self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
+                return None
+            return path
+
+        def _handle_read(self):
+            path = self._gate_route()
+            if path is None:
                 return
-            if path == "/a2a":
-                self.send_response(204)
-                self.send_header("Allow", "POST, OPTIONS")
-                self.send_header("Content-Length", "0")
-                if getattr(self, "close_connection", False):
-                    self.send_header("Connection", "close")
-                self.end_headers()
-                return
-            self._send_json(404, {"error": "not found"})
+            if path in _PROBE_ROUTES:
+                self._send_json(200, {"status": "ok"})
+            elif path == "/challenge":
+                self._send_json(200, {"instanceNonce": instance})
+            elif path in _CARD_ROUTES:
+                self._send_bytes(200, card)
+
+        def do_OPTIONS(self):
+            self._gate_route()
 
         def do_GET(self):
-            if not self._drain_body():
-                self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
-                return
-            path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
-            if path in ("/health", "/healthz", "/readyz"):
-                self._send_json(200, {"status": "ok"})
-                return
-            if path == "/challenge":
-                self._send_json(200, {"instanceNonce": instance})
-                return
-            if path == "/a2a":
-                self._send_json(405, {"error": "method not allowed"}, allow="POST, OPTIONS")
-                return
-            if path not in ("/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
-                self._send_json(404, {"error": "not found"})
-                return
-            try:
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(card)))
-                if getattr(self, "close_connection", False):
-                    self.send_header("Connection", "close")
-                self.end_headers()
-                if self.command != "HEAD":
-                    self.wfile.write(card)
-            except OSError:
-                self.close_connection = True
+            self._handle_read()
 
         def do_HEAD(self):
-            if not self._drain_body():
-                self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
-                return
-            path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
-            if path in ("/health", "/healthz", "/readyz"):
-                self._send_json(200, {"status": "ok"})
-                return
-            if path == "/challenge":
-                self._send_json(200, {"instanceNonce": instance})
-                return
-            if path == "/a2a":
-                self._send_json(405, {"error": "method not allowed"}, allow="POST, OPTIONS")
-                return
-            if path not in ("/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
-                self._send_json(404, {"error": "not found"})
-                return
-            try:
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(card)))
-                if getattr(self, "close_connection", False):
-                    self.send_header("Connection", "close")
-                self.end_headers()
-            except OSError:
-                self.close_connection = True
+            self._handle_read()
 
         def do_POST(self):
-            path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
-            if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
-                if not self._drain_body():
-                    self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
-                    return
-                self._send_json(405, {"error": "method not allowed"}, allow="GET, HEAD, OPTIONS")
-                return
-            if path != "/a2a":
-                if not self._drain_body():
-                    self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
-                    return
-                self._send_json(404, {"error": "not found"})
+            path = self._gate_route()
+            if path is None:
                 return
             te = self.headers.get("Transfer-Encoding", "").lower()
             has_cl = "content-length" in [k.lower() for k in self.headers.keys()]
@@ -397,39 +388,18 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
             except (KeyError, ValueError, AttributeError, PermissionError):
                 self._send_json(403, {"error": "forbidden"})
 
-        def _handle_unsupported_method(self):
-            if not self._drain_body():
-                self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
-                return
-            path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
-            cmd = getattr(self, "command", "") or ""
-            if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
-                self._send_json(405, {"error": f"method {cmd} not allowed on {path}"}, allow="GET, HEAD, OPTIONS")
-                return
-            if path == "/a2a":
-                self._send_json(405, {"error": f"method {cmd} not allowed on {path}"}, allow="POST, OPTIONS")
-                return
-            self._send_json(404, {"error": f"no route {cmd} {path}"})
         def send_error(self, code: int, message: str | None = None, explain: str | None = None):
+            if code in (405, 501):
+                self._gate_route()
+                return
             if not self._drain_body():
                 self._send_json(400, {"error": "bad request: stream framing error or TE.CL conflict"})
-                return
-            path = (getattr(self, "path", None) or "/").split("?")[0].rstrip("/") or "/"
-            cmd = getattr(self, "command", "") or ""
-            if code in (405, 501):
-                if path in ("/health", "/healthz", "/readyz", "/challenge", "/.well-known/agent-card.json", "/.well-known/agent.json", "/agent-card.json"):
-                    self._send_json(405, {"error": f"method {cmd} not allowed on {path}"}, allow="GET, HEAD, OPTIONS")
-                    return
-                if path == "/a2a":
-                    self._send_json(405, {"error": f"method {cmd} not allowed on {path}"}, allow="POST, OPTIONS")
-                    return
-                self._send_json(404, {"error": f"no route {cmd} {path}"})
                 return
             msg = message or self.responses.get(code, ("error", ""))[0]
             self._send_json(code, {"error": msg})
-        def do_PUT(self): self._handle_unsupported_method()
-        def do_DELETE(self): self._handle_unsupported_method()
-        def do_PATCH(self): self._handle_unsupported_method()
+        def do_PUT(self): self._gate_route()
+        def do_DELETE(self): self._gate_route()
+        def do_PATCH(self): self._gate_route()
         def do_TRACE(self): self.send_error(501)
         def do_CONNECT(self): self.send_error(501)
         def log_message(self,*_): pass

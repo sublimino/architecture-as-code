@@ -1618,33 +1618,74 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(encoded)
 
+    @staticmethod
+    def _normalize_allow(methods: tuple[str, ...]) -> str:
+        expanded: list[str] = []
+        for method in methods:
+            if method not in expanded:
+                expanded.append(method)
+            if method == "GET" and "HEAD" not in expanded:
+                expanded.append("HEAD")
+        if "OPTIONS" not in expanded:
+            expanded.append("OPTIONS")
+        return ", ".join(expanded)
+
+    def _allowed_methods(self, path: str) -> tuple[str, ...] | None:
+        if path in (
+            "/health",
+            "/healthz",
+            "/readyz",
+            "/agents",
+            "/crypto-proofs",
+            "/trust-topology",
+            "/network-tests",
+            "/_test/fixtures",
+        ):
+            return ("GET",)
+        if path.startswith("/agents/") and path.endswith("/compliance"):
+            return ("GET",)
+        if path == "/network-tests/scan" or (path.startswith("/agents/") and path.endswith("/stun")):
+            return ("POST",)
+        if path == "/_test/requests":
+            return ("GET", "DELETE")
+        if path.startswith("/_test/fixtures/") and len(path.split("/")) == 5 and path.split("/")[3] in ROUTE_PREFIXES:
+            return ("PUT",)
+        if self._business_route(path) is not None:
+            return ("GET", "POST", "PUT", "DELETE", "PATCH")
+        return None
+
+    def _gate_route(self, allowed: tuple[str, ...]) -> bool:
+        allow_header = self._normalize_allow(allowed)
+        effective = set(allowed) | ({"HEAD"} if "GET" in allowed else set())
+        if self.command == "OPTIONS":
+            if not self._drain_body():
+                self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                return False
+            self._json(HTTPStatus.NO_CONTENT, None, {"Allow": allow_header})
+            return False
+        if self.command not in effective:
+            if not self._drain_body():
+                self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                return False
+            self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": allow_header})
+            return False
+        if self.command in ("GET", "HEAD") and not self._drain_body():
+            self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+            return False
+        return True
+
     def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
         if not self._drain_body():
             self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
             return
         if code in (405, 501):
             path = urlparse(getattr(self, "path", "/")).path
-            allow = None
-            if path in ("/health", "/healthz", "/readyz", "/agents", "/crypto-proofs", "/trust-topology", "/network-tests", "/_test/fixtures"):
-                allow = "GET, HEAD, OPTIONS"
-            elif path.startswith("/agents/") and path.endswith("/compliance"):
-                allow = "GET, HEAD, OPTIONS"
-            elif path == "/network-tests/scan":
-                allow = "POST, OPTIONS"
-            elif path.startswith("/agents/") and path.endswith("/stun"):
-                allow = "POST, OPTIONS"
-            elif path == "/_test/requests":
-                allow = "GET, HEAD, DELETE, OPTIONS"
-            elif path.startswith("/_test/fixtures/") and len(path.split("/")) == 5 and path.split("/")[3] in ROUTE_PREFIXES:
-                allow = "PUT, OPTIONS"
-            elif self._business_route(path) is not None:
-                allow = "GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS"
-
-            if allow is not None:
+            allowed = self._allowed_methods(path)
+            if allowed is not None:
                 self._json(
                     HTTPStatus.METHOD_NOT_ALLOWED,
                     {"error": f"method {getattr(self, 'command', '')} not allowed on {path}"},
-                    extra_headers={"Allow": allow},
+                    extra_headers={"Allow": self._normalize_allow(allowed)},
                 )
                 return
             self._json(HTTPStatus.NOT_FOUND, {"error": "unknown route"})
@@ -1792,9 +1833,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         category = self._business_route(path)
         if category is None:
             return False
-        if self.command == "OPTIONS":
-            self._drain_body()
-            self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS"})
+        if not self._gate_route(("GET", "POST", "PUT", "DELETE", "PATCH")):
             return True
         body = self._body() if self.command in {"POST", "PUT", "PATCH"} else None
         fixture_name, fixture = self.state.select_fixture(category, path)
@@ -2130,72 +2169,51 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if not path.startswith("/_test/"):
             return False
         if not self.demo_controls_enabled:
+            if not self._drain_body():
+                self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
+                return True
             self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return True
         if path == "/_test/requests":
+            if not self._gate_route(("GET", "DELETE")):
+                return True
             if self.command in ("GET", "HEAD"):
                 self._json(HTTPStatus.OK, {"requests": self.state.get_requests()})
                 return True
-            if self.command == "DELETE":
-                if not self._drain_body():
-                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
-                    return True
-                self.state.reset_requests()
-                self._json(HTTPStatus.OK, {"requests": []})
-                return True
-            if self.command == "OPTIONS":
-                if not self._drain_body():
-                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
-                    return True
-                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, DELETE, OPTIONS"})
-                return True
             if not self._drain_body():
                 self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
                 return True
-            self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, DELETE, OPTIONS"})
+            self.state.reset_requests()
+            self._json(HTTPStatus.OK, {"requests": []})
             return True
         if path == "/_test/fixtures":
-            if self.command in ("GET", "HEAD"):
-                self._json(HTTPStatus.OK, {"fixtures": self.state.get_fixtures()})
+            if not self._gate_route(("GET",)):
                 return True
-            if self.command == "OPTIONS":
-                if not self._drain_body():
-                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
-                    return True
-                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
-                return True
-            if not self._drain_body():
-                self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
-                return True
-            self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
+            self._json(HTTPStatus.OK, {"fixtures": self.state.get_fixtures()})
             return True
         parts = path.split("/")
         if len(parts) == 5 and parts[:3] == ["", "_test", "fixtures"]:
             category, name = parts[3], parts[4]
             if category not in ROUTE_PREFIXES or not name:
-                self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
-                return True
-            if self.command == "PUT":
-                body = self._body()
-                if getattr(self, "close_connection", False):
-                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
-                    return True
-                if body is None:
-                    self._json(HTTPStatus.BAD_REQUEST, {"error": "fixture body is required"})
-                    return True
-                self.state.put_fixture(category, name, body)
-                self._json(HTTPStatus.OK, {"category": category, "name": name, "fixture": body})
-                return True
-            if self.command == "OPTIONS":
                 if not self._drain_body():
                     self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
                     return True
-                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "PUT, OPTIONS"})
+                self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
                 return True
-            if not self._drain_body():
+            if not self._gate_route(("PUT",)):
+                return True
+            body = self._body()
+            if getattr(self, "close_connection", False):
                 self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
                 return True
-            self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "PUT, OPTIONS"})
+            if body is None:
+                self._json(HTTPStatus.BAD_REQUEST, {"error": "fixture body is required"})
+                return True
+            self.state.put_fixture(category, name, body)
+            self._json(HTTPStatus.OK, {"category": category, "name": name, "fixture": body})
+            return True
+        if not self._drain_body():
+            self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
             return True
         self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
         return True
@@ -2212,91 +2230,32 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self.close_connection = True
             self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
             return
-        if self.command in ("GET", "HEAD", "OPTIONS") and not self._drain_body():
-            self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
-            return
         path = urlparse(self.path).path
         if path in ("/health", "/healthz", "/readyz"):
-            if self.command in ("GET", "HEAD"):
+            if self._gate_route(("GET",)):
                 self._json(HTTPStatus.OK, {"status": "ok"})
-            elif self.command == "OPTIONS":
-                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
-            else:
-                if not self._drain_body():
-                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
-                    return
-                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/agents":
-            if self.command in ("GET", "HEAD"):
+            if self._gate_route(("GET",)):
                 self._handle_agents()
-            elif self.command == "OPTIONS":
-                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
-            else:
-                if not self._drain_body():
-                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
-                    return
-                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/crypto-proofs":
-            if self.command in ("GET", "HEAD"):
+            if self._gate_route(("GET",)):
                 self._handle_crypto_proofs()
-            elif self.command == "OPTIONS":
-                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
-            else:
-                if not self._drain_body():
-                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
-                    return
-                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/trust-topology":
-            if self.command in ("GET", "HEAD"):
+            if self._gate_route(("GET",)):
                 self._handle_trust_topology()
-            elif self.command == "OPTIONS":
-                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
-            else:
-                if not self._drain_body():
-                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
-                    return
-                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/network-tests":
-            if self.command in ("GET", "HEAD"):
+            if self._gate_route(("GET",)):
                 self._handle_network_tests()
-            elif self.command == "OPTIONS":
-                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
-            else:
-                if not self._drain_body():
-                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
-                    return
-                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path == "/network-tests/scan":
-            if self.command == "POST":
+            if self._gate_route(("POST",)):
                 self._handle_network_tests_scan()
-            elif self.command == "OPTIONS":
-                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "POST, OPTIONS"})
-            else:
-                if not self._drain_body():
-                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
-                    return
-                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "POST, OPTIONS"})
         elif path.startswith("/agents/") and path.endswith("/compliance"):
-            if self.command in ("GET", "HEAD"):
+            if self._gate_route(("GET",)):
                 agent_id = path.split("/")[2]
                 self._handle_agent_compliance(agent_id, self._requested_namespace())
-            elif self.command == "OPTIONS":
-                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "GET, HEAD, OPTIONS"})
-            else:
-                if not self._drain_body():
-                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
-                    return
-                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "GET, HEAD, OPTIONS"})
         elif path.startswith("/agents/") and path.endswith("/stun"):
-            if self.command == "POST":
+            if self._gate_route(("POST",)):
                 self._handle_agent_stun_gone()
-            elif self.command == "OPTIONS":
-                self._json(HTTPStatus.NO_CONTENT, None, {"Allow": "POST, OPTIONS"})
-            else:
-                if not self._drain_body():
-                    self._json(HTTPStatus.BAD_REQUEST, {"error": "bad request: stream framing error or TE.CL conflict"})
-                    return
-                self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}, {"Allow": "POST, OPTIONS"})
         elif self._handle_control() or self._handle_business():
             return
         else:

@@ -86,6 +86,7 @@
  * failure mode this file exists to close rather than to reproduce.
  */
 import { join } from 'node:path'
+import { gateMethod, jsonResponse, notFoundResponse, staticResponse } from './http-gate'
 
 const HERE = import.meta.dir
 const ACCEPTANCE_DIR = join(HERE, '..')
@@ -141,34 +142,23 @@ function emptyLog(): RequestLog {
   return { total: 0, list: 0, aggregate: 0, byTenant: {}, unmatched: [] }
 }
 
+const CORS_HEADERS: Record<string, string> = {
+  // The spec drives two browser contexts at one origin, so CORS never
+  // fires — but the control plane is also called from the Playwright
+  // process via `request`, and a stray preflight answered with a 404 would
+  // read as "the harness has no control plane".
+  'access-control-allow-origin': '*',
+  'access-control-allow-headers': 'authorization,content-type',
+  'access-control-allow-methods': 'GET,POST,OPTIONS',
+}
+
 function json(
   body: unknown,
   status = 200,
   req?: Request,
   extraHeaders: Record<string, string> = {},
 ): Response {
-  const headers = {
-    'content-type': 'application/json',
-    'cache-control': 'no-store',
-    // The spec drives two browser contexts at one origin, so CORS never
-    // fires — but the control plane is also called from the Playwright
-    // process via `request`, and a stray preflight answered with a 404 would
-    // read as "the harness has no control plane".
-    'access-control-allow-origin': '*',
-    'access-control-allow-headers': 'authorization,content-type',
-    'access-control-allow-methods': 'GET,POST,OPTIONS',
-    ...extraHeaders,
-  }
-  if (req?.method === 'HEAD') {
-    return new Response(null, {
-      status,
-      headers,
-    })
-  }
-  return new Response(JSON.stringify(body), {
-    status,
-    headers,
-  })
+  return jsonResponse(body, status, req, { ...CORS_HEADERS, ...extraHeaders })
 }
 
 /**
@@ -300,57 +290,38 @@ export function startCodingAgentsHarness(options: { port?: number } = {}): Codin
       const url = new URL(request.url)
       const path = url.pathname
 
-      if (request.method === 'OPTIONS') return json({ ok: true }, 200, request)
-
       // ─── Static ────────────────────────────────────────────────────────
       if (path === '/' || path === '/index.html') {
-        if (request.method !== 'GET' && request.method !== 'HEAD') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
-        }
-        if (request.method === 'HEAD') {
-          return new Response(null, {
-            headers: { 'content-type': 'text/html; charset=utf-8' },
-          })
-        }
-        return new Response(INDEX_HTML, {
-          headers: { 'content-type': 'text/html; charset=utf-8' },
-        })
+        const gate = await gateMethod(request, ['GET', 'HEAD'], CORS_HEADERS)
+        if (gate) return gate
+        return staticResponse(request, INDEX_HTML, 200, { 'content-type': 'text/html; charset=utf-8' })
       }
       if (path === '/coding-agents-harness.js') {
-        if (request.method !== 'GET' && request.method !== 'HEAD') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
-        }
-        if (request.method === 'HEAD') {
-          return new Response(null, {
-            headers: {
-              'content-type': 'text/javascript; charset=utf-8',
-              'cache-control': 'no-store',
-            },
-          })
-        }
-        return new Response(await bundle(), {
-          headers: {
-            'content-type': 'text/javascript; charset=utf-8',
-            'cache-control': 'no-store',
-          },
+        const gate = await gateMethod(request, ['GET', 'HEAD'], CORS_HEADERS)
+        if (gate) return gate
+        return staticResponse(request, request.method === 'HEAD' ? null : await bundle(), 200, {
+          'content-type': 'text/javascript; charset=utf-8',
+          'cache-control': 'no-store',
         })
       }
       if (path === '/global.css') {
-        if (request.method !== 'GET' && request.method !== 'HEAD') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
-        }
+        const gate = await gateMethod(request, ['GET', 'HEAD'], CORS_HEADERS)
+        if (gate) return gate
         const css = Bun.file(GLOBAL_CSS)
         if (!(await css.exists())) {
           // Loud rather than silent: a missing stylesheet degrades to "renders
           // with browser defaults", which passes every text assertion here and
           // would only surface later as an inexplicable layout complaint.
-          return new Response(request.method === 'HEAD' ? null : `/* harness: ${GLOBAL_CSS} not found — did the app move? */`, {
-            status: 404,
-            headers: { 'content-type': 'text/css; charset=utf-8' },
-          })
+          return staticResponse(
+            request,
+            `/* harness: ${GLOBAL_CSS} not found — did the app move? */`,
+            404,
+            { 'content-type': 'text/css; charset=utf-8' },
+          )
         }
-        return new Response(request.method === 'HEAD' ? null : css, {
-          headers: { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'no-store' },
+        return staticResponse(request, css, 200, {
+          'content-type': 'text/css; charset=utf-8',
+          'cache-control': 'no-store',
         })
       }
 
@@ -360,15 +331,16 @@ export function startCodingAgentsHarness(options: { port?: number } = {}): Codin
       // api/client.ts might one day request, and so a stray call shows up in
       // `unmatched` rather than being absorbed by a telemetry route.
       if (path === '/harness/reset') {
-        if (request.method !== 'POST') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'POST' })
-        }
+        const gate = await gateMethod(request, ['POST'], CORS_HEADERS)
+        if (gate) return gate
         tenants.clear()
         log = emptyLog()
         return json({ ok: true, tenants: 0 }, 200, request)
       }
 
       if (path === '/harness/state') {
+        const gate = await gateMethod(request, ['GET', 'HEAD', 'POST'], CORS_HEADERS)
+        if (gate) return gate
         if (request.method === 'POST') {
           const body = (await request.json().catch(() => null)) as {
             tenant?: string
@@ -384,25 +356,21 @@ export function startCodingAgentsHarness(options: { port?: number } = {}): Codin
           })
           return json({ ok: true, tenant: body.tenant, records: (body.records ?? []).length }, 200, request)
         }
-        if (request.method === 'GET' || request.method === 'HEAD') {
-          return json(
-            Object.fromEntries(
-              [...tenants.entries()].map(([t, s]) => [
-                t,
-                { records: s.records.length, aggregate: s.aggregate !== null, listStatus: s.listStatus },
-              ]),
-            ),
-            200,
-            request,
-          )
-        }
-        return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD, POST' })
+        return json(
+          Object.fromEntries(
+            [...tenants.entries()].map(([t, s]) => [
+              t,
+              { records: s.records.length, aggregate: s.aggregate !== null, listStatus: s.listStatus },
+            ]),
+          ),
+          200,
+          request,
+        )
       }
 
       if (path === '/harness/requests') {
-        if (request.method !== 'GET' && request.method !== 'HEAD') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
-        }
+        const gate = await gateMethod(request, ['GET', 'HEAD'], CORS_HEADERS)
+        if (gate) return gate
         return json(log, 200, request)
       }
 
@@ -411,9 +379,8 @@ export function startCodingAgentsHarness(options: { port?: number } = {}): Codin
       const isAggregate = AGGREGATE_PATHS.includes(path)
 
       if (isList || isAggregate) {
-        if (request.method !== 'GET' && request.method !== 'HEAD') {
-          return json({ detail: 'Method Not Allowed' }, 405, request, { Allow: 'GET, HEAD' })
-        }
+        const gate = await gateMethod(request, ['GET', 'HEAD'], CORS_HEADERS)
+        if (gate) return gate
         const tenant = tenantOf(request)
         log.total += 1
         if (isList) log.list += 1
@@ -446,7 +413,7 @@ export function startCodingAgentsHarness(options: { port?: number } = {}): Codin
       }
 
       log.unmatched.push(`${request.method} ${path}`)
-      return json({ detail: `coding-agents harness has no route for ${path}` }, 404, request)
+      return notFoundResponse(request, `coding-agents harness has no route for ${path}`, CORS_HEADERS)
     },
   })
 

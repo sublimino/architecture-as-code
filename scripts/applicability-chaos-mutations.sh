@@ -155,7 +155,7 @@ for row in "${MUTATIONS[@]}"; do
   # A mutation whose test went red because the test BINARY failed to build is
   # the same non-evidence one hop later (a mutated signature breaking a test
   # file compiles fine under `go build`, which ignores _test.go).
-  if printf '%s' "$out" | grep -q 'build failed\|cannot use\|undefined:\|too many arguments'; then
+  if grep -q 'build failed\|cannot use\|undefined:\|too many arguments' <<<"$out"; then
     printf 'MUTATION VOID   [%-38s] TEST BINARY FAILED TO BUILD — not evidence\n' "$name"
     printf '%s\n' "$out" | tail -5
     VOID+=("$name (test build broken)")

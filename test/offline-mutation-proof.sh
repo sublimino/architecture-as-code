@@ -152,8 +152,9 @@ expect_red() {
 	fi
 	# `--` before the pattern: several expected test names begin with `--check`
 	# or `--pass`, which grep otherwise parses as its own options and dies with
-	# "unrecognized option", reporting a genuinely-proven mutation as UNPROVEN.
-	if grep -qF -- "not ok" "${log}" && grep -F -- "not ok" "${log}" | grep -qF -- "${test_name}"; then
+	local not_ok_lines
+	not_ok_lines="$(grep -F -- "not ok" "${log}" || true)"
+	if grep -qF -- "not ok" <<<"${not_ok_lines}" && grep -qF -- "${test_name}" <<<"${not_ok_lines}"; then
 		echo "PROVEN    ${label}"
 		echo "          red at: ${test_name}"
 		PROVEN=$((PROVEN + 1))

@@ -135,7 +135,7 @@ expect_red_in() {
   out="$(cd "$dir" && go test -count=1 -run "$regex" "$pkg" 2>&1)"
   rc=$?
   set -e
-  if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'no tests to run'; then
+  if [ "$rc" -eq 0 ] && grep -q 'no tests to run' <<<"$out"; then
     MISSING+=("$name :: $regex")
     printf '  MISSING  %-28s %s\n' "$name" "no test matches /$regex/"
     return
@@ -171,7 +171,7 @@ expect_green_in() {
   out="$(cd "$dir" && go test -count=1 -run "$regex" "$pkg" 2>&1)"
   rc=$?
   set -e
-  if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'no tests to run'; then
+  if [ "$rc" -eq 0 ] && grep -q 'no tests to run' <<<"$out"; then
     MISSING+=("$name :: $regex")
     printf '  MISSING  %-28s %s\n' "$name" "no test matches /$regex/"
     return

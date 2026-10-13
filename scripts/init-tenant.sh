@@ -302,9 +302,9 @@ parse_args() {
   if [[ -z "$CLUSTER_NAME" ]]; then
     local existing_clusters
     existing_clusters="$(command -v kind >/dev/null 2>&1 && kind get clusters 2>/dev/null || true)"
-    if echo "${existing_clusters}" | grep -qw "osramp"; then
+    if grep -qw "osramp" <<<"${existing_clusters}"; then
       CLUSTER_NAME="osramp"
-    elif echo "${existing_clusters}" | grep -qw "kind-${TENANT_ID}"; then
+    elif grep -qw "kind-${TENANT_ID}" <<<"${existing_clusters}"; then
       CLUSTER_NAME="kind-${TENANT_ID}"
     else
       CLUSTER_NAME="kind-${TENANT_ID}"

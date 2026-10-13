@@ -1118,16 +1118,30 @@ async def revoke_external_host_handler(
 # Enrollment & Upload Handlers (AMXO-P3-1 / AMXO-P3-3)
 
 async def enroll_external_agent_handler(
-    body: EnrollmentRequest | dict[str, Any],
+    request: Request,
     authorization: Annotated[str | None, Header()] = None,
-    principal: api_compat.Principal | None = Depends(api_compat.authenticated_principal),
+    principal: api_compat.Principal = Depends(api_compat.authenticated_principal),
+    agent_id: str | None = None,
 ) -> EnrollmentResult:
     """Enroll an external host with pre-registered agent record (P3-1 / P3-3)."""
-    req_dict = body.model_dump() if isinstance(body, BaseModel) else body
-    agent_id = req_dict["agent_id"]
-    host_id = req_dict["host_id"]
-    key_id = req_dict["key_id"]
-    tenant_id = principal.tenant if principal else "tenant-demo"
+    tenant_id = principal.tenant if principal else None
+    if not tenant_id:
+        raise api_compat.APIError(401, "unauthenticated", "Authentication required")
+
+    try:
+        req_dict = await request.json()
+    except Exception:
+        req_dict = {}
+
+    target_agent_id = agent_id or req_dict.get("agent_id")
+    if not target_agent_id:
+        raise api_compat.APIError(422, "missing_agent_id", "agent_id is required for enrollment")
+    if agent_id and req_dict.get("agent_id") and agent_id != req_dict.get("agent_id"):
+        raise api_compat.APIError(400, "agent_mismatch", f"Agent ID in payload ('{req_dict.get('agent_id')}') does not match path ('{agent_id}')")
+
+    agent_id = target_agent_id
+    host_id = req_dict.get("host_id") or "host-default"
+    key_id = req_dict.get("key_id") or "key-default"
     credential_ref = req_dict.get("credential_reference") or f"spiffe://signalloom.demo/platform/signalloom/tenant/{tenant_id}/agent/{agent_id}"
     now = _now_iso()
 
@@ -1190,23 +1204,38 @@ async def enroll_external_agent_handler(
 
 
 async def upload_external_agent_evidence_handler(
-    body: ExternalUpload | dict[str, Any],
+    agent_id: str,
+    request: Request,
     response: Response,
-    principal: api_compat.Principal | None = Depends(api_compat.authenticated_principal),
+    authorization: Annotated[str | None, Header()] = None,
+    principal: api_compat.Principal = Depends(api_compat.authenticated_principal),
 ) -> UploadResult:
     """Receive and verify external agent evidence upload with real-time revocation enforcement."""
-    upload_dict = body.model_dump() if isinstance(body, BaseModel) else body
+    tenant_id = principal.tenant if principal else None
+    if not tenant_id:
+        raise api_compat.APIError(401, "unauthenticated", "Authentication required")
+
+    try:
+        upload_dict = await request.json()
+    except Exception:
+        upload_dict = {}
+
     upload_id = upload_dict.get("upload_id") or f"upload-{uuid.uuid4().hex[:16]}"
     session_id = upload_dict.get("session_id", "session-default")
 
-    # Extract agent_id from upload or envelope
-    agent_id = upload_dict.get("agent_id") or "agent-maxxing-linux-01"
+    # Verify agent_id consistency between URL path and payload if payload includes one
+    payload_agent_id = upload_dict.get("agent_id")
     if "assertion_envelope" in upload_dict and "assertions" in upload_dict["assertion_envelope"]:
         assertions = upload_dict["assertion_envelope"]["assertions"]
-        if assertions and isinstance(assertions, list) and "agent_id" in assertions[0]:
-            agent_id = assertions[0]["agent_id"]
+        if assertions and isinstance(assertions, list) and assertions[0].get("agent_id"):
+            payload_agent_id = assertions[0]["agent_id"]
 
-    tenant_id = principal.tenant if principal else "tenant-demo"
+    if payload_agent_id and payload_agent_id != agent_id:
+        raise api_compat.APIError(
+            status_code=400,
+            code="agent_mismatch",
+            message=f"Agent ID in payload ('{payload_agent_id}') does not match path ('{agent_id}')",
+        )
 
     # Real-time Revocation Check
     is_revoked, rev_reason = await is_external_agent_revoked(tenant_id, agent_id)
@@ -1241,28 +1270,22 @@ async def upload_external_agent_evidence_handler(
 
 # Mount routes on routers
 
-# Canonical /api routes matching DB_ROUTES in test_tenant_isolation.py
-for r in (router, compat_router):
+for r in (router, compat_router, v1_router):
     r.add_api_route("/register", register_external_agent_handler, methods=["POST"], status_code=201, response_model=ExternalAgentRegistrationResponse)
     r.add_api_route("/registrations", register_external_agent_handler, methods=["POST"], status_code=201, response_model=ExternalAgentRegistrationResponse)
     r.add_api_route("/registrations", list_external_agents_handler, methods=["GET"], response_model=ExternalAgentRegistrationListResponse)
     r.add_api_route("/registrations/{agent_id}", get_external_agent_handler, methods=["GET"], response_model=ExternalAgentRegistrationResponse)
+    r.add_api_route("/{agent_id}", get_external_agent_handler, methods=["GET"], response_model=ExternalAgentRegistrationResponse)
     r.add_api_route("/registrations/{agent_id}/claim", claim_external_agent_handler, methods=["POST"], response_model=api_compat.AgentClaimResponse)
-    r.add_api_route("/registrations/{agent_id}/revoke", revoke_external_agent_handler, methods=["POST"], response_model=ExternalAgentRegistrationResponse)
     r.add_api_route("/{agent_id}/claim", claim_external_agent_handler, methods=["POST"], response_model=api_compat.AgentClaimResponse)
-
-# Full contract surface mounted on /v1/external-agents (external-agent-server.v1.schema.json)
-v1_router.add_api_route("/{agent_id}/revocations", revoke_external_agent_contract_handler, methods=["POST"], status_code=202, response_model=RevocationResult)
-v1_router.add_api_route("/registrations/{agent_id}/revocations", revoke_external_agent_contract_handler, methods=["POST"], status_code=202, response_model=RevocationResult)
-v1_router.add_api_route("/hosts/{host_id}/revoke", revoke_external_host_handler, methods=["POST"])
-v1_router.add_api_route("/register", register_external_agent_handler, methods=["POST"], status_code=201, response_model=ExternalAgentRegistrationResponse)
-v1_router.add_api_route("/registrations", register_external_agent_handler, methods=["POST"], status_code=201, response_model=ExternalAgentRegistrationResponse)
-v1_router.add_api_route("/registrations", list_external_agents_handler, methods=["GET"], response_model=ExternalAgentRegistrationListResponse)
-v1_router.add_api_route("/registrations/{agent_id}", get_external_agent_handler, methods=["GET"], response_model=ExternalAgentRegistrationResponse)
-v1_router.add_api_route("/{agent_id}", get_external_agent_handler, methods=["GET"], response_model=ExternalAgentRegistrationResponse)
-v1_router.add_api_route("/registrations/{agent_id}/claim", claim_external_agent_handler, methods=["POST"], response_model=api_compat.AgentClaimResponse)
-v1_router.add_api_route("/{agent_id}/claim", claim_external_agent_handler, methods=["POST"], response_model=api_compat.AgentClaimResponse)
-v1_router.add_api_route("/registrations/{agent_id}/revoke", revoke_external_agent_handler, methods=["POST"], response_model=ExternalAgentRegistrationResponse)
-v1_router.add_api_route("/{agent_id}/revoke", revoke_external_agent_handler, methods=["POST"], response_model=ExternalAgentRegistrationResponse)
-v1_router.add_api_route("/{agent_id}/evidence-uploads", upload_external_agent_evidence_handler, methods=["POST"], status_code=202, response_model=UploadResult)
-v1_router.add_api_route("/{agent_id}/uploads", upload_external_agent_evidence_handler, methods=["POST"], status_code=202, response_model=UploadResult)
+    r.add_api_route("/registrations/{agent_id}/revoke", revoke_external_agent_handler, methods=["POST"], response_model=ExternalAgentRegistrationResponse)
+    r.add_api_route("/{agent_id}/revoke", revoke_external_agent_handler, methods=["POST"], response_model=ExternalAgentRegistrationResponse)
+    r.add_api_route("/registrations/{agent_id}/enroll", enroll_external_agent_handler, methods=["POST"], status_code=200, response_model=EnrollmentResult)
+    r.add_api_route("/{agent_id}/enroll", enroll_external_agent_handler, methods=["POST"], status_code=200, response_model=EnrollmentResult)
+    r.add_api_route("/{agent_id}/revocations", revoke_external_agent_contract_handler, methods=["POST"], status_code=202, response_model=RevocationResult)
+    r.add_api_route("/registrations/{agent_id}/revocations", revoke_external_agent_contract_handler, methods=["POST"], status_code=202, response_model=RevocationResult)
+    r.add_api_route("/hosts/{host_id}/revoke", revoke_external_host_handler, methods=["POST"])
+    r.add_api_route("/registrations/{agent_id}/evidence-uploads", upload_external_agent_evidence_handler, methods=["POST"], status_code=202, response_model=UploadResult)
+    r.add_api_route("/registrations/{agent_id}/uploads", upload_external_agent_evidence_handler, methods=["POST"], status_code=202, response_model=UploadResult)
+    r.add_api_route("/{agent_id}/evidence-uploads", upload_external_agent_evidence_handler, methods=["POST"], status_code=202, response_model=UploadResult)
+    r.add_api_route("/{agent_id}/uploads", upload_external_agent_evidence_handler, methods=["POST"], status_code=202, response_model=UploadResult)

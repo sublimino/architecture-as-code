@@ -253,6 +253,50 @@ def test_unauthenticated_request_rejected(client: TestClient) -> None:
     assert client.post("/api/v1/external-agents/register", json={}).status_code == 401
     assert client.get("/api/v1/external-agents/registrations/some-agent").status_code == 401
     assert client.post("/api/v1/external-agents/registrations/some-agent/claim").status_code == 401
+    assert client.post("/api/v1/external-agents/foo/enroll", json={"host_id": "h1", "key_id": "k1"}).status_code == 401
+    assert client.post("/api/v1/external-agents/foo/evidence-uploads", json={}).status_code == 401
+
+
+def test_external_agent_enroll_and_evidence_upload(client: TestClient) -> None:
+    agent_id = "agentmaxxing-enroll-01"
+    # 1. Register agent in Tenant A
+    reg_res = client.post(
+        "/api/v1/external-agents/register",
+        json={"agent_id": agent_id, "host_id": "host-enrolled-01"},
+        headers=_bearer(ALICE_SUB),
+    )
+    assert reg_res.status_code == 201
+
+    # 2. Enroll agent via /{agent_id}/enroll endpoint
+    enroll_res = client.post(
+        f"/api/v1/external-agents/{agent_id}/enroll",
+        json={"host_id": "host-enrolled-01", "key_id": "key-test-01"},
+        headers=_bearer(ALICE_SUB),
+    )
+    assert enroll_res.status_code == 200
+    enroll_data = enroll_res.json()
+    assert enroll_data["enrollment_state"] == "enrolled"
+    assert enroll_data["tenant_id"] == TENANT_A
+    assert f"/tenant/{TENANT_A}/agent/{agent_id}" in enroll_data["credential_reference"]
+    assert "tenant-demo" not in enroll_data["credential_reference"]
+
+    # 3. Upload evidence with path parameter and empty body agent_id
+    up_res = client.post(
+        f"/api/v1/external-agents/{agent_id}/evidence-uploads",
+        json={"upload_id": "upload-000000000001", "session_id": "sess-001"},
+        headers=_bearer(ALICE_SUB),
+    )
+    assert up_res.status_code == 202
+    assert up_res.json()["upload_id"] == "upload-000000000001"
+
+    # 4. Upload evidence with mismatched agent_id in body -> 400 agent_mismatch
+    mismatch_res = client.post(
+        f"/api/v1/external-agents/{agent_id}/evidence-uploads",
+        json={"agent_id": "wrong-agent-id", "upload_id": "upload-000000000002"},
+        headers=_bearer(ALICE_SUB),
+    )
+    assert mismatch_res.status_code == 400
+    assert mismatch_res.json()["error"]["code"] == "agent_mismatch"
 
 
 def test_audit_logging_events(client: TestClient) -> None:

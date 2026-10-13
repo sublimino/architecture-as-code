@@ -97,20 +97,21 @@ verify_nono_binary() {
         fi
         expected_nono="${PINNED_NONO_DIGEST:-${APPROVED_NONO_DIGESTS[$PINNED_NONO_VERSION]:-}}"
     else
-        # If no explicit version pin is set in env, check against approved releases
+        local ver_display="${detected_ver:-${PINNED_NONO_VERSION:-unknown}}"
         if [[ -n "$detected_ver" && -n "${APPROVED_NONO_DIGESTS[$detected_ver]:-}" ]]; then
             log_info "Detected approved nono release: $detected_ver"
             expected_nono="${PINNED_NONO_DIGEST:-${APPROVED_NONO_DIGESTS[$detected_ver]}}"
         else
-            log_crit "Nono version mismatch or unapproved version ($detected_ver). Approved: ${!APPROVED_NONO_DIGESTS[*]}. Got: $nono_ver_output"
+            log_crit "Nono version mismatch or unapproved version ($ver_display). Approved: ${!APPROVED_NONO_DIGESTS[*]}. Got: $nono_ver_output"
             return 1
         fi
     fi
 
     # Check nono binary SHA-256 digest if nono is installed
     if [[ "${CHECK_NONO_DIGEST:-true}" == "true" ]]; then
+        local ver_display="${detected_ver:-${PINNED_NONO_VERSION:-unknown}}"
         if [[ -z "$expected_nono" ]]; then
-            log_crit "No approved SHA-256 digest found for nono version ($detected_ver)."
+            log_crit "No approved SHA-256 digest found for nono version ($ver_display)."
             return 1
         fi
         local actual_nono_digest

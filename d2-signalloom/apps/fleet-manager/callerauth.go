@@ -229,6 +229,10 @@ func (c *callerKeys) requireAny(scopes []callerScope, next http.HandlerFunc) htt
 	scopeAttr := strings.Join(names, "|")
 
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			next(w, r)
+			return
+		}
 		caller, err := c.authenticate(r)
 		if err != nil {
 			slog.Warn("fleet route refused", "path", r.URL.Path, "scope", scopeAttr, "reason", err.Error())

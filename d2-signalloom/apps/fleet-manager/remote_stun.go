@@ -746,6 +746,11 @@ type RemoteStunAckRequest struct {
 // cluster_id is mandatory because defaulting to all clusters would hand one
 // remote cluster another cluster's containment and release instructions.
 func (s *server) handleRemoteStunState(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -790,6 +795,11 @@ func (s *server) handleRemoteStunState(w http.ResponseWriter, r *http.Request) {
 
 // handleRemoteStunAck validates and records one warden acknowledgement.
 func (s *server) handleRemoteStunAck(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		if r.Method == http.MethodHead {
@@ -799,6 +809,12 @@ func (s *server) handleRemoteStunAck(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
+	}
+	if r.Body != nil {
+		defer func() {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 4096))
+			_ = r.Body.Close()
+		}()
 	}
 	if s.remoteStuns == nil {
 		writeError(w, http.StatusServiceUnavailable, "remote stun store is not configured")

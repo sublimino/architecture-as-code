@@ -140,6 +140,11 @@ func (b *AuditRingBuffer) Unsubscribe(ch chan AuditEvent) {
 
 // handleAuditEvents returns paginated audit events matching query parameters.
 func (s *server) handleAuditEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -176,6 +181,11 @@ func (s *server) handleAuditEvents(w http.ResponseWriter, r *http.Request) {
 
 // handleAuditStream handles real-time SSE event streaming for operators.
 func (s *server) handleAuditStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")

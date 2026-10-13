@@ -243,6 +243,11 @@ func consistencyIntervalFromEnv() time.Duration {
 }
 
 func (c *consistencyChecker) handleConsistency(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -576,6 +581,11 @@ func (m *consistencyMetrics) record(rep ConsistencyReport) {
 }
 
 func (m *consistencyMetrics) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")

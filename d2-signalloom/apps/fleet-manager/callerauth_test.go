@@ -395,5 +395,39 @@ func TestCallerAuth_MethodGatesAndHEADBodySuppression(t *testing.T) {
 			}
 		}
 	}
+
+	// 5. Preflight OPTIONS requests (unauthenticated and authenticated) -> 204 No Content
+	optMutatingRoutes := []string{
+		"/api/v1/fleet/recover",
+		"/api/v1/fleet/deploy",
+		"/api/v1/fleet/scan",
+		"/api/v1/fleet/reset",
+		"/api/v1/fleet/resume",
+		"/api/v1/fleet/workloads/report",
+		"/api/v1/fleet/stun-state/ack",
+	}
+	for _, p := range optMutatingRoutes {
+		// Unauthenticated OPTIONS
+		wOptNoAuth := call(t, h, http.MethodOptions, p, "")
+		if wOptNoAuth.Code != http.StatusNoContent {
+			t.Errorf("OPTIONS %s unauthenticated: got %d, want 204", p, wOptNoAuth.Code)
+		}
+		if allow := wOptNoAuth.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("OPTIONS %s unauthenticated: expected Allow: POST, OPTIONS, got %q", p, allow)
+		}
+		if wOptNoAuth.Body.Len() != 0 {
+			t.Errorf("OPTIONS %s unauthenticated: expected 0 body bytes, got %d", p, wOptNoAuth.Body.Len())
+		}
+
+		// Authenticated OPTIONS
+		wOptAuth := call(t, h, http.MethodOptions, p, "", "Bearer "+operatorKey)
+		if wOptAuth.Code != http.StatusNoContent {
+			t.Errorf("OPTIONS %s authenticated: got %d, want 204", p, wOptAuth.Code)
+		}
+		if allow := wOptAuth.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("OPTIONS %s authenticated: expected Allow: POST, OPTIONS, got %q", p, allow)
+		}
+	}
 }
+
 

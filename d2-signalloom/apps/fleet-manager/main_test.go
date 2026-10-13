@@ -391,4 +391,56 @@ func TestRoutes_HEADErrorBodySuppression(t *testing.T) {
 	}
 }
 
+func TestServer_OPTIONSSupport(t *testing.T) {
+	s := newTestServer(t)
+	handler := s.routes()
+
+	tests := []struct {
+		name      string
+		path      string
+		wantAllow string
+	}{
+		{"health", "/health", "GET, HEAD, OPTIONS"},
+		{"healthz", "/healthz", "GET, HEAD, OPTIONS"},
+		{"readyz", "/readyz", "GET, HEAD, OPTIONS"},
+		{"topology", "/api/v1/fleet/topology", "GET, HEAD, OPTIONS"},
+		{"policies", "/api/v1/fleet/policies", "GET, HEAD, OPTIONS"},
+		{"audit_events", "/api/v1/fleet/audit/events", "GET, HEAD, OPTIONS"},
+		{"audit_stream", "/api/v1/fleet/audit/stream", "GET, HEAD, OPTIONS"},
+		{"consistency", "/api/v1/fleet/consistency/agent-1", "GET, HEAD, OPTIONS"},
+		{"metrics", "/metrics", "GET, HEAD, OPTIONS"},
+		{"workloads", "/api/v1/fleet/workloads", "GET, HEAD, OPTIONS"},
+		{"stun_state", "/api/v1/fleet/stun-state", "GET, HEAD, OPTIONS"},
+		{"deploy", "/api/v1/fleet/deploy", "POST, OPTIONS"},
+		{"stun", "/api/v1/fleet/stun/agent-1", "POST, OPTIONS"},
+		{"resume", "/api/v1/fleet/resume", "POST, OPTIONS"},
+		{"resume_path", "/api/v1/fleet/resume/agent-1", "POST, OPTIONS"},
+		{"scan", "/api/v1/fleet/scan", "POST, OPTIONS"},
+		{"recover", "/api/v1/fleet/recover", "POST, OPTIONS"},
+		{"reset", "/api/v1/fleet/reset", "POST, OPTIONS"},
+		{"policy_evaluate", "/api/v1/fleet/policies/evaluate", "POST, OPTIONS"},
+		{"workload_report", "/api/v1/fleet/workloads/report", "POST, OPTIONS"},
+		{"stun_state_ack", "/api/v1/fleet/stun-state/ack", "POST, OPTIONS"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodOptions, tc.path, nil)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+
+			if w.Code != http.StatusNoContent {
+				t.Errorf("OPTIONS %s: got status %d, want 204", tc.path, w.Code)
+			}
+			if allow := w.Header().Get("Allow"); allow != tc.wantAllow {
+				t.Errorf("OPTIONS %s: expected Allow %q, got %q", tc.path, tc.wantAllow, allow)
+			}
+			if w.Body.Len() != 0 {
+				t.Errorf("OPTIONS %s: got %d body bytes, want 0 bytes", tc.path, w.Body.Len())
+			}
+		})
+	}
+}
+
+
 

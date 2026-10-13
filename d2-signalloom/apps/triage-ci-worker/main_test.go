@@ -52,12 +52,26 @@ func TestHealthAndProbeEndpoints(t *testing.T) {
 			if recPost.Code != http.StatusMethodNotAllowed {
 				t.Fatalf("%s %s expected 405 Method Not Allowed, got %d", m, endpoint, recPost.Code)
 			}
-			if recPost.Header().Get("Allow") != "GET, HEAD" {
-				t.Fatalf("%s %s expected Allow: GET, HEAD, got %q", m, endpoint, recPost.Header().Get("Allow"))
+			if recPost.Header().Get("Allow") != "GET, HEAD, OPTIONS" {
+				t.Fatalf("%s %s expected Allow: GET, HEAD, OPTIONS, got %q", m, endpoint, recPost.Header().Get("Allow"))
 			}
 			if recPost.Body.Len() == 0 {
 				t.Fatalf("%s %s expected non-empty error body", m, endpoint)
 			}
+		}
+
+		// OPTIONS -> 204 with Allow: GET, HEAD, OPTIONS and empty body
+		reqOpts := httptest.NewRequest(http.MethodOptions, endpoint, nil)
+		recOpts := httptest.NewRecorder()
+		mux.ServeHTTP(recOpts, reqOpts)
+		if recOpts.Code != http.StatusNoContent {
+			t.Fatalf("OPTIONS %s expected 204, got %d", endpoint, recOpts.Code)
+		}
+		if recOpts.Header().Get("Allow") != "GET, HEAD, OPTIONS" {
+			t.Fatalf("OPTIONS %s expected Allow: GET, HEAD, OPTIONS, got %q", endpoint, recOpts.Header().Get("Allow"))
+		}
+		if recOpts.Body.Len() != 0 {
+			t.Fatalf("OPTIONS %s expected empty body, got %q", endpoint, recOpts.Body.String())
 		}
 	}
 }
@@ -116,26 +130,40 @@ func TestRootMethodNotAllowed(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("%s / expected 405 Method Not Allowed, got %d", m, rec.Code)
 		}
-		if rec.Header().Get("Allow") != "POST" {
-			t.Fatalf("%s / expected Allow: POST, got %q", m, rec.Header().Get("Allow"))
+		if rec.Header().Get("Allow") != "POST, OPTIONS" {
+			t.Fatalf("%s / expected Allow: POST, OPTIONS, got %q", m, rec.Header().Get("Allow"))
 		}
 		if rec.Body.Len() == 0 {
 			t.Fatalf("%s / expected non-empty error body", m)
 		}
 	}
 
-	// HEAD -> 405 with Allow: POST and empty body
+	// HEAD -> 405 with Allow: POST, OPTIONS and empty body
 	reqHead := httptest.NewRequest(http.MethodHead, "/", nil)
 	recHead := httptest.NewRecorder()
 	mux.ServeHTTP(recHead, reqHead)
 	if recHead.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("HEAD / expected 405 Method Not Allowed, got %d", recHead.Code)
 	}
-	if recHead.Header().Get("Allow") != "POST" {
-		t.Fatalf("HEAD / expected Allow: POST, got %q", recHead.Header().Get("Allow"))
+	if recHead.Header().Get("Allow") != "POST, OPTIONS" {
+		t.Fatalf("HEAD / expected Allow: POST, OPTIONS, got %q", recHead.Header().Get("Allow"))
 	}
 	if recHead.Body.Len() != 0 {
 		t.Fatalf("HEAD / expected empty body, got %q", recHead.Body.String())
+	}
+
+	// OPTIONS -> 204 with Allow: POST, OPTIONS and empty body
+	reqOpts := httptest.NewRequest(http.MethodOptions, "/", nil)
+	recOpts := httptest.NewRecorder()
+	mux.ServeHTTP(recOpts, reqOpts)
+	if recOpts.Code != http.StatusNoContent {
+		t.Fatalf("OPTIONS / expected 204, got %d", recOpts.Code)
+	}
+	if recOpts.Header().Get("Allow") != "POST, OPTIONS" {
+		t.Fatalf("OPTIONS / expected Allow: POST, OPTIONS, got %q", recOpts.Header().Get("Allow"))
+	}
+	if recOpts.Body.Len() != 0 {
+		t.Fatalf("OPTIONS / expected empty body, got %q", recOpts.Body.String())
 	}
 }
 

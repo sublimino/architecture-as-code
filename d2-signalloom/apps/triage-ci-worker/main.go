@@ -162,7 +162,7 @@ func newMux() http.Handler {
 			return
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			methodNotAllowed(w, r, "GET, HEAD")
+			methodNotAllowed(w, r, "GET, HEAD, OPTIONS")
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -189,10 +189,13 @@ func handleCheckRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		methodNotAllowed(w, r, "POST")
+		methodNotAllowed(w, r, "POST, OPTIONS")
 		return
 	}
 
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
 
 	// Validate CloudEvent headers.

@@ -42,7 +42,7 @@ func TestServer_Routes(t *testing.T) {
 			t.Errorf("%s HEAD: expected 0 body bytes, got %d", path, headW.Body.Len())
 		}
 
-		// Method rejection on probes (POST, PUT, DELETE, PATCH) -> 405 with Allow: GET, HEAD
+		// Method rejection on probes (POST, PUT, DELETE, PATCH) -> 405 with Allow: GET, HEAD, OPTIONS
 		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 			mReq := httptest.NewRequest(method, path, nil)
 			mW := httptest.NewRecorder()
@@ -50,8 +50,8 @@ func TestServer_Routes(t *testing.T) {
 			if mW.Code != http.StatusMethodNotAllowed {
 				t.Errorf("%s %s: want 405, got %d", method, path, mW.Code)
 			}
-			if allow := mW.Header().Get("Allow"); allow != "GET, HEAD" {
-				t.Errorf("%s %s Allow: want 'GET, HEAD', got %q", method, path, allow)
+			if allow := mW.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+				t.Errorf("%s %s Allow: want 'GET, HEAD, OPTIONS', got %q", method, path, allow)
 			}
 			if mW.Body.Len() == 0 {
 				t.Errorf("%s %s: expected non-empty error body", method, path)
@@ -77,7 +77,7 @@ func TestServer_Routes(t *testing.T) {
 		t.Errorf("status HEAD: expected 0 body bytes, got %d", headStatusW.Body.Len())
 	}
 
-	// Method rejection on status (POST, PUT, DELETE, PATCH) -> 405 with Allow: GET, HEAD
+	// Method rejection on status (POST, PUT, DELETE, PATCH) -> 405 with Allow: GET, HEAD, OPTIONS
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		mReq := httptest.NewRequest(method, "/api/v1/workspace/status", nil)
 		mW := httptest.NewRecorder()
@@ -85,8 +85,8 @@ func TestServer_Routes(t *testing.T) {
 		if mW.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s /api/v1/workspace/status: want 405, got %d", method, mW.Code)
 		}
-		if allow := mW.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Errorf("%s /api/v1/workspace/status Allow: want 'GET, HEAD', got %q", method, allow)
+		if allow := mW.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("%s /api/v1/workspace/status Allow: want 'GET, HEAD, OPTIONS', got %q", method, allow)
 		}
 		if mW.Body.Len() == 0 {
 			t.Errorf("%s /api/v1/workspace/status: expected non-empty error body", method)
@@ -204,14 +204,14 @@ func TestHeadErrorBodySuppression(t *testing.T) {
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Errorf("HEAD %s: want 405, got %d", path, w.Code)
 		}
-		if allow := w.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("HEAD %s Allow: want 'POST', got %q", path, allow)
+		if allow := w.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("HEAD %s Allow: want 'POST, OPTIONS', got %q", path, allow)
 		}
 		if w.Body.Len() != 0 {
 			t.Errorf("HEAD %s: expected 0 body bytes, got %d: %q", path, w.Body.Len(), w.Body.String())
 		}
 
-		// Disallowed methods (GET, PUT, DELETE, PATCH) return 405 with Allow: POST and non-empty body
+		// Disallowed methods (GET, PUT, DELETE, PATCH) return 405 with Allow: POST, OPTIONS and non-empty body
 		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 			mReq := httptest.NewRequest(method, path, nil)
 			mW := httptest.NewRecorder()
@@ -219,8 +219,8 @@ func TestHeadErrorBodySuppression(t *testing.T) {
 			if mW.Code != http.StatusMethodNotAllowed {
 				t.Errorf("%s %s: want 405, got %d", method, path, mW.Code)
 			}
-			if allow := mW.Header().Get("Allow"); allow != "POST" {
-				t.Errorf("%s %s Allow: want 'POST', got %q", method, path, allow)
+			if allow := mW.Header().Get("Allow"); allow != "POST, OPTIONS" {
+				t.Errorf("%s %s Allow: want 'POST, OPTIONS', got %q", method, path, allow)
 			}
 			if mW.Body.Len() == 0 {
 				t.Errorf("%s %s: expected non-empty error body", method, path)
@@ -228,15 +228,15 @@ func TestHeadErrorBodySuppression(t *testing.T) {
 		}
 	}
 
-	// 2. Direct handler invocation with HEAD on handleStun returns 405 with Allow: POST and 0 body bytes
+	// 2. Direct handler invocation with HEAD on handleStun returns 405 with Allow: POST, OPTIONS and 0 body bytes
 	badReq := httptest.NewRequest(http.MethodHead, "/api/v1/workspace/stun", bytes.NewBufferString(`{bad-json`))
 	w := httptest.NewRecorder()
 	srv.handleStun(w, badReq)
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("handleStun HEAD: want 405, got %d", w.Code)
 	}
-	if allow := w.Header().Get("Allow"); allow != "POST" {
-		t.Errorf("handleStun HEAD Allow: want 'POST', got %q", allow)
+	if allow := w.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("handleStun HEAD Allow: want 'POST, OPTIONS', got %q", allow)
 	}
 	if w.Body.Len() != 0 {
 		t.Errorf("handleStun HEAD: expected 0 body bytes, got %d: %q", w.Body.Len(), w.Body.String())
@@ -245,15 +245,15 @@ func TestHeadErrorBodySuppression(t *testing.T) {
 		t.Errorf("handleStun HEAD: want Content-Type application/json, got %q", ct)
 	}
 
-	// 3. Direct handler invocation with HEAD on handlePoll returns 405 with Allow: POST and 0 body bytes
+	// 3. Direct handler invocation with HEAD on handlePoll returns 405 with Allow: POST, OPTIONS and 0 body bytes
 	pollReq := httptest.NewRequest(http.MethodHead, "/api/v1/workspace/poll", nil)
 	pollW := httptest.NewRecorder()
 	srv.handlePoll(pollW, pollReq)
 	if pollW.Code != http.StatusMethodNotAllowed {
 		t.Errorf("handlePoll HEAD: want 405, got %d", pollW.Code)
 	}
-	if allow := pollW.Header().Get("Allow"); allow != "POST" {
-		t.Errorf("handlePoll HEAD Allow: want 'POST', got %q", allow)
+	if allow := pollW.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("handlePoll HEAD Allow: want 'POST, OPTIONS', got %q", allow)
 	}
 	if pollW.Body.Len() != 0 {
 		t.Errorf("handlePoll HEAD: expected 0 body bytes, got %d: %q", pollW.Body.Len(), pollW.Body.String())
@@ -332,23 +332,23 @@ func TestDirectHandlerMethodRejectionAndHead(t *testing.T) {
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Errorf("direct handlePoll %s: want 405, got %d", m, w.Code)
 		}
-		if allow := w.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("direct handlePoll %s Allow: want 'POST', got %q", m, allow)
+		if allow := w.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("direct handlePoll %s Allow: want 'POST, OPTIONS', got %q", m, allow)
 		}
 		if w.Body.Len() == 0 {
 			t.Errorf("direct handlePoll %s: expected non-empty error body", m)
 		}
 	}
 
-	// Direct handlePoll with HEAD returns 405 with 0 body bytes and Allow: POST
+	// Direct handlePoll with HEAD returns 405 with 0 body bytes and Allow: POST, OPTIONS
 	headPollReq := httptest.NewRequest(http.MethodHead, "/api/v1/workspace/poll", nil)
 	headPollW := httptest.NewRecorder()
 	srv.handlePoll(headPollW, headPollReq)
 	if headPollW.Code != http.StatusMethodNotAllowed {
 		t.Errorf("direct handlePoll HEAD: want 405, got %d", headPollW.Code)
 	}
-	if allow := headPollW.Header().Get("Allow"); allow != "POST" {
-		t.Errorf("direct handlePoll HEAD Allow: want 'POST', got %q", allow)
+	if allow := headPollW.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("direct handlePoll HEAD Allow: want 'POST, OPTIONS', got %q", allow)
 	}
 	if headPollW.Body.Len() != 0 {
 		t.Errorf("direct handlePoll HEAD: expected 0 body bytes, got %d", headPollW.Body.Len())
@@ -362,23 +362,23 @@ func TestDirectHandlerMethodRejectionAndHead(t *testing.T) {
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Errorf("direct handleStun %s: want 405, got %d", m, w.Code)
 		}
-		if allow := w.Header().Get("Allow"); allow != "POST" {
-			t.Errorf("direct handleStun %s Allow: want 'POST', got %q", m, allow)
+		if allow := w.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("direct handleStun %s Allow: want 'POST, OPTIONS', got %q", m, allow)
 		}
 		if w.Body.Len() == 0 {
 			t.Errorf("direct handleStun %s: expected non-empty error body", m)
 		}
 	}
 
-	// Direct handleStun with HEAD returns 405 with 0 body bytes and Allow: POST
+	// Direct handleStun with HEAD returns 405 with 0 body bytes and Allow: POST, OPTIONS
 	headStunReq := httptest.NewRequest(http.MethodHead, "/api/v1/workspace/stun", nil)
 	headStunW := httptest.NewRecorder()
 	srv.handleStun(headStunW, headStunReq)
 	if headStunW.Code != http.StatusMethodNotAllowed {
 		t.Errorf("direct handleStun HEAD: want 405, got %d", headStunW.Code)
 	}
-	if allow := headStunW.Header().Get("Allow"); allow != "POST" {
-		t.Errorf("direct handleStun HEAD Allow: want 'POST', got %q", allow)
+	if allow := headStunW.Header().Get("Allow"); allow != "POST, OPTIONS" {
+		t.Errorf("direct handleStun HEAD Allow: want 'POST, OPTIONS', got %q", allow)
 	}
 	if headStunW.Body.Len() != 0 {
 		t.Errorf("direct handleStun HEAD: expected 0 body bytes, got %d", headStunW.Body.Len())
@@ -392,8 +392,8 @@ func TestDirectHandlerMethodRejectionAndHead(t *testing.T) {
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Errorf("direct handleStatus %s: want 405, got %d", m, w.Code)
 		}
-		if allow := w.Header().Get("Allow"); allow != "GET, HEAD" {
-			t.Errorf("direct handleStatus %s Allow: want 'GET, HEAD', got %q", m, allow)
+		if allow := w.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("direct handleStatus %s Allow: want 'GET, HEAD, OPTIONS', got %q", m, allow)
 		}
 		if w.Body.Len() == 0 {
 			t.Errorf("direct handleStatus %s: expected non-empty error body", m)

@@ -36,9 +36,15 @@ func TestStatsCountEachDropPointInHandleRecord(t *testing.T) {
 }
 
 func TestStatsRecordDispatchFailureInsteadOfSwallowingIt(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		w.WriteHeader(http.StatusUnauthorized)
-	}))
+	})))
 	defer srv.Close()
 	m := NewSentinelProbeManager(NewMockSharedIndexInformer(), srv.URL, nil, WithBearerToken(testIngestToken))
 
@@ -54,9 +60,15 @@ func TestStatsRecordDispatchFailureInsteadOfSwallowingIt(t *testing.T) {
 }
 
 func TestStatsRecordDispatchSuccess(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		w.WriteHeader(http.StatusCreated)
-	}))
+	})))
 	defer srv.Close()
 	m := NewSentinelProbeManager(NewMockSharedIndexInformer(), srv.URL, nil, WithBearerToken(testIngestToken))
 
@@ -68,9 +80,15 @@ func TestStatsRecordDispatchSuccess(t *testing.T) {
 }
 
 func TestDispatchWorkerCountsFailuresItUsedToDiscard(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		w.WriteHeader(http.StatusUnauthorized)
-	}))
+	})))
 	defer srv.Close()
 	m := NewSentinelProbeManager(NewMockSharedIndexInformer(), srv.URL, nil, WithBearerToken(testIngestToken))
 

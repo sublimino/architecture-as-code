@@ -141,9 +141,17 @@ func adversarialFixtureJWT(subject string) string {
 func setupA2ATest(t *testing.T) (http.Handler, ed25519.PrivateKey, string) {
 	t.Helper()
 	const planner = "spiffe://signalloom.demo/agent/planner"
-	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Write([]byte(`{"auth":{"client_token":"ephemeral"}}`))
-	}))
+	bao := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = w.Write([]byte(`{"error":"method not allowed"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"auth":{"client_token":"ephemeral"}}`))
+	})))
 	t.Cleanup(bao.Close)
 
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)

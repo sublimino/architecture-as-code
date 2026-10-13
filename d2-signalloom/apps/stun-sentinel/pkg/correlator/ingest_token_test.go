@@ -26,11 +26,17 @@ func countingIngest(t *testing.T) (*httptest.Server, *atomic.Int32, *atomic.Valu
 	t.Helper()
 	var hits atomic.Int32
 	var auth atomic.Value
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		hits.Add(1)
 		auth.Store(r.Header.Get("Authorization"))
 		w.WriteHeader(http.StatusCreated)
-	}))
+	})))
 	t.Cleanup(srv.Close)
 	return srv, &hits, &auth
 }
@@ -103,9 +109,15 @@ func TestMissingTokenDoesNotStopTheFreeze(t *testing.T) {
 }
 
 func TestTokenNeverAppearsInADispatchFailure(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		w.WriteHeader(http.StatusUnauthorized)
-	}))
+	})))
 	defer srv.Close()
 	m := NewSentinelProbeManager(nil, srv.URL, nil, WithBearerToken(testIngestToken))
 

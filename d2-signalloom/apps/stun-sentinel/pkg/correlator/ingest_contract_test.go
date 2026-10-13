@@ -45,10 +45,16 @@ func sampleObservation() TelemetryObservation {
 
 func TestDispatchPostsAnArrayInSignalIngestsObservationShape(t *testing.T) {
 	var body []byte
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		body, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusCreated)
-	}))
+	})))
 	defer srv.Close()
 	m := NewSentinelProbeManager(NewMockSharedIndexInformer(), srv.URL, nil, WithBearerToken(testIngestToken))
 

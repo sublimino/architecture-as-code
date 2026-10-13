@@ -32,7 +32,7 @@ type fakeStunState struct {
 func newFakeStunState(t *testing.T) *fakeStunState {
 	t.Helper()
 	f := &fakeStunState{ackCode: http.StatusOK}
-	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	f.srv = httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+testStunKey {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -40,7 +40,14 @@ func newFakeStunState(t *testing.T) *fakeStunState {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/fleet/stun-state":
+		case r.URL.Path == "/api/v1/fleet/stun-state":
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "GET, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				_, _ = w.Write([]byte(`{"error":"method not allowed"}`))
+				return
+			}
 			f.gets++
 			if r.URL.Query().Get("cluster_id") != "kusari-prod" {
 				w.WriteHeader(http.StatusBadRequest)
@@ -48,7 +55,14 @@ func newFakeStunState(t *testing.T) *fakeStunState {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(f.records)
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/fleet/stun-state/ack":
+		case r.URL.Path == "/api/v1/fleet/stun-state/ack":
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", "POST")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				_, _ = w.Write([]byte(`{"error":"method not allowed"}`))
+				return
+			}
 			b, _ := io.ReadAll(r.Body)
 			var ack fleetAck
 			_ = json.Unmarshal(b, &ack)
@@ -57,7 +71,7 @@ func newFakeStunState(t *testing.T) *fakeStunState {
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
-	}))
+	})))
 	t.Cleanup(f.srv.Close)
 	return f
 }
@@ -364,5 +378,78 @@ func TestFleetPollRunsAtStartAndEveryInterval(t *testing.T) {
 	<-done
 	if h.fleet.gets < 3 {
 		t.Fatalf("gets = %d", h.fleet.gets)
+	}
+}
+
+func TestFleetStunStateHEADAndMethodGates(t *testing.T) {
+	st := newFakeStunState(t)
+	st.set(fleetStunRecord{ID: "test-stun-01", ClusterID: "kusari-prod", Namespace: "default", Name: "test-pod"})
+
+	// 1. Valid HEAD request to /api/v1/fleet/stun-state returns 200, Content-Type, 0 body bytes
+	headReq, err := http.NewRequest(http.MethodHead, st.srv.URL+"/api/v1/fleet/stun-state?cluster_id=kusari-prod", nil)
+	if err != nil {
+		t.Fatalf("failed creating HEAD request: %v", err)
+	}
+	headReq.Header.Set("Authorization", "Bearer "+testStunKey)
+	headResp, err := http.DefaultClient.Do(headReq)
+	if err != nil {
+		t.Fatalf("HEAD request failed: %v", err)
+	}
+	headBody, err := io.ReadAll(headResp.Body)
+	_ = headResp.Body.Close()
+	if err != nil {
+		t.Fatalf("failed reading HEAD body: %v", err)
+	}
+	if headResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK on HEAD, got %d", headResp.StatusCode)
+	}
+	if len(headBody) != 0 {
+		t.Fatalf("RFC 9110 violation: expected 0 body bytes on HEAD, got %d bytes: %q", len(headBody), string(headBody))
+	}
+	if ct := headResp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("expected Content-Type application/json, got %q", ct)
+	}
+
+	// 2. Unsupported POST on stun-state route returns 405 Method Not Allowed with Allow: GET, HEAD
+	postReq, err := http.NewRequest(http.MethodPost, st.srv.URL+"/api/v1/fleet/stun-state", nil)
+	if err != nil {
+		t.Fatalf("failed creating POST request: %v", err)
+	}
+	postReq.Header.Set("Authorization", "Bearer "+testStunKey)
+	postResp, err := http.DefaultClient.Do(postReq)
+	if err != nil {
+		t.Fatalf("POST request failed: %v", err)
+	}
+	_ = postResp.Body.Close()
+	if postResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 Method Not Allowed on POST, got %d", postResp.StatusCode)
+	}
+	if allow := postResp.Header.Get("Allow"); allow != "GET, HEAD" {
+		t.Fatalf("expected Allow: GET, HEAD, got %q", allow)
+	}
+
+	// 3. HEAD on ack endpoint (POST-only) returns 405 with Allow: POST and 0 body bytes
+	headAckReq, err := http.NewRequest(http.MethodHead, st.srv.URL+"/api/v1/fleet/stun-state/ack", nil)
+	if err != nil {
+		t.Fatalf("failed creating HEAD ack request: %v", err)
+	}
+	headAckReq.Header.Set("Authorization", "Bearer "+testStunKey)
+	headAckResp, err := http.DefaultClient.Do(headAckReq)
+	if err != nil {
+		t.Fatalf("HEAD ack request failed: %v", err)
+	}
+	ackBody, err := io.ReadAll(headAckResp.Body)
+	_ = headAckResp.Body.Close()
+	if err != nil {
+		t.Fatalf("failed reading HEAD ack body: %v", err)
+	}
+	if headAckResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 Method Not Allowed on HEAD ack, got %d", headAckResp.StatusCode)
+	}
+	if allow := headAckResp.Header.Get("Allow"); allow != "POST" {
+		t.Fatalf("expected Allow: POST, got %q", allow)
+	}
+	if len(ackBody) != 0 {
+		t.Fatalf("RFC 9110 violation: expected 0 body bytes on HEAD ack 405, got %d: %q", len(ackBody), string(ackBody))
 	}
 }

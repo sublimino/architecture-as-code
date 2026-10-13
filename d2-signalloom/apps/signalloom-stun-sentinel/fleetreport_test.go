@@ -35,7 +35,14 @@ type fakeRegistry struct {
 func newFakeRegistry(t *testing.T, statuses ...int) *fakeRegistry {
 	t.Helper()
 	f := &fakeRegistry{statuses: statuses}
-	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	f.srv = httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = w.Write([]byte(`{"error":"method not allowed"}`))
+			return
+		}
 		b, _ := io.ReadAll(r.Body)
 		var rep workloadReport
 		_ = json.Unmarshal(b, &rep)
@@ -51,7 +58,7 @@ func newFakeRegistry(t *testing.T, statuses ...int) *fakeRegistry {
 		}
 		f.mu.Unlock()
 		w.WriteHeader(status)
-	}))
+	})))
 	t.Cleanup(f.srv.Close)
 	return f
 }
@@ -245,5 +252,57 @@ func TestKernelFrozenForReadsCgroupEvents(t *testing.T) {
 	}
 	if kernelFrozenFor(f, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{UID: "ffffffff-0000-1111-2222-333344445555"}}) {
 		t.Fatal("a pod without a cgroup is not frozen")
+	}
+}
+
+func TestFakeRegistryHEADAndMethodGates(t *testing.T) {
+	reg := newFakeRegistry(t, http.StatusOK)
+
+	// 1. HEAD request on POST-only registry endpoint returns 405 Method Not Allowed with Allow: POST and 0 body bytes
+	headReq, err := http.NewRequest(http.MethodHead, reg.srv.URL+"/api/v1/fleet/workloads", nil)
+	if err != nil {
+		t.Fatalf("failed creating HEAD request: %v", err)
+	}
+	headResp, err := http.DefaultClient.Do(headReq)
+	if err != nil {
+		t.Fatalf("HEAD request failed: %v", err)
+	}
+	headBody, err := io.ReadAll(headResp.Body)
+	_ = headResp.Body.Close()
+	if err != nil {
+		t.Fatalf("failed reading HEAD body: %v", err)
+	}
+	if headResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 Method Not Allowed on HEAD, got %d", headResp.StatusCode)
+	}
+	if allow := headResp.Header.Get("Allow"); allow != "POST" {
+		t.Fatalf("expected Allow: POST, got %q", allow)
+	}
+	if len(headBody) != 0 {
+		t.Fatalf("RFC 9110 violation: expected 0 body bytes on HEAD 405, got %d: %q", len(headBody), string(headBody))
+	}
+
+	// 2. GET request returns 405 with Allow: POST and non-empty error body
+	getReq, err := http.NewRequest(http.MethodGet, reg.srv.URL+"/api/v1/fleet/workloads", nil)
+	if err != nil {
+		t.Fatalf("failed creating GET request: %v", err)
+	}
+	getResp, err := http.DefaultClient.Do(getReq)
+	if err != nil {
+		t.Fatalf("GET request failed: %v", err)
+	}
+	getBody, err := io.ReadAll(getResp.Body)
+	_ = getResp.Body.Close()
+	if err != nil {
+		t.Fatalf("failed reading GET body: %v", err)
+	}
+	if getResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 on GET, got %d", getResp.StatusCode)
+	}
+	if allow := getResp.Header.Get("Allow"); allow != "POST" {
+		t.Fatalf("expected Allow: POST, got %q", allow)
+	}
+	if len(getBody) == 0 {
+		t.Fatal("expected non-empty body on GET 405")
 	}
 }

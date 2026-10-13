@@ -18,12 +18,18 @@ import (
 func TestObservationsSpoolUntilTheTokenSourceProducesAKey(t *testing.T) {
 	var auths []string
 	var mu sync.Mutex
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		mu.Lock()
 		auths = append(auths, r.Header.Get("Authorization"))
 		mu.Unlock()
 		w.WriteHeader(http.StatusCreated)
-	}))
+	})))
 	defer srv.Close()
 
 	var key atomic.Value

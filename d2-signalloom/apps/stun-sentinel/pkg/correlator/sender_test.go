@@ -63,7 +63,13 @@ func TestBatchChainHeaders(t *testing.T) {
 	var reqs []receivedRequest
 	var mu sync.Mutex
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		bodyBytes, _ := io.ReadAll(r.Body)
 		mu.Lock()
 		reqs = append(reqs, receivedRequest{
@@ -74,7 +80,7 @@ func TestBatchChainHeaders(t *testing.T) {
 		})
 		mu.Unlock()
 		w.WriteHeader(http.StatusCreated)
-	}))
+	})))
 	defer srv.Close()
 
 	spoolDir := t.TempDir()
@@ -180,7 +186,13 @@ func TestSpoolRetainsBatchesAcrossIngestOutage(t *testing.T) {
 	var received []receivedRequest
 	var mu sync.Mutex
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		requestCount.Add(1)
 		if failOutage.Load() {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -196,7 +208,7 @@ func TestSpoolRetainsBatchesAcrossIngestOutage(t *testing.T) {
 		})
 		mu.Unlock()
 		w.WriteHeader(http.StatusCreated)
-	}))
+	})))
 	defer srv.Close()
 
 	spoolDir := t.TempDir()
@@ -287,7 +299,13 @@ func TestSpoolReplayAfterRestartKeepsOriginalChain(t *testing.T) {
 	var received []receivedRequest
 	var mu sync.Mutex
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		bodyBytes, _ := io.ReadAll(r.Body)
 		mu.Lock()
 		received = append(received, receivedRequest{
@@ -298,7 +316,7 @@ func TestSpoolReplayAfterRestartKeepsOriginalChain(t *testing.T) {
 		})
 		mu.Unlock()
 		w.WriteHeader(http.StatusCreated)
-	}))
+	})))
 	defer srv.Close()
 
 	m2 := NewSentinelProbeManager(NewMockSharedIndexInformer(), srv.URL, nil,
@@ -359,7 +377,13 @@ func TestSpoolCrashAfter2xxBeforeDeleteResendsIdenticalBytes(t *testing.T) {
 	var attempts []receivedRequest
 	var mu sync.Mutex
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		bodyBytes, _ := io.ReadAll(r.Body)
 		mu.Lock()
 		attempts = append(attempts, receivedRequest{
@@ -371,7 +395,7 @@ func TestSpoolCrashAfter2xxBeforeDeleteResendsIdenticalBytes(t *testing.T) {
 		mu.Unlock()
 		// Returns 201 Created
 		w.WriteHeader(http.StatusCreated)
-	}))
+	})))
 	defer srv.Close()
 
 	stats := &pipelineStats{}
@@ -435,10 +459,16 @@ func TestSpoolDoesNotRetry401Or403(t *testing.T) {
 	for _, statusCode := range []int{http.StatusUnauthorized, http.StatusForbidden} {
 		t.Run(fmt.Sprintf("Status_%d", statusCode), func(t *testing.T) {
 			var requestCount atomic.Int64
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					w.Header().Set("Allow", "POST")
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
 				requestCount.Add(1)
 				w.WriteHeader(statusCode)
-			}))
+			})))
 			defer srv.Close()
 
 			spoolDir := t.TempDir()
@@ -485,14 +515,20 @@ func TestSpoolDoesNotRetryPoison400Or413(t *testing.T) {
 	for _, statusCode := range []int{http.StatusBadRequest, http.StatusRequestEntityTooLarge} {
 		t.Run(fmt.Sprintf("Status_%d", statusCode), func(t *testing.T) {
 			var requestCount atomic.Int64
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					w.Header().Set("Allow", "POST")
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
 				cnt := requestCount.Add(1)
 				if cnt == 1 {
 					w.WriteHeader(statusCode) // poison record
 					return
 				}
 				w.WriteHeader(http.StatusCreated) // subsequent healthy records
-			}))
+			})))
 			defer srv.Close()
 
 			spoolDir := t.TempDir()
@@ -568,7 +604,13 @@ func TestSpoolHonoursRetryAfter(t *testing.T) {
 			headerVal := tc.headerValFn(clk)
 			var reqCount atomic.Int64
 
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					w.Header().Set("Allow", "POST")
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
 				cnt := reqCount.Add(1)
 				if cnt == 1 {
 					w.Header().Set("Retry-After", headerVal)
@@ -576,7 +618,7 @@ func TestSpoolHonoursRetryAfter(t *testing.T) {
 					return
 				}
 				w.WriteHeader(http.StatusCreated)
-			}))
+			})))
 			defer srv.Close()
 
 			spoolDir := t.TempDir()
@@ -627,13 +669,19 @@ func TestSenderBatchesByMaxAndLinger(t *testing.T) {
 	var reqBodies [][]byte
 	var mu sync.Mutex
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		b, _ := io.ReadAll(r.Body)
 		mu.Lock()
 		reqBodies = append(reqBodies, b)
 		mu.Unlock()
 		w.WriteHeader(http.StatusCreated)
-	}))
+	})))
 	defer srv.Close()
 
 	clk := newMockClock(time.Now())
@@ -729,12 +777,18 @@ func TestSenderAppendsBehindNonEmptySpool(t *testing.T) {
 	var reqOrder []string
 	var mu sync.Mutex
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		mu.Lock()
 		reqOrder = append(reqOrder, r.Header.Get("X-SignalLoom-Batch-Epoch"))
 		mu.Unlock()
 		w.WriteHeader(http.StatusCreated)
-	}))
+	})))
 	defer srv.Close()
 
 	m := NewSentinelProbeManager(NewMockSharedIndexInformer(), srv.URL, nil,
@@ -784,10 +838,16 @@ func TestSenderAppendsBehindNonEmptySpool(t *testing.T) {
 func TestFreezeNotBlockedBySpool(t *testing.T) {
 	// Ingest blocks indefinitely until released
 	blockCh := make(chan struct{})
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
 		<-blockCh
 		w.WriteHeader(http.StatusOK)
-	}))
+	})))
 	defer srv.Close()
 	defer close(blockCh)
 

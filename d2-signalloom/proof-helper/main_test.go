@@ -40,15 +40,23 @@ func TestExchangeJWTStoresOpenBaoToken(t *testing.T) {
 		Role string `json:"role"`
 		JWT  string `json:"jwt"`
 	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/auth/jwt/login" {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = w.Write([]byte(`{"error":"method not allowed"}`))
+			return
+		}
+		if r.URL.Path != "/v1/auth/jwt/login" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatal(err)
 		}
+		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"auth":{"client_token":"bao-token"}}`))
-	}))
+	})))
 	defer server.Close()
 
 	dir := t.TempDir()
@@ -73,9 +81,16 @@ func TestExchangeJWTStoresOpenBaoToken(t *testing.T) {
 }
 
 func TestExchangeJWTRejectsUnsuccessfulLogin(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = w.Write([]byte(`{"error":"method not allowed"}`))
+			return
+		}
 		http.Error(w, "signature validation failed", http.StatusBadRequest)
-	}))
+	})))
 	defer server.Close()
 
 	jwtPath := filepath.Join(t.TempDir(), "jwt")
@@ -95,12 +110,20 @@ func TestOpenBaoClientHasBoundedTimeout(t *testing.T) {
 
 func TestA2AReceiverRequiresOpenBaoValidatedExactSPIFFEIdentity(t *testing.T) {
 	const planner = "spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/planner"
-	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	bao := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = w.Write([]byte(`{"error":"method not allowed"}`))
+			return
+		}
 		if r.URL.Path != "/v1/auth/jwt/login" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
+		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"auth":{"client_token":"ephemeral"}}`))
-	}))
+	})))
 	defer bao.Close()
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -303,9 +326,17 @@ func TestProbeSVIDWritesOnlyTokenFreeSubjectEvidence(t *testing.T) {
 
 func TestProbeOpenBaoWritesMetadataWithoutClientToken(t *testing.T) {
 	const subject = "spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/planner"
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = w.Write([]byte(`{"error":"method not allowed"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"auth":{"client_token":"must-not-leak","renewable":false,"lease_duration":300,"token_type":"batch"}}`))
-	}))
+	})))
 	defer server.Close()
 	evidencePath := filepath.Join(t.TempDir(), "termination-log")
 	originalPath, originalClient := probeEvidencePath, openBaoClient
@@ -455,6 +486,100 @@ func TestProofHelperHeadUnmatchedRoutes(t *testing.T) {
 		if rec.Body.Len() != 0 {
 			t.Errorf("HEAD %s body length = %d, want 0", path, rec.Body.Len())
 		}
+	}
+}
+
+func TestOpenBaoMockMethodGatesAndHEADBodySuppression(t *testing.T) {
+	baoHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = w.Write([]byte(`{"error":"method not allowed"}`))
+			return
+		}
+		if r.URL.Path != "/v1/auth/jwt/login" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":"not found"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"auth":{"client_token":"valid-token"}}`))
+	})
+
+	srv := httptest.NewServer(headBodySuppressingMiddleware(baoHandler))
+	defer srv.Close()
+
+	// 1. HEAD request on POST route returns 405 Method Not Allowed with Allow: POST and 0 body bytes
+	headReq, err := http.NewRequest(http.MethodHead, srv.URL+"/v1/auth/jwt/login", nil)
+	if err != nil {
+		t.Fatalf("failed creating HEAD request: %v", err)
+	}
+	headResp, err := http.DefaultClient.Do(headReq)
+	if err != nil {
+		t.Fatalf("HEAD request failed: %v", err)
+	}
+	headBody, err := io.ReadAll(headResp.Body)
+	_ = headResp.Body.Close()
+	if err != nil {
+		t.Fatalf("failed reading HEAD body: %v", err)
+	}
+	if headResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 on HEAD, got %d", headResp.StatusCode)
+	}
+	if allow := headResp.Header.Get("Allow"); allow != "POST" {
+		t.Fatalf("expected Allow: POST, got %q", allow)
+	}
+	if len(headBody) != 0 {
+		t.Fatalf("RFC 9110 violation: expected 0 body bytes on HEAD 405, got %d: %q", len(headBody), string(headBody))
+	}
+
+	// 2. GET request on POST route returns 405 with Allow: POST and non-empty error body
+	getReq, err := http.NewRequest(http.MethodGet, srv.URL+"/v1/auth/jwt/login", nil)
+	if err != nil {
+		t.Fatalf("failed creating GET request: %v", err)
+	}
+	getResp, err := http.DefaultClient.Do(getReq)
+	if err != nil {
+		t.Fatalf("GET request failed: %v", err)
+	}
+	getBody, err := io.ReadAll(getResp.Body)
+	_ = getResp.Body.Close()
+	if err != nil {
+		t.Fatalf("failed reading GET body: %v", err)
+	}
+	if getResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 on GET, got %d", getResp.StatusCode)
+	}
+	if allow := getResp.Header.Get("Allow"); allow != "POST" {
+		t.Fatalf("expected Allow: POST on GET 405, got %q", allow)
+	}
+	if len(getBody) == 0 {
+		t.Fatal("expected non-empty error body on GET 405")
+	}
+
+	// 3. HEAD on simulated 500 error route returns 0 body bytes
+	errSrv := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"internal openbao panic"}`))
+	})))
+	defer errSrv.Close()
+
+	errHeadReq, _ := http.NewRequest(http.MethodHead, errSrv.URL+"/v1/auth/jwt/login", nil)
+	errHeadResp, err := http.DefaultClient.Do(errHeadReq)
+	if err != nil {
+		t.Fatalf("HEAD err request failed: %v", err)
+	}
+	errBody, _ := io.ReadAll(errHeadResp.Body)
+	_ = errHeadResp.Body.Close()
+	if errHeadResp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on HEAD, got %d", errHeadResp.StatusCode)
+	}
+	if len(errBody) != 0 {
+		t.Fatalf("RFC 9110 violation: expected 0 body bytes on HEAD 500, got %d: %q", len(errBody), string(errBody))
 	}
 }
 

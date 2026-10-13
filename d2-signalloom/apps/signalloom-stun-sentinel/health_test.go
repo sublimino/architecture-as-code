@@ -116,6 +116,53 @@ func TestHealthHandlerHEADRequests(t *testing.T) {
 	}
 }
 
+func TestHealthHandlerHEADErrorBodySuppression(t *testing.T) {
+	srv := &HealthServer{
+		addr:         ":8081",
+		dryRun:       false,
+		cgroupDriver: "systemd",
+		tcReady:      func() bool { return true },
+		isReady:      func() bool { return false }, // readyz returns 503 cutover_waiting
+	}
+	handler := srv.Handler()
+
+	// 1. Readyz 503 on HEAD returns empty body and application/json Content-Type
+	req := httptest.NewRequest(http.MethodHead, "/readyz", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("HEAD /readyz status = %d, want 503", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("HEAD /readyz wrote body: %s", rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("HEAD /readyz Content-Type = %q, want application/json", ct)
+	}
+
+	// 2. Captures 404 on HEAD when captures is nil
+	req = httptest.NewRequest(http.MethodHead, "/captures", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("HEAD /captures status = %d, want 404", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("HEAD /captures wrote body: %s", rec.Body.String())
+	}
+
+	// 3. Unknown route 404 on HEAD
+	req = httptest.NewRequest(http.MethodHead, "/nonexistent", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("HEAD /nonexistent status = %d, want 404", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("HEAD /nonexistent wrote body: %s", rec.Body.String())
+	}
+}
+
 func TestDetectCgroupDriver(t *testing.T) {
 	// 1. Env var override
 	t.Setenv("CGROUP_DRIVER", "custom-driver")

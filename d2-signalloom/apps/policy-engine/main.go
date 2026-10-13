@@ -146,6 +146,9 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "GET, HEAD")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		if r.Method == http.MethodHead {
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
@@ -161,6 +164,9 @@ func handleReadyz(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "GET, HEAD")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		if r.Method == http.MethodHead {
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
@@ -176,6 +182,9 @@ func handleEvaluate(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "POST")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		if r.Method == http.MethodHead {
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
@@ -184,6 +193,9 @@ func handleEvaluate(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
+		if r.Method == http.MethodHead {
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body: " + err.Error()})
 		return
 	}
@@ -191,6 +203,9 @@ func handleEvaluate(w http.ResponseWriter, r *http.Request) {
 	if req.PodSpec == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
+		if r.Method == http.MethodHead {
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]string{"error": "pod_spec is required"})
 		return
 	}
@@ -318,7 +333,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           mux,
+		Handler:           headBodySuppressingMiddleware(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

@@ -56,8 +56,24 @@ export class WebDashboardServer {
 
             const corsHeaders = {
               'Access-Control-Allow-Origin': '*',
-              'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+              'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, HEAD',
               'Access-Control-Allow-Headers': 'Content-Type'
+            };
+
+            const jsonResponse = (data: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response => {
+              const headers = {
+                ...corsHeaders,
+                'Content-Type': 'application/json',
+                ...extraHeaders
+              };
+              if (req.method === 'HEAD') {
+                return new Response(null, { status, headers });
+              }
+              return new Response(JSON.stringify(data), { status, headers });
+            };
+
+            const methodNotAllowed = (allow: string): Response => {
+              return jsonResponse({ error: 'Method Not Allowed', allow }, 405, { Allow: allow });
             };
 
             if (req.method === 'OPTIONS') {
@@ -66,6 +82,18 @@ export class WebDashboardServer {
 
             // SSE Endpoint
             if (url.pathname === '/api/stream') {
+              if (req.method !== 'GET' && req.method !== 'HEAD') {
+                return methodNotAllowed('GET, HEAD');
+              }
+              const headers = {
+                ...corsHeaders,
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                Connection: 'keep-alive'
+              };
+              if (req.method === 'HEAD') {
+                return new Response(null, { headers });
+              }
               const stream = new ReadableStream({
                 start: (controller) => {
                   this.sseClients.add(controller);
@@ -81,28 +109,30 @@ export class WebDashboardServer {
                 }
               });
 
-              return new Response(stream, {
-                headers: {
-                  ...corsHeaders,
-                  'Content-Type': 'text/event-stream',
-                  'Cache-Control': 'no-cache',
-                  Connection: 'keep-alive'
-                }
-              });
+              return new Response(stream, { headers });
             }
 
             // REST API: Metrics
             if (url.pathname === '/api/metrics') {
-              return Response.json(this.store.getMetrics(), { headers: corsHeaders });
+              if (req.method !== 'GET' && req.method !== 'HEAD') {
+                return methodNotAllowed('GET, HEAD');
+              }
+              return jsonResponse(this.store.getMetrics());
             }
 
             // REST API: App Token Tracker Metrics
             if (url.pathname === '/api/app-metrics') {
-              return Response.json(this.summarizer.tokenTracker.getMetrics(), { headers: corsHeaders });
+              if (req.method !== 'GET' && req.method !== 'HEAD') {
+                return methodNotAllowed('GET, HEAD');
+              }
+              return jsonResponse(this.summarizer.tokenTracker.getMetrics());
             }
 
             // REST API: List Sessions (ultra-fast lightweight summaries with top 100 limit and server-side search)
             if (url.pathname === '/api/sessions') {
+              if (req.method !== 'GET' && req.method !== 'HEAD') {
+                return methodNotAllowed('GET, HEAD');
+              }
               const text = url.searchParams.get('q') || undefined;
               const harness = (url.searchParams.get('harness') as HarnessType) || undefined;
               const deviceId = url.searchParams.get('device') || undefined;
@@ -113,27 +143,33 @@ export class WebDashboardServer {
               const query: SearchQuery = { text, harness, deviceId, status, limit, offset };
               const summaries = this.store.listSummaries(query);
               const totalCount = this.store.listSessions({ text, harness, deviceId, status }).length;
-              return Response.json({ sessions: summaries, totalCount, limit, offset }, { headers: corsHeaders });
+              return jsonResponse({ sessions: summaries, totalCount, limit, offset });
             }
 
             // REST API: Lazy Transcript Loader with Human-Readable Kanban Parsing
-            if (url.pathname.startsWith('/api/sessions/') && url.pathname.endsWith('/transcript') && req.method === 'GET') {
+            if (url.pathname.startsWith('/api/sessions/') && url.pathname.endsWith('/transcript')) {
+              if (req.method !== 'GET' && req.method !== 'HEAD') {
+                return methodNotAllowed('GET, HEAD');
+              }
               const id = decodeURIComponent(url.pathname.replace('/api/sessions/', '').replace('/transcript', ''));
               const tail = url.searchParams.has('tail') ? parseInt(url.searchParams.get('tail')!, 10) : 200;
               try {
                 const transcriptData = await this.store.getSessionTranscript(id, tail);
-                return Response.json(transcriptData, { headers: corsHeaders });
+                return jsonResponse(transcriptData);
               } catch (err: any) {
-                return Response.json({ error: err.message }, { status: 404, headers: corsHeaders });
+                return jsonResponse({ error: err.message }, 404);
               }
             }
 
             // REST API: Re-run Prompt / Summarize Session with specified model tier
-            if (url.pathname.startsWith('/api/sessions/') && url.pathname.endsWith('/summarize') && req.method === 'POST') {
+            if (url.pathname.startsWith('/api/sessions/') && url.pathname.endsWith('/summarize')) {
+              if (req.method !== 'POST') {
+                return methodNotAllowed('POST');
+              }
               const id = decodeURIComponent(url.pathname.replace('/api/sessions/', '').replace('/summarize', ''));
               const session = this.store.getSession(id);
               if (!session) {
-                return Response.json({ error: 'Session not found' }, { status: 404, headers: corsHeaders });
+                return jsonResponse({ error: 'Session not found' }, 404);
               }
 
               const body = await req.json().catch(() => ({}));
@@ -144,26 +180,40 @@ export class WebDashboardServer {
               session.summaryInfo = summaryInfo;
               await this.store.saveSession(session);
 
-              return Response.json({ success: true, session, summaryInfo }, { headers: corsHeaders });
+              return jsonResponse({ success: true, session, summaryInfo });
             }
 
             // REST API: Single Session Detail
             if (url.pathname.startsWith('/api/sessions/')) {
+              if (req.method !== 'GET' && req.method !== 'HEAD') {
+                return methodNotAllowed('GET, HEAD');
+              }
               const id = decodeURIComponent(url.pathname.replace('/api/sessions/', ''));
               const session = this.store.getSession(id);
               if (!session) {
-                return Response.json({ error: 'Session not found' }, { status: 404, headers: corsHeaders });
+                return jsonResponse({ error: 'Session not found' }, 404);
               }
-              return Response.json(session, { headers: corsHeaders });
+              return jsonResponse(session);
             }
 
             // REST API: Export to Obsidian
-            if (url.pathname === '/api/export/obsidian' && req.method === 'POST') {
+            if (url.pathname === '/api/export/obsidian') {
+              if (req.method !== 'POST') {
+                return methodNotAllowed('POST');
+              }
               const exported = await this.store.exportToObsidian();
-              return Response.json({ success: true, count: exported.length, files: exported }, { headers: corsHeaders });
+              return jsonResponse({ success: true, count: exported.length, files: exported });
             }
 
             // Default: Render HTML UI
+            if (req.method !== 'GET' && req.method !== 'HEAD') {
+              return methodNotAllowed('GET, HEAD');
+            }
+            if (req.method === 'HEAD') {
+              return new Response(null, {
+                headers: { 'Content-Type': 'text/html; charset=utf-8' }
+              });
+            }
             return new Response(this.renderHtml(), {
               headers: { 'Content-Type': 'text/html; charset=utf-8' }
             });

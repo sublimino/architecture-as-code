@@ -416,6 +416,66 @@ func TestHandler_HEADSupportAndEmptyBody(t *testing.T) {
 	}
 }
 
+func TestHandler_HEADErrorStatuses(t *testing.T) {
+	twoNS := scrape("1", t0ms, scrapeOpt{ns: "tenant-a", pod: "kusari-agent-0"}) + scrape("1", t0ms, scrapeOpt{ns: "tenant-b", pod: "kusari-agent-0"})
+	cases := []struct {
+		name, path string
+		body       string
+		stale      bool
+		wantStatus int
+	}{
+		{"never scraped pod", "/api/telemetry/agents/" + testPod, "", false, 503},
+		{"never scraped list", "/api/telemetry/agents", "", false, 503},
+		{"never scraped stream", "/api/telemetry/agents/" + testPod + "?stream=true", "", false, 503},
+		{"stale", "/api/telemetry/agents/" + testPod, scrape("1", t0ms), true, 503},
+		{"unknown pod", "/api/telemetry/agents/no-such-pod", scrape("1", t0ms), false, 404},
+		{"ambiguous pod", "/api/telemetry/agents/kusari-agent-0", twoNS, false, 409},
+		{"namespace filters to nothing", "/api/telemetry/agents/" + testPod + "?namespace=other", scrape("1", t0ms), false, 404},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, clk := newTestCollector()
+			if tc.body != "" {
+				collect(t, c, tc.body)
+			}
+			if tc.stale {
+				clk.t = clk.t.Add(time.Hour)
+			}
+			rr := httptest.NewRecorder()
+			newTestServerMux(c).ServeHTTP(rr, httptest.NewRequest(http.MethodHead, tc.path, nil))
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("status %d, want %d: %s", rr.Code, tc.wantStatus, rr.Body.String())
+			}
+			if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
+				t.Fatalf("Content-Type %q, want application/json", ct)
+			}
+			if rr.Body.Len() != 0 {
+				t.Fatalf("HEAD returned non-empty body: %q", rr.Body.String())
+			}
+		})
+	}
+
+	t.Run("HEAD stream returns 200 with text/event-stream and empty body", func(t *testing.T) {
+		c, _ := newTestCollector()
+		collect(t, c, scrape("12.345", t0ms))
+		collect(t, c, scrape("12.545", t0ms+2000))
+		rr := httptest.NewRecorder()
+		newTestServerMux(c).ServeHTTP(rr, httptest.NewRequest(http.MethodHead, "/api/telemetry/agents/"+testPod+"?stream=true", nil))
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status %d, want 200: %s", rr.Code, rr.Body.String())
+		}
+		if ct := rr.Header().Get("Content-Type"); ct != "text/event-stream" {
+			t.Fatalf("Content-Type %q, want text/event-stream", ct)
+		}
+		if rr.Header().Get("X-Accel-Buffering") != "no" {
+			t.Fatalf("X-Accel-Buffering not set")
+		}
+		if rr.Body.Len() != 0 {
+			t.Fatalf("HEAD stream returned non-empty body: %q", rr.Body.String())
+		}
+	})
+}
+
 func TestHandler_KnownPodReturnsTelemetry(t *testing.T) {
 	c, _ := newTestCollector()
 	collect(t, c, scrape("12.345", t0ms))

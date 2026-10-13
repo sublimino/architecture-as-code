@@ -10,6 +10,7 @@ import { AppTokenTracker } from '../src/summarizer/app-token-tracker';
 import { TranscriptFormatter } from '../src/summarizer/transcript-formatter';
 import { DragonCrossReferencer } from '../src/productivity-dragon/dragon-crossref';
 import { TuiDashboardRenderer } from '../src/dashboard/tui';
+import { WebDashboardServer } from '../src/dashboard/web-server';
 import type { SessionMetadata, DashboardMetrics } from '../src/types';
 
 describe('Universal AI CLI & Harness Dashboard Suite', () => {
@@ -648,6 +649,97 @@ describe('Universal AI CLI & Harness Dashboard Suite', () => {
     const fullText = lines.join('\n');
     expect(fullText).toContain('Synthesizing with Gemini 2.5 Flash ($)');
     expect(fullText).toContain('Analyzing recent log snippet');
+  });
+
+  it('verifies WebDashboardServer enforces HTTP method gates and suppresses response bodies on HEAD', async () => {
+    const testPort = 45000 + Math.floor(Math.random() * 5000);
+    const webServer = new WebDashboardServer(store, testPort);
+    const { url, stop } = await webServer.start();
+
+    try {
+      // 1. GET vs HEAD /api/metrics
+      const getMetrics = await fetch(`${url}/api/metrics`, { method: 'GET' });
+      expect(getMetrics.status).toBe(200);
+      expect(getMetrics.headers.get('content-type')).toContain('application/json');
+      const getMetricsText = await getMetrics.text();
+      expect(getMetricsText.length).toBeGreaterThan(0);
+
+      const headMetrics = await fetch(`${url}/api/metrics`, { method: 'HEAD' });
+      expect(headMetrics.status).toBe(200);
+      expect(headMetrics.headers.get('content-type')).toContain('application/json');
+      expect((await headMetrics.text()).length).toBe(0);
+
+      // Method gate: POST /api/metrics -> 405
+      const postMetrics = await fetch(`${url}/api/metrics`, { method: 'POST' });
+      expect(postMetrics.status).toBe(405);
+      expect(postMetrics.headers.get('allow')).toBe('GET, HEAD');
+      expect(postMetrics.headers.get('content-type')).toContain('application/json');
+
+      // 2. GET vs HEAD /api/app-metrics
+      const headAppMetrics = await fetch(`${url}/api/app-metrics`, { method: 'HEAD' });
+      expect(headAppMetrics.status).toBe(200);
+      expect(headAppMetrics.headers.get('content-type')).toContain('application/json');
+      expect((await headAppMetrics.text()).length).toBe(0);
+
+      // Method gate: PUT /api/app-metrics -> 405
+      const putAppMetrics = await fetch(`${url}/api/app-metrics`, { method: 'PUT' });
+      expect(putAppMetrics.status).toBe(405);
+      expect(putAppMetrics.headers.get('allow')).toBe('GET, HEAD');
+
+      // 3. GET vs HEAD /api/sessions
+      const headSessions = await fetch(`${url}/api/sessions`, { method: 'HEAD' });
+      expect(headSessions.status).toBe(200);
+      expect(headSessions.headers.get('content-type')).toContain('application/json');
+      expect((await headSessions.text()).length).toBe(0);
+
+      // Method gate: DELETE /api/sessions -> 405
+      const deleteSessions = await fetch(`${url}/api/sessions`, { method: 'DELETE' });
+      expect(deleteSessions.status).toBe(405);
+      expect(deleteSessions.headers.get('allow')).toBe('GET, HEAD');
+
+      // 4. Session detail 404 on nonexistent ID
+      const getNonexistent = await fetch(`${url}/api/sessions/nonexistent-xyz`, { method: 'GET' });
+      expect(getNonexistent.status).toBe(404);
+      expect(getNonexistent.headers.get('content-type')).toContain('application/json');
+      expect((await getNonexistent.text()).length).toBeGreaterThan(0);
+
+      const headNonexistent = await fetch(`${url}/api/sessions/nonexistent-xyz`, { method: 'HEAD' });
+      expect(headNonexistent.status).toBe(404);
+      expect(headNonexistent.headers.get('content-type')).toContain('application/json');
+      expect((await headNonexistent.text()).length).toBe(0);
+
+      // 5. /api/export/obsidian only allows POST
+      const getExport = await fetch(`${url}/api/export/obsidian`, { method: 'GET' });
+      expect(getExport.status).toBe(405);
+      expect(getExport.headers.get('allow')).toBe('POST');
+
+      const headExport = await fetch(`${url}/api/export/obsidian`, { method: 'HEAD' });
+      expect(headExport.status).toBe(405);
+      expect(headExport.headers.get('allow')).toBe('POST');
+      expect((await headExport.text()).length).toBe(0);
+
+      // 6. /api/stream HEAD
+      const headStream = await fetch(`${url}/api/stream`, { method: 'HEAD' });
+      expect(headStream.status).toBe(200);
+      expect(headStream.headers.get('content-type')).toContain('text/event-stream');
+      expect((await headStream.text()).length).toBe(0);
+
+      const postStream = await fetch(`${url}/api/stream`, { method: 'POST' });
+      expect(postStream.status).toBe(405);
+      expect(postStream.headers.get('allow')).toBe('GET, HEAD');
+
+      // 7. Root HTML UI HEAD
+      const headHtml = await fetch(`${url}/`, { method: 'HEAD' });
+      expect(headHtml.status).toBe(200);
+      expect(headHtml.headers.get('content-type')).toContain('text/html');
+      expect((await headHtml.text()).length).toBe(0);
+
+      const postHtml = await fetch(`${url}/`, { method: 'POST' });
+      expect(postHtml.status).toBe(405);
+      expect(postHtml.headers.get('allow')).toBe('GET, HEAD');
+    } finally {
+      stop();
+    }
   });
 });
 

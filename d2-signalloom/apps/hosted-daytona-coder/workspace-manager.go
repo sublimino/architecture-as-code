@@ -308,7 +308,42 @@ func newServer(mgr *WorkspaceManager) http.Handler {
 	mux.HandleFunc("GET /workspaces", listWorkspacesHandler)
 	mux.HandleFunc("HEAD /workspaces", listWorkspacesHandler)
 
-	return mux
+	return headBodySuppressingMiddleware(mux)
+}
+
+type headResponseWriter struct {
+	http.ResponseWriter
+	wroteHeader bool
+}
+
+func (w *headResponseWriter) WriteHeader(status int) {
+	w.wroteHeader = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *headResponseWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	// Per RFC 9110 Section 6.4.1, responses to HEAD requests MUST NOT contain
+	// a message body, regardless of status code.
+	return len(b), nil
+}
+
+func (w *headResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func headBodySuppressingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			next.ServeHTTP(&headResponseWriter{ResponseWriter: w}, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // maxWorkspaces bounds total concurrent workspace allocations in memory.
@@ -444,5 +479,8 @@ func (m *WorkspaceManager) PruneExpired(ttl time.Duration) int {
 func writeError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(ErrorResponse{Error: msg})
+	if _, ok := w.(*headResponseWriter); ok {
+		return
+	}
+	_ = json.NewEncoder(w).Encode(ErrorResponse{Error: msg})
 }

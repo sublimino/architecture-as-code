@@ -420,3 +420,51 @@ func TestEvaluate_DropCapsLowercase(t *testing.T) {
 		t.Fatal("expected drop-capabilities to pass with lowercase 'all'")
 	}
 }
+
+func TestHeadErrorBodySuppression(t *testing.T) {
+	// 1. handleEvaluate: HEAD should return 405 Method Not Allowed with 0 body bytes and Allow: POST
+	req := httptest.NewRequest(http.MethodHead, "/api/v1/evaluate", nil)
+	w := httptest.NewRecorder()
+	handleEvaluate(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 on HEAD /api/v1/evaluate, got %d", w.Code)
+	}
+	if w.Body.Len() != 0 {
+		t.Fatalf("expected 0 body bytes on HEAD 405, got %d: %q", w.Body.Len(), w.Body.String())
+	}
+	if allow := w.Header().Get("Allow"); !strings.Contains(allow, "POST") {
+		t.Fatalf("expected Allow header with POST, got %q", allow)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("expected Content-Type application/json, got %q", ct)
+	}
+
+	// 2. handleEvaluate through middleware
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", handleHealthz)
+	mux.HandleFunc("/api/v1/evaluate", handleEvaluate)
+	handler := headBodySuppressingMiddleware(mux)
+
+	headEval := httptest.NewRequest(http.MethodHead, "/api/v1/evaluate", nil)
+	recEval := httptest.NewRecorder()
+	handler.ServeHTTP(recEval, headEval)
+	if recEval.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 through middleware, got %d", recEval.Code)
+	}
+	if recEval.Body.Len() != 0 {
+		t.Fatalf("expected 0 body bytes through middleware, got %d", recEval.Body.Len())
+	}
+
+	// 3. Unknown route HEAD should return 404 with 0 body bytes
+	headUnknown := httptest.NewRequest(http.MethodHead, "/unknown-policy-route", nil)
+	recUnknown := httptest.NewRecorder()
+	handler.ServeHTTP(recUnknown, headUnknown)
+	if recUnknown.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 on unknown route, got %d", recUnknown.Code)
+	}
+	if recUnknown.Body.Len() != 0 {
+		t.Fatalf("expected 0 body bytes on unknown route 404, got %d", recUnknown.Body.Len())
+	}
+}
+

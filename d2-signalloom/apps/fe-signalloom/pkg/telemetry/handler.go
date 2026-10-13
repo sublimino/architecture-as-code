@@ -47,6 +47,7 @@ func (h *TelemetryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
+			w.Header().Set("X-Accel-Buffering", "no")
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.WriteHeader(http.StatusOK)
 			return
@@ -63,7 +64,7 @@ func (h *TelemetryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *TelemetryHandler) admit(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method is not allowed")
+		writeError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "Method is not allowed")
 		return false
 	}
 	if !h.collector.Healthy() {
@@ -71,16 +72,19 @@ func (h *TelemetryHandler) admit(w http.ResponseWriter, r *http.Request) bool {
 		if err := h.collector.LastError(); err != nil {
 			detail = err.Error()
 		}
-		writeError(w, http.StatusServiceUnavailable, "telemetry_unavailable", "Agent telemetry is unavailable: "+detail)
+		writeError(w, r, http.StatusServiceUnavailable, "telemetry_unavailable", "Agent telemetry is unavailable: "+detail)
 		return false
 	}
 	return true
 }
 
-func writeError(w http.ResponseWriter, status int, code, message string) {
+func writeError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(status)
+	if r != nil && r.Method == http.MethodHead {
+		return
+	}
 	_ = json.NewEncoder(w).Encode(map[string]map[string]string{"error": {"code": code, "message": message}})
 }
 
@@ -94,11 +98,11 @@ func (h *TelemetryHandler) handleJSON(w http.ResponseWriter, r *http.Request, po
 	}
 	switch len(matches) {
 	case 0:
-		writeError(w, http.StatusNotFound, "telemetry_not_found", "No telemetry for this agent pod")
+		writeError(w, r, http.StatusNotFound, "telemetry_not_found", "No telemetry for this agent pod")
 		return
 	case 1:
 	default:
-		writeError(w, http.StatusConflict, "telemetry_ambiguous_pod", "Pod name exists in several namespaces; pass ?namespace=")
+		writeError(w, r, http.StatusConflict, "telemetry_ambiguous_pod", "Pod name exists in several namespaces; pass ?namespace=")
 		return
 	}
 

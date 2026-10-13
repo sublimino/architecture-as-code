@@ -428,3 +428,45 @@ func TestWorkspaceCreationInvalidBranch(t *testing.T) {
 	}
 }
 
+func TestHeadErrorBodySuppression(t *testing.T) {
+	mgr := NewWorkspaceManager("test-ns")
+	srv := newServer(mgr)
+
+	// 1. HEAD /workspaces/nonexistent-id should return 404 with 0 body bytes and application/json Content-Type
+	req404 := httptest.NewRequest("HEAD", "/workspaces/nonexistent-id", nil)
+	rec404 := httptest.NewRecorder()
+	srv.ServeHTTP(rec404, req404)
+	if rec404.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found, got %d", rec404.Code)
+	}
+	if rec404.Body.Len() != 0 {
+		t.Fatalf("expected 0 body bytes on HEAD 404, got %d: %q", rec404.Body.Len(), rec404.Body.String())
+	}
+	if ct := rec404.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("expected Content-Type application/json, got %q", ct)
+	}
+
+	// 2. HEAD /workspaces (list) should return 200 with 0 body bytes
+	reqList := httptest.NewRequest("HEAD", "/workspaces", nil)
+	recList := httptest.NewRecorder()
+	srv.ServeHTTP(recList, reqList)
+	if recList.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on HEAD /workspaces, got %d", recList.Code)
+	}
+	if recList.Body.Len() != 0 {
+		t.Fatalf("expected 0 body bytes on HEAD 200, got %d: %q", recList.Body.Len(), recList.Body.String())
+	}
+
+	// 3. HEAD to an unknown route should return 404 with 0 body bytes
+	reqUnknown := httptest.NewRequest("HEAD", "/unknown-route-999", nil)
+	recUnknown := httptest.NewRecorder()
+	srv.ServeHTTP(recUnknown, reqUnknown)
+	if recUnknown.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found, got %d", recUnknown.Code)
+	}
+	if recUnknown.Body.Len() != 0 {
+		t.Fatalf("expected 0 body bytes on HEAD 404 unknown route, got %d: %q", recUnknown.Body.Len(), recUnknown.Body.String())
+	}
+}
+
+

@@ -156,7 +156,30 @@ func (h *HealthServer) Handler() http.Handler {
 	mux.HandleFunc("/metrics", h.serveMetrics)
 	mux.HandleFunc("/captures", h.serveCaptures)
 	mux.HandleFunc("/captures/", h.serveCaptures)
-	return mux
+	return headBodySuppressingMiddleware(mux)
+}
+
+// headResponseWriter suppresses the response body for HEAD requests while
+// preserving headers and status codes according to RFC 9110 Section 6.4.1.
+type headResponseWriter struct {
+	http.ResponseWriter
+}
+
+func (w *headResponseWriter) Write(b []byte) (int, error) {
+	return len(b), nil
+}
+
+// headBodySuppressingMiddleware wraps the handler to ensure no response body
+// is written for any HTTP HEAD request, including on error paths (404, 405, 500).
+func headBodySuppressingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			if _, ok := w.(*headResponseWriter); !ok {
+				w = &headResponseWriter{ResponseWriter: w}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // serveCaptures answers /captures (ids), /captures/<id> (manifest.json) and

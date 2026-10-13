@@ -286,10 +286,18 @@ func statusFor(err error) int {
 }
 
 func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
 		return
+	}
+	if r.Body != nil {
+		defer r.Body.Close()
 	}
 	var req struct {
 		PodUID            string `json:"pod_uid"`
@@ -340,10 +348,18 @@ func (s *server) handleStun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
 		return
+	}
+	if r.Body != nil {
+		defer r.Body.Close()
 	}
 	var req struct {
 		PodUID         string            `json:"pod_uid"`
@@ -463,8 +479,13 @@ func (s *server) handleResume(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "GET required"})
 		return
 	}
@@ -481,8 +502,13 @@ func (s *server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleGetSnapshot(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "GET required"})
 		return
 	}
@@ -508,10 +534,18 @@ func (s *server) handleGetSnapshot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handlePruneSnapshots(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
 		return
+	}
+	if r.Body != nil {
+		defer r.Body.Close()
 	}
 	if s.capturer == nil {
 		writeJSON(w, r, http.StatusOK, &quarantine.PruneResult{})
@@ -530,8 +564,13 @@ func (s *server) handlePruneSnapshots(w http.ResponseWriter, r *http.Request) {
 // which is exactly the misconfiguration this endpoint exists to surface --
 // before an incident rather than during one.
 func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
@@ -561,6 +600,11 @@ func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
 // requireBearer makes a handler unreachable without a valid governance credential.
 func requireBearer(validate cgroup.CredentialValidator, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Allow", "POST, OPTIONS")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if validate == nil {
 			writeJSON(w, r, http.StatusUnauthorized, map[string]string{"error": "no credential validator configured"})
 			return

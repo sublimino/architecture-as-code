@@ -338,8 +338,13 @@ func newMux(l *tc.Loader, reg *tc.Registry) http.Handler {
 	mux := http.NewServeMux()
 
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			if r.Method != http.MethodHead {
@@ -358,8 +363,13 @@ func newMux(l *tc.Loader, reg *tc.Registry) http.Handler {
 	mux.HandleFunc("/readyz", healthHandler)
 
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			if r.Method != http.MethodHead {
@@ -440,14 +450,22 @@ func doServe(o *opts) error {
 
 func triggerHandler(l *tc.Loader, reg *tc.Registry, isolate bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Allow", "POST, OPTIONS")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
+			w.Header().Set("Allow", "POST, OPTIONS")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			if r.Method != http.MethodHead {
 				_ = json.NewEncoder(w).Encode(map[string]any{"error": "POST required"})
 			}
 			return
+		}
+		if r.Body != nil {
+			defer r.Body.Close()
 		}
 		iface := r.URL.Query().Get("interface")
 		ipStr := r.URL.Query().Get("ip")

@@ -1009,8 +1009,8 @@ func TestSnapshotAndStunMethodGates(t *testing.T) {
 			if rec.Code != http.StatusMethodNotAllowed {
 				t.Errorf("%s %s = %d, want 405", method, tgt.path, rec.Code)
 			}
-			if rec.Header().Get("Allow") != "POST" {
-				t.Errorf("%s %s Allow = %q, want 'POST'", method, tgt.path, rec.Header().Get("Allow"))
+			if rec.Header().Get("Allow") != "POST, OPTIONS" {
+				t.Errorf("%s %s Allow = %q, want 'POST, OPTIONS'", method, tgt.path, rec.Header().Get("Allow"))
 			}
 			if method == http.MethodHead {
 				if rec.Body.Len() != 0 {
@@ -1024,7 +1024,7 @@ func TestSnapshotAndStunMethodGates(t *testing.T) {
 		}
 	}
 
-	// 2. /quarantine/snapshots supports HEAD and rejects POST, PUT, DELETE, PATCH with 405 Allow: GET, HEAD
+	// 2. /quarantine/snapshots supports HEAD and rejects POST, PUT, DELETE, PATCH with 405 Allow: GET, HEAD, OPTIONS
 	rec := httptest.NewRecorder()
 	routes.ServeHTTP(rec, httptest.NewRequest(http.MethodHead, "/quarantine/snapshots", nil))
 	if rec.Code != http.StatusOK {
@@ -1040,23 +1040,23 @@ func TestSnapshotAndStunMethodGates(t *testing.T) {
 		if recM.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s /quarantine/snapshots status = %d, want 405", m, recM.Code)
 		}
-		if recM.Header().Get("Allow") != "GET, HEAD" {
-			t.Errorf("%s /quarantine/snapshots Allow = %q, want 'GET, HEAD'", m, recM.Header().Get("Allow"))
+		if recM.Header().Get("Allow") != "GET, HEAD, OPTIONS" {
+			t.Errorf("%s /quarantine/snapshots Allow = %q, want 'GET, HEAD, OPTIONS'", m, recM.Header().Get("Allow"))
 		}
 		if recM.Body.Len() == 0 {
 			t.Errorf("%s /quarantine/snapshots expected non-empty error body", m)
 		}
 	}
 
-	// /quarantine/snapshots/{id} rejects POST, PUT, DELETE, PATCH with 405 Allow: GET, HEAD
+	// /quarantine/snapshots/{id} rejects POST, PUT, DELETE, PATCH with 405 Allow: GET, HEAD, OPTIONS
 	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		recM := httptest.NewRecorder()
 		routes.ServeHTTP(recM, httptest.NewRequest(m, "/quarantine/snapshots/snap-123", nil))
 		if recM.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s /quarantine/snapshots/snap-123 status = %d, want 405", m, recM.Code)
 		}
-		if recM.Header().Get("Allow") != "GET, HEAD" {
-			t.Errorf("%s /quarantine/snapshots/snap-123 Allow = %q, want 'GET, HEAD'", m, recM.Header().Get("Allow"))
+		if recM.Header().Get("Allow") != "GET, HEAD, OPTIONS" {
+			t.Errorf("%s /quarantine/snapshots/snap-123 Allow = %q, want 'GET, HEAD, OPTIONS'", m, recM.Header().Get("Allow"))
 		}
 		if recM.Body.Len() == 0 {
 			t.Errorf("%s /quarantine/snapshots/snap-123 expected non-empty error body", m)
@@ -1075,7 +1075,53 @@ func TestSnapshotAndStunMethodGates(t *testing.T) {
 		}
 	}
 
-	// 4. HEAD /quarantine/snapshots/unknown-id returns 404 with 0 body bytes
+	// 4. Preflight and authenticated OPTIONS to /stun, /resume, /quarantine/prune returns 204 No Content with Allow: POST, OPTIONS
+	for _, path := range []string{"/stun", "/resume", "/quarantine/prune"} {
+		// Unauthenticated preflight OPTIONS
+		recOpts := httptest.NewRecorder()
+		routes.ServeHTTP(recOpts, httptest.NewRequest(http.MethodOptions, path, nil))
+		if recOpts.Code != http.StatusNoContent {
+			t.Errorf("OPTIONS %s unauthenticated status = %d, want 204", path, recOpts.Code)
+		}
+		if allow := recOpts.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("OPTIONS %s Allow = %q, want 'POST, OPTIONS'", path, allow)
+		}
+		if recOpts.Body.Len() != 0 {
+			t.Errorf("OPTIONS %s body len = %d, want 0", path, recOpts.Body.Len())
+		}
+
+		// Authenticated OPTIONS
+		recOptsAuth := httptest.NewRecorder()
+		reqOptsAuth := httptest.NewRequest(http.MethodOptions, path, nil)
+		reqOptsAuth.Header.Set("Authorization", "Bearer test-freeze")
+		routes.ServeHTTP(recOptsAuth, reqOptsAuth)
+		if recOptsAuth.Code != http.StatusNoContent {
+			t.Errorf("OPTIONS %s authenticated status = %d, want 204", path, recOptsAuth.Code)
+		}
+		if allow := recOptsAuth.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Errorf("OPTIONS %s Allow = %q, want 'POST, OPTIONS'", path, allow)
+		}
+		if recOptsAuth.Body.Len() != 0 {
+			t.Errorf("OPTIONS %s authenticated body len = %d, want 0", path, recOptsAuth.Body.Len())
+		}
+	}
+
+	// 5. OPTIONS to /health, /healthz, /readyz, /quarantine/snapshots, /quarantine/snapshots/{id} returns 204 No Content with Allow: GET, HEAD, OPTIONS
+	for _, path := range []string{"/health", "/healthz", "/readyz", "/quarantine/snapshots", "/quarantine/snapshots/snap-123"} {
+		recOpts := httptest.NewRecorder()
+		routes.ServeHTTP(recOpts, httptest.NewRequest(http.MethodOptions, path, nil))
+		if recOpts.Code != http.StatusNoContent {
+			t.Errorf("OPTIONS %s status = %d, want 204", path, recOpts.Code)
+		}
+		if allow := recOpts.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Errorf("OPTIONS %s Allow = %q, want 'GET, HEAD, OPTIONS'", path, allow)
+		}
+		if recOpts.Body.Len() != 0 {
+			t.Errorf("OPTIONS %s body len = %d, want 0", path, recOpts.Body.Len())
+		}
+	}
+
+	// 6. HEAD /quarantine/snapshots/unknown-id returns 404 with 0 body bytes
 	rec404 := httptest.NewRecorder()
 	routes.ServeHTTP(rec404, httptest.NewRequest(http.MethodHead, "/quarantine/snapshots/non-existent-snap-999", nil))
 	if rec404.Code != http.StatusNotFound {
@@ -1085,7 +1131,7 @@ func TestSnapshotAndStunMethodGates(t *testing.T) {
 		t.Errorf("HEAD /quarantine/snapshots/non-existent-snap-999 body len = %d, want 0", rec404.Body.Len())
 	}
 
-	// 5. HEAD /unknown-path returns 404 with 0 body bytes (RFC 9110 body suppression on unknown routes)
+	// 7. HEAD /unknown-path returns 404 with 0 body bytes (RFC 9110 body suppression on unknown routes)
 	recUnknown := httptest.NewRecorder()
 	routes.ServeHTTP(recUnknown, httptest.NewRequest(http.MethodHead, "/unknown-path", nil))
 	if recUnknown.Code != http.StatusNotFound {

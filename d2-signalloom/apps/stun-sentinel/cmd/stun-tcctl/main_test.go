@@ -60,8 +60,8 @@ func TestHealthAndMetricsMethodNotAllowed(t *testing.T) {
 			if rec.Code != http.StatusMethodNotAllowed {
 				t.Fatalf("%s %s expected 405 Method Not Allowed, got %d", method, path, rec.Code)
 			}
-			if rec.Header().Get("Allow") != "GET, HEAD" {
-				t.Fatalf("%s %s expected Allow: GET, HEAD, got %q", method, path, rec.Header().Get("Allow"))
+			if rec.Header().Get("Allow") != "GET, HEAD, OPTIONS" {
+				t.Fatalf("%s %s expected Allow: GET, HEAD, OPTIONS, got %q", method, path, rec.Header().Get("Allow"))
 			}
 		}
 
@@ -79,6 +79,21 @@ func TestHealthAndMetricsMethodNotAllowed(t *testing.T) {
 		if recHead.Body.Len() != 0 {
 			t.Fatalf("HEAD %s expected empty body, got %q", path, recHead.Body.String())
 		}
+
+		// OPTIONS should succeed with 204 No Content and Allow: GET, HEAD, OPTIONS
+		reqOpts := httptest.NewRequest(http.MethodOptions, path, nil)
+		recOpts := httptest.NewRecorder()
+		mux.ServeHTTP(recOpts, reqOpts)
+
+		if recOpts.Code != http.StatusNoContent {
+			t.Fatalf("OPTIONS %s expected 204 No Content, got %d", path, recOpts.Code)
+		}
+		if allow := recOpts.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
+			t.Fatalf("OPTIONS %s expected Allow: GET, HEAD, OPTIONS, got %q", path, allow)
+		}
+		if recOpts.Body.Len() != 0 {
+			t.Fatalf("OPTIONS %s expected empty body, got %q", path, recOpts.Body.String())
+		}
 	}
 }
 
@@ -93,12 +108,27 @@ func TestTriggerHandlerMethodNotAllowed(t *testing.T) {
 			if rec.Code != http.StatusMethodNotAllowed {
 				t.Fatalf("%s expected 405 Method Not Allowed, got %d", method, rec.Code)
 			}
-			if rec.Header().Get("Allow") != "POST" {
-				t.Fatalf("%s expected Allow: POST, got %q", method, rec.Header().Get("Allow"))
+			if rec.Header().Get("Allow") != "POST, OPTIONS" {
+				t.Fatalf("%s expected Allow: POST, OPTIONS, got %q", method, rec.Header().Get("Allow"))
 			}
 			if method == http.MethodHead && rec.Body.Len() != 0 {
 				t.Fatalf("%s expected empty body on 405 Method Not Allowed, got %d bytes: %q", method, rec.Body.Len(), rec.Body.String())
 			}
+		}
+
+		// OPTIONS should succeed with 204 No Content and Allow: POST, OPTIONS
+		reqOpts := httptest.NewRequest(http.MethodOptions, "/v1/isolate", nil)
+		recOpts := httptest.NewRecorder()
+		handler(recOpts, reqOpts)
+
+		if recOpts.Code != http.StatusNoContent {
+			t.Fatalf("OPTIONS expected 204 No Content, got %d", recOpts.Code)
+		}
+		if allow := recOpts.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Fatalf("OPTIONS expected Allow: POST, OPTIONS, got %q", allow)
+		}
+		if recOpts.Body.Len() != 0 {
+			t.Fatalf("OPTIONS expected empty body, got %q", recOpts.Body.String())
 		}
 	}
 }
@@ -115,11 +145,26 @@ func TestMuxTriggerRoutesHEAD(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("HEAD %s returned status %d, want 405", path, rec.Code)
 		}
-		if allow := rec.Header().Get("Allow"); allow != "POST" {
-			t.Fatalf("HEAD %s returned Allow %q, want POST", path, allow)
+		if allow := rec.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Fatalf("HEAD %s returned Allow %q, want POST, OPTIONS", path, allow)
 		}
 		if rec.Body.Len() != 0 {
 			t.Fatalf("HEAD %s returned body %q, want empty body", path, rec.Body.String())
+		}
+
+		// OPTIONS /v1/isolate and /v1/release on mux should return 204 No Content with Allow: POST, OPTIONS
+		reqOpts := httptest.NewRequest(http.MethodOptions, path, nil)
+		recOpts := httptest.NewRecorder()
+		mux.ServeHTTP(recOpts, reqOpts)
+
+		if recOpts.Code != http.StatusNoContent {
+			t.Fatalf("OPTIONS %s returned status %d, want 204", path, recOpts.Code)
+		}
+		if allow := recOpts.Header().Get("Allow"); allow != "POST, OPTIONS" {
+			t.Fatalf("OPTIONS %s returned Allow %q, want POST, OPTIONS", path, allow)
+		}
+		if recOpts.Body.Len() != 0 {
+			t.Fatalf("OPTIONS %s returned body %q, want empty body", path, recOpts.Body.String())
 		}
 	}
 }

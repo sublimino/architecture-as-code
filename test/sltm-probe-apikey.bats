@@ -49,7 +49,9 @@ setup_file() {
       head -c 36 /dev/urandom | base64 | tr -d '\n/+=' >"${T}/keys/expired-probe"
       date -u -d '-1 day' +%F >"${T}/keys/expired-probe.expires" )
 
-    ( cd "${INGEST_DIR}" && CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/go}" GOCACHE="${GOCACHE:-/tmp/go-cache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" \
+    local gopath="${GOPATH:-}"
+    if [ "$gopath" = "/usr/local/src/gocode" ] || [ -z "$gopath" ]; then gopath=/tmp/go; fi
+    ( cd "${INGEST_DIR}" && CGO_ENABLED=0 GOPATH="$gopath" GOCACHE="${GOCACHE:-/tmp/go-cache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GONOSUMDB="*" \
         go build -o "${T}/signal-ingest" . ) || return 1
 
     read -r PORT PROBE_PORT < <(python3 -c 'import socket

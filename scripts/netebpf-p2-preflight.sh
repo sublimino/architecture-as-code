@@ -5,6 +5,13 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+local_gopath="${GOPATH:-}"
+if [ "$local_gopath" = "/usr/local/src/gocode" ] || [ -z "$local_gopath" ]; then local_gopath=/tmp/gopath; fi
+export GOPATH="$local_gopath"
+export GOCACHE="${GOCACHE:-/tmp/gocache}"
+export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+export GONOSUMDB="*"
+export CGO_ENABLED=0
 PASS=0
 FAIL=0
 

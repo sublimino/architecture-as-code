@@ -177,7 +177,7 @@ describe('connectorsClient mode dispatch & honesty', () => {
           status: 'connected',
           tested_at: '2026-10-13T00:00:00Z',
           latency_ms: 45,
-          auth_ok: true,
+          valid: true,
           scopes_ok: true,
           error_msg: null,
           credential_expires_at: null,
@@ -192,7 +192,7 @@ describe('connectorsClient mode dispatch & honesty', () => {
           method: 'POST',
         }),
       )
-      expect(result.auth_ok).toBe(true)
+      expect(result.valid).toBe(true)
     })
   })
 })

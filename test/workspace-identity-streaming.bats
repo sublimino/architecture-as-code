@@ -5,8 +5,12 @@ setup() {
   root="$(cd "${BATS_TEST_FILENAME%/*}/.." && pwd)"
   connector_dir="$root/d2-signalloom/apps/workspace-connector"
   ingest_dir="$root/d2-signalloom/apps/signal-ingest"
+  local gopath="${GOPATH:-}"
+  if [ "$gopath" = "/usr/local/src/gocode" ] || [ -z "$gopath" ]; then gopath=/tmp/gopath; fi
+  export GOPATH="$gopath"
   export GOCACHE="${GOCACHE:-/tmp/gocache}"
   export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+  export GONOSUMDB="*"
   export CGO_ENABLED=0
 }
 

@@ -114,4 +114,6 @@ class Adapter(unittest.TestCase):
    with self.assertRaises(RuntimeError): fetch_jwt_svid('a',runner=lambda *_args,**_kw:subprocess.CompletedProcess([],1,'','bad'))
    with self.assertRaises(RuntimeError): fetch_jwt_svid('a',runner=lambda *_args,**_kw:subprocess.CompletedProcess([],0,'{bad',''))
    with self.assertRaises(RuntimeError): fetch_jwt_svid('a',runner=lambda *_args,**_kw:subprocess.CompletedProcess([],0,json.dumps({'svids':[{},{}]}),''))
+   def mock_timeout(*_args, **_kw): raise subprocess.TimeoutExpired(cmd="spire-agent", timeout=5)
+   with self.assertRaises(RuntimeError): fetch_jwt_svid('a',runner=mock_timeout)
   with self.assertRaises(ValueError): fetch_jwt_svid('bad audience')

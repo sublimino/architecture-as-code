@@ -44,16 +44,21 @@ class CgroupV2Reader:
             return None
 
         # Format for cgroup v2: "0::$PATH"
+        root_resolved = self.cgroup_root.resolve()
         for line in lines:
             line = line.strip()
             if line.startswith("0::"):
                 rel_path = line[3:].lstrip("/")
-                full_path = self.cgroup_root / rel_path
+                full_path = (self.cgroup_root / rel_path).resolve()
+                if full_path != root_resolved and root_resolved not in full_path.parents:
+                    return None
                 return full_path if full_path.exists() else None
             parts = line.split(":")
             if len(parts) == 3 and parts[0] == "0":
                 rel_path = parts[2].lstrip("/")
-                full_path = self.cgroup_root / rel_path
+                full_path = (self.cgroup_root / rel_path).resolve()
+                if full_path != root_resolved and root_resolved not in full_path.parents:
+                    return None
                 return full_path if full_path.exists() else None
         return None
 

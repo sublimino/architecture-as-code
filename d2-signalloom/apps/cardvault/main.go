@@ -89,19 +89,35 @@ func requireAuth(username, password string, next http.HandlerFunc) http.HandlerF
 	}
 }
 
-func handleHealthz(w http.ResponseWriter, _ *http.Request) {
+func handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func handleReadyz(w http.ResponseWriter, _ *http.Request) {
+func handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
-func handleListCards(w http.ResponseWriter, _ *http.Request) {
+func handleListCards(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
 	writeJSON(w, http.StatusOK, cards)
 }
 
 func handleGetCard(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
 	id := strings.TrimPrefix(r.URL.Path, "/api/v1/cards/")
 	if id == "" {
 		handleListCards(w, r)

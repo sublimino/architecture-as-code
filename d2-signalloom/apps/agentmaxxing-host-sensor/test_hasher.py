@@ -478,3 +478,16 @@ def test_ratelimit_negative_size_rejected():
     metrics = limiter.get_metrics()
     assert metrics["current_files"] == 0
     assert metrics["current_bytes"] == 0
+
+
+def test_open_beneath_rejects_empty_and_null_bytes(temp_root: str):
+    dirfd = os.open(temp_root, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with pytest.raises(ValueError, match="empty path"):
+            open_beneath(dirfd, "")
+
+        with pytest.raises(ValueError, match="embedded null byte in path"):
+            open_beneath(dirfd, "test\x00file.txt")
+    finally:
+        os.close(dirfd)
+

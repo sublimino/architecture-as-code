@@ -82,6 +82,10 @@ def open_beneath(
     Opens a path relative to dirfd using openat2 with strict kernel-enforced
     traversal protection: RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_XDEV.
     """
+    if not relpath:
+        raise ValueError("empty path")
+    if "\x00" in relpath:
+        raise ValueError("embedded null byte in path")
     how = OpenHow(
         flags,
         mode,

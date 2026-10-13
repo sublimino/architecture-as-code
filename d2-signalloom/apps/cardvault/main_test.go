@@ -244,3 +244,33 @@ func TestContentTypeOnAllResponses(t *testing.T) {
 		resp.Body.Close()
 	}
 }
+
+func TestCardvaultMethodNotAllowed(t *testing.T) {
+	srv := newTestServer("u", "p")
+	defer srv.Close()
+
+	endpoints := []string{
+		"/healthz",
+		"/readyz",
+		"/health",
+		"/api/v1/cards",
+		"/api/v1/cards/card-001",
+	}
+
+	for _, ep := range endpoints {
+		req, err := http.NewRequest(http.MethodPost, srv.URL+ep, nil)
+		if err != nil {
+			t.Fatalf("NewRequest: %v", err)
+		}
+		req.SetBasicAuth("u", "p")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("POST %s: %v", ep, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("POST %s: expected 405 Method Not Allowed, got %d", ep, resp.StatusCode)
+		}
+	}
+}
+

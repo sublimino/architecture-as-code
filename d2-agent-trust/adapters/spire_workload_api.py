@@ -24,10 +24,13 @@ def fetch_jwt_svid(audience: str, *, timeout: float = 5, runner=subprocess.run) 
     if not isinstance(audience, str) or not _AUDIENCE.fullmatch(audience):
         raise ValueError("invalid SPIRE JWT-SVID audience")
     if not 0 < timeout <= 30: raise ValueError("invalid SPIRE command timeout")
-    result = runner(
-        ["spire-agent", "api", "fetch", "jwt", "-socketPath", workload_api_socket(), "-audience", audience, "-output", "json"],
-        capture_output=True, text=True, timeout=timeout, check=False,
-    )
+    try:
+        result = runner(
+            ["spire-agent", "api", "fetch", "jwt", "-socketPath", workload_api_socket(), "-audience", audience, "-output", "json"],
+            capture_output=True, text=True, timeout=timeout, check=False,
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        raise RuntimeError(f"SPIRE command execution failed: {exc}") from None
     if result.returncode or len(result.stdout) > 16384 or len(result.stderr) > 4096:
         raise RuntimeError("SPIRE JWT-SVID fetch failed")
     try:

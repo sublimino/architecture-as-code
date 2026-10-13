@@ -76,6 +76,16 @@ class CgroupV2ReaderTests(unittest.TestCase):
         self.assertIsNotNone(resolved)
         self.assertEqual(resolved, target_cgroup)
 
+    def test_resolve_cgroup_path_rejects_traversal(self) -> None:
+        pid_dir = self.mock_proc_root / "200"
+        pid_dir.mkdir(parents=True, exist_ok=True)
+        (pid_dir / "cgroup").write_text(
+            "0::/../../../../etc/passwd\n",
+            encoding="utf-8",
+        )
+        resolved = self.reader.resolve_cgroup_path_for_pid(200, proc_root=self.mock_proc_root)
+        self.assertIsNone(resolved)
+
     def test_read_metrics_aggregate(self) -> None:
         unit_dir = self.mock_cgroup_root / "test.slice"
         unit_dir.mkdir(parents=True, exist_ok=True)

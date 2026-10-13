@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -22,6 +23,7 @@ type Server struct {
 	client     client.ReportsClient
 	stunner    stun.StunExecutor
 	ingestURL  string
+	mu         sync.RWMutex
 	lastPolled time.Time
 }
 
@@ -88,6 +90,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	count, err := s.pollAndIngest(r.Context())
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -96,14 +99,19 @@ func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.mu.RLock()
+	lastPolled := s.lastPolled
+	s.mu.RUnlock()
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"polled_and_ingested": count,
-		"last_polled":         s.lastPolled,
+		"last_polled":         lastPolled,
 	})
 }
 
 func (s *Server) handleStun(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req stun.StunRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -125,22 +133,33 @@ func (s *Server) handleStun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
+	s.mu.RLock()
+	lastPolled := s.lastPolled
+	s.mu.RUnlock()
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"connector":   "google-workspace-reports",
 		"status":      "active",
-		"last_polled": s.lastPolled,
+		"last_polled": lastPolled,
 		"ingest_url":  s.ingestURL,
 	})
 }
 
 func (s *Server) pollAndIngest(ctx context.Context) (int, error) {
-	events, err := s.client.PollEvents(ctx, s.lastPolled)
+	s.mu.RLock()
+	after := s.lastPolled
+	s.mu.RUnlock()
+
+	events, err := s.client.PollEvents(ctx, after)
 	if err != nil {
 		return 0, fmt.Errorf("failed to poll reports: %w", err)
 	}
 
+	s.mu.Lock()
 	s.lastPolled = time.Now().UTC()
+	s.mu.Unlock()
+
 	if len(events) == 0 {
 		return 0, nil
 	}
@@ -161,13 +180,19 @@ func (s *Server) pollAndIngest(ctx context.Context) (int, error) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		// Log and tolerate connection errors if running standalone in test
 		slog.Warn("failed to send to signal-ingest", "error", err)
 		return len(obsList), nil
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		slog.Error("signal-ingest rejected observation batch", "status", resp.StatusCode)
+		return 0, fmt.Errorf("signal-ingest returned status %d", resp.StatusCode)
+	}
 
 	return len(obsList), nil
 }

@@ -58,3 +58,65 @@ func TestServer_Routes(t *testing.T) {
 		t.Errorf("stun result unexpected: %+v", res)
 	}
 }
+
+func TestServer_PollAndIngest_ErrorOn500(t *testing.T) {
+	fakeIngest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"internal ingest failure"}`))
+	}))
+	defer fakeIngest.Close()
+
+	srv := &Server{
+		client:    client.NewMockReportsClient(),
+		stunner:   stun.NewMemoryStunExecutor(),
+		ingestURL: fakeIngest.URL,
+	}
+
+	_, err := srv.pollAndIngest(t.Context())
+	if err == nil {
+		t.Fatal("expected error on ingest 500, got nil")
+	}
+}
+
+func TestServer_ConcurrentAccess(t *testing.T) {
+	fakeIngest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer fakeIngest.Close()
+
+	srv := &Server{
+		client:    client.NewMockReportsClient(),
+		stunner:   stun.NewMemoryStunExecutor(),
+		ingestURL: fakeIngest.URL,
+	}
+
+	mux := http.NewServeMux()
+	srv.registerRoutes(mux)
+
+	done := make(chan struct{})
+	for i := 0; i < 5; i++ {
+		go func() {
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					req := httptest.NewRequest(http.MethodGet, "/api/v1/workspace/status", nil)
+					w := httptest.NewRecorder()
+					mux.ServeHTTP(w, req)
+				}
+			}
+		}()
+	}
+
+	for i := 0; i < 10; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/workspace/poll", nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("poll: want 200, got %d", w.Code)
+		}
+	}
+	close(done)
+}
+

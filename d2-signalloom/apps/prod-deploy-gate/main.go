@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -88,12 +89,47 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
+func (s *Server) registerRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/gate/request", s.handleGateRequest)
+	mux.HandleFunc("/gate/approve", s.handleGateApprove)
+	mux.HandleFunc("/gate/", s.handleGetGate)
+	mux.HandleFunc("/healthz", handleHealthz)
+	mux.HandleFunc("/readyz", handleReadyz)
+}
+
+func (s *Server) PruneExpired(now time.Time) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pruned := 0
+	for id, gate := range s.pending {
+		if now.After(gate.ExpiresAt) {
+			delete(s.pending, id)
+			pruned++
+		}
+	}
+	return pruned
+}
+
+func (s *Server) startJanitor(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.PruneExpired(time.Now())
+		}
+	}
+}
+
 func (s *Server) handleGateRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req GateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
@@ -154,12 +190,49 @@ func (s *Server) handleGateRequest(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleGetGate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	requestID := strings.TrimPrefix(r.URL.Path, "/gate/")
+	if requestID == "" || requestID == r.URL.Path {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "request ID required"})
+		return
+	}
+
+	s.mu.Lock()
+	gate, ok := s.pending[requestID]
+	if ok && time.Now().After(gate.ExpiresAt) {
+		delete(s.pending, requestID)
+		ok = false
+	}
+	var resp GateResponse
+	if ok {
+		resp = GateResponse{
+			RequestID: gate.RequestID,
+			Status:    "pending",
+			ExpiresAt: gate.ExpiresAt.Format(time.RFC3339),
+		}
+	}
+	s.mu.Unlock()
+
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "gate request not found or expired"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
 func (s *Server) handleGateApprove(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req ApproveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
@@ -168,6 +241,11 @@ func (s *Server) handleGateApprove(w http.ResponseWriter, r *http.Request) {
 
 	if req.Token == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "token required"})
+		return
+	}
+
+	if strings.TrimSpace(req.Approver) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "approver required for HITL audit trail"})
 		return
 	}
 
@@ -241,10 +319,7 @@ func main() {
 	srv := NewServer([]byte(hmacSecret), webhookURL, gateTTL)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/gate/request", srv.handleGateRequest)
-	mux.HandleFunc("/gate/approve", srv.handleGateApprove)
-	mux.HandleFunc("/healthz", handleHealthz)
-	mux.HandleFunc("/readyz", handleReadyz)
+	srv.registerRoutes(mux)
 
 	httpSrv := &http.Server{
 		Addr:         ":" + port,
@@ -256,6 +331,8 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	go srv.startJanitor(ctx, 1*time.Minute)
 
 	go func() {
 		slog.Info("prod-deploy-gate starting", "port", port)

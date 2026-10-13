@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -86,6 +87,21 @@ func TestFormatTriageComment(t *testing.T) {
 	// Should mention flaky
 	if !containsString(comment, "TestFlaky") {
 		t.Error("comment should mention flaky test")
+	}
+}
+
+func TestFormatTriageComment_Truncation(t *testing.T) {
+	var real []TestFailure
+	for i := 0; i < 120; i++ {
+		real = append(real, TestFailure{Name: fmt.Sprintf("TestFailure_%d", i), Detail: "assertion error at line 42"})
+	}
+
+	comment := FormatTriageComment(real, nil)
+	if !containsString(comment, "more real failure(s) omitted") {
+		t.Error("expected truncation notice for >50 failures")
+	}
+	if len(comment) > maxCommentLength {
+		t.Errorf("comment length %d exceeds max %d", len(comment), maxCommentLength)
 	}
 }
 

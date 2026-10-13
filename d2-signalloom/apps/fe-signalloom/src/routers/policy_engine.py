@@ -68,20 +68,23 @@ async def proxy_policy_engine(
                     f"Malformed JSON request body: {exc}",
                 )
             if tenant_id and isinstance(parsed_json, dict):
+                clean_tenant_id = str(tenant_id).strip()
                 for key in ("tenant_id", "tenant"):
                     val = parsed_json.get(key)
-                    if val and val != tenant_id:
-                        logger.warning(
-                            "Rejecting cross-tenant body in policy-engine proxy: authenticated=%s payload key=%s val=%s",
-                            tenant_id,
-                            key,
-                            val,
-                        )
-                        return _error_response(
-                            403,
-                            "cross_tenant_forbidden",
-                            f"cross-tenant operation forbidden: authenticated tenant '{tenant_id}' cannot operate on '{val}'",
-                        )
+                    if val is not None:
+                        val_clean = str(val).strip()
+                        if val_clean and val_clean != clean_tenant_id:
+                            logger.warning(
+                                "Rejecting cross-tenant body in policy-engine proxy: authenticated=%s payload key=%s val=%s",
+                                clean_tenant_id,
+                                key,
+                                val,
+                            )
+                            return _error_response(
+                                403,
+                                "cross_tenant_forbidden",
+                                f"cross-tenant operation forbidden: authenticated tenant '{clean_tenant_id}' cannot operate on '{val_clean}'",
+                            )
             body_bytes = raw_body
 
     headers: dict[str, str] = {

@@ -45,7 +45,7 @@ func (c *Client) DiscoverCard(ctx context.Context, baseURL string) (*AgentCard, 
 		return nil, fmt.Errorf("agent card at %s returned status %d", cardURL, resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	if err != nil {
 		return nil, fmt.Errorf("read agent card body: %w", err)
 	}
@@ -88,7 +88,11 @@ func (c *Client) SendTask(ctx context.Context, agentURL string, task Task) (*Tas
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("send task to %s returned HTTP status %d", agentURL, resp.StatusCode)
+	}
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	if err != nil {
 		return nil, fmt.Errorf("read task response: %w", err)
 	}
@@ -142,7 +146,11 @@ func (c *Client) GetTask(ctx context.Context, agentURL string, taskID string) (*
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("get task from %s returned HTTP status %d", agentURL, resp.StatusCode)
+	}
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	if err != nil {
 		return nil, fmt.Errorf("read get response: %w", err)
 	}

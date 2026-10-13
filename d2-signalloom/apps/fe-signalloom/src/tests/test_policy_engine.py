@@ -163,3 +163,43 @@ async def test_forged_tenant_header_ignored():
             last_req = route.calls.last.request
             assert last_req.headers["X-Tenant-ID"] == EAP_TENANT_A
             assert "tenant-attacker-override" not in last_req.headers["X-Tenant-ID"]
+
+
+@pytest.mark.asyncio
+async def test_policy_engine_proxy_body_tenant_validation_and_whitespace():
+    """Test body tenant validation rejects foreign tenants and tolerates whitespace padding."""
+    policy_engine_url = getattr(settings, "policy_engine_url", "http://policy-engine:8081")
+
+    with respx.mock(assert_all_called=False) as respx_mock:
+        route = respx_mock.post(f"{policy_engine_url}/api/v1/policies/evaluate").mock(
+            return_value=httpx.Response(200, json={"compliant": True})
+        )
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # 1. Matching tenant with trailing whitespace should succeed
+            eval_payload_ws = {
+                "framework_id": "eu-ai-act",
+                "tenant_id": f"  {EAP_TENANT_A}  ",
+            }
+            resp_ws = await client.post(
+                "/api/v1/policies/evaluate",
+                json=eval_payload_ws,
+                headers=eap_bearer(EAP_ALICE),
+            )
+            assert resp_ws.status_code == 200
+            assert route.called
+
+            # 2. Foreign tenant should be rejected with 403 cross_tenant_forbidden
+            eval_payload_foreign = {
+                "framework_id": "eu-ai-act",
+                "tenant_id": EAP_TENANT_B,
+            }
+            resp_foreign = await client.post(
+                "/api/v1/policies/evaluate",
+                json=eval_payload_foreign,
+                headers=eap_bearer(EAP_ALICE),
+            )
+            assert resp_foreign.status_code == 403
+            assert resp_foreign.json()["error"]["code"] == "cross_tenant_forbidden"
+

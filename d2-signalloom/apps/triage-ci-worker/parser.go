@@ -77,7 +77,12 @@ func DeduplicateFlaky(failures []TestFailure, knownFlaky []string) (real, flaky 
 	return
 }
 
-// FormatTriageComment builds a GitHub-flavored markdown triage comment.
+const (
+	maxDisplayedFailures = 50
+	maxCommentLength     = 60000
+)
+
+// FormatTriageComment builds a GitHub-flavored markdown triage comment with bounded output.
 func FormatTriageComment(real, flaky []TestFailure) string {
 	var b strings.Builder
 
@@ -85,24 +90,40 @@ func FormatTriageComment(real, flaky []TestFailure) string {
 
 	if len(real) > 0 {
 		b.WriteString(fmt.Sprintf("### %d Real Failure(s)\n\n", len(real)))
-		for _, f := range real {
+		limit := len(real)
+		if limit > maxDisplayedFailures {
+			limit = maxDisplayedFailures
+		}
+		for i := 0; i < limit; i++ {
+			f := real[i]
 			b.WriteString(fmt.Sprintf("- **%s**", f.Name))
 			if f.Detail != "" {
 				b.WriteString(fmt.Sprintf(": `%s`", f.Detail))
 			}
 			b.WriteString("\n")
 		}
+		if len(real) > limit {
+			b.WriteString(fmt.Sprintf("\n> ... and %d more real failure(s) omitted\n", len(real)-limit))
+		}
 		b.WriteString("\n")
 	}
 
 	if len(flaky) > 0 {
 		b.WriteString(fmt.Sprintf("### %d Known Flaky Test(s) (suppressed)\n\n", len(flaky)))
-		for _, f := range flaky {
+		limit := len(flaky)
+		if limit > maxDisplayedFailures {
+			limit = maxDisplayedFailures
+		}
+		for i := 0; i < limit; i++ {
+			f := flaky[i]
 			b.WriteString(fmt.Sprintf("- ~%s~", f.Name))
 			if f.Detail != "" {
 				b.WriteString(fmt.Sprintf(": `%s`", f.Detail))
 			}
 			b.WriteString("\n")
+		}
+		if len(flaky) > limit {
+			b.WriteString(fmt.Sprintf("\n> ... and %d more flaky test(s) omitted\n", len(flaky)-limit))
 		}
 		b.WriteString("\n")
 	}
@@ -111,7 +132,16 @@ func FormatTriageComment(real, flaky []TestFailure) string {
 		b.WriteString("> All failures are known flaky tests. No action required.\n")
 	}
 
-	return b.String()
+	res := b.String()
+	if len(res) > maxCommentLength {
+		truncBanner := "\n\n> [!NOTE]\n> Triage report truncated to fit GitHub comment length constraints.\n"
+		cut := maxCommentLength - len(truncBanner)
+		if cut > 0 && cut < len(res) {
+			res = res[:cut] + truncBanner
+		}
+	}
+
+	return res
 }
 
 // SuggestLabels returns triage labels based on failure analysis.

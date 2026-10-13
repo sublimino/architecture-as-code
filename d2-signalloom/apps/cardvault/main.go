@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -77,7 +78,9 @@ func loggingMiddleware(next http.Handler) http.Handler {
 func requireAuth(username, password string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		u, p, ok := r.BasicAuth()
-		if !ok || u != username || p != password {
+		uMatch := subtle.ConstantTimeCompare([]byte(u), []byte(username))
+		pMatch := subtle.ConstantTimeCompare([]byte(p), []byte(password))
+		if !ok || (uMatch&pMatch) != 1 {
 			w.Header().Set("WWW-Authenticate", `Basic realm="cardvault"`)
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return

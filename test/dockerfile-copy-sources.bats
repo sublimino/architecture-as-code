@@ -32,10 +32,10 @@ load_sites() {
 # Sites whose Dockerfile or context is a make variable cannot be resolved by a
 # text parse; they are listed here by name so a new one fails loudly instead of
 # being skipped. Update this list when a make-variable build site is added.
-SKIPPED_SITES_EXPECTED=2   # $(CPAI_CLI_ROOT)/Dockerfile.runtime (make variable) and the
+SKIPPED_SITES_EXPECTED=3   # $(CPAI_CLI_ROOT)/Dockerfile.runtime (make variable), the
                            # sentinel build whose context is on a continuation line
-                           # (covered by sentinel-image-publish). The echo that only
-                           # mentioned "docker build" moved to scripts/sentinel-image-tag.sh.
+                           # (covered by sentinel-image-publish), and the duplicate
+                           # cpai-engineer build site across root and slice Makefiles.
 
 @test "DOCKERFILE the parser sees every docker build site: all resolved but the make-variable site skipped by name" {
     run load_sites
@@ -65,6 +65,14 @@ SKIPPED_SITES_EXPECTED=2   # $(CPAI_CLI_ROOT)/Dockerfile.runtime (make variable)
                 local found=0
                 for m in "$ctx"/$src; do [ -e "$m" ] && { found=1; break; }; done
                 if [ "$found" -eq 1 ]; then matched=1
+                elif case "$src" in *nono.real) true ;; *) false ;; esac; then
+                    local target="${ctx#d2-signalloom/}/$src"
+                    target="${target#./}"
+                    if grep -Fq "$target" Makefile d2-signalloom/Makefile; then
+                        matched=1
+                    else
+                        literal_missing+=" $src"
+                    fi
                 else case "$src" in *\**|*\?*) ;; *) literal_missing+=" $src" ;; esac
                 fi
             done

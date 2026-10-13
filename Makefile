@@ -2452,6 +2452,7 @@ test-cpai-engineer-acceptance: ## Run cpai-engineer's acceptance-tagged tests, w
 
 .PHONY: swarm-cpai-engineer-image swarm-daytona-coder-image swarm-coding-images
 swarm-cpai-engineer-image: ## Build and kind-load the cpai-engineer image (Tier 4A in-cluster sandboxed coding).
+	cp "$$(command -v nono)" d2-signalloom/apps/cpai-engineer/nono.real && chmod +x d2-signalloom/apps/cpai-engineer/nono.real
 	docker build -t cpai-engineer:local d2-signalloom/apps/cpai-engineer
 	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh cpai-engineer:local
 

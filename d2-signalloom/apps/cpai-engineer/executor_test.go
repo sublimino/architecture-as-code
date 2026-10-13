@@ -501,3 +501,132 @@ func TestExecutor_WorkspaceIsolation(t *testing.T) {
 	}
 }
 
+func TestCpaiEngineer_MethodGatesAndHEADBodySuppression(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewSessionStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("NewSessionStore: %v", err)
+	}
+	defer store.Close()
+
+	nono := NewNonoWrapper("strict")
+	executor := NewExecutor(dir, nono, store)
+	srv := newServer(executor, store)
+
+	// 1. Method gates on /tasks: allowed GET, HEAD, POST; disallowed PUT, DELETE, PATCH
+	for _, method := range []string{http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req := httptest.NewRequest(method, "/tasks", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s /tasks: expected 405 Method Not Allowed, got %d", method, w.Code)
+		}
+		allow := w.Header().Get("Allow")
+		if !strings.Contains(allow, "POST") || !strings.Contains(allow, "GET") {
+			t.Errorf("%s /tasks: expected Allow header containing GET and POST, got %q", method, allow)
+		}
+	}
+
+	// 2. Method gates on /tasks/{id}: allowed GET, HEAD; disallowed POST, PUT, DELETE, PATCH
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req := httptest.NewRequest(method, "/tasks/task-test-id", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s /tasks/{id}: expected 405 Method Not Allowed, got %d", method, w.Code)
+		}
+		allow := w.Header().Get("Allow")
+		if !strings.Contains(allow, "GET") {
+			t.Errorf("%s /tasks/{id}: expected Allow header containing GET, got %q", method, allow)
+		}
+	}
+
+	// 3. Method gates on /.well-known/agent-card.json: allowed GET, HEAD; disallowed POST, PUT, DELETE
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/.well-known/agent-card.json", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s /.well-known/agent-card.json: expected 405, got %d", method, w.Code)
+		}
+		allow := w.Header().Get("Allow")
+		if !strings.Contains(allow, "GET") {
+			t.Errorf("%s /.well-known/agent-card.json: expected Allow containing GET, got %q", method, allow)
+		}
+	}
+
+	// 4. Method gates on /health, /healthz, /readyz: allowed GET, HEAD; disallowed POST, PUT, DELETE
+	for _, path := range []string{"/health", "/healthz", "/readyz"} {
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+			req := httptest.NewRequest(method, path, nil)
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+			if w.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s: expected 405, got %d", method, path, w.Code)
+			}
+			allow := w.Header().Get("Allow")
+			if !strings.Contains(allow, "GET") {
+				t.Errorf("%s %s: expected Allow containing GET, got %q", method, path, allow)
+			}
+		}
+	}
+
+	// 5. HEAD response body suppression on 404 (non-existent task ID)
+	headNotFound := httptest.NewRequest(http.MethodHead, "/tasks/missing-task-404", nil)
+	wNotFound := httptest.NewRecorder()
+	srv.ServeHTTP(wNotFound, headNotFound)
+	if wNotFound.Code != http.StatusNotFound {
+		t.Errorf("HEAD /tasks/missing: expected 404, got %d", wNotFound.Code)
+	}
+	if wNotFound.Body.Len() != 0 {
+		t.Errorf("HEAD /tasks/missing: expected 0 body bytes, got %d", wNotFound.Body.Len())
+	}
+	if ct := wNotFound.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("HEAD /tasks/missing: expected Content-Type application/json, got %q", ct)
+	}
+
+	// 6. HEAD response body suppression on 404 (unknown route)
+	headUnknown := httptest.NewRequest(http.MethodHead, "/unknown-route-999", nil)
+	wUnknown := httptest.NewRecorder()
+	srv.ServeHTTP(wUnknown, headUnknown)
+	if wUnknown.Code != http.StatusNotFound {
+		t.Errorf("HEAD /unknown: expected 404, got %d", wUnknown.Code)
+	}
+	if wUnknown.Body.Len() != 0 {
+		t.Errorf("HEAD /unknown: expected 0 body bytes, got %d", wUnknown.Body.Len())
+	}
+
+	// 7. Verify writeError with HEAD request via middleware suppresses body across all HTTP status codes
+	statuses := []int{
+		http.StatusOK,
+		http.StatusAccepted,
+		http.StatusBadRequest,
+		http.StatusUnauthorized,
+		http.StatusForbidden,
+		http.StatusNotFound,
+		http.StatusMethodNotAllowed,
+		http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+	}
+	for _, status := range statuses {
+		handler := headBodySuppressingMiddleware(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			writeError(rw, status, "error occurred")
+		}))
+		headReq := httptest.NewRequest(http.MethodHead, "/test-err", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, headReq)
+		if rec.Code != status {
+			t.Errorf("status %d: got %d", status, rec.Code)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("status %d: expected 0 body bytes on HEAD, got %d: %q", status, rec.Body.Len(), rec.Body.String())
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("status %d: expected Content-Type application/json, got %q", status, ct)
+		}
+	}
+}
+
+

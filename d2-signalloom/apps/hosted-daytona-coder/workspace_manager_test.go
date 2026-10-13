@@ -469,4 +469,117 @@ func TestHeadErrorBodySuppression(t *testing.T) {
 	}
 }
 
+func TestWorkspaceManager_MethodGates(t *testing.T) {
+	mgr := NewWorkspaceManager("test-ns")
+	srv := newServer(mgr)
+
+	// 1. /workspaces: allowed GET, HEAD, POST; disallowed PUT, DELETE, PATCH
+	for _, m := range []string{http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req := httptest.NewRequest(m, "/workspaces", nil)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s /workspaces: expected 405, got %d", m, rec.Code)
+		}
+		allow := rec.Header().Get("Allow")
+		if !strings.Contains(allow, "POST") || !strings.Contains(allow, "GET") {
+			t.Errorf("%s /workspaces: expected Allow header with GET and POST, got %q", m, allow)
+		}
+	}
+
+	// 2. /workspaces/{id}: allowed DELETE, GET, HEAD; disallowed POST, PUT, PATCH
+	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodPatch} {
+		req := httptest.NewRequest(m, "/workspaces/ws-12345", nil)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s /workspaces/{id}: expected 405, got %d", m, rec.Code)
+		}
+		allow := rec.Header().Get("Allow")
+		if !strings.Contains(allow, "DELETE") || !strings.Contains(allow, "GET") {
+			t.Errorf("%s /workspaces/{id}: expected Allow header with DELETE and GET, got %q", m, allow)
+		}
+	}
+
+	// 3. /health, /healthz, /readyz: allowed GET, HEAD; disallowed POST, PUT, DELETE
+	for _, path := range []string{"/health", "/healthz", "/readyz"} {
+		for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+			req := httptest.NewRequest(m, path, nil)
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, req)
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s: expected 405, got %d", m, path, rec.Code)
+			}
+			allow := rec.Header().Get("Allow")
+			if !strings.Contains(allow, "GET") {
+				t.Errorf("%s %s: expected Allow header with GET, got %q", m, path, allow)
+			}
+		}
+	}
+}
+
+func TestHeadErrorBodySuppression_AllStatuses(t *testing.T) {
+	mgr := NewWorkspaceManager("test-ns")
+	srv := newServer(mgr)
+
+	ws, err := mgr.Create(WorkspaceRequest{PVC: "valid-pvc", User: "alice", TenantID: "tenant-a"})
+	if err != nil {
+		t.Fatalf("failed to create workspace: %v", err)
+	}
+
+	// 1. HEAD on 403 Forbidden (cross-tenant query conflict)
+	head403 := httptest.NewRequest(http.MethodHead, "/workspaces?tenant=tenant-b", nil)
+	head403.Header.Set("X-Tenant-ID", "tenant-a")
+	rec403 := httptest.NewRecorder()
+	srv.ServeHTTP(rec403, head403)
+	if rec403.Code != http.StatusForbidden {
+		t.Errorf("HEAD query conflict: expected 403, got %d", rec403.Code)
+	}
+	if rec403.Body.Len() != 0 {
+		t.Errorf("HEAD 403: expected 0 body bytes, got %d: %q", rec403.Body.Len(), rec403.Body.String())
+	}
+	if ct := rec403.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("HEAD 403: expected application/json, got %q", ct)
+	}
+
+	// 2. HEAD on 404 Not Found (cross-tenant workspace access)
+	head404 := httptest.NewRequest(http.MethodHead, "/workspaces/"+ws.WorkspaceID, nil)
+	head404.Header.Set("X-Tenant-ID", "tenant-b")
+	rec404 := httptest.NewRecorder()
+	srv.ServeHTTP(rec404, head404)
+	if rec404.Code != http.StatusNotFound {
+		t.Errorf("HEAD cross-tenant ws: expected 404, got %d", rec404.Code)
+	}
+	if rec404.Body.Len() != 0 {
+		t.Errorf("HEAD 404: expected 0 body bytes, got %d: %q", rec404.Body.Len(), rec404.Body.String())
+	}
+
+	// 3. HEAD response body suppression across all standard error codes via writeError and middleware
+	statuses := []int{
+		http.StatusBadRequest,
+		http.StatusForbidden,
+		http.StatusNotFound,
+		http.StatusMethodNotAllowed,
+		http.StatusServiceUnavailable,
+	}
+	for _, status := range statuses {
+		handler := headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			writeError(w, status, "error occurred")
+		}))
+		req := httptest.NewRequest(http.MethodHead, "/error-test", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != status {
+			t.Errorf("status %d: expected %d, got %d", status, status, rec.Code)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("status %d: expected 0 body bytes on HEAD, got %d: %q", status, rec.Body.Len(), rec.Body.String())
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("status %d: expected Content-Type application/json, got %q", status, ct)
+		}
+	}
+}
+
+
 

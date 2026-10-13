@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -294,7 +295,7 @@ func TestLLMErrorHandling(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mock := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodPost {
 					w.Header().Set("Allow", "POST")
 					w.Header().Set("Content-Type", "application/json")
@@ -309,8 +310,25 @@ func TestLLMErrorHandling(t *testing.T) {
 				if r.Method != http.MethodHead {
 					w.Write([]byte(tc.body))
 				}
-			}))
+			})))
 			defer mock.Close()
+
+			// Assert HEAD request is rejected with 405 Method Not Allowed, Allow: POST, and 0 body bytes
+			headResp, err := http.Head(mock.URL + "/v1/chat/completions")
+			if err != nil {
+				t.Fatalf("HEAD: %v", err)
+			}
+			headBody, _ := io.ReadAll(headResp.Body)
+			headResp.Body.Close()
+			if headResp.StatusCode != http.StatusMethodNotAllowed {
+				t.Errorf("HEAD: expected 405, got %d", headResp.StatusCode)
+			}
+			if allow := headResp.Header.Get("Allow"); allow != "POST" {
+				t.Errorf("HEAD: expected Allow: POST, got %q", allow)
+			}
+			if len(headBody) != 0 {
+				t.Errorf("HEAD: expected 0 body bytes, got %d: %q", len(headBody), string(headBody))
+			}
 
 			resp, err := http.Post(mock.URL+"/v1/chat/completions", "application/json",
 				strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"test"}],"max_tokens":100}`))
@@ -458,3 +476,90 @@ func TestAnthropicMessagesAPIFormat(t *testing.T) {
 		t.Errorf("expected content type=text, got %q", parsed.Content[0].Type)
 	}
 }
+
+func TestLLM_MockServer_HEADBodySuppressionAcrossStatuses(t *testing.T) {
+	statuses := []int{
+		http.StatusOK,
+		http.StatusBadRequest,
+		http.StatusUnauthorized,
+		http.StatusForbidden,
+		http.StatusNotFound,
+		http.StatusMethodNotAllowed,
+		http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+	}
+
+	for _, status := range statuses {
+		mock := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				w.Header().Set("Allow", "GET, HEAD")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write([]byte(`{"error":{"message":"method not allowed"}}`))
+				}
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write([]byte(fmt.Sprintf(`{"status":%d,"message":"status payload"}`, status)))
+			}
+		})))
+
+		// 1. GET returns body
+		getResp, err := http.Get(mock.URL + "/status")
+		if err != nil {
+			mock.Close()
+			t.Fatalf("GET status %d: %v", status, err)
+		}
+		getBody, _ := io.ReadAll(getResp.Body)
+		getResp.Body.Close()
+		if getResp.StatusCode != status {
+			mock.Close()
+			t.Errorf("status %d: GET got %d", status, getResp.StatusCode)
+		}
+		if len(getBody) == 0 {
+			mock.Close()
+			t.Errorf("status %d: GET expected non-empty body", status)
+		}
+
+		// 2. HEAD returns identical headers and status, but 0 body bytes per RFC 9110 Section 6.4.1
+		headResp, err := http.Head(mock.URL + "/status")
+		if err != nil {
+			mock.Close()
+			t.Fatalf("HEAD status %d: %v", status, err)
+		}
+		headBody, _ := io.ReadAll(headResp.Body)
+		headResp.Body.Close()
+
+		// 3. Disallowed method (POST) returns 405 Method Not Allowed with Allow: GET, HEAD
+		postResp, err := http.Post(mock.URL+"/status", "application/json", strings.NewReader(`{}`))
+		if err != nil {
+			mock.Close()
+			t.Fatalf("POST status %d: %v", status, err)
+		}
+		postResp.Body.Close()
+		if postResp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("status %d: POST got status %d, want 405", status, postResp.StatusCode)
+		}
+		if allow := postResp.Header.Get("Allow"); allow != "GET, HEAD" {
+			t.Errorf("status %d: expected Allow 'GET, HEAD', got %q", status, allow)
+		}
+
+		mock.Close()
+
+		if headResp.StatusCode != status {
+			t.Errorf("status %d: HEAD got status %d", status, headResp.StatusCode)
+		}
+		if len(headBody) != 0 {
+			t.Errorf("status %d: HEAD expected 0 body bytes, got %d: %q", status, len(headBody), string(headBody))
+		}
+		if ct := headResp.Header.Get("Content-Type"); ct != "application/json" {
+			t.Errorf("status %d: HEAD expected Content-Type application/json, got %q", status, ct)
+		}
+	}
+}
+

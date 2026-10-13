@@ -309,3 +309,91 @@ func TestAuthenticateToleratesBearerWhitespace(t *testing.T) {
 		t.Fatalf("expected errNoCredential for whitespace-only token, got %v", err)
 	}
 }
+
+func TestCallerAuth_MethodGatesAndHEADBodySuppression(t *testing.T) {
+	s := newTestServer(t)
+	s.callerKeys = testCallerKeys(t)
+	h := s.routes()
+
+	mutatingRoutes := []string{
+		"/api/v1/fleet/stun/a",
+		"/api/v1/fleet/resume",
+		"/api/v1/fleet/resume/a",
+		"/api/v1/fleet/recover",
+		"/api/v1/fleet/deploy",
+		"/api/v1/fleet/scan",
+		"/api/v1/fleet/reset",
+	}
+
+	// 1. Unauthenticated HEAD on mutating routes -> 401 Unauthorized with 0 body bytes
+	for _, p := range mutatingRoutes {
+		w := call(t, h, http.MethodHead, p, "")
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("HEAD %s without key: got %d, want 401", p, w.Code)
+		}
+		if w.Body.Len() != 0 {
+			t.Errorf("HEAD %s without key: expected 0 body bytes, got %d: %q", p, w.Body.Len(), w.Body.String())
+		}
+		if !strings.Contains(w.Header().Get("WWW-Authenticate"), "Bearer") {
+			t.Errorf("HEAD %s without key: expected WWW-Authenticate Bearer header, got %q", p, w.Header().Get("WWW-Authenticate"))
+		}
+	}
+
+	// 2. Insufficient scope HEAD on mutating routes -> 403 Forbidden with 0 body bytes
+	for _, p := range []string{"/api/v1/fleet/recover", "/api/v1/fleet/deploy", "/api/v1/fleet/scan", "/api/v1/fleet/reset"} {
+		w := call(t, h, http.MethodHead, p, "", "Bearer "+sentinelKey)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("HEAD %s with sentinel key: got %d, want 403", p, w.Code)
+		}
+		if w.Body.Len() != 0 {
+			t.Errorf("HEAD %s with sentinel key: expected 0 body bytes, got %d: %q", p, w.Body.Len(), w.Body.String())
+		}
+	}
+
+	// 3. Authorized mutating routes with incorrect methods -> 405 Method Not Allowed with Allow: POST
+	for _, p := range []string{"/api/v1/fleet/recover", "/api/v1/fleet/deploy", "/api/v1/fleet/scan", "/api/v1/fleet/reset"} {
+		// GET request
+		wGet := call(t, h, http.MethodGet, p, "", "Bearer "+operatorKey)
+		if wGet.Code != http.StatusMethodNotAllowed {
+			t.Errorf("GET %s with operator key: got %d, want 405", p, wGet.Code)
+		}
+		if allow := wGet.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("GET %s: expected Allow: POST, got %q", p, allow)
+		}
+
+		// HEAD request -> 405 with Allow: POST and 0 body bytes
+		wHead := call(t, h, http.MethodHead, p, "", "Bearer "+operatorKey)
+		if wHead.Code != http.StatusMethodNotAllowed {
+			t.Errorf("HEAD %s with operator key: got %d, want 405", p, wHead.Code)
+		}
+		if allow := wHead.Header().Get("Allow"); allow != "POST" {
+			t.Errorf("HEAD %s: expected Allow: POST, got %q", p, allow)
+		}
+		if wHead.Body.Len() != 0 {
+			t.Errorf("HEAD %s with operator key: expected 0 body bytes, got %d: %q", p, wHead.Body.Len(), wHead.Body.String())
+		}
+	}
+
+	// 4. Read routes HEAD -> 200 OK with 0 body bytes; disallowed methods -> 405 with Allow: GET, HEAD
+	readRoutes := []string{"/health", "/healthz", "/api/v1/fleet/topology"}
+	for _, p := range readRoutes {
+		wHead := call(t, h, http.MethodHead, p, "")
+		if wHead.Code != http.StatusOK {
+			t.Errorf("HEAD %s: got %d, want 200", p, wHead.Code)
+		}
+		if wHead.Body.Len() != 0 {
+			t.Errorf("HEAD %s: expected 0 body bytes, got %d: %q", p, wHead.Body.Len(), wHead.Body.String())
+		}
+
+		for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+			wMethod := call(t, h, m, p, "{}")
+			if wMethod.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s: got %d, want 405", m, p, wMethod.Code)
+			}
+			if allow := wMethod.Header().Get("Allow"); allow != "GET, HEAD" {
+				t.Errorf("%s %s: expected Allow: GET, HEAD, got %q", m, p, allow)
+			}
+		}
+	}
+}
+

@@ -4,7 +4,7 @@
 # ==============================================================================
 
 setup() {
-  TEST_DIR="$(mktemp -d)"
+  TEST_DIR="$(mktemp -d /tmp/slsi-test-XXXXXX)"
   TENANT_ID="tenant-$(date +%s)-$RANDOM"
   OUTPUT_DIR="${TEST_DIR}/${TENANT_ID}"
   PASSPHRASE="test-passphrase-$(date +%s)"
@@ -14,6 +14,7 @@ teardown() {
   if [[ -n "${TEST_DIR:-}" && -d "${TEST_DIR}" ]]; then
     rm -rf "${TEST_DIR}"
   fi
+  rm -f "/tmp/osramp-${TENANT_ID}.kubeconfig" "/tmp/osramp.kubeconfig"
 }
 
 @test "export-diagnostics.sh creates encrypted archive with mode 0600" {

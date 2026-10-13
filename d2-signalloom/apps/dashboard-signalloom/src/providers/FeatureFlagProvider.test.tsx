@@ -7,6 +7,7 @@ import {
   clearFeatureFlagCache,
 } from './FeatureFlagProvider'
 import * as featuresApi from '../api/featuresApi'
+import * as oidc from '../auth/oidc'
 import { DEFAULT_SYSTEM_FLAGS } from '../types/features'
 
 function ConsumerComponent(): React.JSX.Element {
@@ -37,7 +38,7 @@ function ConsumerComponent(): React.JSX.Element {
 
 describe('FeatureFlagProvider', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.restoreAllMocks()
     clearFeatureFlagCache()
   })
 
@@ -197,5 +198,75 @@ describe('FeatureFlagProvider', () => {
     // UI remains stable with default system flags
     expect(screen.getByTestId('core_governance').textContent).toBe('enabled')
     expect(screen.getByTestId('demos_fleet').textContent).toBe('disabled')
+  })
+
+  it('does not call getAccessTokenSilently when auth.isAuthenticated is false', async () => {
+    const getAccessTokenSilently = vi.fn().mockRejectedValue(new Error('Token expired'))
+    vi.spyOn(oidc, 'useAuth0').mockReturnValue({
+      isAuthenticated: false,
+      isLoading: false,
+      loginWithRedirect: vi.fn(),
+      logout: vi.fn(),
+      getAccessTokenSilently,
+      user: undefined,
+    })
+    vi.spyOn(featuresApi, 'fetchFeatures').mockResolvedValue({
+      tenant_id: 'default',
+      flags: { ...DEFAULT_SYSTEM_FLAGS },
+    })
+
+    render(
+      <FeatureFlagProvider>
+        <ConsumerComponent />
+      </FeatureFlagProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loading').textContent).toBe('ready')
+    })
+
+    expect(getAccessTokenSilently).not.toHaveBeenCalled()
+  })
+
+  it('defers feature flag fetch while auth.isLoading is true', async () => {
+    const fetchSpy = vi.spyOn(featuresApi, 'fetchFeatures').mockResolvedValue({
+      tenant_id: 'default',
+      flags: { ...DEFAULT_SYSTEM_FLAGS },
+    })
+    const useAuth0Spy = vi.spyOn(oidc, 'useAuth0').mockReturnValue({
+      isAuthenticated: false,
+      isLoading: true,
+      loginWithRedirect: vi.fn(),
+      logout: vi.fn(),
+      getAccessTokenSilently: vi.fn().mockResolvedValue(''),
+      user: undefined,
+    })
+
+    const { rerender } = render(
+      <FeatureFlagProvider>
+        <ConsumerComponent />
+      </FeatureFlagProvider>,
+    )
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+
+    useAuth0Spy.mockReturnValue({
+      isAuthenticated: false,
+      isLoading: false,
+      loginWithRedirect: vi.fn(),
+      logout: vi.fn(),
+      getAccessTokenSilently: vi.fn().mockResolvedValue(''),
+      user: undefined,
+    })
+
+    rerender(
+      <FeatureFlagProvider>
+        <ConsumerComponent />
+      </FeatureFlagProvider>,
+    )
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+    })
   })
 })

@@ -149,6 +149,12 @@ export function FeatureFlagProvider({
       return
     }
 
+    if (!auth?.isAuthenticated) {
+      setToken(null)
+      setInferredTenantId(null)
+      return
+    }
+
     if (auth?.getAccessTokenSilently) {
       auth
         .getAccessTokenSilently()
@@ -169,7 +175,7 @@ export function FeatureFlagProvider({
     return () => {
       mounted = false
     }
-  }, [auth, explicitTenantId])
+  }, [auth?.isAuthenticated, auth?.getAccessTokenSilently, explicitTenantId])
 
   const targetTenant = explicitTenantId ?? inferredTenantId
   const activeTenantKey = targetTenant ?? 'default'
@@ -234,6 +240,11 @@ export function FeatureFlagProvider({
       return
     }
 
+    // Defer fetch while OIDC auth state is still loading
+    if (auth?.isLoading) {
+      return
+    }
+
     // If authenticated via Auth0 but token is still resolving, defer fetch
     if (auth?.isAuthenticated && !token) {
       return
@@ -250,7 +261,7 @@ export function FeatureFlagProvider({
     return () => {
       mounted = false
     }
-  }, [auth?.isAuthenticated, disableAutoFetch, performFetch, token])
+  }, [auth?.isAuthenticated, auth?.isLoading, disableAutoFetch, performFetch, token])
 
   const refetch = useCallback(async () => {
     await performFetch(true)

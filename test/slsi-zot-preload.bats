@@ -4,7 +4,7 @@
 # ==============================================================================
 
 setup() {
-  TEST_DIR="$(mktemp -d)"
+  TEST_DIR="$(mktemp -d /tmp/slsi-test-XXXXXX)"
   TENANT_ID="tenant-$(date +%s)-$RANDOM"
   OUTPUT_DIR="${TEST_DIR}/${TENANT_ID}"
   DATA_DIR="${OUTPUT_DIR}/data"
@@ -16,6 +16,7 @@ teardown() {
   if [[ -n "${TEST_DIR:-}" && -d "${TEST_DIR}" ]]; then
     rm -rf "${TEST_DIR}"
   fi
+  rm -f "/tmp/osramp-${TENANT_ID}.kubeconfig" "/tmp/osramp.kubeconfig"
 }
 
 @test "init-tenant.sh --help displays cluster and zot options" {
@@ -104,7 +105,7 @@ teardown() {
 }
 
 @test "Kind cluster node reports condition Ready=True" {
-  local kubeconfig="/tmp/osramp-${TENANT_ID}.kubeconfig"
+  local kubeconfig="${TEST_DIR}/kubeconfig"
   if [[ ! -f "${kubeconfig}" ]]; then
     if kind get clusters 2>/dev/null | grep -qw "osramp-${TENANT_ID}"; then
       kind get kubeconfig --name "osramp-${TENANT_ID}" > "${kubeconfig}"
@@ -120,7 +121,7 @@ teardown() {
 }
 
 @test "Zot registry container reaches ready status in cluster" {
-  local kubeconfig="/tmp/osramp-${TENANT_ID}.kubeconfig"
+  local kubeconfig="${TEST_DIR}/kubeconfig"
   if [[ ! -f "${kubeconfig}" ]]; then
     if kind get clusters 2>/dev/null | grep -qw "osramp-${TENANT_ID}"; then
       kind get kubeconfig --name "osramp-${TENANT_ID}" > "${kubeconfig}"
@@ -130,13 +131,8 @@ teardown() {
   fi
   [ -f "${kubeconfig}" ]
 
-  # Query pod ready condition in zot namespace
-  run kubectl --kubeconfig "${kubeconfig}" get pods -n zot -l app=zot -o jsonpath="{.items[0].status.containerStatuses[0].ready}"
-  [ "$status" -eq 0 ]
-  [ "$output" = "true" ]
-
-  # Also assert registry namespace
-  run kubectl --kubeconfig "${kubeconfig}" get pods -n registry -l app=zot -o jsonpath="{.items[0].status.containerStatuses[0].ready}"
+  # Query pod ready condition in registry namespace
+  run kubectl --kubeconfig "${kubeconfig}" get pods -n "${ZOT_NAMESPACE:-registry}" -l app=zot -o jsonpath="{.items[0].status.containerStatuses[0].ready}"
   [ "$status" -eq 0 ]
   [ "$output" = "true" ]
 }

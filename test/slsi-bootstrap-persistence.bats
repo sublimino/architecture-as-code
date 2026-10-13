@@ -8,7 +8,7 @@
 # ==============================================================================
 
 setup() {
-  TEST_DIR="$(mktemp -d)"
+  TEST_DIR="$(mktemp -d /tmp/slsi-test-XXXXXX)"
   TENANT_A="tenant-a-$RANDOM"
   TENANT_B="tenant-b-$RANDOM"
   DIR_A="${TEST_DIR}/${TENANT_A}"
@@ -20,6 +20,9 @@ teardown() {
   if [[ -n "${TEST_DIR:-}" && -d "${TEST_DIR}" ]]; then
     rm -rf "${TEST_DIR}"
   fi
+  rm -f "/tmp/osramp-${TENANT_A}.kubeconfig" "/tmp/osramp-${TENANT_B}.kubeconfig"
+  rm -f "/tmp/osramp-tenant-persist-"*".kubeconfig" "/tmp/osramp-tenant-hub-"*".kubeconfig" "/tmp/osramp-tenant-attached-"*".kubeconfig"
+  rm -f "/tmp/osramp.kubeconfig"
 }
 
 @test "two consecutive runs produce disjoint cryptographic keys and distinct escrow archives" {

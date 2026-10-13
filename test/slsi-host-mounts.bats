@@ -4,7 +4,7 @@
 # ==============================================================================
 
 setup() {
-  TEST_DIR="$(mktemp -d)"
+  TEST_DIR="$(mktemp -d /tmp/slsi-test-XXXXXX)"
   TENANT_ID="tenant-$(date +%s)-$RANDOM"
   OUTPUT_DIR="${TEST_DIR}/${TENANT_ID}"
   DATA_DIR="${OUTPUT_DIR}/data"
@@ -16,6 +16,7 @@ teardown() {
   if [[ -n "${TEST_DIR:-}" && -d "${TEST_DIR}" ]]; then
     rm -rf "${TEST_DIR}"
   fi
+  rm -f "/tmp/osramp-${TENANT_ID}.kubeconfig" "/tmp/osramp.kubeconfig"
 }
 
 @test "init-tenant.sh stage p2-2 initializes host directories with mode 0700" {

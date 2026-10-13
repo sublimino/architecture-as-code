@@ -4,7 +4,7 @@
 # ==============================================================================
 
 setup() {
-  TEST_DIR="$(mktemp -d)"
+  TEST_DIR="$(mktemp -d /tmp/slsi-test-XXXXXX)"
   TENANT_A="tenant-$(date +%s)-a"
   TENANT_B="tenant-$(date +%s)-b"
   PASSPHRASE="test-passphrase-$(date +%s)"
@@ -14,6 +14,7 @@ teardown() {
   if [[ -n "${TEST_DIR:-}" && -d "${TEST_DIR}" ]]; then
     rm -rf "${TEST_DIR}"
   fi
+  rm -f "/tmp/osramp-${TENANT_A}.kubeconfig" "/tmp/osramp-${TENANT_B}.kubeconfig" "/tmp/osramp.kubeconfig"
 }
 
 @test "init-tenant.sh --help displays usage" {

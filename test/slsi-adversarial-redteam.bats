@@ -5,7 +5,7 @@
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_FILENAME%/*}/.." && pwd)"
-  TEST_DIR="$(mktemp -d)"
+  TEST_DIR="$(mktemp -d /tmp/slsi-test-XXXXXX)"
   TENANT_ID="redteam-$(date +%s)-$RANDOM"
   OUTPUT_DIR="${TEST_DIR}/${TENANT_ID}"
   PASSPHRASE="redteam-passphrase-${RANDOM}"
@@ -15,6 +15,7 @@ teardown() {
   if [[ -n "${TEST_DIR:-}" && -d "${TEST_DIR}" ]]; then
     rm -rf "${TEST_DIR}"
   fi
+  rm -f "/tmp/osramp-${TENANT_ID}.kubeconfig" "/tmp/osramp.kubeconfig"
 }
 
 @test "threat vector 1: host disk key permission enforcement (0600 private, 0644 public, 0700 dir)" {

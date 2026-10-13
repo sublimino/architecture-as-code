@@ -312,7 +312,11 @@ parse_args() {
   fi
 
   if [[ -z "$KUBECONFIG_PATH" ]]; then
-    KUBECONFIG_PATH="/tmp/${CLUSTER_NAME}.kubeconfig"
+    if [[ -n "${TENANT_ID:-}" ]]; then
+      KUBECONFIG_PATH="/tmp/osramp-${TENANT_ID}.kubeconfig"
+    else
+      KUBECONFIG_PATH="/tmp/${CLUSTER_NAME}.kubeconfig"
+    fi
   fi
 
   if [[ -z "$PRELOAD_MANIFEST" ]]; then
@@ -829,55 +833,9 @@ stage_p2_3_bootstrap() {
       echo "Deploying in-cluster Zot registry from ${ZOT_MANIFEST}..."
       "${kubectl_bin}" --kubeconfig "${KUBECONFIG_PATH}" apply -f "${ZOT_MANIFEST}"
 
-      # Also ensure dual namespace presence to satisfy prompt contracts and callers
-      "${kubectl_bin}" --kubeconfig "${KUBECONFIG_PATH}" apply -f - <<EOF
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: zot
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: zot
-  namespace: zot
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: zot
-  template:
-    metadata:
-      labels:
-        app: zot
-    spec:
-      containers:
-        - name: zot
-          image: busybox:1.36.1
-          command: ["sh", "-c", "sleep infinity"]
-          readinessProbe:
-            exec:
-              command: ["true"]
-            initialDelaySeconds: 1
-            periodSeconds: 2
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: zot
-  namespace: zot
-spec:
-  type: ExternalName
-  externalName: zot.registry.svc.cluster.local
-  ports:
-    - port: 5000
-      targetPort: 5000
-EOF
-
       # Wait for Zot rollout in registry namespace
-      echo "Waiting for deploy/zot rollout in registry namespace..."
-      "${kubectl_bin}" --kubeconfig "${KUBECONFIG_PATH}" -n registry rollout status deploy/zot --timeout=120s
-      "${kubectl_bin}" --kubeconfig "${KUBECONFIG_PATH}" -n zot rollout status deploy/zot --timeout=60s || true
+      echo "Waiting for deploy/zot rollout in ${ZOT_NAMESPACE:-registry} namespace..."
+      "${kubectl_bin}" --kubeconfig "${KUBECONFIG_PATH}" -n "${ZOT_NAMESPACE:-registry}" rollout status deploy/zot --timeout=120s
     else
       echo "WARNING: Zot manifest not found; skipping in-cluster registry deploy" >&2
     fi

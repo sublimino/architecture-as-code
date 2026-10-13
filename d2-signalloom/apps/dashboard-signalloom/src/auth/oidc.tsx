@@ -42,6 +42,8 @@ export const oidcConfig = {
   stateStore: new WebStorageStateStore({ store: window.localStorage }),
   automaticSilentRenew: false,
   onSigninCallback: () => {
+    redirectInFlightPromise = null
+    lastRedirectTime = 0
     try {
       sessionStorage.removeItem(LOGGED_OUT_KEY)
     } catch {}
@@ -62,6 +64,44 @@ export function isPublicRoute(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => clean === p || clean.startsWith(`${p}/`))
 }
 
+let redirectInFlightPromise: Promise<void> | null = null
+let lastRedirectTime = 0
+export const REDIRECT_COOLDOWN_MS = 3000
+
+export function resetOidcRedirectGuardForTests(): void {
+  redirectInFlightPromise = null
+  lastRedirectTime = 0
+}
+
+function triggerSigninRedirect(
+  auth: ReturnType<typeof useAuth> | undefined,
+  extraQueryParams: Record<string, string> = { prompt: 'login' },
+): Promise<void> {
+  const now = Date.now()
+  if (
+    redirectInFlightPromise ||
+    auth?.activeNavigator ||
+    (lastRedirectTime > 0 && now - lastRedirectTime < REDIRECT_COOLDOWN_MS)
+  ) {
+    return redirectInFlightPromise ?? Promise.resolve()
+  }
+  if (typeof auth?.signinRedirect !== 'function') {
+    return Promise.reject(new Error('signinRedirect unavailable'))
+  }
+  lastRedirectTime = now
+  const p = Promise.resolve(auth.signinRedirect({ extraQueryParams }))
+    .then(() => {
+      redirectInFlightPromise = null
+    })
+    .catch((err) => {
+      redirectInFlightPromise = null
+      lastRedirectTime = 0
+      throw err
+    })
+  redirectInFlightPromise = p
+  return p
+}
+
 function AutoSignIn({ children }: Props) {
   const auth = useAuth()
   const triggered = useRef(false)
@@ -78,8 +118,10 @@ function AutoSignIn({ children }: Props) {
       } catch {}
 
       if (typeof auth?.signinRedirect === 'function') {
-        window.localStorage.setItem('signalloom-return-to', `${window.location.pathname}${window.location.search}`)
-        auth.signinRedirect({ extraQueryParams: { prompt: 'login' } }).catch(() => {
+        try {
+          window.localStorage?.setItem('signalloom-return-to', `${window.location.pathname}${window.location.search}`)
+        } catch {}
+        triggerSigninRedirect(auth).catch(() => {
           window.location.href = '/login'
         })
       } else {
@@ -112,8 +154,10 @@ function AutoSignIn({ children }: Props) {
       !auth?.error
     ) {
       triggered.current = true
-      window.localStorage.setItem('signalloom-return-to', `${window.location.pathname}${window.location.search}`)
-      auth.signinRedirect({ extraQueryParams: { prompt: 'login' } }).catch((e) => console.error('[oidc-signin-error]', e))
+      try {
+        window.localStorage?.setItem('signalloom-return-to', `${window.location.pathname}${window.location.search}`)
+      } catch {}
+      triggerSigninRedirect(auth).catch((e) => console.error('[oidc-signin-error]', e))
     }
   }, [auth?.isAuthenticated, auth?.activeNavigator, auth?.isLoading, auth?.error, auth])
   return <>{children}</>
@@ -130,35 +174,50 @@ export function OidcProvider({ children }: Props) {
 export function useAuth0() {
   let auth: ReturnType<typeof useAuth> | undefined
   try { auth = useAuth() } catch {}
-  const signinRedirect = auth?.signinRedirect ?? (() => Promise.resolve())
+  const authRef = useRef(auth)
+  authRef.current = auth
+
+  const user = auth?.user
+  const isExpired = Boolean(
+    user?.expired || (user?.expires_at ? user.expires_at - Date.now() / 1000 < 30 : false),
+  )
+  const isAuthenticated = Boolean(auth?.isAuthenticated && !isExpired)
+
   // Stable across renders unless the token itself changes. The Auth0 SDK this
   // shim replaces returned stable callbacks; consumers put getAccessTokenSilently
   // in useCallback/useEffect deps, so an unstable ref causes an infinite refetch
   // loop. Keep these referentially stable to preserve the original behaviour.
-  const token = auth?.user?.access_token ?? auth?.user?.id_token ?? ''
+  const token = user?.access_token ?? user?.id_token ?? ''
   const getAccessTokenSilently = useCallback(async (): Promise<string> => {
-    const user = auth?.user
-    const isExpired = Boolean(user?.expired || (user?.expires_at ? (user.expires_at - Date.now() / 1000) < 30 : false))
+    const currentAuth = authRef.current
+    const currentUser = currentAuth?.user
+    const currentIsExpired = Boolean(
+      currentUser?.expired ||
+        (currentUser?.expires_at ? currentUser.expires_at - Date.now() / 1000 < 30 : false),
+    )
 
-    if (token && !isExpired) {
+    if (token && !currentIsExpired) {
       return token
     }
 
-    if (isExpired && typeof auth?.signinRedirect === 'function') {
+    if (currentIsExpired && typeof currentAuth?.signinRedirect === 'function') {
       let isLoggedOut = false
       try {
         isLoggedOut = sessionStorage.getItem(LOGGED_OUT_KEY) === 'true'
       } catch {}
 
       if (!isPublicRoute(window.location.pathname) && !isLoggedOut) {
-        window.localStorage.setItem('signalloom-return-to', `${window.location.pathname}${window.location.search}`)
-        auth.signinRedirect({ extraQueryParams: { prompt: 'login' } }).catch(() => {})
+        try {
+          window.localStorage?.setItem('signalloom-return-to', `${window.location.pathname}${window.location.search}`)
+        } catch {}
+        triggerSigninRedirect(currentAuth).catch(() => {})
       }
       throw new Error('Token expired: re-authenticating')
     }
 
     return token
-  }, [auth, token])
+  }, [token])
+
   // Accept (and ignore) the Auth0-style options arg the call sites still pass.
   const loginWithRedirect = useCallback(
     (opts?: unknown): void => {
@@ -166,28 +225,29 @@ export function useAuth0() {
       try {
         sessionStorage.removeItem(LOGGED_OUT_KEY)
       } catch {}
-      signinRedirect({ extraQueryParams: { prompt: 'login' } })
+      triggerSigninRedirect(authRef.current).catch(() => {})
     },
-    [signinRedirect],
+    [],
   )
-  const removeUser = auth?.removeUser ?? (() => Promise.resolve())
+
   const logout = useCallback(
     (opts?: unknown): void => {
       void opts
       try {
         sessionStorage.setItem(LOGGED_OUT_KEY, 'true')
       } catch {}
+      const removeUser = authRef.current?.removeUser ?? (() => Promise.resolve())
       removeUser().then(() => {
         window.location.href = '/login'
       })
     },
-    [removeUser],
+    [],
   )
-  const profile = auth?.user?.profile
+  const profile = user?.profile
 
   return useMemo(
     () => ({
-      isAuthenticated: Boolean(auth?.isAuthenticated),
+      isAuthenticated,
       isLoading: Boolean(auth?.isLoading || auth?.activeNavigator === 'signinRedirect'),
       loginWithRedirect,
       logout,
@@ -195,7 +255,7 @@ export function useAuth0() {
       user: profile,
     }),
     [
-      auth?.isAuthenticated,
+      isAuthenticated,
       auth?.isLoading,
       auth?.activeNavigator,
       profile,
@@ -216,10 +276,11 @@ export function useApi(): AxiosInstance {
       try {
         const token = await getAccessTokenSilently()
         config.headers.Authorization = `Bearer ${token}`
-      } catch {
+        return config
+      } catch (err) {
         loginWithRedirect({ appState: { returnTo: window.location.pathname } })
+        return Promise.reject(err)
       }
-      return config
     })
 
     instance.interceptors.response.use(undefined, (err) => {

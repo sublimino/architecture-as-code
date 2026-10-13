@@ -387,10 +387,32 @@ func TestHandler_ErrorStatuses(t *testing.T) {
 			if got := errorCode(t, rr); got != tc.wantCode {
 				t.Fatalf("error.code %q, want %q", got, tc.wantCode)
 			}
-			if tc.wantStatus == 405 && rr.Header().Get("Allow") != http.MethodGet {
-				t.Fatalf("405 without Allow: GET")
+			if tc.wantStatus == 405 && rr.Header().Get("Allow") != "GET, HEAD" {
+				t.Fatalf("405 without Allow: GET, HEAD")
 			}
 		})
+	}
+}
+
+func TestHandler_HEADSupportAndEmptyBody(t *testing.T) {
+	c, _ := newTestCollector()
+	collect(t, c, scrape("12.345", t0ms))
+	collect(t, c, scrape("12.545", t0ms+2000))
+
+	mux := newTestServerMux(c)
+
+	for _, path := range []string{"/api/telemetry/agents", "/api/v1/telemetry/agents", "/api/telemetry/agents/" + testPod, "/api/v1/telemetry/agents/" + testPod} {
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, httptest.NewRequest(http.MethodHead, path, nil))
+		if rr.Code != http.StatusOK {
+			t.Fatalf("HEAD %s status %d: %s", path, rr.Code, rr.Body.String())
+		}
+		if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
+			t.Fatalf("HEAD %s Content-Type %q, want application/json", path, ct)
+		}
+		if rr.Body.Len() != 0 {
+			t.Fatalf("HEAD %s returned non-empty body %q", path, rr.Body.String())
+		}
 	}
 }
 

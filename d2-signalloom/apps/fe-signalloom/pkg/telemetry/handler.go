@@ -43,6 +43,14 @@ func (h *TelemetryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	isSSE := strings.Contains(accept, "text/event-stream") || r.URL.Query().Get("stream") == "true" || r.URL.Query().Get("sse") == "true"
 
 	if isSSE {
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		h.handleSSE(w, r, pod)
 		return
 	}
@@ -50,11 +58,11 @@ func (h *TelemetryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.handleJSON(w, r, pod)
 }
 
-// admit rejects anything but GET (405) and any request while the collector
+// admit rejects anything but GET and HEAD (405) and any request while the collector
 // has no recent successful scrape (503): old numbers are not current numbers.
 func (h *TelemetryHandler) admit(w http.ResponseWriter, r *http.Request) bool {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method is not allowed")
 		return false
 	}
@@ -97,7 +105,9 @@ func (h *TelemetryHandler) handleJSON(w http.ResponseWriter, r *http.Request, po
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(matches[0])
+	if r.Method != http.MethodHead {
+		_ = json.NewEncoder(w).Encode(matches[0])
+	}
 }
 
 func (h *TelemetryHandler) handleList(w http.ResponseWriter, r *http.Request) {
@@ -109,7 +119,9 @@ func (h *TelemetryHandler) handleList(w http.ResponseWriter, r *http.Request) {
 
 	all := h.collector.GetAllTelemetry()
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(all)
+	if r.Method != http.MethodHead {
+		_ = json.NewEncoder(w).Encode(all)
+	}
 }
 
 func (h *TelemetryHandler) handleSSE(w http.ResponseWriter, r *http.Request, pod string) {

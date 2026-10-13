@@ -20,6 +20,9 @@ func TestHealthAndProbeEndpoints(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("GET %s expected 200, got %d", endpoint, rec.Code)
 		}
+		if ct := rec.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+			t.Fatalf("GET %s expected Content-Type text/plain; charset=utf-8, got %q", endpoint, ct)
+		}
 		if !strings.Contains(rec.Body.String(), "ok") {
 			t.Fatalf("GET %s expected body containing ok, got %s", endpoint, rec.Body.String())
 		}
@@ -31,6 +34,9 @@ func TestHealthAndProbeEndpoints(t *testing.T) {
 
 		if recHead.Code != http.StatusOK {
 			t.Fatalf("HEAD %s expected 200, got %d", endpoint, recHead.Code)
+		}
+		if ct := recHead.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+			t.Fatalf("HEAD %s expected Content-Type text/plain; charset=utf-8, got %q", endpoint, ct)
 		}
 		if recHead.Body.Len() != 0 {
 			t.Fatalf("HEAD %s expected empty body, got %q", endpoint, recHead.Body.String())

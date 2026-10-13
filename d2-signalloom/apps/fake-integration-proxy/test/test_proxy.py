@@ -1099,6 +1099,48 @@ class ScanTestCase(ProxyServerTestCase):
             self.request("POST", "/network-tests/scan", {"target": "10.0.0.1", "namespace": "kube-system"})
         self.assertEqual([((), {})], received_args)
 
+    def test_scan_relays_204_no_content_with_empty_body(self):
+        """204 No Content must not emit a message body or Content-Length per RFC 9110."""
+        with mock.patch.object(
+            server, "_trigger_netassert_scan",
+            lambda: (204, None, {"X-Custom": "test"}),
+        ):
+            connection = http.client.HTTPConnection("127.0.0.1", self.port)
+            connection.request("POST", "/network-tests/scan")
+            resp = connection.getresponse()
+            self.assertEqual(204, resp.status)
+            self.assertEqual(b"", resp.read())
+            self.assertIsNone(resp.getheader("Content-Length"))
+            connection.close()
+
+    def test_scan_relays_headers_from_controller(self):
+        """Headers like Retry-After and Location must be forwarded."""
+        with mock.patch.object(
+            server, "_trigger_netassert_scan",
+            lambda: (202, {"job": "netassert-run", "status": "started"}, {"Location": "/status/1", "Retry-After": "60"}),
+        ):
+            connection = http.client.HTTPConnection("127.0.0.1", self.port)
+            connection.request("POST", "/network-tests/scan")
+            resp = connection.getresponse()
+            self.assertEqual(202, resp.status)
+            self.assertEqual("/status/1", resp.getheader("Location"))
+            self.assertEqual("60", resp.getheader("Retry-After"))
+            connection.close()
+
+    def test_trigger_netassert_scan_handles_204_and_empty_body(self):
+        """_trigger_netassert_scan must not crash on 204 or empty upstream bodies."""
+        fake_resp = mock.MagicMock()
+        fake_resp.__enter__.return_value = fake_resp
+        fake_resp.__exit__.return_value = None
+        fake_resp.status = 204
+        fake_resp.headers = {"Retry-After": "10"}
+        fake_resp.read.return_value = b""
+        with mock.patch("urllib.request.urlopen", return_value=fake_resp):
+            status, body, headers = server._trigger_netassert_scan()
+            self.assertEqual(204, status)
+            self.assertIsNone(body)
+            self.assertEqual({"Retry-After": "10"}, headers)
+
 
 if __name__ == "__main__":
     unittest.main()

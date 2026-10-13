@@ -5042,24 +5042,60 @@ async def network_tests(
 @router.post("/network-tests/scan", response_model=NetworkTestScanResponse, responses=ERROR_RESPONSES)
 async def network_tests_scan(
     principal: Annotated[Principal, Depends(_network_scan_principal)],
-) -> JSONResponse:
+) -> Response:
     del principal
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(NETWORK_TESTS_SCAN_URL)
-            payload = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
+            resp_content = getattr(response, "content", None)
+            if response.status_code in (204, 205, 304) or resp_content == b"":
+                payload = None
+            else:
+                try:
+                    payload = response.json()
+                except Exception:
+                    raw_text = getattr(response, "text", "")
+                    payload = {"error": raw_text[:512]} if raw_text else None
+    except httpx.ConnectError as exc:
         logger.warning("network test scan: fake-integration-proxy unreachable", exc_info=True)
         raise APIError(
             502,
             "upstream_unavailable",
             f"could not reach the network test runner: {exc}",
         ) from exc
-    # The proxy is the source of truth for the status code — 202 started,
-    # 409 already running, 502 the proxy's own upstream failed. Forwarding it
-    # unchanged means the "already running" guard against double-submits
-    # lives in exactly one place.
-    return JSONResponse(status_code=response.status_code, content=payload)
+    except httpx.TimeoutException as exc:
+        logger.warning("network test scan timed out", exc_info=True)
+        raise APIError(
+            504,
+            "upstream_timeout",
+            f"network test scan timed out: {exc}",
+        ) from exc
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("network test scan: fake-integration-proxy error", exc_info=True)
+        raise APIError(
+            502,
+            "upstream_unavailable",
+            f"could not reach the network test runner: {exc}",
+        ) from exc
+
+    # Forward upstream headers per RFC 9110
+    from collections.abc import Mapping
+
+    forwarded_headers: dict[str, str] = {}
+    resp_headers_map: dict[str, str] = {}
+    headers_obj = getattr(response, "headers", None)
+    if isinstance(headers_obj, Mapping):
+        resp_headers_map = {str(k).lower(): str(v) for k, v in headers_obj.items()}
+    for header_key in ("allow", "etag", "location", "retry-after", "x-tenant-id", "x-request-id"):
+        if header_key in resp_headers_map:
+            forwarded_headers[header_key] = resp_headers_map[header_key]
+
+    if response.status_code in (204, 205, 304) or payload is None:
+        if "content-type" in resp_headers_map and response.status_code not in (204, 205, 304):
+            forwarded_headers["content-type"] = resp_headers_map["content-type"]
+        return Response(status_code=response.status_code, content=b"", headers=forwarded_headers)
+
+    return JSONResponse(status_code=response.status_code, content=payload, headers=forwarded_headers)
 
 
 def _derived_topology(tenant_id: str, available, reason: str) -> TrustTopologyResponse:

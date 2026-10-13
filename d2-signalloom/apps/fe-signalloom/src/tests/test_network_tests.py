@@ -90,15 +90,26 @@ def client_for(monkeypatch: pytest.MonkeyPatch, async_client_cls):
 
 
 class FakeJsonResponse:
-    def __init__(self, payload, status_code: int = 200):
+    def __init__(self, payload, status_code: int = 200, headers: dict | None = None, content: bytes | None = None):
         self._payload = payload
         self.status_code = status_code
+        self.headers = headers or {}
+        if content is not None:
+            self.content = content
+        elif payload is not None:
+            import json
+            self.content = json.dumps(payload).encode()
+        else:
+            self.content = b""
+        self.text = self.content.decode("utf-8")
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
             raise httpx.HTTPStatusError("error", request=httpx.Request("GET", "http://test"), response=self)  # type: ignore[arg-type]
 
     def json(self):
+        if self._payload is None:
+            raise ValueError("No JSON object could be decoded")
         return self._payload
 
 
@@ -295,3 +306,100 @@ def test_network_tests_scan_denies_an_unauthenticated_caller(monkeypatch):
         response = client.post("/api/network-tests/scan")
 
     assert response.status_code == 401
+
+
+def test_network_tests_scan_handles_204_no_content(monkeypatch):
+    """204 No Content must not emit a body or error payload per RFC 9110 Section 15.3.5."""
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url: str) -> FakeJsonResponse:
+            return FakeJsonResponse(None, status_code=204, content=b"")
+
+    with client_for(monkeypatch, FakeAsyncClient) as client:
+        response = client.post("/api/network-tests/scan", headers=bearer(token_for("demo-user")))
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert response.text == ""
+
+
+def test_network_tests_scan_propagates_allow_header_on_405(monkeypatch):
+    """405 Method Not Allowed must preserve RFC 9110 Section 15.5.6 Allow header."""
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url: str) -> FakeJsonResponse:
+            return FakeJsonResponse({"error": "method not allowed"}, status_code=405, headers={"Allow": "POST"})
+
+    with client_for(monkeypatch, FakeAsyncClient) as client:
+        response = client.post("/api/network-tests/scan", headers=bearer(token_for("demo-user")))
+
+    assert response.status_code == 405
+    assert response.headers.get("allow") == "POST"
+    assert response.json() == {"error": "method not allowed"}
+
+
+def test_network_tests_scan_propagates_location_and_retry_after(monkeypatch):
+    """202 Accepted responses must propagate Location and Retry-After headers."""
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url: str) -> FakeJsonResponse:
+            return FakeJsonResponse(
+                {"job": "netassert-run", "status": "started"},
+                status_code=202,
+                headers={"Location": "/jobs/netassert-run", "Retry-After": "45"},
+            )
+
+    with client_for(monkeypatch, FakeAsyncClient) as client:
+        response = client.post("/api/network-tests/scan", headers=bearer(token_for("demo-user")))
+
+    assert response.status_code == 202
+    assert response.headers.get("location") == "/jobs/netassert-run"
+    assert response.headers.get("retry-after") == "45"
+    assert response.json() == {"job": "netassert-run", "status": "started"}
+
+
+def test_network_tests_scan_handles_non_json_upstream_error(monkeypatch):
+    """Non-JSON upstream error must preserve status code rather than becoming 502."""
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url: str) -> FakeJsonResponse:
+            return FakeJsonResponse(None, status_code=503, content=b"Service Temporarily Unavailable")
+
+    with client_for(monkeypatch, FakeAsyncClient) as client:
+        response = client.post("/api/network-tests/scan", headers=bearer(token_for("demo-user")))
+
+    assert response.status_code == 503
+    assert response.json() == {"error": "Service Temporarily Unavailable"}
+

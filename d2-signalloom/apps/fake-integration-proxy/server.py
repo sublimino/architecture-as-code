@@ -1325,8 +1325,8 @@ def _get_kubernetes_job(
     return job if isinstance(job, dict) else None
 
 
-def _trigger_netassert_scan() -> tuple[int, dict[str, object]]:
-    """POST to netassert-controller's /scan and relay its (status, body).
+def _trigger_netassert_scan() -> tuple[int, dict[str, object] | None, dict[str, str]]:
+    """POST to netassert-controller's /scan and relay its (status, body, headers).
 
     This process holds no jobs:create/delete verb at all any more — that
     privilege lives solely with netassert-controller's dedicated
@@ -1337,14 +1337,37 @@ def _trigger_netassert_scan() -> tuple[int, dict[str, object]]:
     req = request.Request(NETASSERT_CONTROLLER_URL, method="POST")
     try:
         with request.urlopen(req, timeout=10.0) as response:
-            return response.status, json.load(response)
+            headers: dict[str, str] = {}
+            for h in ("Allow", "Location", "Retry-After", "ETag"):
+                val = response.headers.get(h)
+                if val:
+                    headers[h] = val
+            if response.status in (204, 205, 304):
+                return response.status, None, headers
+            raw = response.read()
+            if not raw:
+                return response.status, None, headers
+            try:
+                return response.status, json.loads(raw.decode("utf-8")), headers
+            except (ValueError, UnicodeDecodeError):
+                return response.status, {"raw": raw.decode("utf-8", errors="replace")[:512]}, headers
     except error.HTTPError as exc:
+        headers = {}
+        for h in ("Allow", "Location", "Retry-After", "ETag"):
+            val = exc.headers.get(h) if exc.headers else None
+            if val:
+                headers[h] = val
+        if exc.code in (204, 205, 304):
+            return exc.code, None, headers
+        raw = exc.read() if hasattr(exc, "read") else b""
+        if not raw:
+            return exc.code, None, headers
         try:
-            return exc.code, json.load(exc)
-        except (ValueError, json.JSONDecodeError):
-            return exc.code, {"error": str(exc)}
+            return exc.code, json.loads(raw.decode("utf-8")), headers
+        except (ValueError, UnicodeDecodeError):
+            return exc.code, {"error": str(exc)}, headers
     except (OSError, ValueError, error.URLError) as exc:
-        return HTTPStatus.BAD_GATEWAY, {"error": f"netassert-controller unreachable: {exc}"}
+        return HTTPStatus.BAD_GATEWAY, {"error": f"netassert-controller unreachable: {exc}"}, {}
 
 
 def _negative_proof_log_evidence(
@@ -1468,6 +1491,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
         return
 
     def _json(self, status: int, payload: object, extra_headers: dict | None = None) -> None:
+        if status in (204, 205, 304) or payload is None:
+            self.send_response(status)
+            if extra_headers:
+                for k, v in extra_headers.items():
+                    if status in (204, 205, 304) and k.lower() in ("content-type", "content-length"):
+                        continue
+                    self.send_header(k, v)
+            self.end_headers()
+            return
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -1787,8 +1819,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
         guarantee as before, now enforced at the identity boundary too.
         """
         self._body()  # drain any body so the client isn't left hanging
-        status, body = _trigger_netassert_scan()
-        self._json(status, body)
+        res = _trigger_netassert_scan()
+        if len(res) == 3:
+            status, body, extra_headers = res  # type: ignore[misc]
+        else:
+            status, body = res  # type: ignore[misc]
+            extra_headers = None
+        self._json(status, body, extra_headers=extra_headers)
 
     def _handle_agent_compliance(self, agent_id: str, requested_namespace: str | None = None) -> None:
         """GET /agents/<id>/compliance — evaluate an agent's pod spec against policy."""

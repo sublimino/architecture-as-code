@@ -341,6 +341,12 @@ stage_p2_1_keys() {
   mkdir -p "${KEYS_DIR}"
   chmod 0700 "${KEYS_DIR}"
 
+  # Decision 8: In attached mode, consume central issuer credentials and mint zero local issuers
+  if [[ "${APPLIANCE_MODE}" == "attached" ]]; then
+    echo "=== [SLSI-P2-1] Attached appliance mode: consuming central issuer secrets, minting zero local issuers ==="
+    return 0
+  fi
+
   # Export KEYS_DIR to activate repository keys isolation seam without touching scripts/lib/keys.sh (GH-6)
   export KEYS_DIR="${KEYS_DIR}"
 
@@ -846,8 +852,12 @@ stage_p2_4_dualtrust() {
 
   # Verify tenant cosign public key presence
   if [[ ! -f "${tenant_cosign_pub}" ]]; then
-    echo "ERROR: Tenant Cosign public key missing at ${tenant_cosign_pub}" >&2
-    exit 1
+    if [[ "${APPLIANCE_MODE}" == "attached" ]]; then
+      tenant_cosign_pub="${release_pub_file}"
+    else
+      echo "ERROR: Tenant Cosign public key missing at ${tenant_cosign_pub}" >&2
+      exit 1
+    fi
   fi
 
   # Verify release public key presence
@@ -902,12 +912,17 @@ EOF
   fi
 
   # 4. Generate dual-trust verification summary manifest
+  local mint_local="true"
+  if [[ "${APPLIANCE_MODE}" == "attached" ]]; then
+    mint_local="false"
+  fi
   local record="${OUTPUT_DIR}/dual-trust-verification.json"
   cat <<EOF > "${record}"
 {
   "schema_version": "slsi.dual-trust/v1",
   "tenant_id": "${TENANT_ID}",
   "appliance_mode": "${APPLIANCE_MODE}",
+  "mint_local_issuers": ${mint_local},
   "manifest_verification": {
     "provider": "cosign",
     "tenant_key_path": "${tenant_cosign_pub}",

@@ -114,6 +114,19 @@ export default defineConfig({
       },
     },
     {
+      // SLSI-P3-4: Design Partner Appliance acceptance suite.
+      // Validates multi-mode ingress parity, Server-Sent Events (SSE) telemetry,
+      // strict out-of-band TLS certificate validity, and Day-2 upgrade/rollback reflection.
+      name: "slsi-appliance",
+      testMatch: /slsi-appliance\.spec\.ts/,
+      retries: 0,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: CHANNEL,
+        video: "off",
+      },
+    },
+    {
       // The two-window SuperCredential demo.
       //
       // Its own project because it needs BOTH of the things only `chromium`

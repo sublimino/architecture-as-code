@@ -124,3 +124,58 @@ func TestValidateToken_Malformed(t *testing.T) {
 		t.Fatal("ValidateToken should reject malformed token")
 	}
 }
+
+func TestGenerateToken_BoundsAndValidation(t *testing.T) {
+	secret := []byte("test-hmac-secret-32-bytes-long!!")
+
+	if _, err := GenerateToken(nil, "req-1", 10*time.Minute); err == nil {
+		t.Fatal("GenerateToken should reject empty secret")
+	}
+	if _, err := GenerateToken(secret, "   ", 10*time.Minute); err == nil {
+		t.Fatal("GenerateToken should reject whitespace requestID")
+	}
+	longID := ""
+	for i := 0; i < 129; i++ {
+		longID += "a"
+	}
+	if _, err := GenerateToken(secret, longID, 10*time.Minute); err == nil {
+		t.Fatal("GenerateToken should reject requestID exceeding 128 characters")
+	}
+	if _, err := GenerateToken(secret, "req-1", 0); err == nil {
+		t.Fatal("GenerateToken should reject zero TTL")
+	}
+	if _, err := GenerateToken(secret, "req-1", -5*time.Minute); err == nil {
+		t.Fatal("GenerateToken should reject negative TTL")
+	}
+	if _, err := GenerateToken(secret, "req-1", 25*time.Hour); err == nil {
+		t.Fatal("GenerateToken should reject TTL exceeding 24 hours")
+	}
+}
+
+func TestValidateToken_Adversarial(t *testing.T) {
+	secret := []byte("test-hmac-secret-32-bytes-long!!")
+	tok, err := GenerateToken(secret, "req-valid", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("GenerateToken failed: %v", err)
+	}
+
+	// 1. Empty secret rejection
+	if _, err := ValidateToken(nil, tok); err != ErrTokenInvalid {
+		t.Errorf("ValidateToken with empty secret = %v, want ErrTokenInvalid", err)
+	}
+
+	// 2. Trailing dot injection
+	if _, err := ValidateToken(secret, tok+".extra"); err != ErrTokenMalformed {
+		t.Errorf("ValidateToken with trailing dot segment = %v, want ErrTokenMalformed", err)
+	}
+
+	// 3. Oversized token
+	oversized := tok
+	for len(oversized) < 2050 {
+		oversized += "a"
+	}
+	if _, err := ValidateToken(secret, oversized); err != ErrTokenMalformed {
+		t.Errorf("ValidateToken with oversized token = %v, want ErrTokenMalformed", err)
+	}
+}
+

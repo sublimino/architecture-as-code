@@ -156,6 +156,11 @@ func (s *Server) startJanitor(ctx context.Context, interval time.Duration) {
 }
 
 func (s *Server) handleGateRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -172,6 +177,18 @@ func (s *Server) handleGateRequest(w http.ResponseWriter, r *http.Request) {
 	req.Requester = strings.TrimSpace(req.Requester)
 	if req.Requester == "" {
 		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "requester required for audit trail"})
+		return
+	}
+	if len(req.Requester) > 256 {
+		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "requester exceeds maximum length of 256 characters"})
+		return
+	}
+	if len(req.Description) > 4096 {
+		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "description exceeds maximum length of 4096 characters"})
+		return
+	}
+	if len(req.Environment) > 64 {
+		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "environment exceeds maximum length of 64 characters"})
 		return
 	}
 
@@ -230,6 +247,11 @@ func (s *Server) handleGateRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetGate(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -239,6 +261,10 @@ func (s *Server) handleGetGate(w http.ResponseWriter, r *http.Request) {
 	requestID := strings.TrimPrefix(r.URL.Path, "/gate/")
 	if requestID == "" || requestID == r.URL.Path {
 		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "request ID required"})
+		return
+	}
+	if len(requestID) > 128 || strings.Contains(requestID, "/") {
+		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "invalid request ID format"})
 		return
 	}
 
@@ -267,6 +293,11 @@ func (s *Server) handleGetGate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGateApprove(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "POST")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -284,9 +315,18 @@ func (s *Server) handleGateApprove(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "token required"})
 		return
 	}
+	if len(req.Token) > 2048 {
+		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "token exceeds maximum length of 2048 characters"})
+		return
+	}
 
-	if strings.TrimSpace(req.Approver) == "" {
+	req.Approver = strings.TrimSpace(req.Approver)
+	if req.Approver == "" {
 		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "approver required for HITL audit trail"})
+		return
+	}
+	if len(req.Approver) > 256 {
+		writeJSON(w, r, http.StatusBadRequest, map[string]string{"error": "approver exceeds maximum length of 256 characters"})
 		return
 	}
 
@@ -322,6 +362,11 @@ func (s *Server) handleGateApprove(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -331,6 +376,11 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -338,6 +388,7 @@ func handleReadyz(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, r, http.StatusOK, map[string]string{"status": "ready"})
 }
+
 
 
 func main() {

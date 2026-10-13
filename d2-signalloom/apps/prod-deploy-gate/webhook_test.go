@@ -95,7 +95,15 @@ func TestSendApprovalCard_EmptyAndInvalidURL(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid URL format, got nil")
 	}
+
+	for _, schemeURL := range []string{"file:///etc/passwd", "ftp://example.com/gate", "gopher://example.com", "http:///missing-host"} {
+		err := SendApprovalCard(ctx, schemeURL, card)
+		if err == nil {
+			t.Errorf("expected error for disallowed scheme or host %q, got nil", schemeURL)
+		}
+	}
 }
+
 
 func TestSendApprovalCard_ContextCancelled(t *testing.T) {
 	card := ApprovalCard{

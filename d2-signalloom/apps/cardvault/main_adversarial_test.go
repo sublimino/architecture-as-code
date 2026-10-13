@@ -6,11 +6,13 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // Auth bypass attempts.
@@ -240,3 +242,80 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+func TestAuthUnconfiguredFailsClosed(t *testing.T) {
+	srv := newTestServer("", "")
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/v1/cards", nil)
+	req.SetBasicAuth("", "")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("unconfigured credentials: want 500 Internal Server Error, got %d", resp.StatusCode)
+	}
+}
+
+func TestCardvaultOptionsMethod(t *testing.T) {
+	srv := newTestServer("user", "pass")
+	defer srv.Close()
+
+	endpoints := []string{
+		"/health",
+		"/healthz",
+		"/readyz",
+		"/api/v1/cards",
+		"/api/v1/cards/card-001",
+	}
+
+	for _, ep := range endpoints {
+		req, _ := http.NewRequest(http.MethodOptions, srv.URL+ep, nil)
+		req.SetBasicAuth("user", "pass")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("OPTIONS %s: %v", ep, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusNoContent {
+			t.Errorf("OPTIONS %s: status = %d, want 204", ep, resp.StatusCode)
+		}
+		allow := resp.Header.Get("Allow")
+		if !strings.Contains(allow, "GET") || !strings.Contains(allow, "HEAD") {
+			t.Errorf("OPTIONS %s: Allow = %q, want containing GET, HEAD", ep, allow)
+		}
+		if len(body) != 0 {
+			t.Errorf("OPTIONS %s: body len = %d, want 0", ep, len(body))
+		}
+	}
+}
+
+func TestPathTraversalExplicit404(t *testing.T) {
+	srv := newTestServer("user", "pass")
+	defer srv.Close()
+
+	traversalPaths := []string{
+		"/api/v1/cards/../../../etc/passwd",
+		"/api/v1/cards/card-001/../../cards",
+		"/api/v1/cards/..%2f..%2f",
+	}
+
+	for _, p := range traversalPaths {
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+p, nil)
+		req.SetBasicAuth("user", "pass")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			continue
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("path %s: status = %d, want 404", p, resp.StatusCode)
+		}
+	}
+}
+

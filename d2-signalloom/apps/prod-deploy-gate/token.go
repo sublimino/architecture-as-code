@@ -27,8 +27,15 @@ func GenerateToken(secret []byte, requestID string, ttl time.Duration) (string, 
 	if len(secret) == 0 {
 		return "", fmt.Errorf("secret must not be empty")
 	}
+	requestID = strings.TrimSpace(requestID)
 	if requestID == "" {
 		return "", fmt.Errorf("requestID must not be empty")
+	}
+	if len(requestID) > 128 {
+		return "", fmt.Errorf("requestID exceeds maximum length of 128 characters")
+	}
+	if ttl <= 0 || ttl > 24*time.Hour {
+		return "", fmt.Errorf("ttl must be positive and not exceed 24 hours")
 	}
 
 	expiry := time.Now().Add(ttl).UnixNano()
@@ -45,12 +52,15 @@ func GenerateToken(secret []byte, requestID string, ttl time.Duration) (string, 
 // ValidateToken verifies the HMAC signature and checks expiry.
 // Returns the embedded requestID on success.
 func ValidateToken(secret []byte, token string) (string, error) {
-	if token == "" {
+	if len(secret) == 0 {
+		return "", ErrTokenInvalid
+	}
+	if token == "" || len(token) > 2048 {
 		return "", ErrTokenMalformed
 	}
 
-	parts := strings.SplitN(token, ".", 2)
-	if len(parts) != 2 {
+	parts := strings.Split(token, ".")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", ErrTokenMalformed
 	}
 
@@ -72,15 +82,19 @@ func ValidateToken(secret []byte, token string) (string, error) {
 	payload := string(payloadBytes)
 
 	sepIdx := strings.LastIndex(payload, "|")
-	if sepIdx < 0 {
+	if sepIdx <= 0 || sepIdx == len(payload)-1 {
 		return "", ErrTokenMalformed
 	}
 
 	requestID := payload[:sepIdx]
+	if len(requestID) == 0 || len(requestID) > 128 {
+		return "", ErrTokenMalformed
+	}
+
 	expiryStr := payload[sepIdx+1:]
 
 	expiryNano, err := strconv.ParseInt(expiryStr, 10, 64)
-	if err != nil {
+	if err != nil || expiryNano <= 0 {
 		return "", ErrTokenMalformed
 	}
 
@@ -90,3 +104,4 @@ func ValidateToken(secret []byte, token string) (string, error) {
 
 	return requestID, nil
 }
+

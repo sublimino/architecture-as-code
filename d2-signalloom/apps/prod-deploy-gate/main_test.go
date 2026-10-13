@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
+
 
 func TestServer_GateLifecycle(t *testing.T) {
 	secret := []byte("secret-key-32-bytes-long-here!!")
@@ -263,7 +265,57 @@ func TestServer_RequesterValidation(t *testing.T) {
 			t.Errorf("empty requester %q: want 400, got %d", invalidRequester, w.Code)
 		}
 	}
+
+	// Requester exceeding 256 characters
+	longReq := strings.Repeat("a", 257)
+	reqBody, _ := json.Marshal(GateRequest{
+		Description: "Deploy payment service",
+		Requester:   longReq,
+	})
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/gate/request", bytes.NewReader(reqBody)))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("long requester: want 400, got %d", w.Code)
+	}
+
+	// Description exceeding 4096 characters
+	longDesc := strings.Repeat("d", 4097)
+	reqBody, _ = json.Marshal(GateRequest{
+		Description: longDesc,
+		Requester:   "alice@corp.internal",
+	})
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/gate/request", bytes.NewReader(reqBody)))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("long description: want 400, got %d", w.Code)
+	}
+
+	// Environment exceeding 64 characters
+	longEnv := strings.Repeat("e", 65)
+	reqBody, _ = json.Marshal(GateRequest{
+		Description: "Deploy payment service",
+		Requester:   "alice@corp.internal",
+		Environment: longEnv,
+	})
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/gate/request", bytes.NewReader(reqBody)))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("long environment: want 400, got %d", w.Code)
+	}
+
+	// Invalid request ID in get gate
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/gate/"+strings.Repeat("x", 129), nil))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("long request ID: want 400, got %d", w.Code)
+	}
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/gate/foo/bar", nil))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("slash in request ID: want 400, got %d", w.Code)
+	}
 }
+
 
 func TestProdDeployGateHeadUnmatchedRoutes(t *testing.T) {
 	secret := []byte("secret-key-32-bytes-long-here!!")
@@ -354,7 +406,67 @@ func TestServer_ApproveValidationEdgeCases(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("request malformed JSON: want 400, got %d", w.Code)
 	}
+
+	// 7. Approver exceeding 256 characters
+	longApprover, _ := json.Marshal(ApproveRequest{
+		Token:    srv.pending[gateResp.RequestID].Token,
+		Approver: strings.Repeat("b", 257),
+	})
+	req = httptest.NewRequest(http.MethodPost, "/gate/approve", bytes.NewReader(longApprover))
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("long approver: want 400, got %d", w.Code)
+	}
+
+	// 8. Token exceeding 2048 characters
+	longToken, _ := json.Marshal(ApproveRequest{
+		Token:    strings.Repeat("t", 2049),
+		Approver: "bob@corp.internal",
+	})
+	req = httptest.NewRequest(http.MethodPost, "/gate/approve", bytes.NewReader(longToken))
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("long token: want 400, got %d", w.Code)
+	}
 }
+
+func TestServer_OptionsMethodHandling(t *testing.T) {
+	secret := []byte("secret-key-32-bytes-long-here!!")
+	srv := NewServer(secret, "", 10*time.Minute)
+	mux := newMux(srv)
+
+	tests := []struct {
+		path      string
+		wantAllow string
+	}{
+		{"/gate/request", "POST"},
+		{"/gate/approve", "POST"},
+		{"/gate/", "GET, HEAD"},
+		{"/gate/gate-000001", "GET, HEAD"},
+		{"/healthz", "GET, HEAD"},
+		{"/readyz", "GET, HEAD"},
+		{"/health", "GET, HEAD"},
+	}
+
+	for _, tt := range tests {
+		req := httptest.NewRequest(http.MethodOptions, tt.path, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNoContent {
+			t.Errorf("OPTIONS %s: status = %d, want 204", tt.path, w.Code)
+		}
+		if allow := w.Header().Get("Allow"); allow != tt.wantAllow {
+			t.Errorf("OPTIONS %s: Allow = %q, want %q", tt.path, allow, tt.wantAllow)
+		}
+		if w.Body.Len() != 0 {
+			t.Errorf("OPTIONS %s: body len = %d, want 0", tt.path, w.Body.Len())
+		}
+	}
+}
+
 
 func TestServer_GateHeadErrorBodySuppression(t *testing.T) {
 	secret := []byte("secret-key-32-bytes-long-here!!")

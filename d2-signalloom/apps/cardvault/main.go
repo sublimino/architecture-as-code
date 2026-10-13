@@ -80,6 +80,10 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 func requireAuth(username, password string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if username == "" || password == "" {
+			writeJSON(w, r, http.StatusInternalServerError, map[string]string{"error": "authentication credentials unconfigured"})
+			return
+		}
 		u, p, ok := r.BasicAuth()
 		uMatch := subtle.ConstantTimeCompare([]byte(u), []byte(username))
 		pMatch := subtle.ConstantTimeCompare([]byte(p), []byte(password))
@@ -93,6 +97,11 @@ func requireAuth(username, password string, next http.HandlerFunc) http.HandlerF
 }
 
 func handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -102,6 +111,11 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -111,6 +125,11 @@ func handleReadyz(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleListCards(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -120,6 +139,11 @@ func handleListCards(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGetCard(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, HEAD")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		writeJSON(w, r, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -128,6 +152,10 @@ func handleGetCard(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/v1/cards/")
 	if id == "" {
 		handleListCards(w, r)
+		return
+	}
+	if strings.Contains(id, "/") || strings.Contains(id, "..") {
+		writeJSON(w, r, http.StatusNotFound, map[string]string{"error": "card not found"})
 		return
 	}
 	for _, c := range cards {
@@ -161,6 +189,17 @@ func headBodySuppressingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// pathTraversalGuardMiddleware rejects path traversal attempts with 404 Not Found.
+func pathTraversalGuardMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.RequestURI, "..") || strings.Contains(r.URL.Path, "..") {
+			writeJSON(w, r, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func newMux(username, password string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handleHealthz)
@@ -168,8 +207,9 @@ func newMux(username, password string) http.Handler {
 	mux.HandleFunc("/readyz", handleReadyz)
 	mux.HandleFunc("/api/v1/cards", requireAuth(username, password, handleListCards))
 	mux.HandleFunc("/api/v1/cards/", requireAuth(username, password, handleGetCard))
-	return headBodySuppressingMiddleware(mux)
+	return pathTraversalGuardMiddleware(headBodySuppressingMiddleware(mux))
 }
+
 
 func main() {
 	log.SetOutput(os.Stderr)

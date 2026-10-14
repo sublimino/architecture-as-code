@@ -18,6 +18,8 @@ import HelpHint from '../components/HelpHint'
 import AgentEvidenceDrawer from '../components/AgentEvidenceDrawer'
 import { useSignalSummary } from '../hooks/useSignalSummary'
 import { parseAgentSelectorQuery, matchAgentByQuery } from '../data/agentQuerySelectors'
+import { hasGitOpsMetadata, isAgentTenantMismatch, getSafeStorageItem } from '../data/workloadFilters'
+import { getTenantIdFromToken } from '../auth/tenant'
 import { getAgentWorkloadSecurityProfile } from '../components/agents/ClaimModal'
 import { CodingAgentsTab } from '../components/CodingAgentsTab'
 import { CompactOperationalTable, CompactDisclosure, CompactEmail, CompactObservedTime } from '../components/CompactOperationalTable'
@@ -723,10 +725,10 @@ export function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClai
               </CompactDisclosure>
             </div>
           ) : (
-            <div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               <span style={{ color: 'var(--muted)' }}>
                 {recordClass === 'discovered' || agent.is_registry_linked === false ? 'Registry not linked' : 'Unassigned'}
-              </span>
+              </span>{' '}
               <CompactDisclosure label={`Responsibility details for ${agentName}`} summary={<span className="compact-secondary">Details</span>}>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                 Tenant: <span style={{ color: 'var(--text)' }}>{agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared' ? agent.tenant_id : 'Undeclared')}</span>
@@ -954,6 +956,7 @@ function GovernedTab({
   onClaim,
   onRetry,
   onReload,
+  sessionTenant,
 }: {
   agents: AgentResponse[]
   loading: boolean
@@ -967,10 +970,45 @@ function GovernedTab({
   onClaim: (agent: AgentResponse) => void
   onRetry: () => void
   onReload: () => void
+  sessionTenant?: string | null
 }) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { getAccessTokenSilently } = useAuth0()
+  const { getAccessTokenSilently, user } = useAuth0()
+
+  const [internalSessionTenant, setInternalSessionTenant] = useState<string | null>(null)
+
+  useEffect(() => {
+    let isMounted = true
+    getAccessTokenSilently()
+      .then((token) => {
+        if (!isMounted || !token) return
+        const fromToken = getTenantIdFromToken(token)
+        if (fromToken) {
+          setInternalSessionTenant(fromToken)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      isMounted = false
+    }
+  }, [getAccessTokenSilently])
+
+  const activeSessionTenant = useMemo(() => {
+    if (sessionTenant) return sessionTenant
+    const fromUrl = searchParams.get('tenant')
+    if (fromUrl) return fromUrl
+    const userTenant = (user as any)?.['https://signalloom.ai/tenant_id'] ??
+      (user as any)?.tenant_id ??
+      (user as any)?.tenant ??
+      (user as any)?.org_id
+    if (userTenant) return String(userTenant)
+    if (internalSessionTenant) return internalSessionTenant
+    const stored = getSafeStorageItem('signalloom_tenant') ||
+      getSafeStorageItem('signalloom:active-tenant')
+    if (stored) return stored
+    return 'tenant-1'
+  }, [sessionTenant, searchParams, user, internalSessionTenant])
 
   const resolveInitialSearch = () => {
     const s = searchParams.get('search')
@@ -995,6 +1033,8 @@ function GovernedTab({
   const [sortKey, setSortKey] = useState<string>('')
   const [sortDir, setSortDir] = useState<'asc' | 'desc' | null>(null)
   const [attentionFilter, setAttentionFilter] = useState(false)
+  const [gitopsFilter, setGitopsFilter] = useState(() => searchParams.get('gitops') === 'true')
+  const [tenantMismatchFilter, setTenantMismatchFilter] = useState(() => searchParams.get('mismatch') === 'true' || searchParams.get('tenant_mismatch') === 'true')
 
   const handleSort = (key: string) => {
     if (sortKey !== key) {
@@ -1103,6 +1143,8 @@ function GovernedTab({
     setSortKey('')
     setSortDir(null)
     setAttentionFilter(false)
+    setGitopsFilter(false)
+    setTenantMismatchFilter(false)
     onFilterChange('all')
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
@@ -1116,6 +1158,9 @@ function GovernedTab({
       next.delete('state')
       next.delete('drawer')
       next.delete('agent')
+      next.delete('gitops')
+      next.delete('mismatch')
+      next.delete('tenant_mismatch')
       return next
     }, { replace: true })
   }
@@ -1126,10 +1171,22 @@ function GovernedTab({
     return agents.filter(a => a.record_class !== 'discovery')
   }, [agents])
 
+  const gitopsCount = useMemo(() => governedAgents.filter(hasGitOpsMetadata).length, [governedAgents])
+  const tenantMismatchCount = useMemo(
+    () => governedAgents.filter((a) => isAgentTenantMismatch(a, activeSessionTenant)).length,
+    [governedAgents, activeSessionTenant]
+  )
+
   const filtered = useMemo(() => {
     let list = governedAgents
     if (attentionFilter) {
       list = list.filter(isAgentAttentionRequired)
+    }
+    if (gitopsFilter) {
+      list = list.filter(hasGitOpsMetadata)
+    }
+    if (tenantMismatchFilter) {
+      list = list.filter((a) => isAgentTenantMismatch(a, activeSessionTenant))
     }
     if (lifecycleFilter !== 'all') {
       const normalizedFilter = lifecycleFilter.toLowerCase()
@@ -1148,7 +1205,7 @@ function GovernedTab({
       list = list.filter(a => matchAgentByQuery(a, parsedQuery))
     }
     return list
-  }, [governedAgents, search, parsedQuery, lifecycleFilter, attentionFilter])
+  }, [governedAgents, search, parsedQuery, lifecycleFilter, attentionFilter, gitopsFilter, tenantMismatchFilter, activeSessionTenant])
 
   const displayAgents = useMemo(() => {
     if (!sortKey || !sortDir) return governedAgents
@@ -1338,7 +1395,83 @@ function GovernedTab({
           </span>
           Needs review
         </button>
-        {(search || lifecycleFilter !== 'all' || attentionFilter || sortKey) && (
+        <button
+          type="button"
+          onClick={() => setGitopsFilter((prev) => !prev)}
+          data-testid="agent-gitops-filter-btn"
+          aria-pressed={gitopsFilter}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '5px 10px',
+            borderRadius: 4,
+            fontSize: 12,
+            fontWeight: gitopsFilter ? 600 : 500,
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+            background: gitopsFilter
+              ? 'rgba(0, 210, 255, 0.18)'
+              : 'var(--surface2)',
+            color: gitopsFilter ? colors.cyanLoom : 'var(--text)',
+            border: `1px solid ${gitopsFilter ? colors.cyanLoom : 'var(--border)'}`,
+          }}
+        >
+          <span
+            style={{
+              background: gitopsFilter ? colors.cyanLoom : 'var(--surface3)',
+              color: gitopsFilter ? 'var(--on-accent)' : 'var(--muted)',
+              borderRadius: 99,
+              fontSize: 10,
+              fontWeight: 700,
+              padding: '0px 5px',
+              minWidth: 16,
+              textAlign: 'center',
+            }}
+          >
+            {gitopsCount}
+          </span>
+          GitOps Managed
+        </button>
+        <button
+          type="button"
+          onClick={() => setTenantMismatchFilter((prev) => !prev)}
+          data-testid="agent-tenant-mismatch-filter-btn"
+          aria-pressed={tenantMismatchFilter}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '5px 10px',
+            borderRadius: 4,
+            fontSize: 12,
+            fontWeight: tenantMismatchFilter ? 600 : 500,
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+            background: tenantMismatchFilter
+              ? 'rgba(245, 158, 11, 0.18)'
+              : 'var(--surface2)',
+            color: tenantMismatchFilter ? colors.amber : 'var(--text)',
+            border: `1px solid ${tenantMismatchFilter ? colors.amber : 'var(--border)'}`,
+          }}
+        >
+          <span
+            style={{
+              background: tenantMismatchFilter ? colors.amber : 'var(--surface3)',
+              color: tenantMismatchFilter ? 'var(--on-accent)' : 'var(--muted)',
+              borderRadius: 99,
+              fontSize: 10,
+              fontWeight: 700,
+              padding: '0px 5px',
+              minWidth: 16,
+              textAlign: 'center',
+            }}
+          >
+            {tenantMismatchCount}
+          </span>
+          Tenant Mismatch
+        </button>
+        {(search || lifecycleFilter !== 'all' || attentionFilter || gitopsFilter || tenantMismatchFilter || sortKey) && (
           <button
             className="btn btn-secondary"
             style={{ fontSize: 12, padding: '5px 12px' }}
@@ -1560,6 +1693,39 @@ export default function AgentsPage() {
   const { user, getAccessTokenSilently } = useAuth0()
   const [searchParams, setSearchParams] = useSearchParams()
   const activeMainTab = searchParams.get('tab') === 'coding-agents' ? 'coding-agents' : 'governed'
+
+  const [sessionTenant, setSessionTenant] = useState<string | null>(null)
+
+  useEffect(() => {
+    let isMounted = true
+    getAccessTokenSilently()
+      .then((token) => {
+        if (!isMounted || !token) return
+        const fromToken = getTenantIdFromToken(token)
+        if (fromToken) {
+          setSessionTenant(fromToken)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      isMounted = false
+    }
+  }, [getAccessTokenSilently])
+
+  const activeSessionTenant = useMemo(() => {
+    const fromUrl = searchParams.get('tenant')
+    if (fromUrl) return fromUrl
+    const userTenant = (user as any)?.['https://signalloom.ai/tenant_id'] ??
+      (user as any)?.tenant_id ??
+      (user as any)?.tenant ??
+      (user as any)?.org_id
+    if (userTenant) return String(userTenant)
+    if (sessionTenant) return sessionTenant
+    const stored = getSafeStorageItem('signalloom_tenant') ||
+      getSafeStorageItem('signalloom:active-tenant')
+    if (stored) return stored
+    return 'tenant-1'
+  }, [searchParams, user, sessionTenant])
 
   const [agents, setAgents] = useState<AgentResponse[]>([])
 
@@ -1880,6 +2046,7 @@ export default function AgentsPage() {
             onClaim={handleAutoClaim}
             onRetry={loadAgents}
             onReload={loadAgents}
+            sessionTenant={activeSessionTenant}
           />
         </>
       )}

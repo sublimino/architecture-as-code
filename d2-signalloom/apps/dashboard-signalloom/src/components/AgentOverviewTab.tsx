@@ -183,6 +183,8 @@ export interface AgentOverviewTabProps {
   claimError?: string | null
   retryingClaimRefresh?: boolean
   onClaim?: () => void
+  onOpenClaim?: () => void
+  onSelectTab?: (tab: string) => void
 }
 
 export default function AgentOverviewTab({
@@ -194,6 +196,8 @@ export default function AgentOverviewTab({
   claimError,
   retryingClaimRefresh = false,
   onClaim,
+  onOpenClaim,
+  onSelectTab,
 }: AgentOverviewTabProps) {
   // 1. Record Class & Badges
   const recordClass = agent.record_class || (agent.is_registry_linked === false ? 'discovered' : 'registered')
@@ -408,8 +412,48 @@ export default function AgentOverviewTab({
                   </span>
                 )}
               </div>
-              <div style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
+              <div style={{ color: claimError ? 'var(--error)' : 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
                 {claimError ?? 'Enroll this discovered workload to activate cryptographic identity, policy evaluation, and governance controls.'}
+              </div>
+              <div style={{ marginTop: 8, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                {onSelectTab && (
+                  <button
+                    type="button"
+                    data-testid="overview-view-onboarding-btn"
+                    onClick={() => onSelectTab('onboarding')}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--cyan)',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      padding: 0,
+                      textDecoration: 'underline',
+                    }}
+                  >
+                    View Pre-Flight & How-To Guide →
+                  </button>
+                )}
+                {onOpenClaim && (
+                  <button
+                    type="button"
+                    data-testid="overview-open-claim-modal-btn"
+                    onClick={onOpenClaim}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--teal)',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      padding: 0,
+                      textDecoration: 'underline',
+                    }}
+                  >
+                    Claim Agent (with Pre-Flight Checks) →
+                  </button>
+                )}
               </div>
             </>
           ) : (

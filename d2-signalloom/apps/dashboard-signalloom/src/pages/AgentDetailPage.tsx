@@ -22,6 +22,7 @@ import AgentIdentityTab from '../components/AgentIdentityTab'
 import AgentAccessTab from '../components/AgentAccessTab'
 import AgentAssessmentsTab from '../components/AgentAssessmentsTab'
 import AgentActivityTab from '../components/AgentActivityTab'
+import AgentOnboardingTab from '../components/AgentOnboardingTab'
 import ClaimModal, { getAgentWorkloadSecurityProfile } from '../components/agents/ClaimModal'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -856,7 +857,7 @@ function DossierHeader({
 
 // ─── Dossier Tab Bar ─────────────────────────────────────────────────────────
 
-export type DossierTabId = 'overview' | 'identity' | 'access' | 'assessments' | 'activity'
+export type DossierTabId = 'overview' | 'identity' | 'access' | 'assessments' | 'activity' | 'onboarding'
 
 interface DossierTabConfig {
   id: DossierTabId
@@ -870,6 +871,7 @@ const DOSSIER_TABS: DossierTabConfig[] = [
   { id: 'access', label: 'Access & Containment', testId: 'dossier-tab-access' },
   { id: 'assessments', label: 'Assessments & Controls', testId: 'dossier-tab-assessments' },
   { id: 'activity', label: 'Activity & Timeline', testId: 'dossier-tab-activity' },
+  { id: 'onboarding', label: 'Onboarding Guide', testId: 'dossier-tab-onboarding' },
 ]
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
@@ -910,7 +912,7 @@ export default function AgentDetailPage() {
   const rawTabParam = searchParams.get('tab') as DossierTabId | null
   const defaultTab: DossierTabId = auditParam ? 'activity' : 'overview'
   const tabParam = rawTabParam || defaultTab
-  const activeTab: DossierTabId = ['overview', 'identity', 'access', 'assessments', 'activity'].includes(tabParam)
+  const activeTab: DossierTabId = ['overview', 'identity', 'access', 'assessments', 'activity', 'onboarding'].includes(tabParam)
     ? tabParam
     : defaultTab
 
@@ -1431,6 +1433,16 @@ export default function AgentDetailPage() {
           claimError={claimError}
           retryingClaimRefresh={claimRefreshId !== null}
           onClaim={claimAction}
+          onOpenClaim={() => setShowClaimModal(true)}
+          onSelectTab={handleSelectTab}
+        />
+      )}
+
+      {activeTab === 'onboarding' && (
+        <AgentOnboardingTab
+          agent={agent}
+          claimError={claimError}
+          onOpenClaim={() => setShowClaimModal(true)}
         />
       )}
 

@@ -17,4 +17,4 @@ patches:
     patch: |
       - op: replace
         path: /spec/template/spec/containers/0/image
-        value: ${IMAGE_BASE}/signalloom/apps/dashboard-signalloom:src-03a04f7ca5a093fd
+        value: ${IMAGE_BASE}/signalloom/apps/dashboard-signalloom:src-420834a6f5aa6954

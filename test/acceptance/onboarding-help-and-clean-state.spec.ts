@@ -74,7 +74,7 @@ test.describe("Clean Onboarding State & Help Pages (Live Mode)", () => {
     await expect(page.getByTestId("step-3-section")).toBeVisible();
 
     // Required label keys
-    await expect(page.getByText("signalloom.ai/agent", { exact: false })).toBeVisible();
+    await expect(page.getByText("signalloom.ai/agent", { exact: true }).first()).toBeVisible();
 
     // Documentation links should be rendered
     const docsLinks = page.locator('a[href*="/docs/"]');

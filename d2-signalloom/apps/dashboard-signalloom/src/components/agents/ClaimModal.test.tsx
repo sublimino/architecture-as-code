@@ -191,4 +191,31 @@ describe('ClaimModal & getAgentWorkloadSecurityProfile', () => {
     fireEvent.click(cancelBtn)
     expect(onClose).toHaveBeenCalledTimes(2)
   })
+
+  it('renders right-hand pre-flight info panel with workload diagnostics', () => {
+    const agent = createMockDiscoveredAgent({ tenant_id: 'default' })
+    render(<ClaimModal agent={agent} onClose={vi.fn()} />)
+
+    expect(screen.getByTestId('claim-modal-info-panel')).toBeInTheDocument()
+    expect(screen.getByText('Workload Pre-Flight & Diagnostics')).toBeInTheDocument()
+    expect(screen.getByText('Pre-Flight Invariants')).toBeInTheDocument()
+    expect(screen.getByTestId('claim-modal-tenant-verified')).toBeInTheDocument()
+  })
+
+  it('displays pre-emptive tenant mismatch warning when workload belongs to another tenant', () => {
+    const kusariAgent: AgentResponse = {
+      ...createMockDiscoveredAgent(),
+      id: 'agent-kusari-847cc7d984-mwg8c',
+      name: 'kusari-agent',
+      tenant: 'kusari',
+      tenant_id: 'kusari',
+    }
+    render(<ClaimModal agent={kusariAgent} onClose={vi.fn()} />)
+
+    expect(screen.getByTestId('claim-modal-tenant-mismatch-warning')).toBeInTheDocument()
+    expect(screen.getByTestId('claim-modal-tenant-mismatch-warning')).toHaveTextContent('Tenant Mismatch')
+    expect(screen.getByTestId('claim-modal-tenant-mismatch-warning')).toHaveTextContent('kusari')
+    expect(screen.getByTestId('claim-modal-tenant-mismatch-warning')).toHaveTextContent('kubectl -n fe-signalloom-agents label pod')
+  })
 })
+

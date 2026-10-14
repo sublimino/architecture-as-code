@@ -64,3 +64,37 @@ describe("warden branding", () => {
     });
   }
 });
+
+describe("sovereign kind diagram components and layout", () => {
+  const xml = readFileSync(join(DIAGRAMS, "osramp-kind-sovereign-airgap.drawio"), "utf8");
+
+  test("shows policy-engine, cert-manager, Landlock LSM, PostgreSQL, and receiver", () => {
+    expect(xml).toContain("policy-engine");
+    expect(xml).toContain("cert-manager");
+    expect(xml).toContain("Landlock LSM");
+    expect(xml).toContain("PostgreSQL");
+    expect(xml).toMatch(/Receiver/i);
+  });
+
+  test("all image vertices have non-empty data URI icons", () => {
+    const parsed = parseDrawio(xml);
+    const imageCells = parsed.cells.filter((c: Cell) => c.vertex && c.style.shape === "image");
+    expect(imageCells.length).toBeGreaterThan(0);
+    for (const c of imageCells) {
+      expect(c.style.image).toBeDefined();
+      expect(c.style.image?.length).toBeGreaterThan(10);
+      expect(c.style.image).toMatch(/^data:image\/(svg\+xml|png);base64,/);
+    }
+  });
+
+  test("mxCell tags are properly balanced without dangling close tags", () => {
+    const openTags = (xml.match(/<mxCell\b/g) ?? []).length;
+    const selfClosing = (xml.match(/<mxCell\b[^>]*\/>/g) ?? []).length;
+    const closeTags = (xml.match(/<\/mxCell>/g) ?? []).length;
+    expect(closeTags).toBe(openTags - selfClosing);
+  });
+
+  test("osramp-kind-sovereign-airgap.drawio has zero icon overlaps", () => {
+    expect(iconOverlaps(xml)).toEqual([]);
+  });
+});

@@ -605,12 +605,14 @@ function renderContainer(cell: Cell): string {
 function renderImageCell(cell: Cell): string {
   const g = cell.geometry!;
   const style = cell.style;
-  const image = `<image x="${g.x}" y="${g.y}" width="${g.width}" height="${g.height}" href="${style.image}" />`;
+  const image = style.image
+    ? `<image x="${g.x}" y="${g.y}" width="${g.width}" height="${g.height}" href="${style.image}" />\n`
+    : "";
 
   const lines = parseLabel(cell.value, style.fontColor ?? "#111111", Number(style.fontSize ?? "12"), false);
   const gap = 6;
   const label = renderLabelLines(lines, g.x + g.width / 2, g.y + g.height + gap, "middle", g.x + g.width / 2);
-  return `${image}\n${label}`;
+  return `${image}${label}`;
 }
 
 function renderTextCell(cell: Cell): string {

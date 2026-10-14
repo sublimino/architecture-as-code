@@ -140,6 +140,18 @@ describe("renderSVG — image cells", () => {
     expect(svg).toContain("<image");
     expect(svg).toContain(TINY_ICON);
   });
+
+  test("image cell without image data does not render empty href image tag", () => {
+    const emptyImgFixture = fixture(
+      "empty-image-fixture",
+      `    <mxCell id="no_img" value="No Image Cell" style="shape=image;verticalLabelPosition=bottom;" vertex="1" parent="1">
+      <mxGeometry x="10" y="10" width="40" height="40" as="geometry" />
+    </mxCell>`,
+    );
+    const svg = renderSVG(parseDrawio(emptyImgFixture));
+    expect(svg).not.toContain('href=""');
+    expect(svg).toContain("No Image Cell");
+  });
 });
 
 describe("renderSVG — containers", () => {

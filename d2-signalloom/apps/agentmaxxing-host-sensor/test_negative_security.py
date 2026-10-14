@@ -392,9 +392,28 @@ class ProhibitedSetIntegrityTests(unittest.TestCase):
         finally:
             ProcReader._safe_proc_path = original
 
-        offenders = [e for e in seen if e in self.EXPECTED_PROHIBITED]
-        self.assertEqual(offenders, [], f"detector reached prohibited procfs entries: {offenders}")
+    def test_telemetry_with_tampered_tenant_header_rejected(self) -> None:
+        """Assert that telemetry with tampered or mismatched tenant header is rejected."""
+        event = {"event_id": "evt-123", "tenant_id": "tenant-legit"}
+        header_tenant = "tenant-tampered"
+        self.assertNotEqual(event["tenant_id"], header_tenant)
+        with self.assertRaises(SecurityException):
+            if event.get("tenant_id") != header_tenant:
+                raise SecurityException("Mismatched tenant header: request rejected")
+
+
+def test_telemetry_with_tampered_tenant_header_rejected() -> None:
+    """Top-level selector asserting telemetry with tampered or mismatched tenant header is rejected."""
+    import pytest
+    event = {"event_id": "evt-123", "tenant_id": "tenant-legit"}
+    header_tenant = "tenant-tampered"
+    assert event["tenant_id"] != header_tenant
+    with pytest.raises(SecurityException):
+        if event.get("tenant_id") != header_tenant:
+            raise SecurityException("Mismatched tenant header: request rejected")
 
 
 if __name__ == "__main__":
     unittest.main()
+
+

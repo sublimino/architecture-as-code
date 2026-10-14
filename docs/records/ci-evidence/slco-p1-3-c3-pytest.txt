@@ -1,0 +1,70 @@
+Gate C3 / SLCO-P1-3 — captured stdout and stderr
+Source HEAD: 758258131e9b256767fa0f6f4aa046eef4aff46b
+Working directory: /home/andy/src/.worktrees/29d00/osramp-demo/d2-signalloom/apps/agentmaxxing-host-sensor
+Environment: UV_CACHE_DIR=/tmp/uv-cache UV_CONFIG_FILE=/dev/null
+Execution window: 2026-10-15, Europe/London; exact per-command timestamps were not captured.
+PID and WALL_SECONDS below were measured by the subprocess harness.
+
+COMMAND: uv run pytest test_mission_tenant_isolation.py
+PID: 2362156 EXIT: 0 WALL_SECONDS: 1.124293
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/andy/src/.worktrees/29d00/osramp-demo/d2-signalloom/apps/agentmaxxing-host-sensor
+plugins: anyio-4.14.2
+collected 6 items
+
+test_mission_tenant_isolation.py ......                                  [100%]
+
+============================== 6 passed in 0.25s ===============================
+
+COMMAND: uv run pytest test_negative_security.py
+PID: 2363563 EXIT: 0 WALL_SECONDS: 0.820643
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/andy/src/.worktrees/29d00/osramp-demo/d2-signalloom/apps/agentmaxxing-host-sensor
+plugins: anyio-4.14.2
+collected 20 items
+
+test_negative_security.py ....................                           [100%]
+
+============================== 20 passed in 0.22s ==============================
+
+COMMAND: uv run pytest test_leak_falsification.py
+PID: 2364834 EXIT: 0 WALL_SECONDS: 0.498403
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/andy/src/.worktrees/29d00/osramp-demo/d2-signalloom/apps/agentmaxxing-host-sensor
+plugins: anyio-4.14.2
+collected 5 items
+
+test_leak_falsification.py .....                                         [100%]
+
+============================== 5 passed in 0.13s ===============================
+
+COMMAND: uv run pytest test_mission_tenant_isolation.py test_negative_security.py test_leak_falsification.py
+PID: 2365847 EXIT: 0 WALL_SECONDS: 0.456013
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/andy/src/.worktrees/29d00/osramp-demo/d2-signalloom/apps/agentmaxxing-host-sensor
+plugins: anyio-4.14.2
+collected 31 items
+
+test_mission_tenant_isolation.py ......                                  [ 19%]
+test_negative_security.py ....................                           [ 83%]
+test_leak_falsification.py .....                                         [100%]
+
+============================== 31 passed in 0.15s ==============================
+
+COMMAND: uv run pytest test_negative_security.py::test_telemetry_with_tampered_tenant_header_rejected
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/andy/src/.worktrees/29d00/osramp-demo/d2-signalloom/apps/agentmaxxing-host-sensor
+plugins: anyio-4.14.2
+collected 0 items
+
+============================ no tests ran in 0.05s =============================
+ERROR: not found: /home/andy/src/.worktrees/29d00/osramp-demo/d2-signalloom/apps/agentmaxxing-host-sensor/test_negative_security.py::test_telemetry_with_tampered_tenant_header_rejected
+(no match in any of [<Module test_negative_security.py>])
+
+The final command was repeated solely to capture the numeric exit: EXIT 4.
+The repeat again reported no tests ran in 0.05s and the identical not-found error.

@@ -40,7 +40,7 @@ function cloneApplicationStyles(target: Document): void {
 
 function initializePreviewDocument(frame: HTMLIFrameElement): HTMLElement | null {
   const previewDocument = frame.contentDocument
-  if (!previewDocument) return null
+  if (!previewDocument || !previewDocument.head || !previewDocument.body) return null
   previewDocument.head.replaceChildren()
   previewDocument.body.replaceChildren()
   previewDocument.title = 'Signal Loom CSS Lab preview'

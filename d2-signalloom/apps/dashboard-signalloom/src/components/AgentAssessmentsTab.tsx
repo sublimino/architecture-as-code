@@ -143,30 +143,37 @@ export default function AgentAssessmentsTab({
   }, [setSearchParams])
 
   // 1. Truthful Assessment & Posture Calculations
+  const compSummary = agent.compliance_summary ?? {
+    total_controls: 0,
+    passing: 0,
+    failing: 0,
+    pending: 0,
+    posture_score: null,
+  }
   const rawResults = complianceResults
   const totalControlsCount = rawResults.length > 0
     ? rawResults.length
-    : (agent.assessment_summary?.total_controls || agent.compliance_summary.total_controls)
+    : (agent.assessment_summary?.total_controls || compSummary.total_controls)
 
   const passingControls = rawResults.length > 0
     ? rawResults.filter(c => c.status === 'pass' || c.status === 'compliant').length
-    : (agent.assessment_summary?.passed_controls ?? agent.compliance_summary.passing)
+    : (agent.assessment_summary?.passed_controls ?? compSummary.passing)
 
   const failingControls = rawResults.length > 0
     ? rawResults.filter(c => c.status === 'fail' || c.status === 'non_compliant').length
-    : (agent.assessment_summary?.failed_controls ?? agent.compliance_summary.failing)
+    : (agent.assessment_summary?.failed_controls ?? compSummary.failing)
 
   const pendingControls = rawResults.length > 0
     ? rawResults.filter(c => c.status === 'pending' || c.status === 'reassessment_requested' || c.status === 'not_assessed').length
-    : (agent.assessment_summary?.pending_controls ?? agent.compliance_summary.pending)
+    : (agent.assessment_summary?.pending_controls ?? compSummary.pending)
 
   const isNotAssessed = (agent.assessment_summary?.status === 'not_assessed') ||
     (totalControlsCount === 0) ||
-    (agent.compliance_summary.posture_score === null && passingControls === 0 && failingControls === 0)
+    (compSummary.posture_score === null && passingControls === 0 && failingControls === 0)
 
   const postureScorePct = !isNotAssessed && totalControlsCount > 0
-    ? (agent.compliance_summary.posture_score !== null
-        ? Math.round(agent.compliance_summary.posture_score <= 1.0 ? agent.compliance_summary.posture_score * 100 : agent.compliance_summary.posture_score)
+    ? (compSummary.posture_score !== null
+        ? Math.round(compSummary.posture_score <= 1.0 ? compSummary.posture_score * 100 : compSummary.posture_score)
         : Math.round((passingControls / totalControlsCount) * 100))
     : null
 

@@ -501,6 +501,7 @@ export default function App() {
                 <Route path="/design-system" element={<ProtectedRoute><SuperadminRoute><DesignSystemPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/design-system/headers" element={<ProtectedRoute><SuperadminRoute><DesignSystemHeadersPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/design-system/css" element={<ProtectedRoute><SuperadminRoute><DesignSystemCssLabPage /></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/design-system/css-lab" element={<Navigate to="/design-system/css" replace />} />
                 <Route path="/admin/users" element={<ProtectedRoute><AdminRoute><AdminUsersPage /></AdminRoute></ProtectedRoute>} />
                 <Route path="/admin/features" element={<ProtectedRoute><AdminRoute><AdminFeaturesPage /></AdminRoute></ProtectedRoute>} />
                 <Route path="*" element={<Navigate to="/agents" replace />} />

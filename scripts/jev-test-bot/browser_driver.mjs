@@ -419,6 +419,42 @@ const BOUNDARY_FN = () => {
   return null
 }
 
+// Oracle for horizontal layout overspill / container blowout.
+// Catches cases where child elements (e.g. unconstrained flex rows or long lines)
+// blow out the width of cards or containers beyond their visible bounds (scrollWidth > clientWidth).
+const OVERFLOW_FN = () => {
+  const selectors = [
+    '[data-testid^="signal-thread-"]',
+    '[data-testid="signal-threads"]',
+    '[data-testid="weave-canvas"]',
+    '.card',
+    '[role="region"]',
+    'main',
+  ]
+  for (const sel of selectors) {
+    const nodes = document.querySelectorAll(sel)
+    for (const el of nodes) {
+      const style = window.getComputedStyle(el)
+      // Only flag when element does not allow scrolling
+      if (style.overflowX !== 'auto' && style.overflowX !== 'scroll') {
+        const diff = el.scrollWidth - el.clientWidth
+        // Tolerance for subpixel variance / scrollbars
+        if (diff > 8) {
+          const testId = el.getAttribute('data-testid')
+          const desc = testId ? `[data-testid="${testId}"]` : (el.className ? `.${el.className.split(' ')[0]}` : el.tagName.toLowerCase())
+          return {
+            element: desc,
+            scrollWidth: el.scrollWidth,
+            clientWidth: el.clientWidth,
+            overspill: diff,
+          }
+        }
+      }
+    }
+  }
+  return null
+}
+
 // ── Session seeding ───────────────────────────────────────────────────────
 //
 // See the limits note in the header: this makes the app renderable offline, it
@@ -872,10 +908,12 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn, p
   const redirectedTo = finalPath === normalisePath(route) ? null : finalPath
 
   let boundaryText = null
+  let overflowInfo = null
   let actionSpaceSize = 0
 
   if (render.rendered) {
     boundaryText = await page.evaluate(BOUNDARY_FN).catch(() => null)
+    overflowInfo = await page.evaluate(OVERFLOW_FN).catch(() => null)
 
     visitedUrls.add(normalisePath(route))
     visitedUrls.add(finalPath)
@@ -988,6 +1026,9 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn, p
       if (!boundaryText) {
         boundaryText = await page.evaluate(BOUNDARY_FN).catch(() => null)
       }
+      if (!overflowInfo) {
+        overflowInfo = await page.evaluate(OVERFLOW_FN).catch(() => null)
+      }
     }
   }
 
@@ -1008,6 +1049,16 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn, p
   }
   if (boundaryText) {
     defects.push(defect('ERROR_BOUNDARY', boundaryText, finalUrl, {}))
+  }
+  if (overflowInfo) {
+    defects.push(
+      defect(
+        'LAYOUT_OVERFLOW',
+        `Element "${overflowInfo.element}" overspills horizontally by ${overflowInfo.overspill}px (scrollWidth ${overflowInfo.scrollWidth} > clientWidth ${overflowInfo.clientWidth}). Remediation: add flexWrap: 'wrap' and minWidth: 0, or overflow-x: auto.`,
+        finalUrl,
+        overflowInfo,
+      ),
+    )
   }
   if (!render.rendered) {
     defects.push(defect('ROUTE_NOT_RENDERED', render.reason || 'route answered but did not render', finalUrl, { navStatus }))

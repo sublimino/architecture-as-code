@@ -270,7 +270,10 @@ do_prelive_check() {
   header "PRE-LIVE READINESS VERIFICATION AUDIT"
 
   # 1. Foundation & Host Health
-  if grep -q "Ready" <<<"$(kubectl get nodes --no-headers 2>/dev/null)"; then
+  # Exact STATUS column: a substring "Ready" also matches "NotReady". Every node
+  # must be Ready (cordoned "Ready,SchedulingDisabled" counts), and there must be one.
+  if awk 'NF { n++; split($2, s, ","); if (s[1] != "Ready") bad = 1 }
+          END { exit !(n > 0 && !bad) }' <<<"$(kubectl get nodes --no-headers 2>/dev/null)"; then
     ok "Kubernetes control-plane node is Ready"
   else
     fail "Kubernetes control-plane node is NOT Ready"

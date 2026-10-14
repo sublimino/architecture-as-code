@@ -840,7 +840,7 @@ run_stage \
      test/healthcheck.bats \
      test/k8s-afm-preflight.bats test/keys-dir-path-safety.bats \
      test/kind-config-heredoc.bats test/kind-load-verified.bats \
-     test/node-doctor.bats \
+     test/node-doctor.bats test/prelive-node-ready.bats \
      test/resourceset-activation-race.bats test/resourceset-inputs-declarative.bats \
      test/revocation-demo.bats \
      test/signalfusion-demo.bats test/signalfusion-images.bats \

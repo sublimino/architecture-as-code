@@ -336,6 +336,28 @@ on `/rbac-explorer`. The static key is bound to cluster `kind-osramp`. See
 
 The superadmin toggle is not here. It is in the sidebar footer.
 
+## /settings/help/deploy-sensor
+
+| | |
+| :--- | :--- |
+| Shows | Instructions and copyable CLI snippets for deploying the kernel sensor (eBPF DaemonSet / Tetragon / Sentinel) and host sensor (`agentmaxxing-host-sensor`), explaining telemetry ingestion into Signal Loom and links into the documentation portal |
+| Component | [`DeploySensorHelpPage.tsx`](../../d2-signalloom/apps/dashboard-signalloom/src/pages/DeploySensorHelpPage.tsx) |
+| Reads | Static guidance and documentation routes |
+| Actions | Copy CLI commands (`kubectl apply`, Helm snippets), open documentation portal routes |
+| Who | Any signed-in user |
+| Spec | [`onboarding-help-and-clean-state.spec.ts`](../../test/acceptance/onboarding-help-and-clean-state.spec.ts) |
+
+## /settings/help/onboard-agent
+
+| | |
+| :--- | :--- |
+| Shows | Three-step guide to onboard custom workload agents: manifest labels and annotations, SPIFFE identity registration, OpenBao access policy, and auto-claiming discovered agents |
+| Component | [`OnboardAgentHelpPage.tsx`](../../d2-signalloom/apps/dashboard-signalloom/src/pages/OnboardAgentHelpPage.tsx) |
+| Reads | Static guidance, example Kubernetes manifests, and documentation routes |
+| Actions | Copy YAML manifest templates, copy API curl commands, open documentation portal routes |
+| Who | Any signed-in user |
+| Spec | [`onboarding-help-and-clean-state.spec.ts`](../../test/acceptance/onboarding-help-and-clean-state.spec.ts) |
+
 ## /fleet and /fleet/audience
 
 | | |

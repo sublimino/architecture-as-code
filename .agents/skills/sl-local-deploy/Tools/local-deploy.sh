@@ -59,6 +59,7 @@ Options:
   --no-commit              Proceed without committing
   --dry-run                Inspect state and plan deployment without making changes
   --no-reconcile           Skip Flux OCI push and reconcile; rollout local Kind images directly
+  --env, --remote <lane>   Deploy to remote GCP VM lane (e.g. demo-1, demo-2, ci-1, ci-2)
   -h, --help               Show this help message
 
 Workload mapping:
@@ -72,6 +73,8 @@ Workload mapping:
 EOF
   exit 0
 }
+
+ENV_KEY="${ENV:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -100,6 +103,10 @@ while [[ $# -gt 0 ]]; do
       SKIP_RECONCILE=true
       shift
       ;;
+    --env|--remote)
+      ENV_KEY="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       ;;
@@ -109,6 +116,28 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# If remote environment is specified, dispatch execution to the target VM
+if [[ -n "${ENV_KEY:-}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
+  HANDOFF="${REPO_ROOT}/deploy/gcp/${ENV_KEY}.handoff.json"
+
+  if [[ ! -f "$HANDOFF" ]]; then
+    echo "ERROR: Environment handoff file not found: $HANDOFF" >&2
+    exit 2
+  fi
+
+  PROJECT_ID=$(jq -r '.project_id' "$HANDOFF")
+  ZONE=$(jq -r '.zone' "$HANDOFF")
+  INSTANCE_NAME=$(jq -r '.instance_name' "$HANDOFF")
+  OPERATOR_SA=$(jq -r '.operator_sa' "$HANDOFF")
+
+  echo -e "\033[1;36mℹ\033[0m Dispatching local-deploy to remote VM ${INSTANCE_NAME} (${ENV_KEY})..."
+
+  "${REPO_ROOT}/scripts/gcp-tf/signalfusion-targeted-apply.sh" "${ENV_KEY}"
+  exit $?
+fi
 
 echo "═══════════════════════════════════════════════════════════════"
 echo "  Signal Loom Local Deployment Pipeline (In-Flight / Dev)      "

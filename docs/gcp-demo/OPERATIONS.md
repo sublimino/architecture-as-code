@@ -162,6 +162,16 @@ Lanes can pass on one surface and fail on the other.
 Run `make gcp-tf-surfaces-report` to generate a status matrix.
 Run `make gcp-tf-test-both ENV=<lane>` to verify both surfaces for a specific lane.
 
+### `make gcp-tf-reset-user-data ENV=<lane>` — Clean Onboarding Reset
+
+Run `make gcp-tf-reset-user-data ENV=<lane>` to clean user data, claims, and agent discovery state before an EAP customer onboarding or demonstration.
+The procedure:
+1. Suspends Flux `agent-swarm` and `signalloom-infra` reconciliation.
+2. Scales agent deployments in `fe-signalloom-agents` to zero.
+3. Deletes agent pods.
+4. Cleans PostgreSQL claims and user tables (`agent_claims`, `agent_registry`, `discovered_agents`, and audit logs).
+5. Flushes Redis and restarts portal services.
+
 ## Working from Git Worktrees
 
 Fresh git worktrees contain tracked files only.

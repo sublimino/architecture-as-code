@@ -238,6 +238,8 @@ Neither was claimable
 | Watch live observations from the warden | [`/weave`](pages.md#weave) |
 | Read the audit trail of your tenant | [`/audit`](pages.md#audit) |
 | Check compliance posture | [`/compliance`](pages.md#compliance) |
+| Deploy a telemetry sensor | [`/settings/help/deploy-sensor`](pages.md#settingshelpdeploy-sensor) |
+| Onboard a custom agent | [`/settings/help/onboard-agent`](pages.md#settingshelponboard-agent) |
 | Stand up the warden on the Kusari cluster | [secondary-cluster.md](secondary-cluster.md) |
 | Understand what happens on a detection | [enforcement.md](enforcement.md) |
 

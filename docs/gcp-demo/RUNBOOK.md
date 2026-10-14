@@ -34,6 +34,7 @@ export TF_STATE_BUCKET=<your-state-bucket>
 make gcp-tf-up      ENV=demo-1     # Plan, review, apply, and generate hand-off
 make gcp-tf-demo-up ENV=demo-1     # Deliver codebase, build estate, and run tests
 make gcp-tf-ts-up   ENV=demo-1     # Serve dashboard over Tailscale and print URL
+make gcp-tf-reset-user-data ENV=demo-1 # Reset user data and claims for fresh demo/EAP onboarding
 ```
 
 Run this command if you connect via IAP tunnel:
@@ -316,6 +317,14 @@ To re-run just the tests against a cluster that is already standing:
 ```bash
 make gcp-tf-demo-test ENV=demo-1
 ```
+
+To reset the cluster to a clean state for demo or EAP customer onboarding:
+
+```bash
+make gcp-tf-reset-user-data ENV=demo-1
+```
+
+This cleans PostgreSQL user data and claims, suspends Flux agent swarm reconciliation, flushes Redis, and restarts the portal services.
 
 ---
 

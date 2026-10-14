@@ -98,6 +98,8 @@ flowchart TB
 make demo-signalloom-up           # Build images, sign, push, and reconcile Flux
 make demo-signalloom-test         # Run topology and Flux readiness checks
 make demo-signalloom-runtime-test # Run BATS and DETIK runtime assertions
+make demo-reset-user-data         # Reset user data, claims, and discovery cache for clean onboarding
+make demo-signalloom-swarm-restore # Un-suspend Flux agent swarm and restore demo agents
 make demo-signalloom-down         # Remove slice while keeping foundation
 ```
 
@@ -154,6 +156,8 @@ OIDC login through the gateway port-forward. Use it for HTTP checks only.
 | `/signal-store` | Signal Store | Raw and processed telemetry signals |
 | `/feeds` | Feeds Explorer | External threat intelligence feeds |
 | `/settings` | Settings | Platform configuration and API key management |
+| `/settings/help/deploy-sensor` | Deploy Sensor Help | Sensor deployment instructions (kernel eBPF and host sensor) |
+| `/settings/help/onboard-agent` | Onboard Agent Help | Agent onboarding guide, manifest labels, and SPIFFE registration |
 | `/onboarding` | Setup Wizard | Initial platform and tenant setup wizard |
 | `/help/connectors/:provider` | Connector Help | Provider-specific connector configuration instructions |
 | `/network-tests` | Network Tests | In-cluster connectivity and SPIFFE trust boundaries |

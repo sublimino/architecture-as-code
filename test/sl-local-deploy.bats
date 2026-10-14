@@ -259,3 +259,43 @@ FAKE
   [ "$status" -eq 1 ]
   [[ "$output" =~ "ERROR: Unknown workload 'invalid-workload-name'." ]]
 }
+
+# ─── Test 5: Remote environment dispatch ────────────────────────────────────
+
+@test "remote option fails with exit 2 when handoff file is missing" {
+  run "$script" --env non-existent-lane
+  [ "$status" -eq 2 ]
+  [[ "$output" =~ "ERROR: Environment handoff file not found:" ]]
+}
+
+@test "remote option dispatches to targeted apply for valid handoff" {
+  # Mock handoff file in repo root
+  mkdir -p "${BATS_TEST_TMPDIR}/repo/deploy/gcp"
+  cat <<'EOF' > "${BATS_TEST_TMPDIR}/repo/deploy/gcp/test-lane.handoff.json"
+{
+  "project_id": "test-project",
+  "zone": "us-test1-a",
+  "instance_name": "test-vm",
+  "operator_sa": "test-sa@example.com"
+}
+EOF
+  # Mock signalfusion-targeted-apply.sh
+  mkdir -p "${BATS_TEST_TMPDIR}/repo/scripts/gcp-tf"
+  cat <<'EOF' > "${BATS_TEST_TMPDIR}/repo/scripts/gcp-tf/signalfusion-targeted-apply.sh"
+#!/usr/bin/env bash
+echo "TARGETED_APPLY_CALLED: $*"
+exit 0
+EOF
+  chmod +x "${BATS_TEST_TMPDIR}/repo/scripts/gcp-tf/signalfusion-targeted-apply.sh"
+
+  # Create a custom mock script pointing to TMPDIR repo
+  local custom_script="${BATS_TEST_TMPDIR}/repo/.agents/skills/sl-local-deploy/Tools/local-deploy.sh"
+  mkdir -p "$(dirname "$custom_script")"
+  cp "$script" "$custom_script"
+  chmod +x "$custom_script"
+
+  run "$custom_script" --env test-lane
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Dispatching local-deploy to remote VM test-vm (test-lane)..." ]]
+  [[ "$output" =~ "TARGETED_APPLY_CALLED: test-lane" ]]
+}

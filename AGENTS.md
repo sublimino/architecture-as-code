@@ -146,6 +146,8 @@ make doctor                 # full read-only cluster diagnostic
 | `make doctor` | Make a full read-only cluster diagnostic report |
 | `make cluster-debug` | Same as `make doctor` |
 | `make help` | List all make targets |
+| `make demo-reset-user-data` | Reset user data, agent claims, and discovery cache for clean onboarding |
+| `make demo-signalloom-swarm-restore` | Restore the demo agent swarm reconciliation and workloads |
 
 Most slices use the same three targets:
 
@@ -226,6 +228,7 @@ make gcp-tf-ts-up     ENV=demo-1              # serve the estate on Tailscale an
 make gcp-tf-ssh       ENV=demo-1              # SSH to the lane VM through IAP
 make doctor-node      ENV=demo-1              # node-level health of one lane
 make doctor-node-all                          # every lane that has a hand-off file
+make gcp-tf-reset-user-data ENV=demo-1        # reset user data and claims for clean demo onboarding
 make gcp-tf-destroy   ENV=demo-1 CONFIRM=demo-1
 ```
 

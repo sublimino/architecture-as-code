@@ -121,12 +121,12 @@ Verify that array index numbers match actual OCIRepository positions.
 
 ---
 
-## 6. Isolated Remote CI (VM2)
+## 6. Isolated Remote CI Lanes
 
-Use VM2 to reproduce remote CI failures without modifying local clusters or VM1.
+Use isolated GCP CI lanes (`ci-1` and `ci-2`) to reproduce remote CI failures without modifying local clusters.
 The commands, the paths, and the debugging order are in
-[`scripts/ci/README.md`](../scripts/ci/README.md#usage) and its section
-[Resuming an isolated VM2 investigation](../scripts/ci/README.md#resuming-an-isolated-vm2-investigation).
+[`scripts/ci/README.md`](../scripts/ci/README.md#architecture--lanes) and the operational guide in
+[`docs/gcp-demo/OPERATIONS.md`](gcp-demo/OPERATIONS.md).
 
 ## 7. Cosign Local Signing Without Transparency Logs
 

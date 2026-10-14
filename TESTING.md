@@ -211,7 +211,6 @@ Run these suites from the repository root.
 | Signal Loom topology edge rules | `bats d2-signalloom/test/topology.bats` | Not needed |
 | Fleet ResourceSet patch indexes | `bats d2-signalloom/test/fleet-patch-indexes.bats` | Not needed |
 | Acceptance spec registry | `bats test/acceptance-spec-coverage.bats` | Not needed |
-| CI build parity (Makefile and CI recipes) | `make test-ci-build-parity` | Not needed |
 | Dashboard route collisions | `bats d2-signalloom/test/dashboard-route-collisions.bats` | Not needed |
 | Agent discovery RBAC drift | `bats d2-signalloom/test/agent-discovery-rbac.bats` | Not needed |
 | SuperCred image build guard (mock docker and kind) | `make demo-signalloom-supercred-images-test` | Not needed |

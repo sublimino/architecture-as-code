@@ -240,7 +240,7 @@ the estate v2 actually applies.
 |---|---|
 | `scripts/ci/gcp-tf-ci.sh` | The imperative v1 pipeline. Named `sl-port-over-sandbox`, `europe-west2`, `sl-ci-1-vm` / `sl-ci-2-vm` throughout. **Out of scope for this branch and untouched.** |
 | `scripts/gcp-tf/demo-pipeline.sh` | Its machinery. Untouched. |
-| `.github/workflows/sl-ci-1-vm.yaml` | `GCP_PROJECT: sl-port-over-sandbox`, `GCP_ZONE: europe-west2-a`, `VM_NAME: sl-ci-1-vm`, concurrency group `sl-ci-1-vm`. The whole v1 entry point. |
+| Historical v1 workflow (`sl-ci-1-vm.yaml`, retired) | `GCP_PROJECT: sl-port-over-sandbox`, `GCP_ZONE: europe-west2-a`, `VM_NAME: sl-ci-1-vm`, concurrency group `sl-ci-1-vm`. The whole v1 entry point. |
 | `Makefile` | the `sl-ci-1-vm` VM names. |
 | `scripts/ci/README.md` | Documents v1. Correct as it stands. |
 
@@ -252,7 +252,7 @@ the estate v2 actually applies.
 | `scripts/ci/gcp-tf-reaper.sh:57-58` | Denylists `sl-ci-1-vm` and `sl-ci-2-vm` so the reaper cannot delete the v1 runners. **Correct and load-bearing while v1 exists** — and it becomes dead configuration the day v1 is retired, so it should be removed as part of that change rather than left to rot into a list that pre-approves nothing. |
 | `terraform/ISA.md` | Names `sl-port-over-sandbox` and `andy@control-plane.io` in its problem statement. Historical context; worth a note that v2 superseded it rather than an edit. |
 | `test/fixtures/gcp-tf-ci/instances.tsv.template` | v1 instance names and zone. Test fixture, correct for what it tests. |
-| `test/gcp-gcp-tf-ssh-diagnosis.bats`, `test/gcp-ci-vm-status.bats`, `test/ci-terminal-state.bats`, `test/lane-state-locality.bats`, `test/terraform-ci-lifecycle.bats`, `test/kind-load-verified.bats` | Assert against v1 names. They test v1 and should keep doing so. |
+| `test/terraform-ci-lifecycle.bats`, `test/kind-load-verified.bats` | Assert against v1 names. (Retired v1-specific suites removed). |
 | `d2-signalloom/apps/dashboard-signalloom/src/pages/NetworkTestsPage.tsx` | Mentions `sl-ci-1-vm`. Application-side, unrelated to either estate's provisioning. |
 
 ### 4d. Deliberate v1 references in my own files

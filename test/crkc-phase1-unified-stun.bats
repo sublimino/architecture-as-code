@@ -13,7 +13,7 @@ setup() {
   export GOCACHE="${GOCACHE:-/tmp/gocache}"
   export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
   export GONOSUMDB="*"
-  export GOTOOLCHAIN="local"
+  export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"
   export CGO_ENABLED=0
   unset GOROOT
   mkdir -p "${GOPATH}" "${GOCACHE}" "${GOMODCACHE}"
@@ -30,12 +30,12 @@ setup() {
 }
 
 @test "unified-p1: signalloom-warden binary builds statically and compiles cleanly" {
-  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/signalloom-warden && env GOPATH=\${GOPATH:-/tmp/gopath} GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} GONOSUMDB='*' GOTOOLCHAIN=local CGO_ENABLED=0 go build -o /dev/null ."
+  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/signalloom-warden && env GOPATH=\${GOPATH:-/tmp/gopath} GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} GONOSUMDB='*' GOTOOLCHAIN=\${GOTOOLCHAIN:-auto} CGO_ENABLED=0 go build -o /dev/null ."
   [ "$status" -eq 0 ]
 }
 
 @test "unified-p1: stun-tcctl binary builds cleanly" {
-  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/stun-sentinel && env GOPATH=\${GOPATH:-/tmp/gopath} GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} GONOSUMDB='*' GOTOOLCHAIN=local CGO_ENABLED=0 go build -o /dev/null ./cmd/stun-tcctl"
+  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/stun-sentinel && env GOPATH=\${GOPATH:-/tmp/gopath} GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} GONOSUMDB='*' GOTOOLCHAIN=\${GOTOOLCHAIN:-auto} CGO_ENABLED=0 go build -o /dev/null ./cmd/stun-tcctl"
   [ "$status" -eq 0 ]
 }
 

@@ -662,7 +662,8 @@ $(sed 's/#.*//' "$runner")"
 	#   dockerfile-copy-sources.bats, docs-tests-alignment.bats, freeport-lib.bats,
 	#   jev-*.bats, old-probe-name-guard.bats, parallel-acceptance.bats, source-id-tracked.bats,
 	#   spool-replay-lib.bats, test-isolation-audit.bats, tombstone-mutation-check.bats,
-	#   impl-agent-log.bats - offline utility, tool and harness self-tests.
+	#   impl-agent-log.bats, clean-test-artifacts.bats, sl-cluster-diagnostics.bats,
+	#   local-witness-evidence.bats - offline utility, tool and harness self-tests.
 	#   slsi-airgap-bundle.bats - SLSI-P1-4/OSD-4 two-leg air-gap proof. Needs a
 	#                             BUILT multi-gigabyte dist/ tarball, docker with
 	#                             the sandbox image already local, strace, and a
@@ -750,6 +751,9 @@ slaws-live-lab.bats
 verify-cel.bats
 http-guard-dedup-contracts.bats
 sl-drift-sweep.bats
+sl-cluster-diagnostics.bats
+clean-test-artifacts.bats
+local-witness-evidence.bats
 worktree-hygiene.bats"
 
 	for f in "$repo_root"/test/*.bats; do

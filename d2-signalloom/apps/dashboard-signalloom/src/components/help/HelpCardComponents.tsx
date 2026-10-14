@@ -79,7 +79,7 @@ export function CopyableCodeBlock({ code, language = 'bash', title, testId }: Co
           fontSize: 12.5,
           lineHeight: 1.55,
           overflowX: 'auto',
-          fontFamily: 'var(--font-mono, monospace)',
+          fontFamily: 'monospace',
           color: 'var(--text)',
         }}
       >

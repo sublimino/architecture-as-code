@@ -79,7 +79,7 @@ export function lookupPolicyForControl(
       if (controlName.includes('9')) rule = euBundle.rules.find(r => r.id === 'audit-trail-logging') || rule
       else if (controlName.includes('10')) rule = euBundle.rules.find(r => r.id === 'training-data-governance') || rule
       else if (controlName.includes('13')) rule = euBundle.rules.find(r => r.id === 'transparency-system-prompt') || rule
-      else if (controlName.includes('14')) rule = euBundle.rules.find(r => r.id === 'block-unauthorized-host-exec') || rule
+      else if (controlName.includes('14')) rule = euBundle.rules.find(r => r.id === 'human-oversight-approval-svid') || rule
       return {
         ruleId: rule.id,
         ruleName: rule.name,

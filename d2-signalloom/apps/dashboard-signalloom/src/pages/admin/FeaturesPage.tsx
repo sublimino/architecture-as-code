@@ -487,7 +487,7 @@ export default function FeaturesPage({
                   flexDirection: 'column',
                   justifyContent: 'space-between',
                   padding: '14px 16px',
-                  background: isEap ? 'rgba(20, 184, 166, 0.08)' : 'var(--surface-muted, rgba(255, 255, 255, 0.03))',
+                  background: isEap ? 'rgba(20, 184, 166, 0.08)' : 'var(--surface2)',
                   border: `1px solid ${isEap ? 'rgba(20, 184, 166, 0.4)' : 'var(--border)'}`,
                   borderRadius: 'var(--radius)',
                 }}
@@ -505,7 +505,7 @@ export default function FeaturesPage({
                           padding: '2px 6px',
                           borderRadius: 4,
                           background: 'var(--teal)',
-                          color: '#041316',
+                          color: 'var(--bg)',
                           textTransform: 'uppercase',
                           letterSpacing: '0.04em',
                         }}
@@ -649,7 +649,7 @@ export default function FeaturesPage({
               width: '100%',
               padding: '8px 12px',
               fontSize: 13,
-              background: 'var(--surface-muted, rgba(255, 255, 255, 0.03))',
+              background: 'var(--surface2)',
               border: '1px solid var(--border)',
               borderRadius: 'var(--radius)',
               color: 'var(--text)',

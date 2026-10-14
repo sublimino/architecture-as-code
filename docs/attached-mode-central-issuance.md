@@ -37,7 +37,7 @@ assertion that somebody else has already done work on another cluster.
 
 ## 2. The two Secrets, precisely
 
-Both live in namespace `fe-signalloom-agents` on the attached cluster. Both are
+Both live in namespace `inf-signalloom-warden` on the attached cluster. Both are
 consumed by the `sentinel` container of the `signalloom-warden` DaemonSet.
 
 In the `remote-tenant` overlay both key refs are `optional: false`. A missing
@@ -116,9 +116,9 @@ Steps 4 and 5 belong to the design partner, on their own cluster.
 4. **Create the namespace and apply both Secrets, before anything else.**
 
    ```bash
-   kubectl apply -f <namespace manifest>
-   kubectl -n fe-signalloom-agents apply -f signalloom-warden-ingest-token.yaml
-   kubectl -n fe-signalloom-agents apply -f signalloom-warden-fleet-key.yaml
+   kubectl apply -k d2-signalloom/infra/agent-swarm/signalloom-warden-namespace
+   kubectl -n inf-signalloom-warden apply -f signalloom-warden-ingest-token.yaml
+   kubectl -n inf-signalloom-warden apply -f signalloom-warden-fleet-key.yaml
    ```
 
    Order is load-bearing, not hygiene. With `optional: false` key refs, a

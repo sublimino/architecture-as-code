@@ -23,6 +23,7 @@ bats_require_minimum_version 1.5.0
 
 setup() {
 	REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
+	REAL_KUBECTL="$(command -v kubectl)"
 	SCRIPT="${REPO_ROOT}/scripts/attached-mode-preflight.sh"
 	export KUBECONFIG=/dev/null
 	STATE="${BATS_TEST_TMPDIR}/state"
@@ -197,6 +198,21 @@ present() {
 	[ "$status" -eq 0 ]
 	run grep -E -- '(^| )(apply|create|delete|patch|replace|edit)( |$)' "${STATE}/argv"
 	[ "$status" -ne 0 ]
+}
+
+@test "by default it checks the namespace the remote-tenant overlay puts the warden in" {
+	# Derived from the overlay render, so moving the warden without moving this
+	# default fails here instead of as a false "Secret missing" on a pilot.
+	local ns
+	ns="$(KUBECONFIG=/dev/null "${REAL_KUBECTL}" kustomize "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant" \
+		| yq -r 'select(.kind == "DaemonSet" and .metadata.name == "signalloom-warden") | .metadata.namespace')"
+	[ -n "${ns}" ]
+	present signalloom-warden-ingest-token
+	present signalloom-warden-fleet-key
+	APPLIANCE_MODE=attached run "${SCRIPT}"
+	[ "$status" -eq 0 ]
+	run grep -c -E -- "-n ${ns}( |$)" "${STATE}/argv"
+	[ "$output" -ge 2 ]
 }
 
 @test "the namespace and context are overridable for an appliance that renames them" {

@@ -167,6 +167,30 @@ dry() { run bash "${SCRIPT}" --dry-run "$@"; }
 	[ "${secret_line}" -lt "${overlay_line}" ]
 }
 
+@test "lab: warden objects are addressed in the namespace the overlay renders, created before the Secrets" {
+	# The namespace is read from the overlay itself (real kubectl, not the stub)
+	# so a future move of the warden cannot leave the lab patching a namespace
+	# the DaemonSet is no longer in.
+	local real_kubectl ns ns_line secret_line
+	real_kubectl="$(PATH="${PATH#*:}" command -v kubectl)"
+	ns="$("${real_kubectl}" kustomize "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant-dev" \
+		| yq -r 'select(.kind == "DaemonSet" and .metadata.name == "signalloom-warden") | .metadata.namespace')"
+	[ -n "${ns}" ]
+	dry
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"patch hub urls: remote -n ${ns} patch configmap signalloom-warden-config"* ]]
+	[[ "$output" == *"patch cluster id: remote -n ${ns} set env ds/signalloom-warden"* ]]
+	[[ "$output" == *"warden rollout: remote -n ${ns} rollout status ds/signalloom-warden"* ]]
+	[[ "$output" == *"attached-mode-preflight.sh --context kind-signalloom-hub --namespace ${ns} "* ]]
+	ns_line="$(grep -n 'DRY-RUN remote warden namespace: remote apply -k .*/signalloom-warden-namespace$' <<<"$output" | head -1 | cut -d: -f1)"
+	secret_line="$(grep -n 'remote secret signalloom-warden-ingest-token' <<<"$output" | head -1 | cut -d: -f1)"
+	[ -n "${ns_line}" ]
+	[ -n "${secret_line}" ]
+	[ "${ns_line}" -lt "${secret_line}" ]
+	# and that directory really does create that namespace
+	[ "$("${real_kubectl}" kustomize "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden-namespace" | yq -r 'select(.kind == "Namespace") | .metadata.name')" = "${ns}" ]
+}
+
 @test "lab: the transfer directory is created 0700 and removed unless --keep" {
 	local dir="${BATS_TEST_TMPDIR}/transfer"
 	dry --transfer-dir "${dir}"

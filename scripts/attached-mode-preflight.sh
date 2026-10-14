@@ -14,7 +14,8 @@
 #   APPLIANCE_MODE=hub|attached scripts/attached-mode-preflight.sh
 #                                [--namespace NS] [--context CTX] [--kubectl BIN]
 #
-#   --namespace   where the warden Secrets live. Default fe-signalloom-agents.
+#   --namespace   where the warden Secrets live. Default inf-signalloom-warden,
+#                 the namespace the remote-tenant overlay puts the warden in.
 #   --context     kube context of THIS cluster (the appliance's own). Default:
 #                 whatever the current kubeconfig selects.
 #   --kubectl     the binary to use. Default kubectl, or $KUBECTL.
@@ -48,7 +49,7 @@
 # never prints a secret value — only whether one is present and non-empty.
 set -eo pipefail
 
-NAMESPACE="fe-signalloom-agents"
+NAMESPACE="inf-signalloom-warden"
 CONTEXT=""
 KUBECTL="${KUBECTL:-kubectl}"
 PREREQ_DOC="docs/attached-mode-central-issuance.md"

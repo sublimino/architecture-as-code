@@ -137,6 +137,10 @@ FLEET_AUDIENCE_DEFAULT="signalloom-fleet/local"
 TRUST_ROOT_DEFAULT="signalloom-operators-v1"
 OVERLAY_DIR="$REPO_ROOT/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant-dev"
 NAMESPACE_MANIFEST="$REPO_ROOT/d2-signalloom/infra/agent-swarm/namespace.yaml"
+# The warden runs in its own namespace, and its two Secrets (emitted for that
+# namespace) must exist before the overlay, so step 3 creates it first.
+WARDEN_NS="inf-signalloom-warden"
+WARDEN_NS_DIR="$REPO_ROOT/d2-signalloom/infra/agent-swarm/signalloom-warden-namespace"
 
 # Results table: one "STATUS<TAB>step<TAB>detail" row per step, in order.
 ROWS=()
@@ -299,7 +303,7 @@ cleanup() {
 
 step_1_preflight() {
 	local ok=1 what=""
-	for f in "$OVERLAY_DIR/kustomization.yaml" "$NAMESPACE_MANIFEST" \
+	for f in "$OVERLAY_DIR/kustomization.yaml" "$NAMESPACE_MANIFEST" "$WARDEN_NS_DIR/kustomization.yaml" \
 		"$REPO_ROOT/scripts/fleet-manager-caller-keys.sh"; do
 		[ -f "$f" ] || { ok=0; what="$what missing:$f"; }
 	done
@@ -383,6 +387,10 @@ step_3_apply_secrets() {
 		fail "3 secrets" "could not create $AGENTS_NS on $REMOTE_CTX"
 		return 1
 	}
+	run_or_echo "remote warden namespace" -- remote apply -k "$WARDEN_NS_DIR" >/dev/null || {
+		fail "3 secrets" "could not create $WARDEN_NS on $REMOTE_CTX"
+		return 1
+	}
 	local f
 	for f in signalloom-warden-ingest-token signalloom-warden-fleet-key; do
 		run_or_echo "remote secret $f" -- remote apply -f "$TRANSFER_DIR/$f.yaml" >/dev/null || {
@@ -392,7 +400,7 @@ step_3_apply_secrets() {
 	done
 	# Applied BEFORE the overlay on purpose: the remote-tenant key refs are not
 	# optional, so a DaemonSet created first sits in ContainerCreating.
-	pass "3 secrets" "both Secrets in $AGENTS_NS on $REMOTE_CTX"
+	pass "3 secrets" "both Secrets in $WARDEN_NS on $REMOTE_CTX"
 }
 
 # step_3b: the APPLIANCE_MODE=attached gate (OSD-8), run against the Secrets
@@ -412,12 +420,12 @@ step_3b_attached_preflight() {
 		return 1
 	}
 	if run_or_echo "attached preflight" -- env APPLIANCE_MODE=attached \
-		bash "$script" --context "$REMOTE_CTX" --namespace "$AGENTS_NS" \
+		bash "$script" --context "$REMOTE_CTX" --namespace "$WARDEN_NS" \
 		--kubectl "$KUBECTL"; then
-		pass "3b attached preflight" "the attached-mode gate accepts $AGENTS_NS on $REMOTE_CTX"
+		pass "3b attached preflight" "the attached-mode gate accepts $WARDEN_NS on $REMOTE_CTX"
 		return 0
 	fi
-	fail "3b attached preflight" "the attached-mode gate rejected $AGENTS_NS on $REMOTE_CTX"
+	fail "3b attached preflight" "the attached-mode gate rejected $WARDEN_NS on $REMOTE_CTX"
 }
 
 step_4_dns() {
@@ -485,18 +493,18 @@ step_5_overlay() {
 	local cm
 	cm="$(printf '{"data":{"SIGNAL_INGEST_URL":"%s/warden-ingest","FLEET_MANAGER_URL":"%s/warden-fleet"}}' \
 		"$HUB_URL" "$HUB_URL")"
-	run_or_echo "patch hub urls" -- remote -n "$AGENTS_NS" patch configmap signalloom-warden-config \
+	run_or_echo "patch hub urls" -- remote -n "$WARDEN_NS" patch configmap signalloom-warden-config \
 		--type merge -p "$cm" >/dev/null || {
 		fail "5 overlay" "could not patch the two hub URLs to $HUB_URL"
 		return 1
 	}
-	run_or_echo "patch cluster id" -- remote -n "$AGENTS_NS" set env ds/signalloom-warden \
+	run_or_echo "patch cluster id" -- remote -n "$WARDEN_NS" set env ds/signalloom-warden \
 		"SIGNAL_CLUSTER_ID=$CLUSTER_ID" >/dev/null || {
 		fail "5 overlay" "could not set SIGNAL_CLUSTER_ID=$CLUSTER_ID"
 		return 1
 	}
 	if wait_for "$TIMEOUT" "warden rollout" -- \
-		remote -n "$AGENTS_NS" rollout status ds/signalloom-warden --timeout=30s; then
+		remote -n "$WARDEN_NS" rollout status ds/signalloom-warden --timeout=30s; then
 		pass "5 overlay" "ds/signalloom-warden rolled out, cluster id $CLUSTER_ID"
 	else
 		fail "5 overlay" "ds/signalloom-warden did not roll out within ${TIMEOUT}s"

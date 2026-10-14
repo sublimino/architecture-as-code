@@ -414,9 +414,9 @@ function SignalThread({ layer, observations }: { layer: SignalLayer; observation
         {observations.length === 0 ? (
           <span style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>No signals</span>
         ) : (
-          observations.map((obs) => (
+          observations.map((obs, idx) => (
             <div
-              key={obs.id}
+              key={`${obs.id}-${obs.layer}-${idx}`}
               title={obs.description}
               style={{
                 width: FIDELITY_SIZES[obs.fidelity],

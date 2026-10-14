@@ -45,6 +45,7 @@ DEFAULT_LEGACY_AGENTS=(
 	".claude/worktrees/agent-a206bb89509db9d38"
 	".claude/worktrees/agent-a22073a2720e88e0d"
 	".claude/worktrees/agent-a2c04c7f4eeeba765"
+	".claude/worktrees/agent-a3b4704e08af5f62c"
 	".claude/worktrees/agent-a4118d224adb2fa17"
 	".claude/worktrees/agent-a4ae6e4f286ec8c4c"
 	".claude/worktrees/agent-a4c07da3b6ff9a159"
@@ -80,6 +81,10 @@ while [[ $# -gt 0 ]]; do
 			;;
 		--list-stale-osramp)
 			MODE="list-stale-osramp"
+			shift
+			;;
+		--prune-stale-osramp)
+			MODE="prune-stale-osramp"
 			shift
 			;;
 		-h|--help)
@@ -189,6 +194,24 @@ is_osramp_worktree() {
 	return 1
 }
 
+get_worktree_status() {
+	local wt_path="$1"
+	if [[ ! -d "$wt_path" || ! -r "$wt_path" ]]; then
+		echo "UNREADABLE"
+		return
+	fi
+	local status_out=""
+	if ! status_out="$(git -C "$wt_path" status --porcelain 2>/dev/null)"; then
+		echo "UNREADABLE"
+		return
+	fi
+	if [[ -n "$status_out" ]]; then
+		echo "DIRTY"
+	else
+		echo "CLEAN"
+	fi
+}
+
 # Parse porcelain records: each stanza starts with `worktree <path>` and may
 # optionally include `# mtime <epoch>` or `mtime <epoch>` in synthetic fixtures.
 parse_worktrees() {
@@ -261,7 +284,7 @@ run_guard() {
 }
 
 run_list_stale_osramp() {
-	local idx wt head branch mtime age_days
+	local idx wt head branch mtime age_days wt_status
 
 	while IFS=$'\t' read -r idx wt head branch mtime; do
 		[[ -z "$wt" ]] && continue
@@ -274,7 +297,32 @@ run_list_stale_osramp() {
 		fi
 		age_days="$(get_worktree_age_days "$wt" "$mtime")"
 		if (( age_days > MAX_AGE_DAYS )); then
-			printf 'STALE_OSRAMP\tage_days=%d\tpath=%s\tbranch=%s\n' "$age_days" "$wt" "$branch"
+			wt_status="$(get_worktree_status "$wt")"
+			printf 'STALE_OSRAMP\tage_days=%d\tpath=%s\tbranch=%s\tSTATUS=%s\n' "$age_days" "$wt" "$branch" "$wt_status"
+		fi
+	done < <(read_porcelain | parse_worktrees)
+}
+
+run_prune_stale_osramp() {
+	local idx wt head branch mtime age_days wt_status
+
+	while IFS=$'\t' read -r idx wt head branch mtime; do
+		[[ -z "$wt" ]] && continue
+		if [[ "$wt" == "$REPO_ROOT" || "$idx" == "0" ]]; then
+			continue
+		fi
+		if ! is_osramp_worktree "$wt" "$branch"; then
+			continue
+		fi
+		age_days="$(get_worktree_age_days "$wt" "$mtime")"
+		if (( age_days > MAX_AGE_DAYS )); then
+			wt_status="$(get_worktree_status "$wt")"
+			if [[ "$wt_status" == "CLEAN" ]]; then
+				git -C "$REPO_ROOT" worktree remove "$wt" 2>/dev/null || true
+				printf 'PRUNED_OSRAMP\tage_days=%d\tpath=%s\tbranch=%s\tSTATUS=%s\n' "$age_days" "$wt" "$branch" "$wt_status"
+			else
+				printf 'SKIPPED_OSRAMP\tage_days=%d\tpath=%s\tbranch=%s\tSTATUS=%s\n' "$age_days" "$wt" "$branch" "$wt_status"
+			fi
 		fi
 	done < <(read_porcelain | parse_worktrees)
 }
@@ -286,6 +334,9 @@ main() {
 			;;
 		list-stale-osramp)
 			run_list_stale_osramp
+			;;
+		prune-stale-osramp)
+			run_prune_stale_osramp
 			;;
 	esac
 }

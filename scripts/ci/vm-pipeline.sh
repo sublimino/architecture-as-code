@@ -1279,7 +1279,7 @@ run_stage \
 # Separate from stage 8 rather than appended to it so a failure names the page
 # smoke suite instead of "the browser stage", and so the report keeps the two
 # journeys distinct. Passing the filename takes the non-TEST-1 branch of
-# acceptance-test.sh, which adds Grafana/Archivista/Olly port-forwards that skip
+# acceptance-test.sh, which adds Grafana and Olly port-forwards that skip
 # cleanly when those services are absent.
 run_stage \
   "Dashboard page smoke suite" \

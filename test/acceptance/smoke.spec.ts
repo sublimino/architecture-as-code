@@ -358,6 +358,8 @@ test.describe("authenticated dashboard (demo fixtures, continued)", () => {
     // and this page is full of infinite specimen animations that a
     // document-wide wait would block on forever.
     await page.evaluate(async () => {
+      const main = document.querySelector("main");
+      if (main) main.scrollTop = 0;
       const el = document.querySelector("main > div.fade-in") as HTMLElement;
       await Promise.all(el.getAnimations().map((a) => a.finished.catch(() => undefined)));
     });
@@ -366,7 +368,7 @@ test.describe("authenticated dashboard (demo fixtures, continued)", () => {
     // own 20px sticky clamp, so the assertion after the scroll is proof it
     // moved up and held rather than having started there by luck.
     expect(await railTop()).toBeCloseTo(28, 0);
-    expect(await activeIndex()).toBe(0);
+    await expect.poll(activeIndex).toBe(0);
 
     await page.evaluate(() => {
       (document.querySelector("main") as HTMLElement).scrollTop = 6000;

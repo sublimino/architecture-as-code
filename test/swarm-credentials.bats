@@ -26,9 +26,9 @@ SCRIPTS="${REPO_ROOT}/scripts"
   [ -f "${AGENT_SWARM}/openbao-secret-paths.yaml" ]
 }
 
-@test "openbao-secret-paths has all 6 agents" {
+@test "openbao-secret-paths has all 5 agents" {
   local cm="${AGENT_SWARM}/openbao-secret-paths.yaml"
-  for agent in prompt-commit-summarizer triage-ci-worker zulip-chat-agent \
+  for agent in prompt-commit-summarizer triage-ci-worker \
                cpai-engineer prod-deploy-gate swarm-governor; do
     run grep -c "${agent}.json" "$cm"
     [ "$status" -eq 0 ]
@@ -39,7 +39,7 @@ SCRIPTS="${REPO_ROOT}/scripts"
 @test "each secret path entry is valid JSON" {
   local cm="${AGENT_SWARM}/openbao-secret-paths.yaml"
   # Extract JSON blocks (lines after the key: |) and validate
-  for agent in prompt-commit-summarizer triage-ci-worker zulip-chat-agent \
+  for agent in prompt-commit-summarizer triage-ci-worker \
                cpai-engineer prod-deploy-gate swarm-governor; do
     local json
     json=$(awk "/${agent}\\.json:/{found=1; next} found && /^    /{print; next} found{exit}" "$cm")
@@ -53,9 +53,9 @@ SCRIPTS="${REPO_ROOT}/scripts"
   [ -f "${AGENT_SWARM}/openbao-agent-sidecar.yaml" ]
 }
 
-@test "per-agent openbao configs exist for all 6 agents" {
+@test "per-agent openbao configs exist for all 5 agents" {
   local sidecar="${AGENT_SWARM}/openbao-agent-sidecar.yaml"
-  for agent in prompt-commit-summarizer triage-ci-worker zulip-chat-agent \
+  for agent in prompt-commit-summarizer triage-ci-worker \
                cpai-engineer prod-deploy-gate swarm-governor; do
     run grep -c "${agent}-openbao-config" "$sidecar"
     [ "$status" -eq 0 ]
@@ -65,17 +65,17 @@ SCRIPTS="${REPO_ROOT}/scripts"
 
 @test "all sidecar configs use signalloom-agent-generic role" {
   local sidecar="${AGENT_SWARM}/openbao-agent-sidecar.yaml"
-  # Count role references — should be 6 (one per agent config)
+  # Count role references — should be 5 (one per agent config)
   run grep -c 'role.*=.*"signalloom-agent-generic"' "$sidecar"
   [ "$status" -eq 0 ]
-  [ "$output" -ge 6 ]
+  [ "$output" -ge 5 ]
 }
 
-@test "all sidecar configs use SPIRE socket path" {
+@test "all sidecar configs use the SPIRE JWT-SVID path" {
   local sidecar="${AGENT_SWARM}/openbao-agent-sidecar.yaml"
-  run grep -c '/run/spire/sockets/agent.sock' "$sidecar"
+  run grep -c '/var/run/secrets/spiffe/jwt' "$sidecar"
   [ "$status" -eq 0 ]
-  [ "$output" -ge 6 ]
+  [ "$output" -ge 5 ]
 }
 
 # ─── Agent Deployments: SPIFFE CSI Volume Mount ──────────────────────────────
@@ -88,12 +88,6 @@ SCRIPTS="${REPO_ROOT}/scripts"
 
 @test "swarm-governor has SPIFFE CSI volume" {
   run grep -c 'csi.spiffe.io' "${AGENT_SWARM}/swarm-governor/deployment.yaml"
-  [ "$status" -eq 0 ]
-  [ "$output" -ge 1 ]
-}
-
-@test "zulip-chat-agent has SPIFFE CSI volume" {
-  run grep -c 'csi.spiffe.io' "${AGENT_SWARM}/zulip-chat-agent/deployment.yaml"
   [ "$status" -eq 0 ]
   [ "$output" -ge 1 ]
 }
@@ -126,12 +120,6 @@ SCRIPTS="${REPO_ROOT}/scripts"
 
 @test "swarm-governor has openbao-agent sidecar" {
   run grep -c 'name: openbao-agent' "${AGENT_SWARM}/swarm-governor/deployment.yaml"
-  [ "$status" -eq 0 ]
-  [ "$output" -ge 1 ]
-}
-
-@test "zulip-chat-agent has openbao-agent sidecar" {
-  run grep -c 'name: openbao-agent' "${AGENT_SWARM}/zulip-chat-agent/deployment.yaml"
   [ "$status" -eq 0 ]
   [ "$output" -ge 1 ]
 }
@@ -203,8 +191,8 @@ SCRIPTS="${REPO_ROOT}/scripts"
   [ "$output" -ge 1 ]
 }
 
-@test "swarm-seed-secrets.sh seeds all 6 agents" {
-  for agent in prompt-commit-summarizer triage-ci-worker zulip-chat-agent \
+@test "swarm-seed-secrets.sh seeds all 5 agents" {
+  for agent in prompt-commit-summarizer triage-ci-worker \
                cpai-engineer prod-deploy-gate swarm-governor; do
     run grep -c "\"$agent\"" "${SCRIPTS}/swarm-seed-secrets.sh"
     [ "$status" -eq 0 ]

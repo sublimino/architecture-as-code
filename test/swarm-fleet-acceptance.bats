@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-# swarm-fleet-acceptance.bats — end-to-end lifecycle tests for the 10-agent
+# swarm-fleet-acceptance.bats — end-to-end lifecycle tests for the 9-agent
 # swarm fleet. Runs against a live Kind cluster with Flux, SPIRE, and OpenBao.
 #
 # Prerequisites:
@@ -17,7 +17,6 @@ NAMESPACE="${SWARM_NAMESPACE:-fe-signalloom-agents}"
 AGENTS=(
   prompt-commit-summarizer
   triage-ci-worker
-  zulip-chat-agent
   cpai-engineer
   hosted-daytona-coder
   swarm-governor
@@ -38,7 +37,7 @@ AGENTS=(
   kubectl get ns "$NAMESPACE" -o name
 }
 
-@test "all 10 service accounts exist" {
+@test "all 9 service accounts exist" {
   for sa in "${AGENTS[@]}"; do
     run kubectl get sa "${sa}" -n "$NAMESPACE" -o name
     [ "$status" -eq 0 ]

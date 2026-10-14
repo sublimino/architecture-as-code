@@ -122,6 +122,21 @@ setup() {
   [ "$(source_id_hash_files "$fx" '^app/\.astro/' app)" != "$before" ]
 }
 
+@test "docs fingerprint ignores engineering build outputs but includes engineering source" {
+  local app="$fx/d2-signalloom/apps/docs-signalloom" before
+  mkdir -p "$app/dev-docs/.astro" "$app/dist-dev-docs" "$app/dev-docs/src/content/docs"
+  printf 'cache v1\n' >"$app/dev-docs/.astro/types.d.ts"
+  printf 'output v1\n' >"$app/dist-dev-docs/index.html"
+  printf 'source v1\n' >"$app/dev-docs/src/content/docs/index.md"
+  git -C "$fx" add -A && git -C "$fx" commit -q -m docs
+  before="$(SOURCE_ID_REPO_ROOT="$fx" source_id_for docs-signalloom)"
+  printf 'cache v2\n' >"$app/dev-docs/.astro/types.d.ts"
+  printf 'output v2\n' >"$app/dist-dev-docs/index.html"
+  [ "$(SOURCE_ID_REPO_ROOT="$fx" source_id_for docs-signalloom)" = "$before" ]
+  printf 'source v2\n' >"$app/dev-docs/src/content/docs/index.md"
+  [ "$(SOURCE_ID_REPO_ROOT="$fx" source_id_for docs-signalloom)" != "$before" ]
+}
+
 @test "outside a git repository, or with nothing tracked, there is no fingerprint" {
   mkdir -p "$BATS_TEST_TMPDIR/plain/app" && printf 'x\n' >"$BATS_TEST_TMPDIR/plain/app/f"
   run source_id_hash_paths "$BATS_TEST_TMPDIR/plain" app

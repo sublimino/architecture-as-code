@@ -50,11 +50,6 @@ export const guards = {
     return guards.exists("service", "customer-portal", "olly-replica");
   },
 
-  /** osramp-apps backend (Archivista) — `make demo-osramp-up`. */
-  archivistaDeployed(): boolean {
-    return guards.exists("service", "osramp-archivista", "backend");
-  },
-
   /** kube-prometheus-stack Grafana — part of the observability profile. */
   grafanaDeployed(): boolean {
     return guards.exists("service", "kube-prometheus-stack-grafana", "monitoring");

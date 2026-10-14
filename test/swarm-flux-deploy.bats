@@ -50,11 +50,6 @@ SCRIPT="$REPO_ROOT/scripts/swarm-deploy.sh"
   grep -q 'path: ./triage-ci-worker' "$RS_FILE"
 }
 
-@test "ResourceSet contains zulip-chat-agent Kustomization" {
-  grep -q 'name: agent-zulip-chat-agent' "$RS_FILE"
-  grep -q 'path: ./zulip-chat-agent' "$RS_FILE"
-}
-
 @test "ResourceSet contains cpai-engineer Kustomization" {
   grep -q 'name: agent-cpai-engineer' "$RS_FILE"
   grep -q 'path: ./cpai-engineer' "$RS_FILE"

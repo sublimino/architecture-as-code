@@ -76,6 +76,14 @@
 
 set -Eeuo pipefail
 
+if [ -z "${KUBECONFIG:-}" ]; then
+	if [ -f /tmp/osramp-kubeconfig.yaml ]; then
+		export KUBECONFIG="/tmp/osramp-kubeconfig.yaml"
+	elif [ -f /tmp/osramp.kubeconfig ]; then
+		export KUBECONFIG="/tmp/osramp.kubeconfig"
+	fi
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/source-id.sh
 source "${SCRIPT_DIR}/lib/source-id.sh"

@@ -76,6 +76,22 @@ if [ "$CLEAN_COUNT" -gt 0 ]; then
   echo "  To safely prune merged clean worktrees: 'git worktree remove <worktree-path>' and 'git worktree prune'."
 fi
 
+if [ -x "scripts/check-worktree-hygiene.sh" ]; then
+  echo "Running worktree hygiene check (scripts/check-worktree-hygiene.sh)..."
+  if bash scripts/check-worktree-hygiene.sh >/dev/null 2>&1; then
+    echo "  [PASS] Worktree location hygiene: Zero in-repository worktrees"
+  else
+    echo "  [FAIL] In-repository worktree violation detected by scripts/check-worktree-hygiene.sh"
+    echo "  [REMEDIATION] Move worktrees to ~/src/.worktrees/<repo>/<branch>/ and run 'git worktree prune'."
+    exit 1
+  fi
+  STALE_OSRAMP_WTS="$(bash scripts/check-worktree-hygiene.sh --list-stale-osramp 2>/dev/null || true)"
+  if [ -n "$STALE_OSRAMP_WTS" ]; then
+    STALE_WT_COUNT="$(printf '%s\n' "$STALE_OSRAMP_WTS" | wc -l | tr -d ' ')"
+    echo "  [ADVISORY - STALE OSRAMP WORKTREES] ${STALE_WT_COUNT} stale/clean worktree(s) detected by check-worktree-hygiene.sh --list-stale-osramp"
+  fi
+fi
+
 if [ -f "scripts/kanban-check.sh" ]; then
   echo "Running kanban health check..."
   DOCTOR_OUT=$(bash scripts/kanban-check.sh doctor --repo . 2>/dev/null || true)

@@ -52,8 +52,8 @@ else
   READY_COUNT=$(echo "$FLUX_KUST" | jq -r '[.items[] | select(.status.conditions[]? | select(.type=="Ready" and .status=="True"))] | length' 2>/dev/null || echo "0")
   echo "FLUX_KUSTOMIZATIONS_READY=${READY_COUNT}/${TOTAL_COUNT}"
   
-  # Check for error conditions across all namespaces
-  FAILURES=$(echo "$FLUX_KUST" | jq -r '.items[] | select(.status.conditions[]? | select(.type=="Ready" and .status=="False")) | .metadata.namespace + "/" + .metadata.name + ": " + (.status.conditions[] | select(.type=="Ready") | .message)' 2>/dev/null || true)
+  # Check for error/non-ready conditions across all namespaces
+  FAILURES=$(echo "$FLUX_KUST" | jq -r '.items[] | select(.status.conditions[]? | select(.type=="Ready" and .status!="True")) | .metadata.namespace + "/" + .metadata.name + ": " + (.status.conditions[] | select(.type=="Ready") | .message)' 2>/dev/null || true)
   if [ -n "$FAILURES" ]; then
     echo "FLUX_FAILURES_DETECTED=YES"
     echo "$FAILURES"
@@ -114,6 +114,22 @@ if [ -x "${REPO_ROOT}/scripts/clean-test-artifacts.sh" ]; then
     echo "  [REMEDIATION] Leaked test artifacts or trust-secret drift detected in cluster."
     echo "  Run the dedicated clean job: 'make clean-test-artifacts' (or './scripts/clean-test-artifacts.sh')"
     FAIL_COUNT=$((FAIL_COUNT + 1))
+  fi
+fi
+
+# 6. Check deployed Signal Loom workload source freshness against working tree
+if [ -x "${REPO_ROOT}/scripts/check-deployed-staleness.sh" ] && kubectl get ns fe-signalloom >/dev/null 2>&1; then
+  STALE_OUT=""
+  if STALE_OUT=$("${REPO_ROOT}/scripts/check-deployed-staleness.sh" 2>&1); then
+    echo "DEPLOYED_WORKLOADS_FRESH=YES"
+  else
+    echo "DEPLOYED_WORKLOADS_FRESH=NO"
+    echo "$STALE_OUT" | grep -E 'STALE|UNVERIFIABLE' || true
+    echo "  [ADVISORY - DEPLOYED STALENESS] Running cluster pod(s) differ from working tree source."
+    echo "  Rebuild, sign, load, and roll the affected workload (e.g., './scripts/build-sign-dashboard.sh' + 'kubectl rollout restart deployment/dashboard-signalloom -n fe-signalloom')."
+    if [ "${ENFORCE_DEPLOYED_FRESHNESS:-0}" = "1" ]; then
+      FAIL_COUNT=$((FAIL_COUNT + 1))
+    fi
   fi
 fi
 

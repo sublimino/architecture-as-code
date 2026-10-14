@@ -24,6 +24,7 @@ import { test, expect } from "@playwright/test";
 // that rendered nothing.
 
 const BASE = (process.env.DOCS_BASE_URL ?? "http://127.0.0.1:4325/docs").replace(/\/+$/, "");
+const ENGINEERING = (process.env.DEV_DOCS_BASE_URL ?? BASE.replace(/\/docs$/, "/dev-docs")).replace(/\/+$/, "");
 
 const PAGES = [
   { slug: "start/external-linux-agent", heading: "Onboard an external Linux agent" },
@@ -110,7 +111,7 @@ test.describe("architecture diagrams page", () => {
   const slug = "reference/architecture-diagrams";
 
   test("renders its heading, sidebar entry, and the known-limitation notice", async ({ page }) => {
-    const response = await page.goto(`${BASE}/${slug}/`, { waitUntil: "domcontentloaded" });
+    const response = await page.goto(`${ENGINEERING}/${slug}/`, { waitUntil: "domcontentloaded" });
 
     expect(response, "no HTTP response for the architecture diagrams page").not.toBeNull();
     expect(response!.status()).toBe(200);
@@ -125,7 +126,7 @@ test.describe("architecture diagrams page", () => {
   });
 
   test("lists Azure first among the hyperscaler platforms", async ({ page }) => {
-    await page.goto(`${BASE}/${slug}/`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${ENGINEERING}/${slug}/`, { waitUntil: "domcontentloaded" });
     const headings = await page.locator("h3").allTextContents();
     const clouds = headings.filter(h => /Azure|Amazon|Google/.test(h)).map(h => h.trim());
     expect(clouds).toEqual([
@@ -136,7 +137,7 @@ test.describe("architecture diagrams page", () => {
   });
 
   test("every inline diagram actually loads its asset", async ({ page }) => {
-    await page.goto(`${BASE}/${slug}/`, { waitUntil: "load" });
+    await page.goto(`${ENGINEERING}/${slug}/`, { waitUntil: "load" });
 
     // naturalWidth separates "the <img> tag is in the markup" from "the
     // browser fetched and decoded the file". A broken path reports 0.
@@ -149,7 +150,7 @@ test.describe("architecture diagrams page", () => {
   });
 
   test("every download link resolves to a served file", async ({ page, request }) => {
-    await page.goto(`${BASE}/${slug}/`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${ENGINEERING}/${slug}/`, { waitUntil: "domcontentloaded" });
 
     const hrefs = await page.locator('a[href*="/diagrams/"]').evaluateAll(els =>
       els.map(el => (el as HTMLAnchorElement).href),
@@ -163,7 +164,7 @@ test.describe("architecture diagrams page", () => {
   });
 
   test("diagram images support click-to-zoom modal", async ({ page }) => {
-    await page.goto(`${BASE}/${slug}/`, { waitUntil: "load" });
+    await page.goto(`${ENGINEERING}/${slug}/`, { waitUntil: "load" });
 
     const firstDiagramImg = page.locator(`img[src$="/diagrams/${DIAGRAMS[0]}.svg"]`).first();
     await expect(firstDiagramImg).toBeVisible();
@@ -193,7 +194,7 @@ test.describe("internal architecture page", () => {
   const slug = "reference/internal-architecture";
 
   test("renders its heading and sidebar entry", async ({ page }) => {
-    const response = await page.goto(`${BASE}/${slug}/`, { waitUntil: "domcontentloaded" });
+    const response = await page.goto(`${ENGINEERING}/${slug}/`, { waitUntil: "domcontentloaded" });
 
     expect(response, "no HTTP response for the internal architecture page").not.toBeNull();
     expect(response!.status()).toBe(200);
@@ -203,7 +204,7 @@ test.describe("internal architecture page", () => {
   });
 
   test("embeds between 10 and 20 diagrams, each actually decoded", async ({ page }) => {
-    await page.goto(`${BASE}/${slug}/`, { waitUntil: "load" });
+    await page.goto(`${ENGINEERING}/${slug}/`, { waitUntil: "load" });
 
     const images = page.locator('img[src*="/diagrams/internal/"]');
     const count = await images.count();
@@ -219,7 +220,7 @@ test.describe("internal architecture page", () => {
   });
 
   test("every internal diagram link resolves to a served file", async ({ page, request }) => {
-    await page.goto(`${BASE}/${slug}/`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${ENGINEERING}/${slug}/`, { waitUntil: "domcontentloaded" });
 
     const hrefs = await page.locator('a[href*="/diagrams/internal/"]').evaluateAll(els =>
       els.map(el => (el as HTMLAnchorElement).href),
@@ -233,12 +234,78 @@ test.describe("internal architecture page", () => {
   });
 
   test("architecture diagrams page points here instead of embedding component flows", async ({ page }) => {
-    await page.goto(`${BASE}/reference/architecture-diagrams/`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${ENGINEERING}/reference/architecture-diagrams/`, { waitUntil: "domcontentloaded" });
 
     // The old component-flows diagram lived at public/diagrams/osramp-demo.svg.
     // It moved into this page as 01-component-flows; the old embed must be gone.
     await expect(page.locator('img[src$="/diagrams/osramp-demo.svg"]')).toHaveCount(0);
 
     await expect(page.locator(`a[href$="/${slug}/"]`).first()).toHaveCount(1);
+  });
+});
+
+test.describe("engineering portal migration", () => {
+  for (const slug of ["architecture-diagrams", "internal-architecture"]) {
+    for (const suffix of ["", "/"]) {
+      test(`old ${slug}${suffix} permanently redirects`, async ({ request, page }) => {
+        const old = `${BASE}/reference/${slug}${suffix}`;
+        const response = await request.get(old, { maxRedirects: 0 });
+        expect(response.status()).toBe(301);
+        expect(response.headers().location).toBe(`/dev-docs/reference/${slug}/`);
+        await page.goto(old);
+        await expect(page).toHaveURL(`${ENGINEERING}/reference/${slug}/`);
+      });
+    }
+  }
+
+  test("user sidebar excludes engineering architecture pages", async ({ page }) => {
+    await page.goto(`${BASE}/start/quick-start/`);
+    await expect(page.locator('nav.sidebar a[href*="reference/architecture-diagrams"]')).toHaveCount(0);
+    await expect(page.locator('nav.sidebar a[href*="reference/internal-architecture"]')).toHaveCount(0);
+  });
+
+  test("engineering title and shared styling render", async ({ page }) => {
+    const response = await page.goto(`${ENGINEERING}/reference/architecture-diagrams/`);
+    expect(response?.status()).toBe(200);
+    await expect(page.locator('.site-title').first()).toContainText("Signal Loom Engineering");
+    await expect(page.locator('h1').first()).toBeVisible();
+    const styles = await page.locator('link[rel="stylesheet"]').count();
+    expect(styles).toBeGreaterThan(0);
+  });
+
+  for (const role of ["developer", "support-engineer", "security-engineer"]) {
+    test(`engineering onboarding navigation opens ${role}`, async ({ page }) => {
+      await page.goto(`${ENGINEERING}/`);
+      const link = page.locator(`nav.sidebar a[href="/dev-docs/onboarding/${role}/"]`);
+      await link.click();
+      await expect(page).toHaveURL(`${ENGINEERING}/onboarding/${role}/`);
+      await expect(page.locator("h1").first()).toBeVisible();
+      await expect(page.locator("main")).toContainText("Stop");
+    });
+  }
+
+  test("engineering security assessment is read-only and leads to a findings template", async ({ page }) => {
+    await page.goto(`${ENGINEERING}/onboarding/security-engineer/`);
+    await expect(page.locator("main")).toContainText("Do not mutate the assessed environment");
+    await expect(page.locator("main")).toContainText("The assessment permits no automatic remediation");
+    await page.locator('main a[href="/dev-docs/reference/security-assessment-template/"]').first().click();
+    await expect(page.locator("main")).toContainText("Confirmed gap");
+    await expect(page.locator("main")).toContainText("Unverified");
+  });
+
+  test("engineering Pagefind search works under the documentation CSP", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+    const response = await page.goto(`${ENGINEERING}/`);
+    const csp = response?.headers()["content-security-policy"] ?? "";
+    expect(csp).toContain("'wasm-unsafe-eval'");
+    expect(csp).not.toContain("'unsafe-eval'");
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await page.locator('.pagefind-ui__search-input').fill("Security engineer");
+    await expect(page.locator('.pagefind-ui__result-link').first()).toBeVisible();
+    const links = await page.locator('.pagefind-ui__result-link').evaluateAll(nodes => nodes.map(node => (node as HTMLAnchorElement).pathname));
+    expect(links.length).toBeGreaterThan(0);
+    expect(links.every(link => link.startsWith("/dev-docs/"))).toBe(true);
+    expect(errors).toEqual([]);
   });
 });

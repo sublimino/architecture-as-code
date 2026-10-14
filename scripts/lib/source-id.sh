@@ -342,7 +342,7 @@ source_id_for() {
 	docs-signalloom)
 		# As above; .astro/ is TRACKED here and rewritten by every dev run, and
 		# its .dockerignore keeps it out of the build, so it is excluded too.
-		id="$(SOURCE_ID_INCLUDE_UNTRACKED=1 source_id_hash_files "${root}/${context}" '^(node_modules|dist|\.astro|test-results|playwright-report)/' .)"
+		id="$(SOURCE_ID_INCLUDE_UNTRACKED=1 source_id_hash_files "${root}/${context}" '^((node_modules|dist|dist-dev-docs|\.astro|test-results|playwright-report)/|dev-docs/\.astro/)' .)"
 		;;
 	fe-signalloom)
 		# The whole build context, not a COPY-derived path list.

@@ -58,10 +58,6 @@ DEMO_SCRIPT="${REPO_ROOT}/scripts/swarm-fleet-demo.sh"
   grep -q 'verify_triage_worker' "$DEMO_SCRIPT"
 }
 
-@test "verify_chatops function exists" {
-  grep -q 'verify_chatops' "$DEMO_SCRIPT"
-}
-
 @test "verify_cpai function exists" {
   grep -q 'verify_cpai' "$DEMO_SCRIPT"
 }
@@ -86,8 +82,8 @@ DEMO_SCRIPT="${REPO_ROOT}/scripts/swarm-fleet-demo.sh"
   grep -q 'verify_nono' "$DEMO_SCRIPT"
 }
 
-@test "verify_signalloom_warden function exists" {
-  grep -q 'verify_signalloom_warden' "$DEMO_SCRIPT"
+@test "verify_stun_sentinel function exists" {
+  grep -q 'verify_stun_sentinel' "$DEMO_SCRIPT"
 }
 
 @test "verify_stun_action function exists" {
@@ -101,18 +97,17 @@ DEMO_SCRIPT="${REPO_ROOT}/scripts/swarm-fleet-demo.sh"
   [ "$status" -eq 0 ]
 }
 
-@test "script references all 10 agent names" {
+@test "script references all 9 agent names" {
   local agents=(
     prompt-commit-summarizer
     triage-ci-worker
-    zulip-chat-agent
     cpai-engineer
     hosted-daytona-coder
     swarm-governor
     prod-deploy-gate
     agent-cardvault
     nono-containment-probe
-    signalloom-warden
+    signalloom-stun-sentinel
   )
   for agent in "${agents[@]}"; do
     grep -q "$agent" "$DEMO_SCRIPT"

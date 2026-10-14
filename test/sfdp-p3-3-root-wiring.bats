@@ -58,10 +58,10 @@ teardown() {
 	[ "$status" -eq 0 ]
 }
 
-@test "configured Archivista is strict and never silently becomes file evidence" {
-	run grep -F 'AUDIT_ANCHOR_REQUIRE_LOG=1' "$repo/scripts/segment-attestation-proof.sh"
-	[ "$status" -eq 0 ]
-	run grep -F -- '--require-archivista' "$repo/scripts/segment-attestation-proof.sh"
+@test "segment proof uses local evidence without remote publication flags" {
+	run grep -E 'ARCHIVISTA_URL|require-archivista|enable-archivista' "$repo/scripts/segment-attestation-proof.sh"
+	[ "$status" -ne 0 ]
+	run grep -F 'AUDIT_ANCHOR_DIR="${ANCHOR_DIR}"' "$repo/scripts/segment-attestation-proof.sh"
 	[ "$status" -eq 0 ]
 }
 
@@ -114,19 +114,18 @@ teardown() {
 	[[ "$output" == *'--expected-key-id "${EXPECTED_KEY_ID}"'* ]]
 }
 
-@test "strict unreachable Archivista checkpoint exits nonzero" {
-	run make -C "$repo" signing-keys KEYS_DIR="$tmp/keys"
+@test "attested test fails closed for tampered and wrong-key evidence" {
+	run grep -F 'tampered test evidence was accepted' "$repo/scripts/attested-test.sh"
 	[ "$status" -eq 0 ]
-	run env \
-		ARCHIVISTA_URL=http://127.0.0.1:1 \
-		DATABASE_URL=postgresql://unused:unused@127.0.0.1:1/unused \
-		make -C "$repo" audit-anchor-checkpoint \
-		KEYS_DIR="$tmp/keys"
-	[ "$status" -ne 0 ]
-	[[ "$output" == *"strict Archivista mode configured"* ]]
+	run grep -F 'wrong-key test evidence was accepted by intended policy' "$repo/scripts/attested-test.sh"
+	[ "$status" -eq 0 ]
+	run grep -F 'rm -rf "${RUN_DIR}"' "$repo/scripts/attested-test.sh"
+	[ "$status" -eq 0 ]
 }
 
 @test "owned shell scripts parse as bash" {
-	run bash -n "$repo/scripts/attested-test.sh" "$repo/scripts/audit-anchor-tamper-demo.sh" "$repo/scripts/segment-attestation-proof.sh"
-	[ "$status" -eq 0 ]
+	for script in "$repo/scripts/attested-test.sh" "$repo/scripts/audit-anchor-tamper-demo.sh" "$repo/scripts/segment-attestation-proof.sh"; do
+		run bash -n "$script"
+		[ "$status" -eq 0 ]
+	done
 }

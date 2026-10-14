@@ -142,9 +142,10 @@ signalloom_up() {
   flux reconcile kustomization apps -n "$SIGNALLOOM_NAMESPACE" --with-source
   wait_flux_ready kustomization apps -n "$SIGNALLOOM_NAMESPACE" 600
   kubectl -n "$SIGNALLOOM_NAMESPACE" rollout restart \
-    deployment/fe-signalloom deployment/dashboard-signalloom
+    deployment/fe-signalloom deployment/dashboard-signalloom deployment/docs-signalloom
   wait_rollout fe-signalloom -n "$SIGNALLOOM_NAMESPACE" 600
   wait_rollout dashboard-signalloom -n "$SIGNALLOOM_NAMESPACE" 600
+  wait_rollout docs-signalloom -n "$SIGNALLOOM_NAMESPACE" 600
 }
 signalloom_down() {
   require_command kubectl

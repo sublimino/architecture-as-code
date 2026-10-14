@@ -92,12 +92,11 @@ REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
 
 # ─── Agent swarm ServiceAccounts ─────────────────────────────────────────────
 
-@test "all 10 agent ServiceAccounts are defined" {
+@test "all 8 shared agent ServiceAccounts are defined" {
   local rbac="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/rbac.yaml"
   local agents=(
     prompt-commit-summarizer
     triage-ci-worker
-    zulip-chat-agent
     cpai-engineer
     hosted-daytona-coder
     swarm-governor
@@ -116,7 +115,7 @@ REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
   local count
   count=$(grep -c 'signalloom.ai/agent: "true"' \
     "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/rbac.yaml")
-  [ "${count}" -ge 10 ]
+  [ "${count}" -ge 9 ]
 }
 
 @test "agent namespace has signalloom.ai/managed label" {

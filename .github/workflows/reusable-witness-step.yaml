@@ -1,6 +1,6 @@
 # Reusable witness-attested step. Callers wrap any command in `witness run`
 # so its execution evidence is signed and uploaded as a workflow artifact
-# (and to Archivista when a server is reachable from the runner).
+# for retention as a workflow artifact.
 #
 # Usage from another workflow:
 #   jobs:
@@ -20,10 +20,6 @@ on:
       command:
         required: true
         type: string
-      archivista-server:
-        required: false
-        type: string
-        default: ""
 
 jobs:
   witness-run:
@@ -32,25 +28,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install witness
-        run: curl -fsSL https://raw.githubusercontent.com/in-toto/witness/main/install-witness.sh | bash
+        run: ./scripts/setup.sh --tools-only
       - name: Generate ephemeral signing key
         run: |
           openssl genpkey -algorithm ed25519 -out witness.pem
           openssl pkey -in witness.pem -pubout -out witness-pub.pem
       - name: Run step under witness
         run: |
-          EXTRA_ARGS=""
-          if [ -n "${{ inputs.archivista-server }}" ]; then
-            EXTRA_ARGS="--enable-archivista --archivista-server=${{ inputs.archivista-server }}"
-          fi
-          witness run --step "${{ inputs.step-name }}" \
+          mkdir -p "${RUNNER_TEMP}/witness-home"
+          cat > .witness.yaml <<'YAML'
+          run:
+            enable-archivista: false
+            enable-archivist: false
+          verify:
+            enable-archivista: false
+            enable-archivist: false
+          YAML
+          HOME="${RUNNER_TEMP}/witness-home" XDG_CONFIG_HOME="${RUNNER_TEMP}/witness-home/.config" \
+            witness run --workingdir "${GITHUB_WORKSPACE}" --attestations= \
+            --step "${{ inputs.step-name }}" \
             -o "${{ inputs.step-name }}.attestation.json" \
-            -k witness.pem ${EXTRA_ARGS} \
+            -k witness.pem \
             -- ${{ inputs.command }}
       - name: Upload attestation
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: attestation-${{ inputs.step-name }}
           path: |
             ${{ inputs.step-name }}.attestation.json
             witness-pub.pem
+          if-no-files-found: warn

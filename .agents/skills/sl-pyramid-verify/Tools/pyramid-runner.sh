@@ -69,7 +69,7 @@ fi
 
 # 6. Frontend Vitest Suites
 echo "--> [Tier 6/6] Running Dashboard Vitest suites..."
-if (cd d2-signalloom/apps/dashboard-signalloom && bun run test -- --run src/auth/superadmin.test.ts src/api/fleetApi.stun.test.ts src/components/trust/trustTopology.test.ts); then
+if (cd d2-signalloom/apps/dashboard-signalloom && bun run test -- --run src/auth/oidc.test.ts src/providers/FeatureFlagProvider.test.tsx src/auth/superadmin.test.ts src/api/fleetApi.stun.test.ts src/components/trust/trustTopology.test.ts); then
   echo "  [PASS] Frontend Vitest suites pass"
 else
   echo "  [FAIL] Frontend Vitest suites failed."

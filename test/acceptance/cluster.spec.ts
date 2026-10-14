@@ -8,7 +8,6 @@ import { guards } from "./helpers";
  *   - kind-osramp cluster running with all components deployed
  *   - Port-forwards active (managed by scripts/acceptance-test.sh):
  *     - 13000 → monitoring/grafana
- *     - 18082 → backend/archivista
  *     - 18000 → fe-signalloom/fe-signalloom
  *     - 18080 → olly-replica/customer-portal
  *
@@ -16,7 +15,6 @@ import { guards } from "./helpers";
  */
 
 const GRAFANA_URL = "http://127.0.0.1:13000";
-const ARCHIVISTA_URL = "http://127.0.0.1:18082";
 const SIGNALLOOM_URL = "http://127.0.0.1:18000";
 const OLLY_PORTAL_URL = "http://127.0.0.1:18080";
 
@@ -41,31 +39,6 @@ test.describe("Grafana", () => {
     await expect(
       page.getByTestId("data-testid Username input field")
     ).toBeVisible({ timeout: 10_000 });
-  });
-});
-
-test.describe("Archivista API", () => {
-  test.beforeAll(() => {
-    test.skip(
-      !guards.archivistaDeployed(),
-      "osramp-apps backend not deployed — run: make demo-osramp-up",
-    );
-  });
-
-  test("root endpoint is reachable", async ({ request }) => {
-    const response = await request.get(`${ARCHIVISTA_URL}/`);
-    // Archivista may redirect or serve a page
-    expect(response.status()).toBeLessThan(500);
-  });
-
-  test("GraphQL endpoint responds", async ({ request }) => {
-    const response = await request.post(`${ARCHIVISTA_URL}/query`, {
-      headers: { "Content-Type": "application/json" },
-      data: { query: "{ __schema { queryType { name } } }" },
-    });
-    expect(response.status()).toBe(200);
-    const body = await response.json();
-    expect(body).toHaveProperty("data");
   });
 });
 

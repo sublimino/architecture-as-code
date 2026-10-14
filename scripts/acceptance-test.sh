@@ -142,7 +142,7 @@ echo "==> Setting up port-forwards..."
 # The ONE thing that is legitimately specific to signalloom-test-1.spec.ts: the
 # narrowed forward SET. TEST-1 is the slice-isolation harness — it exists to
 # prove the signalloom slice stands up without the rest of the estate, so
-# forwarding olly-replica / archivista / grafana for it would let a cross-slice
+# forwarding olly-replica or Grafana for it would let a cross-slice
 # dependency pass unnoticed. test/signalloom-test-1-harness.bats enforces that
 # exclusion. Nothing else below may branch on a spec name.
 if [[ " $* " == *" signalloom-test-1.spec.ts "* ]]; then

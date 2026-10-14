@@ -914,9 +914,6 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	# placed before signalloom-local.sh, because its image load (further down)
 	# is what lets the already-applied Deployment start. The scripts only write
 	# The scripts write Secrets into namespaces that exist after `make up`.
-	# Ensure the dedicated warden namespace exists before minting keys into it.
-	@kubectl --context kind-$(CLUSTER_NAME) get namespace inf-signalloom-warden >/dev/null 2>&1 || \
-		kubectl --context kind-$(CLUSTER_NAME) create namespace inf-signalloom-warden >/dev/null 2>&1 || true
 	$(MAKE) sldc-ingest-keys CONTEXT=kind-$(CLUSTER_NAME)
 	$(MAKE) fleet-manager-keys CONTEXT=kind-$(CLUSTER_NAME)
 	# The operator PUBLIC keys fleet-manager verifies resume tokens against,
@@ -1270,12 +1267,8 @@ test-sltm-probe-apikey: ## SLTM Phase 1: the Kusari-cluster probe authenticates 
 
 .PHONY: sldc-ingest-keys fleet-manager-keys fleet-operator-keys afm-importer-key signal-segment-key
 sldc-ingest-keys: ## Mint/converge every signal-ingest key and consumer Secret on CONTEXT (idempotent; cluster required).
-	@kubectl --context $(CONTEXT) get namespace inf-signalloom-warden >/dev/null 2>&1 || \
-		kubectl --context $(CONTEXT) create namespace inf-signalloom-warden >/dev/null 2>&1 || true
 	./scripts/sldc-ingest-bearer.sh --context $(CONTEXT)
 fleet-manager-keys: ## Mint/converge fleet-manager caller keys on CONTEXT (idempotent; cluster required).
-	@kubectl --context $(CONTEXT) get namespace inf-signalloom-warden >/dev/null 2>&1 || \
-		kubectl --context $(CONTEXT) create namespace inf-signalloom-warden >/dev/null 2>&1 || true
 	./scripts/fleet-manager-caller-keys.sh --context $(CONTEXT)
 fleet-operator-keys: ## Mint the resume-governance operator keypairs and publish their PUBLIC halves as ConfigMap fe-signalloom/fleet-manager-operator-keys on CONTEXT (idempotent; cluster required). Private keys stay under $(KEYS_DIR)/fleet-operators/. Without this no governed resume can succeed.
 	./scripts/fleet-operator-keys.sh --context $(CONTEXT) </dev/null

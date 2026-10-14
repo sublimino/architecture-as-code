@@ -1090,9 +1090,10 @@ retry 3 "$MAKE_BIN" registry
 "$MAKE_BIN" signing-keys
 # If the cluster already exists but trusts an older/different key, re-point
 # flux-system/cosign-pub at this run's key so push preflight and Flux admission agree.
-if "$KUBECTL_BIN" -n flux-system get secret cosign-pub >/dev/null 2>&1 && [ -f "${KEYS_DIR}/cosign.pub" ]; then
+cosign_pub_file="${KEYS_DIR:-${WORK_DIR}/.keys}/cosign.pub"
+if "$KUBECTL_BIN" -n flux-system get secret cosign-pub >/dev/null 2>&1 && [ -f "${cosign_pub_file}" ]; then
   "$KUBECTL_BIN" -n flux-system create secret generic cosign-pub \
-    --from-file=cosign.pub="${KEYS_DIR}/cosign.pub" --dry-run=client -o yaml | "$KUBECTL_BIN" apply -f - >/dev/null 2>&1 || true
+    --from-file=cosign.pub="${cosign_pub_file}" --dry-run=client -o yaml | "$KUBECTL_BIN" apply -f - >/dev/null 2>&1 || true
 fi
 "$MAKE_BIN" push-local-foundation
 retry 3 "$MAKE_BIN" bootstrap-local

@@ -67,3 +67,4 @@ test/acceptance/agent-claim.spec.ts:stun-sentinel # acceptance test asserting li
 scripts/kind-data-backup.sh:stun-sentinel-fleet-key # EAPCI-P1-5: backs up the legacy caller-key Secret that scripts/fleet-manager-caller-keys.sh still mints during the warden cutover
 test/netebpf-adversarial.bats # netebpf adversarial test tests apps/stun-sentinel
 test/netebpf-preflight.bats # netebpf preflight test tests apps/stun-sentinel
+d2-signalloom/apps/dashboard-signalloom/src/pages/DeploySensorHelpPage.test.tsx:stun-sentinel # negative guard asserting the help page no longer names the legacy probe

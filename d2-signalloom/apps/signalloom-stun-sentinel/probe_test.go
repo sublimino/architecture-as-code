@@ -7,9 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -277,28 +275,25 @@ func TestStunReconcilerPreservesProbesOnStunAndReleasesOnUnstun(t *testing.T) {
 	dir := t.TempDir()
 	cgroupPath := filepath.Join(dir, "kubelet.slice", "kubelet-kubepods.slice", "kubelet-kubepods-burstable-podtest_uid.slice")
 	mockFreezableCgroup(t, cgroupPath, false)
-
-	stopSim := make(chan struct{})
-	defer close(stopSim)
-	go func() {
-		for {
-			select {
-			case <-stopSim:
-				return
-			default:
-				data, err := os.ReadFile(filepath.Join(cgroupPath, "cgroup.freeze"))
-				if err == nil {
-					val := strings.TrimSpace(string(data))
-					if val == "1" {
-						_ = os.WriteFile(filepath.Join(cgroupPath, "cgroup.events"), []byte("populated 1\nfrozen 1\n"), 0644)
-					} else if val == "0" {
-						_ = os.WriteFile(filepath.Join(cgroupPath, "cgroup.events"), []byte("populated 1\nfrozen 0\n"), 0644)
-					}
-				}
-				time.Sleep(2 * time.Millisecond)
-			}
+	// The fake kernel answers before it is asked, so no goroutine races the
+	// freezer's 50ms confirmation deadline. The previous fake mirrored
+	// cgroup.freeze into cgroup.events from a goroutine on a 2ms sleep, and
+	// under host load that goroutine was not scheduled inside the deadline:
+	// the test failed with ErrFreezeDeadline for a scheduling reason. Freeze
+	// confirmation timing is pkg/cgroup's subject (freezer_test.go there); this
+	// test's subject is what the reconciler does around it. cgroup.freeze is
+	// still asserted after each reconcile, so a reconciler that skips the
+	// write still fails here.
+	kernelSettles := func(frozen bool) {
+		t.Helper()
+		ev := "populated 1\nfrozen 0\n"
+		if frozen {
+			ev = "populated 1\nfrozen 1\n"
 		}
-	}()
+		if err := replaceFile(filepath.Join(t.TempDir(), "cgroup.events"), filepath.Join(cgroupPath, "cgroup.events"), ev); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	var tcCalls []string
 	tc := newTCDropFilter()
@@ -338,6 +333,7 @@ func TestStunReconcilerPreservesProbesOnStunAndReleasesOnUnstun(t *testing.T) {
 	}
 
 	// Reconcile stun
+	kernelSettles(true)
 	if err := reconciler.reconcile(pod); err != nil {
 		t.Fatalf("stun reconcile: %v", err)
 	}
@@ -355,6 +351,7 @@ func TestStunReconcilerPreservesProbesOnStunAndReleasesOnUnstun(t *testing.T) {
 
 	// Reconcile un-stun
 	pod.Labels[labelStunned] = "idle"
+	kernelSettles(false)
 	if err := reconciler.reconcile(pod); err != nil {
 		t.Fatalf("unstun reconcile: %v", err)
 	}

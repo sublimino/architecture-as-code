@@ -986,6 +986,7 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	# than a missing build step. The dashboard's /fleet-api/ proxy has no
 	# fallback: a missing fleet-manager is a raw nginx 502 on the Fleet page.
 	$(MAKE) demo-signalloom-fleet-image
+	$(MAKE) demo-signalloom-minio-image
 	SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up
 	./scripts/agent-trust-local.sh up
 	$(MAKE) demo-signalloom-afm-up
@@ -2308,7 +2309,12 @@ demo-signalloom-security-images: ## Build and kind-load the Kusari stub and nono
 	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh kusari-agent:latest
 	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh nono-containment-probe:latest
 
-.PHONY: demo-signalloom-fleet-image demo-signalloom-fleet-up demo-signalloom-fleet-down
+.PHONY: demo-signalloom-fleet-image demo-signalloom-fleet-up demo-signalloom-fleet-down demo-signalloom-minio-image
+demo-signalloom-minio-image: ## Ensure host-cached minio image is loaded into Kind.
+	@if docker image inspect minio/minio:latest >/dev/null 2>&1; then \
+		CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh minio/minio:latest; \
+	fi
+
 demo-signalloom-fleet-image: ## Build and kind-load the Fleet Manager image.
 	docker build -f d2-signalloom/apps/fleet-manager/Dockerfile -t fleet-manager:local d2-signalloom/apps
 	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh fleet-manager:local

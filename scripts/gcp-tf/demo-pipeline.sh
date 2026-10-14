@@ -133,6 +133,10 @@ if [[ -n "${DEMO_ZOT_CACHE_DIR:-}" ]]; then
   export ZOT_CACHE_DIR="${DEMO_ZOT_CACHE_DIR}"
 fi
 
+if [[ -n "${DEMO_POSTGRES_DATA_DIR:-}" ]]; then
+  export POSTGRES_DATA_DIR="${DEMO_POSTGRES_DATA_DIR}"
+fi
+
 # The verdict file. Derived from REPORT_DIR by default, because that is the
 # contract demo-up.sh documents ("must write DEMO_REPORT_DIR/summary.json"), but
 # overridable so the driver's own GCP_TF_DEMO_SUMMARY_NAME cannot name a file

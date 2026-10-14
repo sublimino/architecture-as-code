@@ -876,7 +876,6 @@ run_stage \
      test/policy-compiler.bats test/sfdp-p3-3-root-wiring.bats \
      test/sfdp-p4-4-tamper-regression.bats test/signalloom-portforward.bats \
      test/tc-ebpf-drop.bats \
-     test/tc-ebpf-drop.bats \
      test/wait-job.bats test/wait-pods-service.bats \
      test/cgroup-freeze-adversarial.bats test/landlock-adversarial-escape.bats \
      test/landlock-containment-probes.bats \

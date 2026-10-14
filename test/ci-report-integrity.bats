@@ -178,6 +178,11 @@ pipeline_bats_invocation_suites() {
         /\$\{BATS_BIN\}/ { inv = NR; on = 1 }
         on {
             line = $0
+            # Only the argument list counts: start after ${BATS_BIN} and stop at
+            # the first shell operator, so a path named again later on the same
+            # line (an error message, a log) is not mistaken for a second listing.
+            if (index(line, "${BATS_BIN}")) line = substr(line, index(line, "${BATS_BIN}"))
+            if (match(line, /[;|&)>]/)) line = substr(line, 1, RSTART - 1)
             while (match(line, /[A-Za-z0-9_.\/-]+\.bats/)) {
                 print inv, substr(line, RSTART, RLENGTH)
                 line = substr(line, RSTART + RLENGTH)
@@ -185,6 +190,21 @@ pipeline_bats_invocation_suites() {
             if ($0 !~ /\\[[:space:]]*$/) on = 0
         }
     ' "$pipeline"
+}
+
+@test "the duplicate-suite parser counts the bats argument list only" {
+    local fixture="${BATS_TEST_TMPDIR}/pipeline.sh"
+    cat >"$fixture" <<'FIX'
+run_stage "a" "a.tap" "cd ${WORK_DIR} && ${BATS_BIN} --tap test/a.bats 2>&1; echo 'test/a.bats had skips'"
+run_stage "b" "b.tap" "cd ${WORK_DIR} && ${BATS_BIN} --tap \
+     test/b.bats test/c.bats \
+     test/b.bats"
+FIX
+    local listing
+    listing="$(pipeline="$fixture" pipeline_bats_invocation_suites)"
+    [ "$(grep -c ' test/a\.bats$' <<<"$listing")" -eq 1 ]
+    [ "$(grep -c ' test/b\.bats$' <<<"$listing")" -eq 2 ]
+    [ "$(grep -c ' test/c\.bats$' <<<"$listing")" -eq 1 ]
 }
 
 @test "no pipeline bats invocation lists the same suite twice" {

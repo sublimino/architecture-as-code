@@ -130,4 +130,7 @@ required_terms_missing() {
 	grep -qi 'Landlock LSM' "$f"
 	grep -qi 'PostgreSQL' "$f"
 	grep -qi 'Receiver' "$f"
+	grep -qi 'fe-signalloom-agents' "$f"
+	grep -qi 'Sovereign Perimeter' "$f"
 }
+

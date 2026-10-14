@@ -2,8 +2,8 @@
 
 This document defines the scheduled-run skills for the Signal Loom
 platform (`#partner-signal-loom`). These skills extract recurring operational
-routines from historical development and debugging sessions. They run on
-deterministic schedules or on demand.
+routines from historical development and debugging sessions. Run them on demand.
+The listed cadences are reference policy. These audit commands do not arm schedules.
 
 ## Architecture
 
@@ -12,7 +12,7 @@ strict information hierarchy, progressive disclosure, and verified completion cr
 
 ```mermaid
 flowchart TD
-  CRON["Scheduled Triggers<br/>(Cron / Harness)"] --> RUNNER["Skill Invocation Layer"]
+  CRON["Optional Host Schedule<br/>(Requires approval)"] --> RUNNER["Skill Invocation Layer"]
   MANUAL["Manual User / Agent Call<br/>(/sl-*)"] --> RUNNER
 
   RUNNER --> DRIFT["sl-drift-reconcile<br/>(GitOps & Flux Drift)"]
@@ -22,11 +22,13 @@ flowchart TD
   RUNNER --> PYRAMID["sl-pyramid-verify<br/>(Offline Test Pyramid)"]
   RUNNER --> GOV["sl-worktree-governor<br/>(Multi-Agent Worktrees)"]
   RUNNER --> SWEEP["sl-eap-evidence-sweep<br/>(EAP Compliance Evidence)"]
-  RUNNER --> DSWEEP["sl-drift-sweep<br/>(Two-Axis Drift & Smell Sweep)"]
+  RUNNER --> DSWEEP["sl-drift-sweep<br/>(Three-Axis Drift & Smell Sweep)"]
+  RUNNER --> DIAG["sl-cluster-diagnostics<br/>(Cluster Health & Logs)"]
 
   DRIFT --> CLUSTER["Kind Cluster / Flux Control Plane"]
   INGRESS --> CLUSTER
   GUARD --> CLUSTER
+  DIAG --> CLUSTER
   SWEEP --> EVIDENCE["Evidence Store<br/>(docs/signalloom/evidence/)"]
   PYRAMID --> REPO["Local Repository & Contracts"]
   DSWEEP --> REPO
@@ -35,7 +37,7 @@ flowchart TD
 
 ## Skill Catalog
 
-The table lists the eight scheduled-run skills.
+The table lists the operational skills and their reference cadences.
 
 | Skill Name | Cadence | Trigger Phrase | Primary Invariants Checked |
 |---|---|---|---|
@@ -46,7 +48,10 @@ The table lists the eight scheduled-run skills.
 | `sl-pyramid-verify` | `0 3 * * *` | `/sl-pyramid-verify` | Documentation linting, Vitest suites, Go controller tests, schema sync |
 | `sl-worktree-governor` | `0 */6 * * *` | `/sl-worktree-governor` | Dirty worktrees preservation, branch divergence, Kanban controller leases |
 | `sl-eap-evidence-sweep` | `0 6 * * *` | `/sl-eap-evidence-sweep` | Cosign signatures, SLSA provenance, SPDX SBOMs, audit row continuity |
-| `sl-drift-sweep` | `0 4 * * *` | `/sl-drift-sweep` | Two-axis Standards and Spec review, boilerplate deduplication, proposal sprawl |
+| `sl-drift-sweep` | `0 4 * * *` | `/sl-drift-sweep` | Standards, Spec, and approval-gated architecture analysis |
+| `sl-architecture-audit` | On demand | `/sl-architecture-audit` | Documentation contracts, registered tests, static Flux workload reachability |
+| `sl-security-audit` | On demand | `/sl-security-audit` | Offline scanners, trusted bundle signatures, evidence freshness, unmet runtime controls |
+| `sl-cluster-diagnostics` | `*/15 * * * *` | `/sl-cluster-diagnostics` | Kubernetes pod lifecycle, warning events, multi-pod logs (stern / kubectl), failure signatures |
 
 ## Skill Details
 
@@ -134,7 +139,7 @@ bash .agents/skills/sl-eap-evidence-sweep/Tools/evidence-sweep.sh
 
 Audits repository history across the Standards and Spec review axes.
 It detects duplicated HTTP lifecycle boilerplate, file churn hotspots, and micro-proposal sprawl.
-It pauses after generating the Cleanup Job Manifest unless `--auto` or `/goal` is set.
+It pauses after the Cleanup Job Manifest unless Andrew approves `--auto`.
 When approved or in `--auto` mode, it dispatches isolated worktree subagents with mutation proofs.
 
 Executable tool:
@@ -142,23 +147,64 @@ Executable tool:
 bash .agents/skills/sl-drift-sweep/Tools/drift-sweep.sh
 ```
 
-## Concurrent Test Execution
+### 9. `sl-cluster-diagnostics`
 
-The repository provides a parallel runner that executes all eight skills concurrently.
-It captures isolated logs, reports an aggregated status table, and exits non-zero if any
-invariant check fails:
+Diagnoses Kubernetes cluster health, container lifecycle issues, and log errors across namespaces.
+It uses `stern` for fast multi-pod log aggregation with regex noise exclusions, or falls back transparently to native `kubectl logs` bounded concurrency.
+It maps observed error logs and warning events to automated remediations (e.g. ACME challenge finalizer deadlocks, OIDC redirect loops, unseeded Vault secrets, and eBPF correlator holds).
+
+Executable tool:
+```bash
+bash .agents/skills/sl-cluster-diagnostics/Tools/cluster-diagnostics.sh
+```
+
+## Bounded audit execution
+
+The [runner](../../scripts/test-scheduled-skills-parallel.sh) uses GNU Parallel for bounded collector processes.
+It requires GNU Parallel, Python, GNU timeout, and Linux network namespaces.
+It does not install missing tools.
+
+The default collectors are architecture and security. Each emits a fixed JSON control report.
+The runner checks required controls before it forms the machine verdict.
+Missing tools and timeouts are `BLOCKED`. Unknown coverage is `UNVERIFIED`, even when a process exits zero.
+
+The runner sends only sanitised control fields to the GPT-6.1 Sol audit reviewer.
+The reviewer has no tool permissions. Its advice cannot change the machine verdict.
+Raw scanner logs stay private. Failure summaries do not print credentials or raw logs.
 
 ```bash
 make test-scheduled-skills-parallel
+make architecture-audit
+make security-audit
 ```
 
-The script can also run directly:
+For continuous integration, explicitly omit model interpretation:
 
 ```bash
-./scripts/test-scheduled-skills-parallel.sh
+make test-scheduled-skills-parallel AUDIT_ARGS='--no-agent --jobs 2 --timeout 120'
+make test-scheduled-skills-contracts
 ```
 
-## Scheduler Configuration
+The runner accepts repeated `--skill` arguments. It resolves only registered repository collectors.
+The `--all` option includes legacy control entries but does not grant live or mutating permissions.
+Those entries remain blocked until a safe adapter exists.
 
-The schedules are registered in `.claude/scheduled_tasks.json`.
-Each entry contains the cron expression, prompt contract, and target skill identifier.
+Every run uses a private evidence directory. The terminal prints its path.
+The directory contains the machine report and separate agent advice.
+New reviewer profiles require a fresh OpenCode process. The runner starts one for each review.
+
+## Audit remits and permission tiers
+
+The [architecture skill](../../.agents/skills/sl-architecture-audit/SKILL.md) checks conformance and traceability.
+It leaves deepening and remediation to the drift sweep. Diagram labels do not prove topology edges.
+
+The [security skill](../../.agents/skills/sl-security-audit/SKILL.md) separates scanner findings, signature validity, and freshness.
+An embedded public key cannot establish trusted signer identity. Historical evidence cannot certify current live enforcement.
+
+Offline collectors have no network access. Live observations need a separate approved adapter.
+Mutating tests need explicit approval in a disposable environment. Audit runs never expand scanner baselines or sign artifacts.
+
+## Scheduling policy
+
+The inactive Kanban scheduler configuration was removed. No repository schedule is armed by this runner.
+Host scheduling requires separate approval after manual audit results and fixture contracts pass.

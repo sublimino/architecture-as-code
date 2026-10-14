@@ -1661,7 +1661,8 @@ provision_remote_paths() {
   # directory it lands in is created by us and would otherwise be 0755.
   vm_ssh "sudo mkdir -p $(printf '%q' "$REMOTE_REPORT_DIR") $(printf '%q' "$log_dir") $(printf '%q' "$REMOTE_KEYS_DIR") $(printf '%q' "$REMOTE_ZOT_CACHE") $(printf '%q' "$REMOTE_POSTGRES_DATA") $(printf '%q' "$REMOTE_LOCAL_PATH_DATA") \
     && sudo chown -R ${owner} $(printf '%q' "$REMOTE_REPORT_DIR") \
-    && sudo chown ${owner} $(printf '%q' "$REMOTE_KEYS_DIR") $(printf '%q' "$REMOTE_ZOT_CACHE") $(printf '%q' "$REMOTE_POSTGRES_DATA") $(printf '%q' "$REMOTE_LOCAL_PATH_DATA") \
+    && sudo chown ${owner} $(printf '%q' "$REMOTE_KEYS_DIR") $(printf '%q' "$REMOTE_ZOT_CACHE") $(printf '%q' "$REMOTE_LOCAL_PATH_DATA") \
+    && sudo chown -R 70:70 $(printf '%q' "$REMOTE_POSTGRES_DATA") \
     && sudo chmod 700 $(printf '%q' "$REMOTE_KEYS_DIR") \
     && sudo chmod 700 $(printf '%q' "$REMOTE_POSTGRES_DATA") \
     && sudo chmod 777 $(printf '%q' "$REMOTE_LOCAL_PATH_DATA") \

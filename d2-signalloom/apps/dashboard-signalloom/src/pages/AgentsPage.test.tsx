@@ -75,6 +75,10 @@ const claimApiMock = {
   claimDiscoveredAgent: claimDiscoveredAgentMock,
 }
 
+function withLabels(agent: AgentResponse, labels: Record<string, string>): AgentResponse {
+  return { ...agent, labels } as AgentResponse
+}
+
 function makeAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
   return {
     id: 'agent-abc-123',
@@ -1358,25 +1362,14 @@ describe('AgentsPage: Sortability and Timestamps (SLMS-P3-1)', () => {
 
   it('filters workloads using the GitOps Managed and Tenant Mismatch filter buttons', async () => {
     vi.mocked(api.agents.list).mockResolvedValue({
+      // AgentResponse declares no `labels` (nor does the API's AgentResponse),
+      // so the field is attached outside the type: hasGitOpsMetadata reads it
+      // duck-typed. Spelling it inside makeAgent() fails `tsc` (TS2353).
       agents: [
-        makeAgent({
-          id: 'agent-gitops',
-          name: 'GitOps Agent',
-          tenant_id: 'tenant-1',
-          labels: { 'kustomize.toolkit.fluxcd.io/name': 'apps' },
-        }),
-        makeAgent({
-          id: 'agent-mismatch',
-          name: 'Mismatch Agent',
-          tenant_id: 'tenant-different',
-          labels: {},
-        }),
-        makeAgent({
-          id: 'agent-normal',
-          name: 'Standard Agent',
-          tenant_id: 'tenant-1',
-          labels: {},
-        }),
+        withLabels(makeAgent({ id: 'agent-gitops', name: 'GitOps Agent', tenant_id: 'tenant-1' }),
+          { 'kustomize.toolkit.fluxcd.io/name': 'apps' }),
+        withLabels(makeAgent({ id: 'agent-mismatch', name: 'Mismatch Agent', tenant_id: 'tenant-different' }), {}),
+        withLabels(makeAgent({ id: 'agent-normal', name: 'Standard Agent', tenant_id: 'tenant-1' }), {}),
       ],
       total: 3,
     })

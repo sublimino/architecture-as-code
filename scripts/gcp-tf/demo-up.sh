@@ -1385,7 +1385,14 @@ AFM_REQUIRED="${AFM_REQUIRED:-1}"
 # An explicit AFM_IMAGE_ARCHIVE is still honoured verbatim: a caller naming one
 # path for one lane is unambiguous, and the sharing hazard only exists for the
 # default that every lane computes identically.
-LOCAL_AFM_ARCHIVE="${AFM_IMAGE_ARCHIVE:-${REPO_ROOT}/.afm-image/${ENV_KEY}/kubesec-afm.tar.gz}"
+LOCAL_AFM_ARCHIVE="${AFM_IMAGE_ARCHIVE:-}"
+if [ -z "$LOCAL_AFM_ARCHIVE" ]; then
+  if [ -s "${REPO_ROOT}/.afm-image/${ENV_KEY}/kubesec-afm.tar.gz" ]; then
+    LOCAL_AFM_ARCHIVE="${REPO_ROOT}/.afm-image/${ENV_KEY}/kubesec-afm.tar.gz"
+  else
+    LOCAL_AFM_ARCHIVE="${REPO_ROOT}/.afm-image/kubesec-afm.tar.gz"
+  fi
+fi
 
 # Deliberately the path scripts/k8s-afm.sh computes for itself by default:
 # ${REPO_ROOT}/.afm-image/kubesec-afm.tar.gz, where REPO_ROOT on the VM is
@@ -1451,7 +1458,7 @@ deliver_afm_image() {
   # not — which is the correct answer there, because the elif below already
   # handles "no source checkout here" by using a pre-built archive.
   local afm_src="${KUBESEC_AFM_ROOT:-${REPO_ROOT}/../kubesec-afm}"
-  if [ -f "${afm_src}/AFM/docker/backend.Dockerfile" ]; then
+  if "${REPO_ROOT}/scripts/k8s-afm.sh" has-source; then
     log "building the AFM image archive from source"
     if ! "${REPO_ROOT}/scripts/k8s-afm.sh" save "$archive"; then
       refuse_or_warn_no_afm "'k8s-afm.sh save' failed against the source checkout"

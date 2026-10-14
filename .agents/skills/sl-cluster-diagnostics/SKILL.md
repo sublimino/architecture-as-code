@@ -1,6 +1,6 @@
 ---
 name: sl-cluster-diagnostics
-description: "Scheduled-run and on-demand cluster diagnostic sentinel and log triager for #partner-signal-loom. Continuously analyzes Kubernetes cluster health, detects pod crash loops, image pull backoffs, stuck finalizers, and warning events. Captures and aggregates multi-namespace logs using stern or portable kubectl logs fallback with noise filtering and signature matching. USE WHEN cluster errors, pod crash, image pull backoff, debug cluster, stern logs, cluster logs, inspect cluster, sl-cluster-diagnostics, /sl-cluster-diagnostics, or on schedule '*/15 * * * *'."
+description: "Scheduled-run and on-demand cluster diagnostic sentinel and log triager for #partner-signal-loom. Continuously analyzes Kubernetes cluster health, detects pod crash loops, image pull backoffs, stuck finalizers, and warning events. Captures and aggregates multi-namespace logs using stern or portable kubectl logs fallback with noise filtering and signature matching. USE WHEN cluster errors, pod crash, image pull backoff, debug cluster, stern logs, cluster logs, inspect cluster, sl-cluster-diagnostics, or /sl-cluster-diagnostics. Also use on schedule '*/15 * * * *'."
 ---
 
 # sl-cluster-diagnostics
@@ -20,14 +20,17 @@ Scheduled and on-demand cluster diagnostics, pod lifecycle triage, and log inspe
 
 1. **Self-Contained & Zero Tmux Dependency**:
    - The diagnostic skill runs entirely within the repository and terminal tools.
-   - It replaces the interactive `ktmux` multi-pane layout (`watch-kpo`, `watch-kev`, `stern`, `watch-klog`) with self-contained, scriptable commands that work reliably in CI, background tasks, AI agent sandboxes (`nono`), and headless environments without requiring tmux or X11.
+   - It replaces the interactive `ktmux` multi-pane layout (`watch-kpo`, `watch-kev`, `stern`, `watch-klog`) with self-contained, scriptable commands.
+     The commands work reliably in CI, background tasks, AI agent sandboxes (`nono`), and headless environments without requiring tmux or X11.
 
 2. **Stern Engine with Native Kubectl Fallback**:
    - Auto-detects `stern` for fast, colored, multi-pod streaming and log chunk extraction with regex exclusions.
    - Gracefully and transparently falls back to native `kubectl logs` bounded concurrency when `stern` is not installed or when running in restricted containers (`--force-kubectl`).
 
 3. **Noise Suppression Invariant**:
-   - Routinely filters out leader election heartbeats (`panics.go:76|leaderelection.go:247`), harmless linearized raft trace logs from `etcd`, and repetitive HTTP 200 health probe requests (`kube-probe/1.36`, `GET /readyz 200`, `GET /health 200`) so actionable errors stand out immediately.
+   - It filters leader election heartbeats (`panics.go:76|leaderelection.go:247`) and harmless linearized raft trace logs from `etcd`.
+     It filters repetitive HTTP 200 health probe requests (`kube-probe/1.36`, `GET /readyz 200`, `GET /health 200`).
+     Actionable errors stand out immediately.
 
 4. **Automated Signature Remediation**:
    - Directly maps observed error patterns to verified runbook remediations:

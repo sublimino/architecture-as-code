@@ -4,6 +4,8 @@ This workflow guides operators and AI agents through rapid, non-interactive clus
 
 ## Workflow Overview
 
+The diagram shows the diagnostic flow from its trigger to the recommended remediation.
+
 ```mermaid
 flowchart TD
   TRIGGER["Trigger: Error / Alert / Test Failure / Audit"] --> PRECHECK["Preflight: Check Cluster Connectivity"]

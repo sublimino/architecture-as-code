@@ -504,6 +504,32 @@ describe('AgentsPage — Truthful Language Dictionary (SFAGENTS-P1-6)', () => {
     expect(screen.getByText('Observed workload')).toBeInTheDocument()
   })
 
+  it('renders "Registry not linked" and "Details" with whitespace separation without concatenation', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({
+      agents: [
+        makeAgent({
+          id: 'agent-unlinked-spacing',
+          name: 'Unlinked Pod',
+          owner: null,
+          record_class: 'discovered',
+          is_registry_linked: false,
+          identity: { spiffe_id: null, spiffe_status: 'unlinked', aliases: [] },
+          responsibility: { owner_name: null, owner_id: null, team: null, assignment_status: 'registry_unlinked' },
+        }),
+      ],
+      total: 1,
+    })
+    renderPage()
+
+    await screen.findByText('Unlinked Pod')
+    const row = screen.getByTestId('agent-row-agent-unlinked-spacing')
+    const cells = row.querySelectorAll('td')
+    const responsibilityCell = cells[2]
+    expect(responsibilityCell).toBeDefined()
+    expect(responsibilityCell.textContent).not.toContain('Registry not linkedDetails')
+    expect(responsibilityCell.textContent).toMatch(/Registry not linked\s+Details/)
+  })
+
   it('renders "Source unavailable" when primary collectors are offline', async () => {
     ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
       agents: [],
@@ -1317,6 +1343,75 @@ describe('AgentsPage: Sortability and Timestamps (SLMS-P3-1)', () => {
 
     await screen.findByText('Undeclared Bot')
     expect(screen.getByTestId('agent-tenant-badge-agent-undeclared-test')).toHaveTextContent('Undeclared')
+  })
+
+  it('filters workloads using the GitOps Managed and Tenant Mismatch filter buttons', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({
+      agents: [
+        makeAgent({
+          id: 'agent-gitops',
+          name: 'GitOps Agent',
+          tenant_id: 'tenant-1',
+          labels: { 'kustomize.toolkit.fluxcd.io/name': 'apps' },
+        }),
+        makeAgent({
+          id: 'agent-mismatch',
+          name: 'Mismatch Agent',
+          tenant_id: 'tenant-different',
+          labels: {},
+        }),
+        makeAgent({
+          id: 'agent-normal',
+          name: 'Standard Agent',
+          tenant_id: 'tenant-1',
+          labels: {},
+        }),
+      ],
+      total: 3,
+    })
+    renderPage()
+
+    await screen.findByText('GitOps Agent')
+    expect(screen.getByTestId('agent-row-agent-gitops')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-row-agent-mismatch')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-row-agent-normal')).toBeInTheDocument()
+
+    const gitopsBtn = screen.getByTestId('agent-gitops-filter-btn')
+    const mismatchBtn = screen.getByTestId('agent-tenant-mismatch-filter-btn')
+
+    // Initial states
+    expect(gitopsBtn).toHaveAttribute('aria-pressed', 'false')
+    expect(mismatchBtn).toHaveAttribute('aria-pressed', 'false')
+    expect(gitopsBtn).toHaveTextContent('GitOps Managed')
+    expect(mismatchBtn).toHaveTextContent('Tenant Mismatch')
+
+    // 1. Activate GitOps filter: only agent-gitops is visible
+    await userEvent.click(gitopsBtn)
+    expect(gitopsBtn).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('agent-row-agent-gitops').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+    expect(screen.getByTestId('agent-row-agent-mismatch').closest('tbody')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByTestId('agent-row-agent-normal').closest('tbody')).toHaveAttribute('aria-hidden', 'true')
+
+    // Deactivate GitOps filter
+    await userEvent.click(gitopsBtn)
+    expect(gitopsBtn).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByTestId('agent-row-agent-gitops').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+    expect(screen.getByTestId('agent-row-agent-mismatch').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+    expect(screen.getByTestId('agent-row-agent-normal').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+
+    // 2. Activate Tenant Mismatch filter: only agent-mismatch is visible
+    await userEvent.click(mismatchBtn)
+    expect(mismatchBtn).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('agent-row-agent-gitops').closest('tbody')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByTestId('agent-row-agent-mismatch').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+    expect(screen.getByTestId('agent-row-agent-normal').closest('tbody')).toHaveAttribute('aria-hidden', 'true')
+
+    // Deactivate Tenant Mismatch filter
+    await userEvent.click(mismatchBtn)
+    expect(mismatchBtn).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByTestId('agent-row-agent-gitops').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+    expect(screen.getByTestId('agent-row-agent-mismatch').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+    expect(screen.getByTestId('agent-row-agent-normal').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
   })
 })
 

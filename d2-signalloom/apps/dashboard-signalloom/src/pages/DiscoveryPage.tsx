@@ -29,6 +29,7 @@ import {
   type ToolbarOption,
 } from '../components/DataTableToolbar'
 import { findMatchingAgent } from '../data/agentMatching'
+import { hasGitOpsMetadata } from '../data/workloadFilters'
 
 const POLL_MS = 15 * 60 * 1000
 const PAGE_SIZE = 50
@@ -775,6 +776,7 @@ export default function DiscoveryPage() {
   const [stateFilter, setStateFilter] = useState('all')
   const [namespaceFilter, setNamespaceFilter] = useState('all')
   const [attentionFilter, setAttentionFilter] = useState<'all' | 'unowned' | 'attention_all'>('all')
+  const [gitopsFilter, setGitopsFilter] = useState(false)
 
   // Auto-claim Modal
   const [isAutoClaimOpen, setIsAutoClaimOpen] = useState(false)
@@ -873,7 +875,7 @@ export default function DiscoveryPage() {
     })),
   ]
 
-  const isFiltered = searchQuery !== '' || sourceFilter !== 'all' || stateFilter !== 'all' || namespaceFilter !== 'all' || attentionFilter !== 'all'
+  const isFiltered = searchQuery !== '' || sourceFilter !== 'all' || stateFilter !== 'all' || namespaceFilter !== 'all' || attentionFilter !== 'all' || gitopsFilter
 
   function handleClearFilters() {
     setSearchQuery('')
@@ -881,11 +883,15 @@ export default function DiscoveryPage() {
     setStateFilter('all')
     setNamespaceFilter('all')
     setAttentionFilter('all')
+    setGitopsFilter(false)
   }
 
   // Filtered dataset
   const filteredWorkloads = useMemo(() => {
     return workloads.filter((w) => {
+      // GitOps filter
+      if (gitopsFilter && !hasGitOpsMetadata(w)) return false
+
       // Attention filter
       if (attentionFilter === 'unowned') {
         if (w.owner || w.status === 'ignored') return false
@@ -913,7 +919,7 @@ export default function DiscoveryPage() {
       }
       return true
     })
-  }, [workloads, sourceFilter, stateFilter, namespaceFilter, searchQuery, attentionFilter])
+  }, [workloads, sourceFilter, stateFilter, namespaceFilter, searchQuery, attentionFilter, gitopsFilter])
 
   // Attention Alerts
   const alerts: AlertItem[] = useMemo(() => {
@@ -1190,6 +1196,44 @@ export default function DiscoveryPage() {
                   {workloads.filter((w) => (!w.owner && w.status !== 'ignored') || w.status === 'discovered' || w.status === 'revoked' || w.status === 'in_review').length}
                 </span>
                 Attention Required
+              </button>
+              <button
+                type="button"
+                onClick={() => setGitopsFilter((prev) => !prev)}
+                data-testid="discovery-gitops-filter-btn"
+                aria-pressed={gitopsFilter}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '5px 10px',
+                  borderRadius: 4,
+                  fontSize: 12,
+                  fontWeight: gitopsFilter ? 600 : 500,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  background: gitopsFilter
+                    ? 'rgba(0, 210, 255, 0.18)'
+                    : 'var(--surface2)',
+                  color: gitopsFilter ? colors.cyanLoom : 'var(--text)',
+                  border: `1px solid ${gitopsFilter ? colors.cyanLoom : 'var(--border)'}`,
+                }}
+              >
+                <span
+                  style={{
+                    background: gitopsFilter ? colors.cyanLoom : 'var(--surface3)',
+                    color: gitopsFilter ? 'var(--on-accent)' : 'var(--muted)',
+                    borderRadius: 99,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: '0px 5px',
+                    minWidth: 16,
+                    textAlign: 'center',
+                  }}
+                >
+                  {workloads.filter(hasGitOpsMetadata).length}
+                </span>
+                GitOps
               </button>
               <ToolbarClear
                 active={isFiltered}

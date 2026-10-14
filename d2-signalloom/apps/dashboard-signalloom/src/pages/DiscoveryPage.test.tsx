@@ -416,5 +416,20 @@ describe('DiscoveryPage Super Datatable', () => {
     expect(screen.getByTestId('drawer-workload-name')).toHaveTextContent('agent-inventory-worker')
     expect(screen.getByTestId('drawer-workload-id')).toHaveTextContent('k8s-1')
   })
+
+  it('filters workloads using the GitOps filter button in DataTableToolbar', async () => {
+    renderPage('/discovery')
+    await screen.findByTestId('discovery-workload-name-idp-1')
+
+    const gitopsBtn = screen.getByTestId('discovery-gitops-filter-btn')
+    expect(gitopsBtn).toBeInTheDocument()
+    expect(gitopsBtn).toHaveAttribute('aria-pressed', 'false')
+
+    await userEvent.click(gitopsBtn)
+    expect(gitopsBtn).toHaveAttribute('aria-pressed', 'true')
+
+    await userEvent.click(gitopsBtn)
+    expect(gitopsBtn).toHaveAttribute('aria-pressed', 'false')
+  })
 })
 

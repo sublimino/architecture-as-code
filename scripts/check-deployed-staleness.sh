@@ -97,28 +97,23 @@ KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
 
 # workload|namespace|container
 #
-# ─── Why fe-signalloom is here, and what is still not ───────────────────────
+# ─── Distroless and standard workload coverage ─────────────────────────────
 #
-# It was NOT here until 2026-08-18, and its absence was the whole reason a
-# 25-hour-stale portal image served a 404 to a live demo with every test green.
-# The guard reported VERIFIED FRESH throughout, truthfully, about two other
-# workloads. A guard that answers a narrower question than the one people read
-# off it is the failure mode this script's own header warns about, reproduced
-# one list-entry lower down.
+# Workloads with shells (supercred-demo-runner, dashboard, docs, fe-signalloom)
+# are checked via in-container /etc/osramp-build-id readback.
+# Distroless workloads with no shell (like signal-ingest, gcr.io/distroless/static-debian12)
+# are verified by matching their deployed container image tag against the
+# working tree's source-id / image-tag (e.g. src-<16 hex> from imagetag/signal-ingest-image-tag.sh).
 #
-# signal-ingest is deliberately NOT here, and cannot be. It is
-# gcr.io/distroless/static-debian12 with no shell and no coreutils, so the
-# `kubectl exec … -- sh -c cat` readback below has nothing to execute; adding it
-# would yield CANNOT VERIFY on every run, which is noise that trains people to
-# ignore exit 2. It was the SECOND stale image in that same incident, so the
-# gap is real and is covered elsewhere: test/api-route-liveness.bats asks the
-# question over HTTP, which needs nothing inside the container. If signal-ingest
-# ever gains a shell, it belongs here too.
+# Dynamic discovery walks Flux kustomization configuration (apps/fe-signalloom/local)
+# to detect all declared workloads (Deployments, StatefulSets, DaemonSets) so new
+# workloads added to Flux are automatically tracked.
 WORKLOAD_TOPOLOGY=(
 	"supercred-demo-runner|fe-signalloom|runner"
 	"dashboard-signalloom|fe-signalloom|dashboard"
 	"docs-signalloom|fe-signalloom|docs"
 	"fe-signalloom|fe-signalloom|discovery-portal"
+	"signal-ingest|fe-signalloom|signal-ingest"
 )
 
 log() { printf '\033[1;36m[deployed]\033[0m %s\n' "$*"; }
@@ -141,6 +136,184 @@ topology_field() {
 		return 0
 	done
 	return 1
+}
+
+# Dynamic discovery of workloads declared in Flux kustomizations.
+discover_flux_workloads() {
+	local kdir="${1:-${SOURCE_ID_REPO_ROOT}/d2-signalloom/apps/fe-signalloom/local}"
+	[ -d "$kdir" ] || return 0
+
+	local raw_yaml=""
+	if [ -n "${KUBECTL_BIN:-}" ] && command -v "$KUBECTL_BIN" >/dev/null 2>&1 && [ "$KUBECTL_BIN" != "/nonexistent/kubectl" ]; then
+		raw_yaml="$("$KUBECTL_BIN" kustomize "$kdir" 2>/dev/null || true)"
+	fi
+	if [ -z "$raw_yaml" ] && command -v kubectl >/dev/null 2>&1; then
+		raw_yaml="$(kubectl kustomize "$kdir" 2>/dev/null || true)"
+	fi
+	if [ -z "$raw_yaml" ] && command -v kustomize >/dev/null 2>&1; then
+		raw_yaml="$(kustomize build "$kdir" 2>/dev/null || true)"
+	fi
+
+	if [ -n "$raw_yaml" ] && command -v yq >/dev/null 2>&1; then
+		printf '%s\n' "$raw_yaml" | yq -r '
+			select(.kind == "Deployment" or .kind == "StatefulSet" or .kind == "DaemonSet") |
+			. as $item |
+			($item.spec.template.spec.containers[0].name // $item.metadata.name) as $cname |
+			[$item.metadata.name, ($item.metadata.namespace // "fe-signalloom"), $cname] |
+			@tsv
+		' 2>/dev/null | tr '\t' '|' || true
+		return 0
+	fi
+
+	walk_kustomize_workloads "$kdir"
+}
+
+walk_kustomize_workloads() {
+	local dir="$1"
+	local kfile="$dir/kustomization.yaml"
+	[ -f "$kfile" ] || return 0
+
+	local in_res=0
+	while IFS= read -r line; do
+		if [[ "$line" =~ ^resources: ]]; then
+			in_res=1
+			continue
+		fi
+		if [ "$in_res" -eq 1 ]; then
+			if [[ "$line" =~ ^[[:space:]]*-[[:space:]]+(.*) ]]; then
+				local res="${BASH_REMATCH[1]}"
+				res="${res%%#*}"
+				res="$(echo "$res" | tr -d " \t\r\n")"
+				[ -z "$res" ] && continue
+				local target="$dir/$res"
+				if [ -d "$target" ]; then
+					walk_kustomize_workloads "$target"
+				elif [ -f "$target" ]; then
+					parse_workload_file "$target"
+				fi
+			elif [[ "$line" =~ ^[a-zA-Z] ]]; then
+				in_res=0
+			fi
+		fi
+	done < "$kfile"
+}
+
+parse_workload_file() {
+	local f="$1"
+	[ -f "$f" ] || return 0
+	if grep -qE '^kind:[[:space:]]+(Deployment|StatefulSet|DaemonSet)' "$f"; then
+		local name ns container
+		name="$(awk '/^metadata:/ {m=1} m && /^[[:space:]]+name:[[:space:]]+/ {print $2; exit}' "$f")"
+		ns="$(awk '/^metadata:/ {m=1} m && /^[[:space:]]+namespace:[[:space:]]+/ {print $2; exit}' "$f")"
+		container="$(awk '/^[[:space:]]+containers:/ {c=1} c && /^[[:space:]]*- name:[[:space:]]+/ {print $3; exit}' "$f")"
+		[ -n "$name" ] || return 0
+		[ -n "$ns" ] || ns="fe-signalloom"
+		[ -n "$container" ] || container="$name"
+		printf '%s|%s|%s\n' "$name" "$ns" "$container"
+	fi
+}
+
+load_flux_workloads() {
+	local entry w ns c
+	while IFS= read -r entry; do
+		[ -n "$entry" ] || continue
+		IFS='|' read -r w ns c <<<"$entry"
+		if ! topology_field "$w" namespace >/dev/null 2>&1; then
+			WORKLOAD_TOPOLOGY+=("$entry")
+		fi
+	done < <(discover_flux_workloads "$@")
+}
+
+is_distroless() {
+	local workload="$1"
+	case "$workload" in
+	signal-ingest|fleet-manager|policy-engine) return 0 ;;
+	esac
+	local df
+	df="$(source_id_dockerfile "$workload" 2>/dev/null || true)"
+	if [ -n "$df" ] && [ -f "${SOURCE_ID_REPO_ROOT}/${df}" ]; then
+		if grep -qE '^FROM[[:space:]]+(gcr\.io/distroless|scratch)' "${SOURCE_ID_REPO_ROOT}/${df}"; then
+			return 0
+		fi
+	fi
+	return 1
+}
+
+check_distroless_workload() {
+	local workload="$1" ns="$2" container="$3" pod="$4" age="$5"
+	local running_img="" running_tag="" expected_tag=""
+
+	# 1. Determine running image from pod status or deployment
+	running_img="$("$KUBECTL_BIN" -n "$ns" get pod "$pod" \
+		-o "jsonpath={.status.containerStatuses[?(@.name=='$container')].image}" 2>/dev/null || true)"
+	if [ -z "$running_img" ]; then
+		running_img="$("$KUBECTL_BIN" -n "$ns" get pod "$pod" \
+			-o "jsonpath={.status.containerStatuses[0].image}" 2>/dev/null || true)"
+	fi
+	if [ -z "$running_img" ]; then
+		running_img="$("$KUBECTL_BIN" -n "$ns" get deployment "$workload" \
+			-o "jsonpath={.spec.template.spec.containers[?(@.name=='$container')].image}" 2>/dev/null || true)"
+	fi
+	if [ -z "$running_img" ]; then
+		running_img="$("$KUBECTL_BIN" -n "$ns" get deployment "$workload" \
+			-o "jsonpath={.spec.template.spec.containers[0].image}" 2>/dev/null || true)"
+	fi
+
+	if [ -z "$running_img" ]; then
+		unk "$workload: CANNOT VERIFY — could not determine running image from pod $pod."
+		printf '           This is UNVERIFIED, not OK: image inspection failed.\n' >&2
+		UNVERIFIED=1
+		return
+	fi
+
+	running_tag="${running_img##*:}"
+	running_tag="${running_tag##*@}"
+
+	# 2. Determine expected tag from working tree
+	case "$workload" in
+	signal-ingest)
+		if [ -x "${SCRIPT_DIR}/signal-ingest-image-tag.sh" ]; then
+			expected_tag="$("${SCRIPT_DIR}/signal-ingest-image-tag.sh" 2>/dev/null || true)"
+		fi
+		if [ -z "$expected_tag" ] && command -v go >/dev/null 2>&1; then
+			expected_tag="$(cd "${SOURCE_ID_REPO_ROOT}/d2-signalloom/apps/signal-ingest" && \
+				GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GONOSUMDB="*" \
+				go run ./cmd/image-tag 2>/dev/null || true)"
+		fi
+		;;
+	policy-engine)
+		if [ -x "${SCRIPT_DIR}/policy-engine-image-tag.sh" ]; then
+			expected_tag="$("${SCRIPT_DIR}/policy-engine-image-tag.sh" --no-dirty-check 2>/dev/null || true)"
+		fi
+		;;
+	esac
+
+	if [ -z "$expected_tag" ]; then
+		expected_tag="$(source_id_for "$workload" 2>/dev/null || true)"
+	fi
+
+	if [ -z "$expected_tag" ]; then
+		unk "$workload: CANNOT VERIFY — could not determine expected tag for working tree."
+		printf '           This is UNVERIFIED, not OK: source fingerprinting failed.\n' >&2
+		UNVERIFIED=1
+		return
+	fi
+
+	local clean_running="${running_tag#src-}"
+	local clean_expected="${expected_tag#src-}"
+	if [ "$running_tag" = "$expected_tag" ] || \
+	   [ "$clean_running" = "$clean_expected" ] || \
+	   [[ "$clean_running" == "$clean_expected"* ]] || \
+	   [[ "$clean_expected" == "$clean_running"* ]]; then
+		ok "$workload: VERIFIED FRESH (tag $running_tag) — pod $pod (age $age) runs the working tree."
+		return
+	fi
+
+	bad "$workload: DRIFT (running $running_tag, working tree expects $expected_tag)"
+	printf '           pod %s (age %s) is running image with tag %s\n' "$pod" "$age" "$running_tag" >&2
+	printf '           working tree expects tag %s\n' "$expected_tag" >&2
+	printf '           Rebuild the image and roll the Deployment.\n' >&2
+	DRIFT=1
 }
 
 # "3h56m" from an RFC3339 timestamp — the same unit a human reads off
@@ -231,13 +404,44 @@ check_workload() {
 		| tail -1) || true
 
 	if [ -z "${pod:-}" ]; then
-		unk "$workload: Deployment exists but no Running pod — cannot read what is deployed."
-		printf '           This is UNVERIFIED, not OK: a rollout may be in progress or crash-looping.\n' >&2
+		local any_pod any_reason
+		any_pod='' any_reason=''
+		read -r any_pod any_reason < <("$KUBECTL_BIN" -n "$ns" get pods \
+			-l "app.kubernetes.io/name=${workload}" \
+			--sort-by=.metadata.creationTimestamp \
+			-o jsonpath='{range .items[*]}{.metadata.name} {.status.containerStatuses[*].state.waiting.reason}{"\n"}{end}' 2>/dev/null \
+			| tail -1) || true
+		if [ -n "$any_reason" ]; then
+			unk "$workload: CANNOT VERIFY — pod ${any_pod:-unknown} is in $any_reason."
+			printf '           This is UNVERIFIED, not OK: a rollout is failing or stuck in %s.\n' "$any_reason" >&2
+		else
+			unk "$workload: Deployment exists but no Running pod — cannot read what is deployed."
+			printf '           This is UNVERIFIED, not OK: a rollout may be in progress or crash-looping.\n' >&2
+		fi
+		UNVERIFIED=1
+		return
+	fi
+
+	local waiting_reason
+	waiting_reason="$("$KUBECTL_BIN" -n "$ns" get pod "$pod" \
+		-o "jsonpath={.status.containerStatuses[?(@.name=='$container')].state.waiting.reason}" 2>/dev/null || true)"
+	if [ -z "$waiting_reason" ]; then
+		waiting_reason="$("$KUBECTL_BIN" -n "$ns" get pod "$pod" \
+			-o "jsonpath={.status.containerStatuses[*].state.waiting.reason}" 2>/dev/null || true)"
+	fi
+	if [ -n "$waiting_reason" ]; then
+		unk "$workload: CANNOT VERIFY — pod $pod container is in $waiting_reason."
+		printf '           This is UNVERIFIED, not OK: container is not healthy.\n' >&2
 		UNVERIFIED=1
 		return
 	fi
 
 	age="$(human_age "${created:-}")"
+
+	if is_distroless "$workload"; then
+		check_distroless_workload "$workload" "$ns" "$container" "$pod" "$age"
+		return
+	fi
 
 	# See the header: `|| echo MARKER_ABSENT` is what separates "the image has no
 	# marker" (a finding) from "exec did not work" (not a finding).
@@ -297,6 +501,9 @@ main() {
 	# callers unable to enumerate workloads precisely when they most need to say
 	# "skipped, no cluster".
 	if [ "${1:-}" = "--list" ]; then
+		if [ "${2:-}" = "--discover-flux" ] || [ "${2:-}" = "--flux" ]; then
+			load_flux_workloads
+		fi
 		local entry w ns c
 		for entry in "${WORKLOAD_TOPOLOGY[@]}"; do
 			IFS='|' read -r w ns c <<<"$entry"
@@ -308,6 +515,14 @@ main() {
 	local requested=("$@")
 	if [ "${#requested[@]}" -eq 0 ]; then
 		mapfile -t requested < <(source_id_workloads)
+	elif [ "${requested[0]}" = "--discover-flux" ] || [ "${requested[0]}" = "--flux" ]; then
+		load_flux_workloads
+		requested=()
+		local entry w ns c
+		for entry in "${WORKLOAD_TOPOLOGY[@]}"; do
+			IFS='|' read -r w ns c <<<"$entry"
+			requested+=("$w")
+		done
 	fi
 	# `mapfile -t arr < <(cmd)` reports MAPFILE's status, never cmd's. mapfile
 	# succeeds having read zero lines from a command that failed outright, so an

@@ -92,8 +92,16 @@ source_id_context() {
 	dashboard-signalloom) printf 'd2-signalloom/apps/dashboard-signalloom' ;;
 	docs-signalloom) printf 'd2-signalloom/apps/docs-signalloom' ;;
 	fe-signalloom) printf 'd2-signalloom/apps/fe-signalloom' ;;
+	policy-engine) printf 'd2-signalloom' ;;
+	signal-ingest) printf 'd2-signalloom/apps/signal-ingest' ;;
 	supercred-demo-runner) printf '.' ;;
-	*) return 1 ;;
+	*)
+		if [ -d "${SOURCE_ID_REPO_ROOT}/d2-signalloom/apps/${1}" ]; then
+			printf 'd2-signalloom/apps/%s' "$1"
+		else
+			return 1
+		fi
+		;;
 	esac
 }
 
@@ -103,13 +111,20 @@ source_id_dockerfile() {
 	dashboard-signalloom) printf 'd2-signalloom/apps/dashboard-signalloom/Dockerfile' ;;
 	docs-signalloom) printf 'd2-signalloom/apps/docs-signalloom/Dockerfile' ;;
 	fe-signalloom) printf 'd2-signalloom/apps/fe-signalloom/Dockerfile' ;;
+	signal-ingest) printf 'd2-signalloom/apps/signal-ingest/Dockerfile' ;;
 	supercred-demo-runner) printf 'd2-signalloom/apps/supercred-demo-runner/Dockerfile' ;;
-	*) return 1 ;;
+	*)
+		if [ -f "${SOURCE_ID_REPO_ROOT}/d2-signalloom/apps/${1}/Dockerfile" ]; then
+			printf 'd2-signalloom/apps/%s/Dockerfile' "$1"
+		else
+			return 1
+		fi
+		;;
 	esac
 }
 
 source_id_workloads() {
-	printf 'dashboard-signalloom\ndocs-signalloom\nfe-signalloom\nsupercred-demo-runner\n'
+	printf 'dashboard-signalloom\ndocs-signalloom\nfe-signalloom\nsignal-ingest\nsupercred-demo-runner\n'
 }
 
 # Every context-relative path a Dockerfile COPYs in, plus the Dockerfile itself.
@@ -364,6 +379,31 @@ source_id_for() {
 		# There is no .dockerignore in this context, so those artefacts DO
 		# enter the build context and the image; they are not source.
 		id="$(SOURCE_ID_INCLUDE_UNTRACKED=1 source_id_hash_paths "${root}/${context}" .)"
+		;;
+	signal-ingest)
+		local tag=""
+		if [ -x "${SOURCE_ID_LIB_DIR}/../signal-ingest-image-tag.sh" ]; then
+			tag="$("${SOURCE_ID_LIB_DIR}/../signal-ingest-image-tag.sh" 2>/dev/null || true)"
+		fi
+		if [ -n "$tag" ]; then
+			id="$tag"
+		elif command -v go >/dev/null 2>&1; then
+			id="$(cd "${root}/${context}" && GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GONOSUMDB="*" go run ./cmd/image-tag 2>/dev/null || true)"
+		fi
+		if [ -z "${id:-}" ]; then
+			id="$(SOURCE_ID_INCLUDE_UNTRACKED=1 source_id_hash_paths "${root}/${context}" .)"
+		fi
+		;;
+	policy-engine)
+		local tag=""
+		if [ -x "${SOURCE_ID_LIB_DIR}/../policy-engine-image-tag.sh" ]; then
+			tag="$("${SOURCE_ID_LIB_DIR}/../policy-engine-image-tag.sh" --no-dirty-check 2>/dev/null || true)"
+		fi
+		if [ -n "$tag" ]; then
+			id="$tag"
+		else
+			id="$(SOURCE_ID_INCLUDE_UNTRACKED=1 source_id_hash_paths "${root}/${context}" .)"
+		fi
 		;;
 	*)
 		local paths=()

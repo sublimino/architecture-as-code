@@ -52,6 +52,11 @@ setup() {
 	export MARKER_ABSENT=0
 	export MARKER_GARBAGE=0
 
+	REAL_SIGNAL_INGEST_TAG="$(source_id_for signal-ingest 2>/dev/null || echo "src-ebf6397aa227ff2d")"
+	export REAL_SIGNAL_INGEST_TAG
+	export DEPLOYED_IMAGE="127.0.0.1:5001/signalloom/apps/signal-ingest:${REAL_SIGNAL_INGEST_TAG}"
+	export POD_WAITING_REASON=""
+
 	cat >"$bin/kubectl" <<-'FAKE'
 		#!/usr/bin/env bash
 		# Route on the verb, ignoring -n/namespace flags the way the real client's
@@ -61,10 +66,29 @@ setup() {
 		  "cluster-info"*)
 		    exit "${CLUSTER_STATUS:-0}" ;;
 		  *"get deployment"*)
-		    exit "${DEPLOYMENT_STATUS:-0}" ;;
-		  *"get pods"*)
-		    # Empty POD_NAME models "Deployment exists, nothing Running".
-		    [ -n "${POD_NAME:-}" ] && printf '%s %s\n' "$POD_NAME" "$POD_CREATED"
+		    [ "${DEPLOYMENT_STATUS:-0}" != 0 ] && exit "$DEPLOYMENT_STATUS"
+		    if [[ "$args" == *"-o jsonpath="* ]]; then
+		      echo "${DEPLOYED_IMAGE}"
+		    fi
+		    exit 0 ;;
+		  *"get pods"*|*"get pod"*)
+		    if [[ "$args" == *"waiting.reason"* ]]; then
+		      [ -n "${POD_WAITING_REASON:-}" ] && printf '%s %s\n' "${POD_NAME:-fake-pod}" "$POD_WAITING_REASON"
+		      exit 0
+		    elif [[ "$args" == *"image"* ]]; then
+		      echo "${DEPLOYED_IMAGE}"
+		      exit 0
+		    fi
+		    # If pod is waiting or no POD_NAME, it is not Running.
+		    if [ -n "${POD_WAITING_REASON:-}" ] || [ -z "${POD_NAME:-}" ]; then
+		      exit 0
+		    fi
+		    printf '%s %s\n' "$POD_NAME" "$POD_CREATED"
+		    exit 0 ;;
+		  *"kustomize"*)
+		    if [ -x /usr/bin/kubectl ]; then
+		      exec /usr/bin/kubectl "$@"
+		    fi
 		    exit 0 ;;
 		  *" exec "*)
 		    # A genuine exec failure: non-zero AND no output. This is the shape the
@@ -450,3 +474,73 @@ setup() {
 	rm -f "$real"
 	[ "$before" != "$changed" ]
 }
+
+# ─── Distroless workload verification (signal-ingest) ───────────────────────
+
+@test "matching distroless deployment verifies fresh and exits 0" {
+	run "$script" signal-ingest
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"signal-ingest: VERIFIED FRESH"* ]]
+	[[ "$output" == *"$REAL_SIGNAL_INGEST_TAG"* ]]
+}
+
+@test "stale distroless deployment reports drift and exits 1" {
+	export DEPLOYED_IMAGE="127.0.0.1:5001/signalloom/apps/signal-ingest:src-0000000000000000"
+	run "$script" signal-ingest
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"signal-ingest"* ]]
+	[[ "$output" == *"DRIFT"* ]]
+	[[ "$output" == *"running src-0000000000000000"* ]]
+	[[ "$output" == *"working tree expects"* ]]
+}
+
+@test "distroless pod in ImagePullBackOff is CANNOT VERIFY (exit 2)" {
+	export POD_WAITING_REASON="ImagePullBackOff"
+	run "$script" signal-ingest
+	[ "$status" -eq 2 ]
+	[[ "$output" == *"CANNOT VERIFY"* ]]
+	[[ "$output" == *"ImagePullBackOff"* ]]
+}
+
+@test "distroless pod in CrashLoopBackOff is CANNOT VERIFY (exit 2)" {
+	export POD_WAITING_REASON="CrashLoopBackOff"
+	run "$script" signal-ingest
+	[ "$status" -eq 2 ]
+	[[ "$output" == *"CANNOT VERIFY"* ]]
+	[[ "$output" == *"CrashLoopBackOff"* ]]
+}
+
+@test "distroless deployment with no running pod is CANNOT VERIFY (exit 2)" {
+	export POD_NAME=""
+	run "$script" signal-ingest
+	[ "$status" -eq 2 ]
+	[[ "$output" == *"CANNOT VERIFY"* ]]
+	[[ "$output" == *"no Running pod"* ]]
+}
+
+@test "distroless deployment not deployed at all is DRIFT (exit 1)" {
+	export DEPLOYMENT_STATUS=1
+	run "$script" signal-ingest
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"NOT DEPLOYED"* ]]
+}
+
+# ─── Dynamic Flux discovery ─────────────────────────────────────────────────
+
+@test "dynamic flux discovery detects declared workloads without static array changes" {
+	run "$script" --list --flux
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"signal-ingest	fe-signalloom"* ]]
+	[[ "$output" == *"dashboard-signalloom	fe-signalloom"* ]]
+	[[ "$output" == *"supercred-demo-runner	fe-signalloom"* ]]
+	[[ "$output" == *"fleet-manager	fe-signalloom"* ]]
+	[[ "$output" == *"policy-engine	fe-signalloom"* ]]
+}
+
+@test "dynamic flux discovery reports DRIFT when a declared app is not deployed" {
+	export DEPLOYMENT_STATUS=1
+	run "$script" --discover-flux
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"NOT DEPLOYED"* ]]
+}
+

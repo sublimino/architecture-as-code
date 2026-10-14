@@ -336,7 +336,19 @@ func (m *MemoryStore) Stats(_ context.Context, q StatsQuery) (StoreStats, error)
 
 	byLayer := make(map[string]int)
 	byFidelity := make(map[string]int)
-	var lastIngestion *time.Time
+	// Tracked as a VALUE plus a flag, and the address taken once at the end.
+	//
+	// The loop previously held a *time.Time and did `t := o.Timestamp; lastIngestion = &t` on
+	// every row with a later timestamp. Because t escapes through the pointer, that is a heap
+	// allocation per improvement, and in an append-ordered store the timestamp improves on
+	// almost every row: measured at 800,528 B of churn over a 100,000-row store, growing 9.94x
+	// for a 10x store. An aggregate that allocates per row is the shape EAPCI-P1-6 exists to
+	// remove, so it is removed here too even though residency was never the symptom.
+	//
+	// TestObservationsAndStatsAllocationIsFlatInStoreSize in the api package fails if this
+	// regresses.
+	var lastIngestion time.Time
+	haveIngestion := false
 	total := 0
 
 	for _, o := range m.data {
@@ -352,18 +364,23 @@ func (m *MemoryStore) Stats(_ context.Context, q StatsQuery) (StoreStats, error)
 		if o.Fidelity != "" {
 			byFidelity[string(o.Fidelity)]++
 		}
-		if lastIngestion == nil || o.Timestamp.After(*lastIngestion) {
-			t := o.Timestamp
-			lastIngestion = &t
+		if !haveIngestion || o.Timestamp.After(lastIngestion) {
+			lastIngestion = o.Timestamp
+			haveIngestion = true
 		}
 	}
 
-	return StoreStats{
+	stats := StoreStats{
 		TotalObservations:      total,
 		ObservationsByLayer:    byLayer,
 		ObservationsByFidelity: byFidelity,
-		LastIngestion:          lastIngestion,
-	}, nil
+	}
+	// Still nil when nothing matched, which is the distinction the API relies on to report "no
+	// ingestion yet" rather than the zero time.
+	if haveIngestion {
+		stats.LastIngestion = &lastIngestion
+	}
+	return stats, nil
 }
 
 // sortObservations sorts observations by (timestamp DESC, id DESC).

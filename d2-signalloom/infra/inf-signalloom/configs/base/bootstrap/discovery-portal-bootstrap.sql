@@ -5152,3 +5152,286 @@ WHERE ar.id = evidence.agent_id
 
 COMMIT;
 -- END 064_backfill_claimed_agent_ownership.sql
+
+-- BEGIN 065_seed_granular_page_flags.sql
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 061: seed granular page feature flags for design partner (kusari) and demo
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- Seeds granular page flags for design partner tenant 'kusari' (EAP Pilot Preset):
+--   - Enabled: page_discovery, page_agents, page_topology, page_weave, page_signals,
+--              page_risk, page_policies, page_compliance, page_audit,
+--              page_federated_services, page_cryptography, page_credential_inventory
+--   - Disabled: page_signal_store, page_feeds, page_network_tests, page_agentmaxxing
+--
+-- Seeds granular page flags for demonstration tenant 'tenant-demo' (Full Demo Preset):
+--   - Enabled: all granular page flags
+--
+-- Idempotent upserts via ON CONFLICT (tenant_id, flag_key).
+
+BEGIN;
+
+INSERT INTO public.tenant_feature_flags (
+    tenant_id,
+    flag_key,
+    enabled,
+    config_json,
+    created_at,
+    updated_at
+) VALUES
+    -- Kusari EAP Pilot Granular Flags (Operational & Governance enabled, Labs disabled)
+    ('kusari', 'page_discovery',            TRUE,  '{"description": "Workload discovery and accounts inventory"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'page_agents',               TRUE,  '{"description": "Governed agent registry and state details"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'page_topology',             TRUE,  '{"description": "Agent trust topology and communication graph"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'page_weave',                TRUE,  '{"description": "Real-time agent interaction weave"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'page_signals',              TRUE,  '{"description": "Live agent signal stream and anomalies"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'page_risk',                 TRUE,  '{"description": "Risk exposure and vulnerability tracking"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'page_policies',             TRUE,  '{"description": "Agent governance policies and guardrail rules"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'page_compliance',           TRUE,  '{"description": "Regulatory posture and compliance frameworks"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'page_audit',                TRUE,  '{"description": "Immutable audit trail and provenance verification"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'page_federated_services',   TRUE,  '{"description": "Federated AI services and model connectors"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'page_cryptography',         TRUE,  '{"description": "Cryptographic material and key management"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'page_credential_inventory', TRUE,  '{"description": "Agent credential and token inventory"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'page_signal_store',         FALSE, '{"description": "Signal storage explorer and FrostDB segments"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'page_feeds',                FALSE, '{"description": "Raw telemetry feeds and transport debugging"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'page_network_tests',        FALSE, '{"description": "Diagnostic network testing and port probes"}'::jsonb, NOW(), NOW()),
+    ('kusari', 'page_agentmaxxing',         FALSE, '{"description": "Experimental AgentMaxxing progressive containment lab"}'::jsonb, NOW(), NOW()),
+
+    -- Tenant Demo Granular Flags (All Enabled for Full Demonstration)
+    ('tenant-demo', 'page_discovery',            TRUE, '{"description": "Workload discovery and accounts inventory"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'page_agents',               TRUE, '{"description": "Governed agent registry and state details"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'page_topology',             TRUE, '{"description": "Agent trust topology and communication graph"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'page_weave',                TRUE, '{"description": "Real-time agent interaction weave"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'page_signals',              TRUE, '{"description": "Live agent signal stream and anomalies"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'page_risk',                 TRUE, '{"description": "Risk exposure and vulnerability tracking"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'page_policies',             TRUE, '{"description": "Agent governance policies and guardrail rules"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'page_compliance',           TRUE, '{"description": "Regulatory posture and compliance frameworks"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'page_audit',                TRUE, '{"description": "Immutable audit trail and provenance verification"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'page_federated_services',   TRUE, '{"description": "Federated AI services and model connectors"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'page_cryptography',         TRUE, '{"description": "Cryptographic material and key management"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'page_credential_inventory', TRUE, '{"description": "Agent credential and token inventory"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'page_signal_store',         TRUE, '{"description": "Signal storage explorer and FrostDB segments"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'page_feeds',                TRUE, '{"description": "Raw telemetry feeds and transport debugging"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'page_network_tests',        TRUE, '{"description": "Diagnostic network testing and port probes"}'::jsonb, NOW(), NOW()),
+    ('tenant-demo', 'page_agentmaxxing',         TRUE, '{"description": "Experimental AgentMaxxing progressive containment lab"}'::jsonb, NOW(), NOW())
+ON CONFLICT (tenant_id, flag_key) DO UPDATE SET
+    enabled = EXCLUDED.enabled,
+    config_json = EXCLUDED.config_json,
+    updated_at = NOW();
+
+COMMIT;
+-- END 065_seed_granular_page_flags.sql
+
+-- BEGIN 066_governance_frameworks_unique_and_policies.sql
+-- 066_governance_frameworks_unique_and_policies.sql
+--
+-- Deduplicate governance_frameworks by (tenant_id, name), repoint child controls,
+-- and enforce a unique constraint index so multiple benchmark copies cannot recur.
+
+BEGIN;
+
+-- 1. Deduplicate governance_frameworks:
+-- For any tenant having multiple rows with the exact same name (e.g. 3x 'CIS Kubernetes Benchmark'),
+-- keep the oldest/canonical row, re-point child governance_controls, and remove duplicates.
+DO $$
+DECLARE
+    dup RECORD;
+    canonical_id UUID;
+BEGIN
+    FOR dup IN
+        SELECT tenant_id, name, count(*) AS cnt
+        FROM public.governance_frameworks
+        GROUP BY tenant_id, name
+        HAVING count(*) > 1
+    LOOP
+        -- Pick canonical row: prefer highest control_count, then earliest created_at
+        SELECT id INTO canonical_id
+        FROM public.governance_frameworks
+        WHERE tenant_id = dup.tenant_id AND name = dup.name
+        ORDER BY control_count DESC, created_at ASC
+        LIMIT 1;
+
+        -- Re-point any governance_controls referencing obsolete duplicate framework IDs
+        UPDATE public.governance_controls
+        SET framework_id = canonical_id
+        WHERE tenant_id = dup.tenant_id
+          AND framework_id IN (
+              SELECT id FROM public.governance_frameworks
+              WHERE tenant_id = dup.tenant_id AND name = dup.name AND id <> canonical_id
+          );
+
+        -- Delete duplicate framework rows
+        DELETE FROM public.governance_frameworks
+        WHERE tenant_id = dup.tenant_id
+          AND name = dup.name
+          AND id <> canonical_id;
+    END LOOP;
+END $$;
+
+-- 2. Enforce UNIQUE index on (tenant_id, name) in governance_frameworks
+CREATE UNIQUE INDEX IF NOT EXISTS uq_governance_frameworks_tenant_name
+    ON public.governance_frameworks (tenant_id, name);
+
+-- 3. Enforce UNIQUE index on (tenant_id, framework_id, name) in governance_controls
+-- First remove any exact duplicate control names under the same framework
+DO $$
+DECLARE
+    dup_ctrl RECORD;
+    canonical_ctrl_id UUID;
+BEGIN
+    FOR dup_ctrl IN
+        SELECT tenant_id, framework_id, name, count(*) AS cnt
+        FROM public.governance_controls
+        GROUP BY tenant_id, framework_id, name
+        HAVING count(*) > 1
+    LOOP
+        SELECT id INTO canonical_ctrl_id
+        FROM public.governance_controls
+        WHERE tenant_id = dup_ctrl.tenant_id
+          AND framework_id = dup_ctrl.framework_id
+          AND name = dup_ctrl.name
+        ORDER BY control_order ASC, created_at ASC
+        LIMIT 1;
+
+        DELETE FROM public.governance_controls
+        WHERE tenant_id = dup_ctrl.tenant_id
+          AND framework_id = dup_ctrl.framework_id
+          AND name = dup_ctrl.name
+          AND id <> canonical_ctrl_id;
+    END LOOP;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_governance_controls_tenant_fw_name
+    ON public.governance_controls (tenant_id, framework_id, name);
+
+COMMIT;
+-- END 066_governance_frameworks_unique_and_policies.sql
+
+-- BEGIN 067_feature_flags_audit_event_type.sql
+-- 067 — admit the 'feature_flags.updated' audit event type
+--
+-- PUT /api/v1/admin/features and PUT /api/v1/admin/features/{flag_key} audit
+-- their mutations, because toggling tenant feature flags or applying preset bundles
+-- alters tenant visibility, active capabilities, and security boundaries.
+--
+-- Replaces audit_events_event_type_check with 063 vocabulary plus this type.
+-- Same guarded shape as 063: the new type is its own sentinel, so re-running is
+-- a no-op and a database already carrying it is left alone.
+BEGIN;
+
+DO $body$
+DECLARE
+  constraint_name TEXT;
+BEGIN
+  SELECT con.conname INTO constraint_name
+    FROM pg_constraint con
+   WHERE con.conrelid = 'public.audit_events'::regclass
+     AND con.contype = 'c'
+     AND pg_get_constraintdef(con.oid) LIKE '%event_type%'
+   LIMIT 1;
+
+  IF constraint_name IS NOT NULL
+     AND pg_get_constraintdef((
+           SELECT con.oid FROM pg_constraint con
+            WHERE con.conrelid = 'public.audit_events'::regclass
+              AND con.conname = constraint_name
+         )) NOT LIKE '%feature_flags.updated%'
+  THEN
+    EXECUTE format('ALTER TABLE public.audit_events DROP CONSTRAINT %I', constraint_name);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint con
+     WHERE con.conrelid = 'public.audit_events'::regclass
+       AND con.contype = 'c'
+       AND pg_get_constraintdef(con.oid) LIKE '%feature_flags.updated%'
+  ) THEN
+    ALTER TABLE public.audit_events
+      ADD CONSTRAINT audit_events_event_type_check
+      CHECK (event_type IN (
+        'afm.cluster_import_requested',
+        'actor.promote_requested',
+        'agent.claimed',
+        'agent.created',
+        'agent.credential_issued',
+        'agent.credential_revoked',
+        'agent.stun_failed',
+        'agent.stun_simulated',
+        'agent.stunned',
+        'agent.transition_failed',
+        'agent.transitioned',
+        'api_key.created',
+        'api_key.rotated',
+        'audit.cross_tenant_read',
+        'compliance.reassess_requested',
+        'compliance.scan_completed',
+        'compliance_check',
+        'consent.accepted',
+        'cookie.preferences_updated',
+        'demo.distancelatency.phase_run',
+        'demo.distancelatency.reset_requested',
+        'demo.phase_run',
+        'demo.reset_requested',
+        'demo.signalfusion.phase_run',
+        'demo.signalfusion.reset_requested',
+        'demo.supercred.phase_run',
+        'demo.supercred.reset_requested',
+        'directory_connected',
+        'discovery_enroll_requested',
+        'eap_environment.lease_extended',
+        'eap_environment.provisioned',
+        'eap_environment.reaping_triggered',
+        'eap_environment.registered',
+        'eap_environment.teardown_requested',
+        'eap_environment.ttl_extended',
+        'eap_environment.webhook_triggered',
+        'eap_scenario.executed',
+        'eap_tenant.isolation_provisioned',
+        'eap_tenant.isolation_torn_down',
+        'enrollment',
+        'external_agent.claim_rejected',
+        'external_agent.claimed',
+        'external_agent.enrolled',
+        'external_agent.registered',
+        'external_agent.revoked',
+        'external_agent.status_updated',
+        'external_agent.token_issued',
+        'feature_flags.updated',
+        'fleet.recover_requested',
+        'fleet.resume_requested',
+        'invite.created',
+        'invite.redeemed',
+        'nhi.dismissed',
+        'nhi.enrolled',
+        'onboarding_completed',
+        'onboarding_skipped',
+        'operator.created',
+        'operator.removed',
+        'operator.sign_in_denied',
+        'operator.sign_in_succeeded',
+        'policy.bundle_submitted',
+        'policy.rollback_requested',
+        'rbac.scan_requested',
+        'state_transition',
+        'support.requested',
+        'tenant.frameworks_updated',
+        'tenant.preferences_updated',
+        'tenant.risk_profile_updated',
+        'tenant_created',
+        'token_issued',
+        'token_refused',
+        'user.currency_updated',
+        'user.deleted',
+        'user.invited',
+        'user.role_updated',
+        'user.status_updated',
+        'user.updated',
+        'user_provisioned',
+        'violation.acknowledged',
+        'violation_detected'
+      ));
+  END IF;
+END $body$;
+
+COMMIT;
+-- END 067_feature_flags_audit_event_type.sql

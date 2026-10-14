@@ -142,12 +142,9 @@ export function FeatureFlagProvider({
   const [error, setError] = useState<Error | null>(null)
   const [isReady, setIsReady] = useState<boolean>(true)
 
-  // Resolve token and tenant from auth only if explicitTenantId is not passed
+  // Resolve token from auth, and infer tenant from auth only if explicitTenantId is not passed
   useEffect(() => {
     let mounted = true
-    if (explicitTenantId) {
-      return
-    }
 
     if (!auth?.isAuthenticated) {
       setToken(null)
@@ -161,15 +158,19 @@ export function FeatureFlagProvider({
         .then((jwt) => {
           if (!mounted) return
           setToken(jwt)
-          const extractedTenant = getTenantIdFromToken(jwt)
-          if (extractedTenant) {
-            setInferredTenantId(extractedTenant)
+          if (!explicitTenantId) {
+            const extractedTenant = getTenantIdFromToken(jwt)
+            if (extractedTenant) {
+              setInferredTenantId(extractedTenant)
+            }
           }
         })
         .catch(() => {
           if (!mounted) return
           setToken(null)
         })
+    } else {
+      setToken(null)
     }
 
     return () => {

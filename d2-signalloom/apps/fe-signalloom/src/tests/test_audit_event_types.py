@@ -69,12 +69,12 @@ LIVE_UNDOTTED_EVENT_TYPES = {"onboarding_completed", "onboarding_skipped"}
 # 054 recreated it with 052's list plus invite.created and invite.redeemed (053 adds
 # the invites and subject_tenants tables and touches no constraint). 055 adds
 # actor.promote_requested on top of 054. 056 adds audit.cross_tenant_read on top of 055.
-# 059 adds user.invited, user.updated, user.role_updated, user.status_updated, user.deleted.
 # 063 adds tenant.risk_profile_updated on top of 059 and re-enumerates the whole
-# vocabulary, so it is now the migration that runs last (060 seeds presets, 061
-# touches governance_controls/agent_registry, 062 adds tenant_settings columns —
-# none of the three touches this constraint).
-CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "063_tenant_risk_profile_audit_event_type.sql"
+# vocabulary (060 seeds presets, 061 touches governance_controls/agent_registry, 062 adds tenant_settings columns).
+# 067 adds feature_flags.updated on top of 063 and re-enumerates the whole vocabulary,
+# so it is now the migration that runs last (064 backfills agent ownership, 065 seeds page flags,
+# 066 deduplicates governance frameworks — none of the three touches this constraint).
+CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "067_feature_flags_audit_event_type.sql"
 
 
 EVENT_TYPE_POSITION = 2

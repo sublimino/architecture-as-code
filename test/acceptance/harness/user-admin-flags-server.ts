@@ -87,6 +87,106 @@ const INITIAL_USERS: PlatformUser[] = [
   },
 ]
 
+export interface FeaturePreset {
+  id: string
+  name: string
+  description: string
+  flags: Record<string, boolean>
+}
+
+const FEATURE_PRESETS: FeaturePreset[] = [
+  {
+    id: 'eap_pilot',
+    name: 'EAP Pilot',
+    description: 'Enterprise pilot preset: all core governance, audit, and compliance views active; experimental demo labs disabled.',
+    flags: {
+      core_governance: true,
+      audit: true,
+      compliance: true,
+      demos_fleet: false,
+      supercred: false,
+      rbac_analysis: false,
+      collusion_access: false,
+      page_discovery: true,
+      page_agents: true,
+      page_topology: true,
+      page_weave: true,
+      page_signals: true,
+      page_risk: true,
+      page_policies: true,
+      page_compliance: true,
+      page_audit: true,
+      page_federated_services: true,
+      page_cryptography: true,
+      page_credential_inventory: true,
+      page_signal_store: false,
+      page_feeds: false,
+      page_network_tests: false,
+      page_agentmaxxing: false,
+    },
+  },
+  {
+    id: 'full_demo',
+    name: 'Full Platform Demo',
+    description: 'All 23 platform capabilities, demo surfaces, and telemetry feeds enabled.',
+    flags: {
+      core_governance: true,
+      audit: true,
+      compliance: true,
+      demos_fleet: true,
+      supercred: true,
+      rbac_analysis: true,
+      collusion_access: true,
+      page_discovery: true,
+      page_agents: true,
+      page_topology: true,
+      page_weave: true,
+      page_signals: true,
+      page_risk: true,
+      page_policies: true,
+      page_compliance: true,
+      page_audit: true,
+      page_federated_services: true,
+      page_cryptography: true,
+      page_credential_inventory: true,
+      page_signal_store: true,
+      page_feeds: true,
+      page_network_tests: true,
+      page_agentmaxxing: true,
+    },
+  },
+  {
+    id: 'minimal_governance',
+    name: 'Minimal Governance',
+    description: 'Minimal boundary view: agents registry, policy compliance, and audit trail only.',
+    flags: {
+      core_governance: true,
+      audit: true,
+      compliance: false,
+      demos_fleet: false,
+      supercred: false,
+      rbac_analysis: false,
+      collusion_access: false,
+      page_discovery: false,
+      page_agents: true,
+      page_topology: false,
+      page_weave: false,
+      page_signals: false,
+      page_risk: false,
+      page_policies: false,
+      page_compliance: false,
+      page_audit: true,
+      page_federated_services: false,
+      page_cryptography: false,
+      page_credential_inventory: false,
+      page_signal_store: false,
+      page_feeds: false,
+      page_network_tests: false,
+      page_agentmaxxing: false,
+    },
+  },
+]
+
 const TENANT_FLAGS: Record<string, Record<string, boolean>> = {
   'tenant-demo': {
     core_governance: true,
@@ -96,6 +196,22 @@ const TENANT_FLAGS: Record<string, Record<string, boolean>> = {
     supercred: true,
     rbac_analysis: true,
     collusion_access: true,
+    page_discovery: true,
+    page_agents: true,
+    page_topology: true,
+    page_weave: true,
+    page_signals: true,
+    page_risk: true,
+    page_policies: true,
+    page_compliance: true,
+    page_audit: true,
+    page_federated_services: true,
+    page_cryptography: true,
+    page_credential_inventory: true,
+    page_signal_store: true,
+    page_feeds: true,
+    page_network_tests: true,
+    page_agentmaxxing: true,
   },
   'kusari': {
     core_governance: true,
@@ -105,6 +221,22 @@ const TENANT_FLAGS: Record<string, Record<string, boolean>> = {
     supercred: false,
     rbac_analysis: false,
     collusion_access: false,
+    page_discovery: true,
+    page_agents: true,
+    page_topology: true,
+    page_weave: true,
+    page_signals: true,
+    page_risk: true,
+    page_policies: true,
+    page_compliance: true,
+    page_audit: true,
+    page_federated_services: true,
+    page_cryptography: true,
+    page_credential_inventory: true,
+    page_signal_store: false,
+    page_feeds: false,
+    page_network_tests: false,
+    page_agentmaxxing: false,
   },
   'tenant-acme': {
     core_governance: true,
@@ -114,6 +246,22 @@ const TENANT_FLAGS: Record<string, Record<string, boolean>> = {
     supercred: false,
     rbac_analysis: false,
     collusion_access: false,
+    page_discovery: true,
+    page_agents: true,
+    page_topology: true,
+    page_weave: true,
+    page_signals: true,
+    page_risk: true,
+    page_policies: true,
+    page_compliance: true,
+    page_audit: true,
+    page_federated_services: true,
+    page_cryptography: true,
+    page_credential_inventory: true,
+    page_signal_store: false,
+    page_feeds: false,
+    page_network_tests: false,
+    page_agentmaxxing: false,
   },
 }
 
@@ -202,6 +350,60 @@ const INDEX_HTML = `<!doctype html>
 </html>
 `
 
+const TENANT_SETTINGS: Record<string, {
+  tenant_id: string
+  org_name: string
+  plan_tier: string
+  agent_count: number
+  billing_tier: string | null
+  api_key_status: string
+  selected_frameworks: string[]
+  consent_required: boolean
+  preferred_scan_cadence_hours: number
+  alert_email: string | null
+  alert_threshold: number
+}> = {
+  'tenant-demo': {
+    tenant_id: 'tenant-demo',
+    org_name: 'Signal Loom Demo',
+    plan_tier: 'enterprise',
+    agent_count: 12,
+    billing_tier: 'enterprise',
+    api_key_status: 'active',
+    selected_frameworks: ['eu-ai-act'],
+    consent_required: false,
+    preferred_scan_cadence_hours: 24,
+    alert_email: null,
+    alert_threshold: 1,
+  },
+  'kusari': {
+    tenant_id: 'kusari',
+    org_name: 'Kusari Pilot Corp',
+    plan_tier: 'enterprise',
+    agent_count: 8,
+    billing_tier: 'enterprise',
+    api_key_status: 'active',
+    selected_frameworks: ['eu-ai-act'],
+    consent_required: false,
+    preferred_scan_cadence_hours: 24,
+    alert_email: null,
+    alert_threshold: 1,
+  },
+  'tenant-acme': {
+    tenant_id: 'tenant-acme',
+    org_name: 'Acme Corporation',
+    plan_tier: 'growth',
+    agent_count: 3,
+    billing_tier: null,
+    api_key_status: 'active',
+    selected_frameworks: [],
+    consent_required: false,
+    preferred_scan_cadence_hours: 24,
+    alert_email: null,
+    alert_threshold: 1,
+  },
+}
+
 const CORS_HEADERS: Record<string, string> = {
   'content-type': 'application/json; charset=utf-8',
   'cache-control': 'no-store',
@@ -217,14 +419,32 @@ function json(
   return jsonResponse(data, status, req, { ...CORS_HEADERS, ...extraHeaders })
 }
 
-export interface HarnessServer {
-  url: string
-  port: number
-  close(): Promise<void>
+function resolveTenant(request: Request): string {
+  const url = new URL(request.url)
+  const qTenant = url.searchParams.get('tenant_id') || url.searchParams.get('tenant')
+  if (qTenant) return qTenant
+
+  const authHeader = request.headers.get('authorization') ?? ''
+  if (authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7)
+    try {
+      const parts = token.split('.')
+      if (parts.length >= 2) {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'))
+        const tid = payload['https://signalloom.ai/tenant_id'] || payload['tenant_id']
+        if (typeof tid === 'string' && tid) return tid
+      }
+    } catch {}
+  }
+  if (authHeader.includes('kusari')) return 'kusari'
+  if (authHeader.includes('tenant-acme')) return 'tenant-acme'
+  return 'tenant-demo'
 }
 
 export function startUserAdminFlagsHarness(options: { port?: number } = {}): HarnessServer {
   let users: PlatformUser[] = JSON.parse(JSON.stringify(INITIAL_USERS))
+  let currentFlags: Record<string, Record<string, boolean>> = JSON.parse(JSON.stringify(TENANT_FLAGS))
+  let tenantSettings: Record<string, any> = JSON.parse(JSON.stringify(TENANT_SETTINGS))
   const requestLog: Array<{ method: string; path: string; tenant?: string; timestamp: string }> = []
 
   const server = Bun.serve({
@@ -279,6 +499,8 @@ export function startUserAdminFlagsHarness(options: { port?: number } = {}): Har
         const gate = await gateMethod(request, ['POST'])
         if (gate) return gate
         users = JSON.parse(JSON.stringify(INITIAL_USERS))
+        currentFlags = JSON.parse(JSON.stringify(TENANT_FLAGS))
+        tenantSettings = JSON.parse(JSON.stringify(TENANT_SETTINGS))
         requestLog.length = 0
         return json({ ok: true, users: users.length }, 200, request)
       }
@@ -292,17 +514,16 @@ export function startUserAdminFlagsHarness(options: { port?: number } = {}): Har
       if (path === '/harness/state') {
         const gate = await gateMethod(request, ['GET', 'HEAD'])
         if (gate) return gate
-        return json({ users, flags: TENANT_FLAGS }, 200, request)
+        return json({ users, flags: currentFlags }, 200, request)
       }
 
       // ─── Identity: /api/v1/me ──────────────────────────────────────────
       if (path === '/api/v1/me') {
         const gate = await gateMethod(request, ['GET', 'HEAD'])
         if (gate) return gate
-        const isKusari = authHeader.includes('kusari') || url.searchParams.get('tenant') === 'kusari'
-        const isAcme = authHeader.includes('tenant-acme') || url.searchParams.get('tenant') === 'tenant-acme'
+        const tenant = resolveTenant(request)
 
-        if (isAcme) {
+        if (tenant === 'tenant-acme') {
           return json({
             subject: 'usr-acme-003',
             tenant: 'tenant-acme',
@@ -311,7 +532,7 @@ export function startUserAdminFlagsHarness(options: { port?: number } = {}): Har
           }, 200, request)
         }
 
-        if (isKusari) {
+        if (tenant === 'kusari') {
           return json({
             subject: 'usr-kusari-002',
             tenant: 'kusari',
@@ -332,9 +553,8 @@ export function startUserAdminFlagsHarness(options: { port?: number } = {}): Har
       if (path === '/api/v1/features') {
         const gate = await gateMethod(request, ['GET', 'HEAD'])
         if (gate) return gate
-        const requestedTenant = url.searchParams.get('tenant_id') ||
-          (authHeader.includes('kusari') ? 'kusari' : (authHeader.includes('tenant-acme') ? 'tenant-acme' : 'tenant-demo'))
-        const flags = TENANT_FLAGS[requestedTenant] ?? TENANT_FLAGS['tenant-demo']
+        const requestedTenant = resolveTenant(request)
+        const flags = currentFlags[requestedTenant] ?? currentFlags['tenant-demo']
         const details: Record<string, FeatureFlagDetail> = Object.fromEntries(
           Object.entries(flags).map(([key, enabled]) => [key, { enabled, config: {} }])
         )
@@ -344,6 +564,150 @@ export function startUserAdminFlagsHarness(options: { port?: number } = {}): Har
           flags,
           details,
         }, 200, request)
+      }
+
+      // ─── Admin Feature Flags: /api/v1/admin/features ───────────────────
+      if (path === '/api/v1/admin/features/presets') {
+        const gate = await gateMethod(request, ['GET', 'HEAD'])
+        if (gate) return gate
+        return json({ presets: FEATURE_PRESETS }, 200, request)
+      }
+
+      if (path === '/api/v1/admin/features') {
+        if (request.method === 'GET' || request.method === 'HEAD') {
+          const requestedTenant = resolveTenant(request)
+          const flags = currentFlags[requestedTenant] ?? currentFlags['tenant-demo']
+          const details: Record<string, FeatureFlagDetail> = Object.fromEntries(
+            Object.entries(flags).map(([key, enabled]) => [key, { enabled, config: {} }])
+          )
+          return json({
+            tenant_id: requestedTenant,
+            flags,
+            details,
+          }, 200, request)
+        }
+
+        if (request.method === 'PUT') {
+          const body = (await request.json().catch(() => ({}))) as {
+            tenant_id?: string
+            preset?: string
+            flags?: Record<string, boolean>
+          }
+          const targetTenant = body.tenant_id || resolveTenant(request)
+          if (!currentFlags[targetTenant]) {
+            currentFlags[targetTenant] = { ...(currentFlags['tenant-demo'] ?? {}) }
+          }
+
+          if (body.preset) {
+            const foundPreset = FEATURE_PRESETS.find((p) => p.id === body.preset)
+            if (foundPreset) {
+              currentFlags[targetTenant] = {
+                ...currentFlags[targetTenant],
+                ...foundPreset.flags,
+              }
+            }
+          }
+
+          if (body.flags) {
+            currentFlags[targetTenant] = {
+              ...currentFlags[targetTenant],
+              ...body.flags,
+            }
+          }
+
+          const flags = currentFlags[targetTenant]
+          const details: Record<string, FeatureFlagDetail> = Object.fromEntries(
+            Object.entries(flags).map(([key, enabled]) => [key, { enabled, config: {} }])
+          )
+
+          return json({
+            tenant_id: targetTenant,
+            flags,
+            details,
+          }, 200, request)
+        }
+      }
+
+      const singleFlagMatch = path.match(/^\/api\/v1\/admin\/features\/([^/]+)$/)
+      if (singleFlagMatch) {
+        if (request.method === 'PUT') {
+          const flagKey = decodeURIComponent(singleFlagMatch[1])
+          const targetTenant = resolveTenant(request)
+          const body = (await request.json().catch(() => ({}))) as {
+            enabled?: boolean
+            config_json?: Record<string, unknown>
+          }
+
+          if (!currentFlags[targetTenant]) {
+            currentFlags[targetTenant] = { ...(currentFlags['tenant-demo'] ?? {}) }
+          }
+
+          if (typeof body.enabled === 'boolean') {
+            currentFlags[targetTenant][flagKey] = body.enabled
+          }
+
+          const flags = currentFlags[targetTenant]
+          const details: Record<string, FeatureFlagDetail> = Object.fromEntries(
+            Object.entries(flags).map(([key, enabled]) => [key, { enabled, config: {} }])
+          )
+
+          return json({
+            tenant_id: targetTenant,
+            flags,
+            details,
+          }, 200, request)
+        }
+      }
+
+      // ─── Tenant Settings: /api/tenant/settings & /tenant/settings ───────
+      if (path === '/api/tenant/settings' || path === '/tenant/settings') {
+        const gate = await gateMethod(request, ['GET', 'HEAD'])
+        if (gate) return gate
+        const requestedTenant = resolveTenant(request)
+        const s = tenantSettings[requestedTenant] ?? {
+          tenant_id: requestedTenant,
+          org_name: `${requestedTenant} Org`,
+          plan_tier: 'growth',
+          agent_count: 4,
+          billing_tier: null,
+          api_key_status: 'active',
+          selected_frameworks: [],
+          consent_required: false,
+          preferred_scan_cadence_hours: 24,
+          alert_email: null,
+          alert_threshold: 1,
+        }
+        return json(s, 200, request)
+      }
+
+      if (
+        path === '/api/tenant/settings/organization' ||
+        path === '/tenant/settings/organization' ||
+        path === '/api/tenant/settings/org-name' ||
+        path === '/tenant/settings/org-name'
+      ) {
+        const gate = await gateMethod(request, ['PATCH'])
+        if (gate) return gate
+        const requestedTenant = resolveTenant(request)
+        const body = (await request.json().catch(() => ({}))) as { org_name?: string }
+        if (!tenantSettings[requestedTenant]) {
+          tenantSettings[requestedTenant] = {
+            tenant_id: requestedTenant,
+            org_name: body.org_name || `${requestedTenant} Org`,
+            plan_tier: 'growth',
+            agent_count: 4,
+            billing_tier: null,
+            api_key_status: 'active',
+            selected_frameworks: [],
+            consent_required: false,
+            preferred_scan_cadence_hours: 24,
+            alert_email: null,
+            alert_threshold: 1,
+          }
+        } else if (body.org_name) {
+          tenantSettings[requestedTenant].org_name = body.org_name
+        }
+        return json(tenantSettings[requestedTenant], 200, request)
       }
 
       // ─── Tenants: /api/v1/tenants ───────────────────────────────────────

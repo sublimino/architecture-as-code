@@ -7,7 +7,7 @@
  * Provides stable OIDC identity and token generation for both superadmin
  * (demo-user@signalloom.local) and tenant-scoped principals (e.g. kusari, acme).
  */
-import React from 'react'
+import React, { useMemo, useCallback } from 'react'
 import axios, { type AxiosInstance } from 'axios'
 
 export const LOGGED_OUT_KEY = 'signalloom:logged-out'
@@ -82,17 +82,23 @@ export function useAuth0() {
   const tenant = currentTenantFromUrl()
   const isSuperadmin = isSuperadminFromUrl()
   const email = currentEmailFromUrl()
-  const token = buildAuthToken(tenant, isSuperadmin)
+  const token = useMemo(() => buildAuthToken(tenant, isSuperadmin), [tenant, isSuperadmin])
+  const getAccessTokenSilently = useCallback(async (): Promise<string> => token, [token])
 
-  return {
-    user: {
+  const user = useMemo(
+    () => ({
       sub: `usr-${tenant}`,
       email,
       name: isSuperadmin ? 'Platform Superadmin' : 'Tenant Operator',
       'https://signalloom.ai/tenant_id': tenant,
       tenant_id: tenant,
-    },
-    getAccessTokenSilently: async (): Promise<string> => token,
+    }),
+    [tenant, email, isSuperadmin],
+  )
+
+  return {
+    user,
+    getAccessTokenSilently,
     loginWithRedirect: async (): Promise<void> => {},
     logout: async (): Promise<void> => {},
     isAuthenticated: true,

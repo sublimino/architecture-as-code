@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import FeaturesPage from './FeaturesPage'
 import * as featuresApiModule from '../../api/featuresApi'
+import { api } from '../../api/client'
 import { AppContext } from '../../App'
 import { DEFAULT_SYSTEM_FLAGS } from '../../types/features'
 
@@ -18,6 +19,17 @@ vi.mock('../../auth/oidc', () => ({
     user: mockAuthUser,
     getAccessTokenSilently: mockGetAccessTokenSilently,
   }),
+}))
+
+vi.mock('../../api/client', () => ({
+  api: {
+    settings: vi.fn().mockResolvedValue({
+      tenant_id: 'kusari',
+      org_name: 'Kusari Enterprise',
+      plan_tier: 'enterprise',
+      agent_count: 5,
+    }),
+  },
 }))
 
 const mockServerSuperadmin = { superadmin: false, resolved: true }
@@ -438,5 +450,37 @@ describe('FeaturesPage Component', () => {
     const retryBtn = screen.getByRole('button', { name: /Retry/i })
     fireEvent.click(retryBtn)
     expect(refetchMock).toHaveBeenCalled()
+  })
+
+  it('resolves primary account scope and organization name from settings', async () => {
+    vi.mocked(api.settings).mockResolvedValueOnce({
+      tenant_id: 'tenant-primary',
+      org_name: 'Primary Enterprise Corp',
+      plan_tier: 'enterprise',
+      agent_count: 8,
+      billing_tier: null,
+      api_key_status: 'active',
+      selected_frameworks: [],
+      consent_required: false,
+      cookie_preferences: null,
+      preferred_scan_cadence_hours: 24,
+      alert_email: null,
+      alert_threshold: 1,
+      sector: null,
+      jurisdiction: null,
+      reporting_currency: null,
+      risk_appetite_tolerance: null,
+      risk_load: null,
+    })
+
+    await renderFeaturesPage()
+
+    await waitFor(() => {
+      const select = screen.getByTestId('admin-tenant-select') as HTMLSelectElement
+      expect(select.value).toBe('tenant-primary')
+      expect(screen.getByText('Primary Enterprise Corp (tenant-primary)')).toBeInTheDocument()
+      expect(screen.getByTestId('kpi-account-scope')).toHaveTextContent('tenant-primary')
+      expect(screen.getByTestId('kpi-account-scope')).toHaveTextContent('Primary Enterprise Corp')
+    })
   })
 })

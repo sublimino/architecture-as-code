@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useAuth0 } from '../../auth/oidc'
 import { useServerSuperadmin } from '../../auth/superadmin'
 import { useAppContext } from '../../App'
@@ -9,6 +9,7 @@ import {
   useUpdateTenantFeatures,
   useUpdateSingleFeature,
 } from '../../api/featuresApi'
+import { api } from '../../api/client'
 import {
   FEATURE_CATEGORIES,
   DEFAULT_SYSTEM_FLAGS,
@@ -91,6 +92,7 @@ export default function FeaturesPage({
   const [selectedTenant, setSelectedTenant] = useState<string>(
     defaultTenant || 'kusari',
   )
+  const [primaryTenantInfo, setPrimaryTenantInfo] = useState<{ id: string; org_name: string } | null>(null)
   const [customTenantInput, setCustomTenantInput] = useState<string>('')
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
@@ -99,18 +101,31 @@ export default function FeaturesPage({
   const [successToast, setSuccessToast] = useState<string | null>(null)
   const [applyingPreset, setApplyingPreset] = useState<string | null>(null)
   const [togglingFlag, setTogglingFlag] = useState<string | null>(null)
+  const hasInitializedTenantRef = useRef(false)
 
-  // Fetch token
+  // Fetch token and initialize default tenant once from settings/token
   useEffect(() => {
     let mounted = true
     getAccessTokenSilently()
-      .then((t) => {
+      .then(async (t) => {
         if (!mounted) return
         setToken(t)
-        if (!defaultTenant) {
-          const extracted = getTenantIdFromToken(t)
-          if (extracted) {
-            setSelectedTenant(extracted)
+        try {
+          const settings = await api.settings(t)
+          if (mounted && settings?.tenant_id) {
+            setPrimaryTenantInfo({ id: settings.tenant_id, org_name: settings.org_name })
+            if (!hasInitializedTenantRef.current && !defaultTenant) {
+              hasInitializedTenantRef.current = true
+              setSelectedTenant(settings.tenant_id)
+            }
+          }
+        } catch {
+          if (!hasInitializedTenantRef.current && !defaultTenant) {
+            hasInitializedTenantRef.current = true
+            const extracted = getTenantIdFromToken(t)
+            if (extracted && mounted) {
+              setSelectedTenant(extracted)
+            }
           }
         }
       })
@@ -129,6 +144,14 @@ export default function FeaturesPage({
       return () => clearTimeout(timer)
     }
   }, [successToast])
+
+  const tenantOptions = useMemo(() => {
+    const list = [...KNOWN_TENANTS]
+    if (primaryTenantInfo?.id && !list.includes(primaryTenantInfo.id)) {
+      list.unshift(primaryTenantInfo.id)
+    }
+    return list
+  }, [primaryTenantInfo])
 
   // Queries
   const {
@@ -355,7 +378,7 @@ export default function FeaturesPage({
             <select
               id="admin-tenant-select"
               data-testid="admin-tenant-select"
-              value={KNOWN_TENANTS.includes(selectedTenant) ? selectedTenant : 'custom'}
+              value={tenantOptions.includes(selectedTenant) ? selectedTenant : 'custom'}
               onChange={(e) => {
                 if (e.target.value !== 'custom') {
                   setSelectedTenant(e.target.value)
@@ -372,12 +395,18 @@ export default function FeaturesPage({
                 cursor: 'pointer',
               }}
             >
-              {KNOWN_TENANTS.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-              {!KNOWN_TENANTS.includes(selectedTenant) && (
+              {tenantOptions.map((t) => {
+                const isPrimary = primaryTenantInfo?.id === t
+                const label = isPrimary && primaryTenantInfo?.org_name
+                  ? `${primaryTenantInfo.org_name} (${t})`
+                  : t
+                return (
+                  <option key={t} value={t}>
+                    {label}
+                  </option>
+                )
+              })}
+              {!tenantOptions.includes(selectedTenant) && (
                 <option value="custom">Custom: {selectedTenant}</option>
               )}
             </select>
@@ -487,8 +516,8 @@ export default function FeaturesPage({
                   flexDirection: 'column',
                   justifyContent: 'space-between',
                   padding: '14px 16px',
-                  background: isEap ? 'rgba(20, 184, 166, 0.08)' : 'var(--surface2)',
-                  border: `1px solid ${isEap ? 'rgba(20, 184, 166, 0.4)' : 'var(--border)'}`,
+                  background: isEap ? 'color-mix(in srgb, var(--teal) 8%, transparent)' : 'var(--surface2)',
+                  border: `1px solid ${isEap ? 'color-mix(in srgb, var(--teal) 40%, transparent)' : 'var(--border)'}`,
                   borderRadius: 'var(--radius)',
                 }}
               >
@@ -505,7 +534,7 @@ export default function FeaturesPage({
                           padding: '2px 6px',
                           borderRadius: 4,
                           background: 'var(--teal)',
-                          color: 'var(--bg)',
+                          color: 'var(--on-accent)',
                           textTransform: 'uppercase',
                           letterSpacing: '0.04em',
                         }}
@@ -568,10 +597,17 @@ export default function FeaturesPage({
           </div>
         </div>
         <div className="card" data-testid="kpi-account-scope" style={{ padding: '14px 18px', background: 'var(--surface)' }}>
-          <span className="kicker" style={{ color: 'var(--violet)' }}>Active Account</span>
+          <span className="kicker" style={{ color: 'var(--violet)' }}>
+            {primaryTenantInfo?.id === selectedTenant ? 'Primary Account Scope' : 'Active Account'}
+          </span>
           <div className="number" style={{ fontSize: 18, fontWeight: 700, color: 'var(--violet)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {selectedTenant}
           </div>
+          {primaryTenantInfo?.id === selectedTenant && primaryTenantInfo.org_name && (
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {primaryTenantInfo.org_name}
+            </div>
+          )}
         </div>
       </div>
 

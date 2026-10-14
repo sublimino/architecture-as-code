@@ -191,4 +191,135 @@ test.describe.serial('Superadmin User Administration & Feature Flag Governance (
     await expect(page.locator('[data-testid="user-row-usr-acme-003"]')).toBeVisible()
     await expect(page.locator('[data-testid="user-row-usr-kusari-002"]')).not.toBeVisible()
   })
+
+  test('Interactive Feature Flags Management & EAP Pilot Preset Application on /admin/features', async ({
+    page,
+  }) => {
+    // ══════════════════════════════════════════════════════════════════════════
+    // Stage 1: Navigate to /admin/features as superadmin for tenant 'kusari'
+    // ══════════════════════════════════════════════════════════════════════════
+    await page.goto(`${harness.url}/admin/features?tenant=kusari&superadmin=true`, {
+      waitUntil: 'domcontentloaded',
+    })
+
+    const featuresPage = page.locator('[data-testid="features-page"]')
+    await expect(featuresPage).toBeVisible({ timeout: 15_000 })
+    await expect(page.locator('h1')).toContainText('Feature Flags & Presets')
+
+    const superadminScopePill = page.locator('[data-testid="superadmin-scope-pill"]')
+    await expect(superadminScopePill).toBeVisible()
+    await expect(superadminScopePill).toContainText('Global Superadmin')
+
+    // Assert KPI metrics rendered
+    await expect(page.locator('[data-testid="kpi-account-scope"]')).toContainText('kusari')
+    await expect(page.locator('[data-testid="kpi-total-flags"]')).toBeVisible()
+
+    // Assert Preset cards rendered
+    const presetCard = page.locator('[data-testid="preset-card-eap_pilot"]')
+    await expect(presetCard).toBeVisible()
+    await expect(presetCard).toContainText('EAP Pilot')
+    await expect(presetCard).toContainText('Recommended for EAP')
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Stage 2: Apply EAP Pilot preset bundle to Kusari tenant
+    // ══════════════════════════════════════════════════════════════════════════
+    const applyEapBtn = page.locator('[data-testid="apply-preset-eap_pilot"]')
+    await expect(applyEapBtn).toBeVisible()
+    await applyEapBtn.click()
+
+    // Assert success toast appears and no error banner is displayed
+    const successToast = page.locator('[data-testid="success-toast"]')
+    await expect(successToast).toBeVisible({ timeout: 10_000 })
+    await expect(successToast).toContainText('Preset "EAP Pilot" applied successfully to account "kusari"')
+    await expect(page.locator('[data-testid="action-error-banner"]')).not.toBeVisible()
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Stage 3: Interactive flag button toggles
+    // ══════════════════════════════════════════════════════════════════════════
+    const agentmaxxingToggle = page.locator('[data-testid="flag-toggle-page_agentmaxxing"]')
+    await expect(agentmaxxingToggle).toBeVisible()
+
+    // Toggle ENABLED
+    await agentmaxxingToggle.click()
+    await expect(successToast).toBeVisible({ timeout: 10_000 })
+    await expect(successToast).toContainText('Flag "page_agentmaxxing" set to ENABLED')
+    await expect(page.locator('[data-testid="action-error-banner"]')).not.toBeVisible()
+    await expect(agentmaxxingToggle).toHaveAttribute('aria-checked', 'true')
+
+    // Toggle DISABLED
+    await agentmaxxingToggle.click()
+    await expect(successToast).toBeVisible({ timeout: 10_000 })
+    await expect(successToast).toContainText('Flag "page_agentmaxxing" set to DISABLED')
+    await expect(page.locator('[data-testid="action-error-banner"]')).not.toBeVisible()
+    await expect(agentmaxxingToggle).toHaveAttribute('aria-checked', 'false')
+
+    // Filter to Config & Services category and toggle page_federated_services
+    const categorySelect = page.locator('[data-testid="filter-category-select"]')
+    await categorySelect.selectOption('config')
+    const configCategoryCard = page.locator('[data-testid="category-group-config"]')
+    await expect(configCategoryCard).toBeVisible()
+    await expect(configCategoryCard).toContainText('Config & Services')
+
+    const fedServicesToggle = page.locator('[data-testid="flag-toggle-page_federated_services"]')
+    await expect(fedServicesToggle).toBeVisible()
+    await fedServicesToggle.click()
+    await expect(successToast).toBeVisible({ timeout: 10_000 })
+    await expect(successToast).toContainText('Flag "page_federated_services"')
+    await expect(page.locator('[data-testid="action-error-banner"]')).not.toBeVisible()
+
+    // Reset category filter
+    await categorySelect.selectOption('all')
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Stage 4: Apply Full Demo preset bundle
+    // ══════════════════════════════════════════════════════════════════════════
+    const applyFullDemoBtn = page.locator('[data-testid="apply-preset-full_demo"]')
+    await expect(applyFullDemoBtn).toBeVisible()
+    await applyFullDemoBtn.click()
+
+    await expect(successToast).toBeVisible({ timeout: 10_000 })
+    await expect(successToast).toContainText('Preset "Full Platform Demo" applied successfully to account "kusari"')
+    await expect(page.locator('[data-testid="action-error-banner"]')).not.toBeVisible()
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Stage 5: Switch account scope via selector and apply preset
+    // ══════════════════════════════════════════════════════════════════════════
+    const tenantSelect = page.locator('[data-testid="admin-tenant-select"]')
+    await tenantSelect.selectOption('tenant-demo')
+    await expect(page.locator('[data-testid="kpi-account-scope"]')).toContainText('tenant-demo')
+
+    await applyEapBtn.click()
+    await expect(successToast).toBeVisible({ timeout: 10_000 })
+    await expect(successToast).toContainText('Preset "EAP Pilot" applied successfully to account "tenant-demo"')
+    await expect(page.locator('[data-testid="action-error-banner"]')).not.toBeVisible()
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Stage 6: Settings editable organization name and sidebar synchronization
+    // ══════════════════════════════════════════════════════════════════════════
+    await page.goto(`${harness.url}/settings?tenant=kusari&superadmin=true`, {
+      waitUntil: 'domcontentloaded',
+    })
+
+    // Assert Sidebar has renamed section label "Config" instead of "Design"
+    const configSection = page.locator('.sl-sidebar__section-label', { hasText: 'Config' })
+    await expect(configSection).toBeVisible()
+
+    const orgInput = page.locator('[data-testid="settings-org-name-input"]')
+    await expect(orgInput).toBeVisible({ timeout: 10_000 })
+    await expect(orgInput).toHaveValue('Kusari Pilot Corp')
+
+    const saveOrgBtn = page.locator('[data-testid="settings-save-org-name-btn"]')
+    await expect(saveOrgBtn).toBeDisabled()
+
+    await orgInput.fill('Kusari Global Security Corp')
+    await expect(saveOrgBtn).toBeEnabled()
+    await saveOrgBtn.click()
+
+    await expect(page.locator('[data-testid="settings-org-saved-indicator"]')).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('[data-testid="settings-org-saved-indicator"]')).toHaveText('Saved')
+
+    // Sidebar workspace title updates reactively
+    const workspaceTitle = page.locator('.sl-sidebar__workspace-title')
+    await expect(workspaceTitle).toHaveText('Kusari Global Security Corp')
+  })
 })

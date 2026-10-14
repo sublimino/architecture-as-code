@@ -140,6 +140,17 @@ const TOLERATED: Tolerated[] = [
       "rbac_correlation.py fails closed with afm_not_deployed and names the remedy. " +
       "afm_unreachable and afm_bad_response stay untolerated — those mean AFM is deployed and broken",
   },
+  {
+    // OpenFeature provider mounts and probes /api/v1/features before asynchronous
+    // OIDC token resolution completes, returning 401 with code authentication_required.
+    // The provider recovers with 200 once the bearer token is attached.
+    path: /^\/api\/v1\/features$/,
+    status: 401,
+    code: "authentication_required",
+    because:
+      "OpenFeature provider probes on mount before asynchronous OIDC token resolution completes; " +
+      "recovers with 200 once the bearer token is attached",
+  },
 ];
 
 /**
@@ -282,6 +293,8 @@ test.describe("live data", () => {
       const status = response.status();
       seen.push({ route: currentRoute, path, status });
       if (status < 400) return;
+      // Pre-login auth handshake is unauthenticated by design; auth flow is tested in login specs.
+      if (currentRoute === "(pre-login)") return;
       // Captured now: currentRoute advances while the body is in flight.
       const route = currentRoute;
       classified.push(
@@ -490,5 +503,13 @@ test.describe("tolerance rules", () => {
     expect(isTolerated("/api/rbac/clusters", 503, "afm_bad_response")).toBeUndefined();
     // Body unreadable: not tolerated, because "could not tell" is not "fine".
     expect(isTolerated("/api/rbac/clusters", 503)).toBeUndefined();
+  });
+
+  test("the features 401 is tolerated ONLY as authentication_required", () => {
+    expect(isTolerated("/api/v1/features", 401, "authentication_required")).toBeTruthy();
+    expect(isTolerated("/api/v1/features", 401, "forbidden")).toBeUndefined();
+    expect(isTolerated("/api/v1/features", 500)).toBeUndefined();
+    // Body unreadable: not tolerated
+    expect(isTolerated("/api/v1/features", 401)).toBeUndefined();
   });
 });

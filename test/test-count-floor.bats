@@ -33,6 +33,43 @@
 # at or near the floor means something is wrong with the runner, not with the
 # code under test.
 
+setup_file() {
+    local repo_root="$(cd "${BATS_TEST_FILENAME%/*}/.." && pwd)"
+    local fe_src="$repo_root/d2-signalloom/apps/fe-signalloom/src"
+    local dashboard="$repo_root/d2-signalloom/apps/dashboard-signalloom"
+    local riskctl="$repo_root/tools/riskctl"
+
+    local uv_cache="${UV_CACHE_DIR:-/tmp/uv-cache}"
+    local gopath="${GOPATH:-}"
+    if [ "$gopath" = "/usr/local/src/gocode" ] || [ -z "$gopath" ]; then gopath=/tmp/gopath; fi
+
+    # 1. pytest collect-only and execution
+    (
+        cd "$fe_src"
+        UV_CONFIG_FILE=/dev/null UV_CACHE_DIR="$uv_cache" uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with respx \
+            --with-requirements requirements.txt \
+            python -m pytest tests --collect-only -q 2>&1 > "$BATS_FILE_TMPDIR/pytest_collect.log" || echo $? > "$BATS_FILE_TMPDIR/pytest_collect.rc"
+
+        UV_CONFIG_FILE=/dev/null UV_CACHE_DIR="$uv_cache" uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with respx \
+            --with-requirements requirements.txt \
+            python -m pytest tests -q 2>&1 > "$BATS_FILE_TMPDIR/pytest_run.log" || echo $? > "$BATS_FILE_TMPDIR/pytest_run.rc"
+    )
+
+    # 2. vitest execution
+    (
+        cd "$dashboard"
+        [ -d node_modules ] || bun install --frozen-lockfile >/dev/null 2>&1
+        bunx vitest run 2>&1 > "$BATS_FILE_TMPDIR/vitest_run.log" || echo $? > "$BATS_FILE_TMPDIR/vitest_run.rc"
+    )
+
+    # 3. riskctl go test execution
+    (
+        cd "$riskctl"
+        GOPATH="$gopath" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GONOSUMDB="${GONOSUMDB:-*}" CGO_ENABLED="${CGO_ENABLED:-0}" \
+            go test ./... -count=1 -buildvcs=false -v 2>&1 > "$BATS_FILE_TMPDIR/go_riskctl.log" || echo $? > "$BATS_FILE_TMPDIR/go_riskctl.rc"
+    )
+}
+
 setup() {
     repo_root="$(cd "${BATS_TEST_FILENAME%/*}/.." && pwd)"
     fe_src="$repo_root/d2-signalloom/apps/fe-signalloom/src"
@@ -58,11 +95,8 @@ setup() {
 # silently excluded.
 
 @test "pytest collected at least 500 tests" {
-    cd "$fe_src"
     local out
-    out="$(UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with respx \
-             --with-requirements requirements.txt \
-             python -m pytest tests --collect-only -q 2>&1 | tail -3)"
+    out="$(cat "$BATS_FILE_TMPDIR/pytest_collect.log" 2>/dev/null | tail -3)"
 
     local collected
     collected="$(echo "$out" | grep -oP '(\d+) tests? collected' | grep -oP '^\d+' || echo 0)"
@@ -78,11 +112,8 @@ setup() {
 }
 
 @test "pytest passed at least 500 tests" {
-    cd "$fe_src"
     local out
-    out="$(UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with respx \
-             --with-requirements requirements.txt \
-             python -m pytest tests -q 2>&1 | tail -3)"
+    out="$(cat "$BATS_FILE_TMPDIR/pytest_run.log" 2>/dev/null | tail -3)"
 
     local passed
     passed="$(echo "$out" | grep -oP '(\d+) passed' | grep -oP '^\d+' || echo 0)"
@@ -97,11 +128,8 @@ setup() {
 }
 
 @test "pytest reported zero failures" {
-    cd "$fe_src"
     local out
-    out="$(UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with respx \
-             --with-requirements requirements.txt \
-             python -m pytest tests -q 2>&1 | tail -3)"
+    out="$(cat "$BATS_FILE_TMPDIR/pytest_run.log" 2>/dev/null | tail -3)"
 
     local failed
     failed="$(echo "$out" | grep -oP '(\d+) failed' | grep -oP '^\d+' || echo 0)"
@@ -120,11 +148,8 @@ setup() {
 # Floor: 1800 tests, 90 files.
 
 @test "vitest passed at least 1800 tests" {
-    cd "$dashboard"
-    [ -d node_modules ] || bun install --frozen-lockfile >/dev/null 2>&1
-
     local out
-    out="$(bunx vitest run 2>&1 | tail -5)"
+    out="$(cat "$BATS_FILE_TMPDIR/vitest_run.log" 2>/dev/null | tail -5)"
 
     local passed
     passed="$(echo "$out" | grep -oP '(\d+) passed' | grep -oP '^\d+' || echo 0)"
@@ -138,17 +163,8 @@ setup() {
 }
 
 @test "vitest ran at least 90 test files" {
-    cd "$dashboard"
-    [ -d node_modules ] || bun install --frozen-lockfile >/dev/null 2>&1
-
-    local out
-    out="$(bunx vitest run 2>&1 | tail -5)"
-
     local files
-    files="$(echo "$out" | grep -oP '(\d+) passed' | head -1 | grep -oP '^\d+' || echo 0)"
-    # The "Test Files" line says "N passed" too — take the first occurrence
-    # from the full output which is the file count.
-    files="$(bunx vitest run 2>&1 | grep 'Test Files' | grep -oP '(\d+) passed' | grep -oP '^\d+' || echo 0)"
+    files="$(grep 'Test Files' "$BATS_FILE_TMPDIR/vitest_run.log" 2>/dev/null | grep -oP '(\d+) passed' | grep -oP '^\d+' || echo 0)"
 
     if [ "$files" -lt 90 ]; then
         echo "FLOOR BREACH: vitest ran only $files test files (floor: 90)"
@@ -164,9 +180,8 @@ setup() {
 # Floor: 30.
 
 @test "Go riskctl passed at least 30 tests" {
-    cd "$riskctl"
     local out
-    out="$(go test ./... -count=1 -buildvcs=false -v 2>&1)"
+    out="$(cat "$BATS_FILE_TMPDIR/go_riskctl.log" 2>/dev/null)"
 
     local passed
     passed="$(echo "$out" | grep -c '^\-\-\- PASS' || echo 0)"
@@ -179,14 +194,16 @@ setup() {
 }
 
 @test "Go riskctl reported zero failures" {
-    cd "$riskctl"
-    local out
-    out="$(go test ./... -count=1 -buildvcs=false 2>&1)"
-    local rc=$?
+    local rc=0
+    if [ -f "$BATS_FILE_TMPDIR/go_riskctl.rc" ]; then
+        rc="$(cat "$BATS_FILE_TMPDIR/go_riskctl.rc")"
+    fi
+    local failed
+    failed="$(grep -c '^\-\-\- FAIL' "$BATS_FILE_TMPDIR/go_riskctl.log" 2>/dev/null || echo 0)"
 
-    if [ "$rc" -ne 0 ]; then
-        echo "Go tests failed (exit $rc)"
-        echo "$out" | tail -10
+    if [ "$rc" -ne 0 ] || [ "$failed" -gt 0 ]; then
+        echo "Go tests failed (exit $rc, $failed failure(s))"
+        tail -10 "$BATS_FILE_TMPDIR/go_riskctl.log" 2>/dev/null || true
         false
     fi
 }

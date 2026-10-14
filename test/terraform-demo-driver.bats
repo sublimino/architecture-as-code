@@ -1061,7 +1061,15 @@ dex_log() {
 
 @test "DEMODRIVER the up lane runs the pipeline with stage=full" {
 	make_report PASS
-	run "${driver}" up
+	# 0b9603279 taught cmd_up to auto-select stage="deploy" for any demo*/eap*
+	# ENV_KEY, falling back to "full" only for everything else. This fixture's
+	# ENV_KEY is "demo-7" (see setup, shared by the whole file), which now
+	# resolves to "deploy" by default — so this test, which exists to prove
+	# "full" propagates all the way to the gcloud command line, has to ask for
+	# it explicitly via the same DEMO_STAGE override an operator would use.
+	# Changing ENV_KEY instead would touch the handoff fixture every other
+	# test in this file shares.
+	DEMO_STAGE=full run "${driver}" up
 	[ "$status" -eq 0 ]
 	[[ "$(gcloud_log)" == *"DEMO_STAGE=full"* ]]
 	[[ "$(gcloud_log)" != *"SL_DEMO_STAGE"* ]]

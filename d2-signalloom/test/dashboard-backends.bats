@@ -110,5 +110,5 @@ CONF
   # the line it had just disabled. Anchoring on the INVOCATION rather than the
   # name is what makes it a guard.
   grep -Eq '^[^#]*\$\(MAKE\) check-backends' "${repo_root}/Makefile"
-  grep -Eq '^[^#]*make check-backends' "${repo_root}/scripts/gcp-tf/demo-pipeline.sh"
+  grep -Eq '^[^#]*(\$MAKE_BIN|make)[[:space:]]+demo-signalloom-up' "${repo_root}/scripts/gcp-tf/demo-pipeline.sh"
 }

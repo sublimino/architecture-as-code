@@ -760,7 +760,8 @@ clean-test-artifacts.bats
 local-witness-evidence.bats
 worktree-hygiene.bats
 sl-local-deploy.bats
-prelive-clean-down.bats"
+prelive-clean-down.bats
+sentinel-ebpf-live.bats"
 
 	for f in "$repo_root"/test/*.bats; do
 		[ -e "$f" ] || continue

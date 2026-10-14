@@ -1419,7 +1419,7 @@ function GovernedTab({
         >
           <span
             style={{
-              background: gitopsFilter ? colors.cyanLoom : 'var(--surface3)',
+              background: gitopsFilter ? colors.cyanLoom : 'var(--surface)',
               color: gitopsFilter ? 'var(--on-accent)' : 'var(--muted)',
               borderRadius: 99,
               fontSize: 10,
@@ -1457,7 +1457,7 @@ function GovernedTab({
         >
           <span
             style={{
-              background: tenantMismatchFilter ? colors.amber : 'var(--surface3)',
+              background: tenantMismatchFilter ? colors.amber : 'var(--surface)',
               color: tenantMismatchFilter ? 'var(--on-accent)' : 'var(--muted)',
               borderRadius: 99,
               fontSize: 10,

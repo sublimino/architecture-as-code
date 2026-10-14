@@ -1221,7 +1221,7 @@ export default function DiscoveryPage() {
               >
                 <span
                   style={{
-                    background: gitopsFilter ? colors.cyanLoom : 'var(--surface3)',
+                    background: gitopsFilter ? colors.cyanLoom : 'var(--surface)',
                     color: gitopsFilter ? 'var(--on-accent)' : 'var(--muted)',
                     borderRadius: 99,
                     fontSize: 10,

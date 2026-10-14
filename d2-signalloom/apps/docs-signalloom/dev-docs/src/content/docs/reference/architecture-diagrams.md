@@ -8,14 +8,14 @@ target platform. Each diagram is available as a rendered SVG, an editable
 Draw.io SVG, the native Draw.io XML, and a high-resolution PNG.
 
 :::caution[Known limitation: these diagrams are not access-controlled]
-The documentation portal serves every page and every asset to any caller that
-reaches it, including callers on the public tunnel. These diagrams are
+The documentation portal serves every page and asset to callers that reach it.
+This includes callers on the public tunnel. These diagrams are
 therefore readable without a superadmin role, and without any role at all.
 
 Gate this page behind the superadmin check before production go-live. The
 `/fleet-api/` and `/dashboard/` routes in `d2-signalloom/apps/dashboard-signalloom/nginx.conf`
-already show the pattern: an `auth_request` subrequest to
-`GET /api/v1/auth/check`, which answers 204 for a superadmin and 403 for every
+already show the pattern. They send an `auth_request` subrequest to
+`GET /api/v1/auth/check`. The endpoint answers 204 for a superadmin and 403 for every
 other caller. Tracked in [Current limits and roadmap](/docs/reference/roadmap/).
 :::
 
@@ -31,7 +31,7 @@ The single-node foundation that `make up` builds. No cloud dependency.
 - Native Draw.io XML: [osramp-kind-sovereign-airgap.drawio](/docs/diagrams/osramp-kind-sovereign-airgap.drawio)
 - High-resolution raster PNG: [osramp-kind-sovereign-airgap.png](/docs/diagrams/osramp-kind-sovereign-airgap.png)
 
-Component-level call diagrams, generated from the repository, moved to [Internal Architecture](/docs/reference/internal-architecture/).
+Component-level call diagrams from the repository are in [Internal Architecture](/dev-docs/reference/internal-architecture/).
 
 ## Roadmap platforms
 

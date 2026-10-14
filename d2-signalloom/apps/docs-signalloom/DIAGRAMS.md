@@ -49,7 +49,7 @@ Remove these from every platform diagram and every component card, including
 sub-labels such as "signal-ingest (& Kagent D5)":
 
 - Kagent D5 agents, and the Kagent collector.
-- OSRAMP apps: the PURL Listener, Witness Processor and OSRAMP Archiver
+- Supply chain ingestion: the PURL Listener, Witness Processor and Archiver
   pipeline.
 - O11y Sentinel SRE ("Olly Sentinel SRE").
 

@@ -3,19 +3,19 @@ title: Internal Architecture
 description: Component-level diagrams of the Signal Loom codebase, generated from the repository with SeeCode.
 ---
 
-The [Architecture diagrams](/docs/reference/architecture-diagrams/) page shows
-where each Signal Loom target platform deploys. This page goes one level
-deeper: how the components inside a single deployment call each other, keyed
-to the Go, Python, and YAML that implements each call. Every diagram below is
-a SeeCode spec checked against the source files it names; a label with no
-code behind it was dropped rather than guessed.
+The [Architecture diagrams](/dev-docs/reference/architecture-diagrams/) page shows
+where each Signal Loom target platform deploys. This page shows calls between
+components inside one deployment. Go, Python, and YAML sources implement these calls.
+Each diagram is a SeeCode spec checked against its named source files.
+The diagrams omit labels that have no code rather than guess their meaning.
+
+The abbreviated `apps/` source paths below are relative to `d2-signalloom/`.
 
 ## 1. Component flows
 
-Runtime traffic across the core platform: the operator's browser through
-Envoy Gateway and the dashboard, the `fe-signalloom` API's calls to
-`fleet-manager`, `signal-ingest`, and `policy-engine`, and the identity and
-secrets planes each of them depend on. Code roots:
+The operator's browser sends traffic through Envoy Gateway and the dashboard.
+The `fe-signalloom` API calls `fleet-manager`, `signal-ingest`, and `policy-engine`.
+These components depend on the identity and secrets planes. Code roots:
 `apps/{fe-signalloom,fleet-manager,signal-ingest,policy-engine,signalloom-warden,dashboard-signalloom}`.
 
 ![Signal Loom component flows](/docs/diagrams/internal/01-component-flows.svg)
@@ -25,10 +25,11 @@ secrets planes each of them depend on. Code roots:
 
 ## 2. System context and trust boundaries
 
-The external actors (operators, CI, external audit sources), the
-`fe-signalloom` namespace, the `inf-bao` identity namespace, and a remote
-pilot cluster, drawn as the trust boundaries between them. Code roots:
-`AGENTS.md` namespace table, `infra/agent-swarm/signalloom-warden-overlays/remote-tenant`.
+The diagram shows trust boundaries between external actors, namespaces, and a remote pilot cluster.
+External actors include operators, CI, and external audit sources.
+The namespaces are `fe-signalloom` and the `inf-bao` identity namespace.
+Sources include the namespace table in `AGENTS.md` and the
+[remote tenant overlay](https://github.com/controlplaneio-in-toto/osramp-demo/tree/HEAD/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant).
 
 ![System context and trust boundaries](/docs/diagrams/internal/02-system-context.svg)
 
@@ -37,10 +38,9 @@ pilot cluster, drawn as the trust boundaries between them. Code roots:
 
 ## 3. Ingress and the auth_request gate
 
-How a browser request to `/fleet-api/` or `/dashboard/` is gated by an nginx
-`auth_request` subrequest before it ever reaches `fleet-manager` or
-`afm-platform`: reads pass untouched, mutating methods need a superadmin
-token. Code root: `apps/dashboard-signalloom/nginx.conf`.
+An nginx `auth_request` subrequest gates browser requests to `/fleet-api/` or `/dashboard/` before they reach `fleet-manager` or `afm-platform`.
+Reads pass untouched. Mutating methods need a superadmin token.
+Code root: `apps/dashboard-signalloom/nginx.conf`.
 
 ![Ingress and the auth_request gate](/docs/diagrams/internal/03-ingress-auth.svg)
 
@@ -84,9 +84,9 @@ path that reverses it. Code roots:
 
 ## 7. The warden: per-node enforcement
 
-The per-node daemon: an eBPF probe feeding a capture and correlator, the
-cgroup freezer and `tc` network stun it coordinates, and the poll/report/stun
-connection back to `fleet-manager` over the hub's shared trust policy. Code
+The per-node daemon uses an eBPF probe to feed a capture and correlator.
+It coordinates the cgroup freezer and `tc` network stun.
+Its poll/report/stun connection to `fleet-manager` uses the hub's shared trust policy. Code
 root: `apps/signalloom-warden/{capture,freezer,network,hubtls,fleetpoll}.go`.
 
 ![The warden: per-node enforcement](/docs/diagrams/internal/07-warden-node-enforcement.svg)
@@ -96,9 +96,9 @@ root: `apps/signalloom-warden/{capture,freezer,network,hubtls,fleetpoll}.go`.
 
 ## 8. signal-ingest: external collectors to FrostDB
 
-The named collectors that pull audit and telemetry from outside the cluster
-(AWS, GCP, Kubernetes, OpenBao, SPIRE, and a planned Workspace SaaS
-collector), through the collector registry and sink into FrostDB. Collector
+Named collectors read audit and telemetry from outside the cluster.
+They cover AWS, GCP, Kubernetes, OpenBao, and SPIRE. Workspace SaaS is a planned collector.
+The collector registry and sink send this data to FrostDB. Collector
 names match the repository's `DIAGRAMS.md` inclusion list. Code root:
 `apps/signal-ingest/collectors/{awslogs,gcpaudit,k8saudit,baoaudit,spirea,workspacesaas}`.
 
@@ -112,8 +112,8 @@ names match the repository's `DIAGRAMS.md` inclusion list. Code root:
 CEL rule bundles move from `policy/bundles/` in git, through a generated
 ConfigMap, into the `obscel.Evaluator` that `signal-ingest`'s sink runs
 in-process. The same evaluator also backs the standalone dry-run API. Code
-roots: `policy/bundles/`, `apps/signal-ingest/{main.go,policy}`,
-`pkg/obscel/cel_eval.go`.
+roots: `policy/bundles/`, `apps/signal-ingest/{main.go,policy}`.
+The diagram's `pkg/obscel/cel_eval.go` is an example source path, not a file in this tree.
 
 ![policy-engine: bundles to decisions](/docs/diagrams/internal/09-policy-engine-pipeline.svg)
 
@@ -122,9 +122,9 @@ roots: `policy/bundles/`, `apps/signal-ingest/{main.go,policy}`,
 
 ## 10. KubeSec-AFM: formal RBAC analysis
 
-The dashboard iframes `afm-platform`'s Next.js frontend same-origin through
-the `/_afm_gate`, which forwards to a FastAPI backend running a Z3
-bounded-model-checking engine over each imported cluster's RBAC graph. Code
+The dashboard embeds `afm-platform`'s Next.js frontend in a same-origin iframe through `/_afm_gate`.
+The gate forwards to a FastAPI backend.
+The backend runs a Z3 bounded-model-checking engine over each imported cluster's RBAC graph. Code
 roots: `d2-k8s-afm/apps/afm-platform`, `apps/dashboard-signalloom/nginx.conf`,
 `docs/signalloom/kubesec-afm-guide.md`.
 
@@ -135,11 +135,11 @@ roots: `d2-k8s-afm/apps/afm-platform`, `apps/dashboard-signalloom/nginx.conf`,
 
 ## 11. GitOps supply chain
 
-A developer's signed push lands in the in-cluster Zot registry; Flux's
-`FluxInstance` reconciles an `OCIRepository` through the kustomize and helm
-controllers to the API server, where Kyverno and a
-`ValidatingAdmissionPolicy` both verify the image signature on admission.
-Code roots: `d2-osramp-fleet/{clusters,tenants}`, `policy/kyverno-verify-images.yaml`.
+A developer's signed push reaches the in-cluster Zot registry.
+Flux's `FluxInstance` reconciles an `OCIRepository` through the kustomize and helm controllers to the API server.
+The diagram shows Kyverno and a `ValidatingAdmissionPolicy` that both verify the image signature on admission.
+Code roots: `d2-osramp-fleet/{clusters,tenants}`.
+The diagram's example path is policy/kyverno-verify-images.yaml. It is not a source file in this tree.
 
 ![GitOps supply chain](/docs/diagrams/internal/11-gitops-supply-chain.svg)
 
@@ -148,9 +148,9 @@ Code roots: `d2-osramp-fleet/{clusters,tenants}`, `policy/kyverno-verify-images.
 
 ## 12. Agent discovery and claim
 
-A workload heartbeats with its SPIFFE identity, becomes visible inventory,
-and an operator claims it into their tenant; the claim is checked for
-cross-tenant conflict before it is granted. Code roots:
+A workload sends heartbeats with its SPIFFE identity and becomes visible inventory.
+An operator claims it into their tenant.
+The platform checks for cross-tenant conflict before it grants the claim. Code roots:
 `apps/fe-signalloom/src/routers/agents.py`, `apps/fe-signalloom/src/api_compat.py`,
 [Claim the two demonstration agents](/docs/agents/dual-agent-onboarding/).
 
@@ -161,9 +161,9 @@ cross-tenant conflict before it is granted. Code roots:
 
 ## 13. Stun: multi-plane containment
 
-An operator's stun request fans out across five enforcement planes in
-parallel — cgroup freeze, mesh/network, OpenBao, SPIRE, and admission — each
-under its own SLA, then records a witnessed attestation before returning.
+An operator's stun request reaches five enforcement planes in parallel.
+These are cgroup freeze, mesh/network, OpenBao, SPIRE, and admission.
+Each plane has its own SLA. The request records a witnessed attestation before it returns.
 Code roots: `apps/fleet-manager/cascade.go`,
 [Containment & response runbook](/docs/operate/containment-runbook/).
 
@@ -174,12 +174,11 @@ Code roots: `apps/fleet-manager/cascade.go`,
 
 ## 14. Remote resume: dual-signed tokens
 
-Two operators each sign a resume request with their own Ed25519 key; once
-`fleet-manager` verifies both signatures and the quorum, it mints a fresh
-OpenBao lease, re-enters the SPIRE identity, and dispatches the unfreeze to
-the remote warden. Code roots:
+Two operators each sign a resume request with their own Ed25519 key.
+`fleet-manager` verifies both signatures and the quorum.
+It then mints a fresh OpenBao lease, re-enters the SPIRE identity, and sends the unfreeze to the remote warden. Code roots:
 `apps/fleet-manager/{cmd/resume-token/main.go,remote_stun_requester.go,resume_token.go}`,
-`infra/agent-swarm/signalloom-warden-overlays/remote-tenant`.
+[remote tenant overlay](https://github.com/controlplaneio-in-toto/osramp-demo/tree/HEAD/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant).
 
 ![Remote resume: dual-signed tokens](/docs/diagrams/internal/14-remote-resume.svg)
 
@@ -199,11 +198,11 @@ transitions between them. Code root: `apps/fleet-manager/topology.go`.
 
 ## 16. Tenancy isolation
 
-How ownership, attribution, and policy stay separated per tenant: a claim
-conflict check establishes ownership, the warden's `SENTINEL_TENANT_MAP`
-attributes an observation to a pseudonymised actor, `signal-ingest`'s
-evaluator scopes findings by `tenant_id`, and a per-acting-user rate limit
-bounds ingest. Code roots: `apps/signal-ingest/policy/convert.go`,
+Ownership, attribution, and policy stay separate for each tenant.
+A claim conflict check establishes ownership.
+The warden's `SENTINEL_TENANT_MAP` attributes an observation to a pseudonymised actor.
+The `signal-ingest` evaluator scopes findings by `tenant_id`.
+A per-acting-user rate limit bounds ingest. Code roots: `apps/signal-ingest/policy/convert.go`,
 `apps/signalloom-warden`, `apps/signal-ingest/api/auth.go`,
 [Claim the two demonstration agents](/docs/agents/dual-agent-onboarding/).
 
@@ -218,7 +217,7 @@ What actually runs on a secondary pilot cluster: only the `signalloom-warden`
 DaemonSet and two centrally-minted secrets. Everything else — OpenBao, SPIRE,
 `signal-ingest`, `fe-signalloom` — stays central, reached over the two
 gateway routes the warden calls. Code root:
-`infra/agent-swarm/signalloom-warden-overlays/remote-tenant`.
+[remote tenant overlay](https://github.com/controlplaneio-in-toto/osramp-demo/tree/HEAD/d2-signalloom/infra/agent-swarm/signalloom-warden-overlays/remote-tenant).
 
 ![Remote tenant path](/docs/diagrams/internal/17-remote-tenant-path.svg)
 

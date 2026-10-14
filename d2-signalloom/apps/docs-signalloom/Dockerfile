@@ -5,7 +5,7 @@ RUN npm ci
 ARG SOURCE_ID
 RUN test -n "$SOURCE_ID"
 COPY . .
-RUN npm run build
+RUN npm run build && npm run build:dev-docs
 
 ARG GIT_REF
 RUN printf 'workload=docs-signalloom\nsource_id=%s\ngit_ref=%s\n' \
@@ -16,6 +16,7 @@ FROM cgr.dev/chainguard/busybox:latest@sha256:4e7cb67bb8e5c4c7385aa623b75c5ad41a
 FROM cgr.dev/chainguard/nginx:latest@sha256:b91cf888522ed0cc1b6bddadfa8320ac2a131a1003b103ae340217a421f12fcc
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY --from=build /app/dist /usr/share/nginx/html/docs
+COPY --from=build /app/dist-dev-docs /usr/share/nginx/html/dev-docs
 COPY --from=build /build-id /etc/osramp-build-id
 # The runtime-freshness guard reads the marker through `sh -c cat`.
 COPY --from=readback /usr/bin/busybox /bin/busybox

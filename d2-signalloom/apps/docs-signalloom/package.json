@@ -5,8 +5,12 @@
   "version": "0.1.0",
   "scripts": {
     "build": "ASTRO_TELEMETRY_DISABLED=1 astro check && ASTRO_TELEMETRY_DISABLED=1 astro build",
+    "build:dev-docs": "node scripts/ste-check.mjs && ASTRO_TELEMETRY_DISABLED=1 astro check --root dev-docs && ASTRO_TELEMETRY_DISABLED=1 astro build --root dev-docs",
+    "build:all": "bun run build && bun run build:dev-docs",
     "check": "ASTRO_TELEMETRY_DISABLED=1 astro check",
-    "audit:links": "node scripts/link-audit.mjs --dist dist --base /docs --self-test",
+    "lint:dev-docs": "node scripts/ste-check.mjs",
+    "test:ste": "node --test scripts/ste-check.test.mjs",
+    "audit:links": "node scripts/link-audit.mjs --dist dist --base /docs --mount /dev-docs=dist-dev-docs --self-test && node scripts/link-audit.mjs --dist dist-dev-docs --base /dev-docs --mount /docs=dist --self-test",
     "dev": "astro dev",
     "preview": "astro preview"
   },

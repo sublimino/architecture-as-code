@@ -27,6 +27,13 @@ const flag = (name, fallback) => {
 const distDir = resolve(flag("dist", "dist"));
 const base = (flag("base", "/docs") || "/").replace(/\/+$/, "");
 const selfTest = argv.includes("--self-test");
+const mounts = [{ base, dir: distDir }];
+for (let i = 0; i < argv.length; i++) {
+  if (argv[i] !== "--mount") continue;
+  const [mountBase, mountDir] = (argv[++i] ?? "").split("=");
+  if (!mountBase?.startsWith("/") || !mountDir) throw new Error("Expected --mount /base=directory");
+  mounts.push({ base: mountBase.replace(/\/+$/, ""), dir: resolve(mountDir) });
+}
 
 if (!existsSync(distDir)) {
   console.error(`link-audit: dist directory not found: ${distDir}`);
@@ -60,10 +67,14 @@ function targetsFor(href, fromFile) {
   const [pathPart] = href.split("#");
   if (pathPart === "") return null; // pure fragment
   let urlPath;
+  let targetDir = distDir;
   if (pathPart.startsWith("/")) {
     urlPath = pathPart;
-    if (base && urlPath.startsWith(base + "/")) urlPath = urlPath.slice(base.length);
-    else if (base && urlPath === base) urlPath = "/";
+    const mount = mounts.find(m => urlPath === m.base || urlPath.startsWith(m.base + "/"));
+    if (mount) {
+      targetDir = mount.dir;
+      urlPath = urlPath.slice(mount.base.length) || "/";
+    }
     else if (base) return { unbased: true, urlPath: pathPart };
   } else {
     const fromDir = posix.dirname(fromFile.slice(distDir.length).split("\\").join("/"));
@@ -73,9 +84,9 @@ function targetsFor(href, fromFile) {
   return {
     urlPath,
     candidates: [
-      join(distDir, rel),
-      join(distDir, rel, "index.html"),
-      join(distDir, `${rel.replace(/\/+$/, "")}.html`),
+       join(targetDir, rel),
+       join(targetDir, rel, "index.html"),
+       join(targetDir, `${rel.replace(/\/+$/, "")}.html`),
     ],
   };
 }

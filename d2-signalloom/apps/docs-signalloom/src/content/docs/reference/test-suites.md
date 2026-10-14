@@ -89,7 +89,7 @@ These suites run against a local Kind cluster (`osramp`) or an ephemeral runner 
 | `make demo-agentmaxxing-contract-test` | Operator Lifecycle | Asserts five-stage deterministic agent containment state transitions. |
 | `make demo-signalloom-supercred-evidence` | Credential Chain | Executes six automated probes verifying OpenBao dynamic secrets, SPIFFE workload IDs, and JWT rotation. |
 | `make demo-agent-trust-network-test` | Network Isolation | Verifies SPIFFE agent-to-agent NetworkPolicy boundaries. |
-| `make attested-test` | Supply Chain & Attestation | Executes the OSRAMP suite under cryptographic in-toto Witness provenance recording with FrostDB replay validation. |
+| `make attested-test` | Supply Chain & Attestation | Runs the test suite under cryptographic in-toto Witness provenance recording with FrostDB replay validation. |
 
 ---
 

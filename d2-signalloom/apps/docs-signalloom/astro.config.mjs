@@ -8,6 +8,10 @@ export default defineConfig({
   site,
   base: "/docs",
   output: "static",
+  redirects: {
+    "/reference/architecture-diagrams": { destination: "/dev-docs/reference/architecture-diagrams/", status: 301 },
+    "/reference/internal-architecture": { destination: "/dev-docs/reference/internal-architecture/", status: 301 }
+  },
   integrations: [
     starlight({
       title: "Signal Loom Docs",
@@ -71,8 +75,6 @@ export default defineConfig({
         {
           label: "Reference",
           items: [
-            { label: "Architecture diagrams", slug: "reference/architecture-diagrams" },
-            { label: "Internal Architecture", slug: "reference/internal-architecture" },
             { label: "Test suites & pipeline guide", slug: "reference/test-suites" },
             { label: "Per-plane denial matrix", slug: "reference/denial-matrix" },
             { label: "Operator identity lifecycle", slug: "reference/operator-identity-lifecycle" },

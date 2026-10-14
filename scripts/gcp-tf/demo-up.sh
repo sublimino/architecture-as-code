@@ -2182,7 +2182,7 @@ capture_source_identity() {
 
 record_source_in_handoff() {
   [ -f "$HANDOFF_FILE" ] || return 0
-  command -v jq >/dev/null 2>&1 || return 0
+  command -v jq >/dev/null 2>&1 || { echo "record_source_in_handoff: jq not found" >&2; return 1; }
   local tmp="${HANDOFF_FILE}.$$.tmp"
   local rec_at
   rec_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

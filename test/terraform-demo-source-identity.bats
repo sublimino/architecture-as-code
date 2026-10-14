@@ -178,3 +178,15 @@ make_report() {
 		return 1
 	}
 }
+
+@test "SRCID record_source_in_handoff reports failure, not success, when jq is unavailable" {
+	# A host without jq used to make the record a silent no-op that returned 0,
+	# so the caller's warning never fired and the hand-off kept source_sha null.
+	eval "$(sed -n '/^record_source_in_handoff() {/,/^}/p' "${REPO_ROOT}/scripts/gcp-tf/demo-up.sh")"
+	HANDOFF_FILE="${BATS_TEST_TMPDIR}/h.json"
+	printf '{"env":"ci-1"}\n' >"${HANDOFF_FILE}"
+	SOURCE_REF=feat SOURCE_SHA=0123456789abcdef0123456789abcdef01234567
+	PATH="${BATS_TEST_TMPDIR}/empty-path" run record_source_in_handoff
+	[ "$status" -ne 0 ]
+	[ "$(cat "${HANDOFF_FILE}")" = '{"env":"ci-1"}' ]
+}

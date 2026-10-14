@@ -959,8 +959,8 @@ export const api = {
 
   features: {
     get: (token: string, tenantId?: string, signal?: AbortSignal) => {
-      const qs = tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''
-      return req<FeaturesResponse>(`/api/v1/features${qs}`, token, { signal })
+      const qs = tenantId ? `tenant_id=${encodeURIComponent(tenantId)}` : ''
+      return req<FeaturesResponse>(`/api/v1/features${qs ? `?${qs}` : ''}`, token, { signal })
     },
   },
 }

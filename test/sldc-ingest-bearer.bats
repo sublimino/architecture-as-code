@@ -56,6 +56,9 @@ if [[ -n "${FAKE_UNREACHABLE:-}" ]]; then
 	exit 1
 fi
 case "$1 $2" in
+"get namespace" | "create namespace")
+	exit 0
+	;;
 "get secret")
 	field=token
 	for a in "$@"; do

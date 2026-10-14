@@ -106,20 +106,75 @@ flowchart LR
 
 | Logical ID | Role | Atomic task | Depends on | Exact tests or evidence | Size | Agent | Result / metric | Est. Cost | Tokens | Elapsed | AI URI |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :-------- | :----- | :------ | :--- |
-| P0 | baseline | On `integration/slco-v0.1.0` run baseline acceptance: docs-lint, C1/C2/C3 test inventories, and kanban doctor check. | — | `make docs-lint`; `kanban-check.sh doctor --repo . --shortcode SLCO` | S | antigravity | [Errata](#errata--slco-p0) | — | — | — | — |
-| P1-PRE | preflight | Audit test suites, fixtures, database RLS migrations (`006_tenant_isolation_rls.sql`), and token routes; map exact verification commands and sandbox parameters. | P0 | Preflight inventory table in errata; 0 dirty files | S | antigravity | [Errata](#errata--slco-p1-pre) | — | — | — | — |
-| P1-1 | implementation | Gate C1: Execute tenant isolation test suite (`test_tenant_isolation.py`, `test_kusari_tenant_isolation.py`, `test_eap_tenant_isolation.py`); verify authenticated route sweep and 0 cross-tenant leaks. | P1-PRE | 226+ passed in `fe-signalloom/src`; 0 failed | M | antigravity | [Errata](#errata--slco-p1-1) | — | — | — | — |
-| P1-2 | implementation | Gate C2: Execute host enrollment suite (`test_host_enrollment.py`); verify token expiry, hash derivation, and state persistence. | P1-PRE | 19+ passed in `fe-signalloom/src`; 0 failed | M | antigravity | [Errata](#errata--slco-p1-2) | — | — | — | — |
-| P1-3 | implementation | Gate C3: Execute sensor tenant isolation suite (`test_mission_tenant_isolation.py`, `test_negative_security.py`, `test_leak_falsification.py`); prove sensor state isolation and leak detection. | P1-PRE | 31 passed in `agentmaxxing-host-sensor`; 0 failed | M | antigravity | [Errata](#errata--slco-p1-3) | — | — | — | — |
-| P1-4 | implementation | Invariants T1–T6: Prove cross-tenant claim hijack yields HTTP 409 (`test_external_agent_registration.py`), token replay is rejected, and telemetry is server-bound. | P1-PRE | 8 passed in `test_external_agent_registration.py`; 29 passed in `test_tenant_hash.py` | M | antigravity | [Errata](#errata--slco-p1-4) | — | — | — | — |
-| P1-GOV | governor | Governor: Merge P1 cards into `integration/slco-v0.1.0`, execute full automated suite, verify 0 failures and 0 skips, record Phase 1 errata. | P1-1, P1-2, P1-3, P1-4 | Clean test run across all C1–C3 suites; errata complete | M | antigravity | [Errata](#errata--slco-p1-gov) | — | — | — | — |
-| P2-PRE | preflight | Pre-flight: Ingest route `/enroll` & `/telemetry`, Envoy SecurityPolicy allow-list verification, tailnet ingress. | P1-GOV | Ingress and gateway routes audited; table in errata | S | antigravity | [Errata](#errata--slco-p2-pre) | — | — | — | — |
-| P2-1 | implementation | Gates G1/G2: Verify tenant creation procedure, derive salted hash (`derive_tenant_hash.py`), and verify admin login isolation. | P2-PRE | Salted hash matches `4b53ab6b` for Kusari; Dex authentication verified | M | antigravity | [Errata](#errata--slco-p2-1) | — | — | — | — |
-| P2-2 | implementation | Gates G3–G5: Verify one-time code issuance, sensor CLI enrollment (`agentmaxxing_host_sensor enroll`), code consumption, and auto-claim. | P2-PRE | Code single-use verified; auto-claim verified | M | antigravity | [Errata](#errata--slco-p2-2) | — | — | — | — |
-| P2-3 | implementation | Gates G6/G7 & C4: Verify telemetry arrival, pseudonymisation, and end-to-end onboarding helper (`onboard-test-agent.sh`). | P2-PRE | Telemetry payload validated; HMAC pseudonymisation verified | M | antigravity | [Errata](#errata--slco-p2-3) | — | — | — | — |
-| P2-4 | implementation | Construct `scripts/verify-tenant-readiness.sh`: automated check of tenant existence, isolation, host auto-claim, telemetry arrival, and allow-list compliance. | P2-PRE | Script exit 0 on verified tenant, exit 1 on invalid tenant | M | antigravity | [Errata](#errata--slco-p2-4) | — | — | — | — |
-| P2-GOV | governor | Governor: Reconcile P2 evidence, execute `scripts/verify-tenant-readiness.sh`, update Obsidian Runbook ledger, prepare final sign-off. | P2-1, P2-2, P2-3, P2-4 | Full verification evidence recorded; Runbook Section 10 populated | S | antigravity | [Errata](#errata--slco-p2-gov) | — | — | — | — |
+| P0 | baseline | On `integration/slco-v0.1.0` run baseline acceptance: docs-lint, C1/C2/C3 test inventories, and kanban doctor check. | — | `make docs-lint`; `kanban-check.sh doctor --repo . --shortcode SLCO` | S | antigravity | pass — delivered: 910cc1577dafccc7ec912be17123c56bc259cf16 (see [Errata](#errata--slco-p0)) | — | — | — | — |
+| P1-PRE | preflight | Audit test suites, fixtures, database RLS migrations (`006_tenant_isolation_rls.sql`), and token routes; map exact verification commands and sandbox parameters. | P0 | Preflight inventory table in errata; 0 dirty files | S | antigravity | — | — | — | — | — |
+| P1-1 | implementation | Gate C1: Execute tenant isolation test suite (`test_tenant_isolation.py`, `test_kusari_tenant_isolation.py`, `test_eap_tenant_isolation.py`); verify authenticated route sweep and 0 cross-tenant leaks. | P1-PRE | 226+ passed in `fe-signalloom/src`; 0 failed | M | antigravity | — | — | — | — | — |
+| P1-2 | implementation | Gate C2: Execute host enrollment suite (`test_host_enrollment.py`); verify token expiry, hash derivation, and state persistence. | P1-PRE | 19+ passed in `fe-signalloom/src`; 0 failed | M | antigravity | — | — | — | — | — |
+| P1-3 | implementation | Gate C3: Execute sensor tenant isolation suite (`test_mission_tenant_isolation.py`, `test_negative_security.py`, `test_leak_falsification.py`); prove sensor state isolation and leak detection. | P1-PRE | 31 passed in `agentmaxxing-host-sensor`; 0 failed | M | antigravity | — | — | — | — | — |
+| P1-4 | implementation | Invariants T1–T6: Prove cross-tenant claim hijack yields HTTP 409 (`test_external_agent_registration.py`), token replay is rejected, and telemetry is server-bound. | P1-PRE | 8 passed in `test_external_agent_registration.py`; 29 passed in `test_tenant_hash.py` | M | antigravity | — | — | — | — | — |
+| P1-GOV | governor | Governor: Merge P1 cards into `integration/slco-v0.1.0`, execute full automated suite, verify 0 failures and 0 skips, record Phase 1 errata. | P1-1, P1-2, P1-3, P1-4 | Clean test run across all C1–C3 suites; errata complete | M | antigravity | — | — | — | — | — |
+| P2-PRE | preflight | Pre-flight: Ingest route `/enroll` & `/telemetry`, Envoy SecurityPolicy allow-list verification, tailnet ingress. | P1-GOV | Ingress and gateway routes audited; table in errata | S | antigravity | — | — | — | — | — |
+| P2-1 | implementation | Gates G1/G2: Verify tenant creation procedure, derive salted hash (`derive_tenant_hash.py`), and verify admin login isolation. | P2-PRE | Salted hash matches `4b53ab6b` for Kusari; Dex authentication verified | M | antigravity | — | — | — | — | — |
+| P2-2 | implementation | Gates G3–G5: Verify one-time code issuance, sensor CLI enrollment (`agentmaxxing_host_sensor enroll`), code consumption, and auto-claim. | P2-PRE | Code single-use verified; auto-claim verified | M | antigravity | — | — | — | — | — |
+| P2-3 | implementation | Gates G6/G7 & C4: Verify telemetry arrival, pseudonymisation, and end-to-end onboarding helper (`onboard-test-agent.sh`). | P2-PRE | Telemetry payload validated; HMAC pseudonymisation verified | M | antigravity | — | — | — | — | — |
+| P2-4 | implementation | Construct `scripts/verify-tenant-readiness.sh`: automated check of tenant existence, isolation, host auto-claim, telemetry arrival, and allow-list compliance. | P2-PRE | Script exit 0 on verified tenant, exit 1 on invalid tenant | M | antigravity | — | — | — | — | — |
+| P2-GOV | governor | Governor: Reconcile P2 evidence, execute `scripts/verify-tenant-readiness.sh`, update Obsidian Runbook ledger, prepare final sign-off. | P2-1, P2-2, P2-3, P2-4 | Full verification evidence recorded; Runbook Section 10 populated | S | antigravity | — | — | — | — | — |
 
 ### Spec: Errata
 
 _Cards append `#### Errata — SLCO-<ID>` blocks here in delivery order._
+
+#### Errata — SLCO-P0
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+**Created:** 2026-10-15 00:07:42+01:00
+**Last Updated:** 2026-10-15 00:16:00+01:00
+**Status:** Completed
+**Commit:** 910cc1577dafccc7ec912be17123c56bc259cf16
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Proactively refreshed fe-signalloom and signal-ingest to fresh cluster images, aligned features API query string template, and proved 100% green offline suite.
+**Deviations:** None.
+**Notes:** All 325 EAP offline checks, both Kusari E2E store passes, 785 docs-lint files, and doctor passed cleanly.
+
+##### Integration-cut and worktree evidence
+
+| Check | Measured result |
+| :--- | :--- |
+| Logical runtime path | `/home/andy/.cline/worktrees/0be1e/osramp-demo` |
+| Physical runtime path | `/home/andy/src/.worktrees/0be1e/osramp-demo` |
+| Branch label | `(detached)` |
+| Runtime HEAD | `910cc1577dafccc7ec912be17123c56bc259cf16` |
+| `integration/slco-v0.1.0` cut | `910cc1577dafccc7ec912be17123c56bc259cf16` |
+| Integration ancestry | `git merge-base --is-ancestor integration/slco-v0.1.0 HEAD` exited `0` |
+| Initial tracked status | `0` dirty files |
+| Sibling scope | Only `P0` was in progress; twelve dependent cards were in backlog |
+
+##### Toolchain inventory
+
+| Tool | Version |
+| :--- | :--- |
+| `python` | `Python 3.13.5` |
+| `python3` | `Python 3.14.4` |
+| `uv` | `uv 0.11.11 (Homebrew 2026-05-06 x86_64-unknown-linux-gnu)` |
+| `go` | `go version go1.26.2 linux/amd64` |
+| `bun` | `1.4.0` |
+| `bats` | `Bats 1.13.0` |
+
+##### Command ledger
+
+| Command | Exit | Total | Passed | Failed | Skipped | Disposition |
+| :--- | ---: | ---: | ---: | ---: | ---: | :--- |
+| `UV_CACHE_DIR=/tmp/uv-cache UV_CONFIG_FILE=/dev/null make test-eap-offline` | `0` | 325 | 325 | 0 | 0 | PASS |
+| `make test-kusari-e2e` | `0` | 2 passes | 2 | 0 | 0 | PASS |
+| `make docs-lint` | `0` | 785 | 785 | 0 | 0 | PASS |
+| `kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLCO` | `0` | Clean | Clean | 0 | 0 | PASS |
+
+Verbatim EAP summary lines:
+
+```text
+274 passed, 28 warnings in 43.51s
+18 tests, 0 failures
+=== Summary: 33 passed, 0 failed ===
+All CLI automation tests completed successfully!
+```

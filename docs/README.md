@@ -189,6 +189,7 @@ status without a linked record is "No completion record".
 | [SLAWS & SLAAT Retest Plan](signalloom/retest-plan-slaws-slaat-permutations.md) | SLRT | Active: one-shot permutation matrix validating AWS telemetry ingest and adversarial defenses |
 | [Agent trust project proposal](agent-trust-project-proposal.md) |  -  | Delivered: [completion audit](agent-trust-completion-audit.md) and [adversarial review](agent-trust-adversarial-review.md) |
 | [Next-Phase Proposals  -  Adversarial Critique](Signal%20Loom%20—%20Next-Phase%20Proposals%20—%20Adversarial%20Critique%20%282026-Q3%29.md) |  -  | Critique of the SLER, SLCD, and AMXD proposals |
+| [Customer Onboarding Flow Validation](Proposal%20—%20Signal%20Loom%20Customer%20Onboarding%20Flow%20Validation%20%282026-Q4%29.md) | SLCO | In execution on `/ajm-auto-kanban` |
 
 ### Mission records
 

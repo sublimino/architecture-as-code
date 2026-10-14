@@ -115,6 +115,11 @@ main() {
     fi
   done
 
+  for ns in "${FLEET_NS}" "${AGENTS_NS}" "${WARDEN_NS}"; do
+    ${KUBECTL} --context "${context}" get namespace "${ns}" >/dev/null 2>&1 || \
+      ${KUBECTL} --context "${context}" create namespace "${ns}" >/dev/null 2>&1 || true
+  done
+
   # kubectl apply reads the manifest from stdin: printf is a builtin, so no key
   # is ever an argument to an exec'd process.
   {

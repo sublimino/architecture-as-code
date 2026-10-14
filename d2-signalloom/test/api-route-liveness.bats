@@ -186,6 +186,8 @@ for dirpath, _, names in os.walk(root):
         for _, path in call.findall(text):
             if not path.startswith('/'):
                 continue
+            # Query-string variables like ${qs} are not path segments.
+            path = re.sub(r'\$\{([a-zA-Z0-9_]*qs[a-zA-Z0-9_]*)\}', '', path)
             path = re.sub(r'\$\{[^{}]*\}', '*', path)
             # A NESTED template literal — `/signals/observations${qs ? `?${qs}`
             # : ''}` — leaves an unbalanced ${ that the substitution above

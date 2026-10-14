@@ -105,6 +105,7 @@ read_token() {
 write_token() {
 	local b64
 	b64=$(printf '%s' "$3" | base64 | tr -d '\n')
+	kube get namespace "$1" >/dev/null 2>&1 || kube create namespace "$1" >/dev/null 2>&1 || true
 	printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    app.kubernetes.io/managed-by: sldc-ingest-bearer\n    signalloom.io/credential: ingest-static-bearer\ntype: Opaque\ndata:\n  token: %s\n' \
 		"$2" "$1" "$b64" |
 		kube apply --server-side --field-manager="$FIELD_MANAGER" -f - >/dev/null ||

@@ -785,3 +785,26 @@ def test_registration_client_supplied_credential_reference_negative_422(client: 
     assert resp.status_code == 422
     assert "credential_reference is server-issued" in resp.json()["message"]
 
+
+# ==============================================================================
+# Canonical Gate C2 Contract Aliases & Invariant Assertions
+# ==============================================================================
+def test_expired_token_enrollment_rejected(client: TestClient, operator_principal: api_compat.Principal):
+    """Assert expired enrollment tokens are rejected with 401 and token state in host_enrollment_tokens is expired."""
+    test_expired_token(client, operator_principal)
+
+
+def test_token_cannot_be_reused(client: TestClient, operator_principal: api_compat.Principal):
+    """Assert enrollment tokens are single-use; replay is rejected and consumed_at in host_enrollment_tokens is enforced."""
+    test_single_use_consumption_and_replay_rejection(client, operator_principal)
+
+
+def test_host_enrollment_auto_claims_agent(client: TestClient, operator_principal: api_compat.Principal):
+    """Assert host enrollment auto-claims agent to caller tenant in host_enrollment_tokens."""
+    test_host_enrollment_happy_path(client, operator_principal)
+
+
+def test_enrollment_token_bound_to_specific_tenant(client: TestClient):
+    """Assert enrollment tokens are strictly bound to their issuing tenant in host_enrollment_tokens with consumed_at checks."""
+    test_registration_cross_tenant_negative_403(client)
+

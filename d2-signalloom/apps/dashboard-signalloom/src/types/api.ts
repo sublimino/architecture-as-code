@@ -202,6 +202,8 @@ export interface AgentResponse {
   state?: string | null
   record_class?: 'registered' | 'discovered' | 'resolved' | 'fixture' | 'discovery'
   is_registry_linked?: boolean
+  labels?: Record<string, string> | null
+  annotations?: Record<string, string> | null
 
   // Section 2.1 Enriched Structures
   runtime?: RuntimeMetadata | null

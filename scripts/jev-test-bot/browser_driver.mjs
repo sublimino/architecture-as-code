@@ -225,25 +225,26 @@ export function heuristicDecide({
   let safe = candidatePool.filter((e) => !isDestructive(e.name))
   if (safe.length === 0) safe = candidatePool.length > 0 ? candidatePool : clickable
 
-  const areaClean = String(areaScope || '').replace(/^\/+|\/+$/g, '')
+  const areaClean = String(areaScope || '').split('?')[0].replace(/^\/+|\/+$/g, '')
   if (areaClean) {
     const inScope = safe.filter(
-      (e) => e.href && (e.href.includes(areaClean) || e.href.startsWith(`/${areaClean}`)),
+      (e) => !e.href || e.href.includes(areaClean) || e.href.startsWith(`/${areaClean}`),
     )
     if (inScope.length > 0) safe = inScope
   }
 
-  // Softmax base scores: unvisited links get highest initial score,
-  // inputs and action buttons get strong exploratory scores.
+  // Softmax base scores: tabs, switches, inputs, buttons, and in-scope links
   const scores = safe.map((e) => {
     let score = 1.0
-    if (e.href) {
+    if (e.role === 'tab' || e.role === 'switch') score = 3.6
+    else if (e.role === 'textbox' || e.role === 'searchbox') score = 3.2
+    else if (e.role === 'button') score = 2.8
+    else if (e.href) {
       const clean = e.href.split('?')[0].replace(/\/+$/, '') || '/'
       const isUnvisited = !visitedUrls.has(clean) && !visitedUrls.has(`${String(url).replace(/\/+$/, '')}${clean}`)
-      if (isUnvisited) score = 3.5
+      if (isUnvisited) score = 2.2
+      else score = 1.2
     }
-    if (e.role === 'textbox' || e.role === 'searchbox') score = 2.8
-    else if (e.role === 'button') score = 2.2
     return score
   })
 
@@ -442,12 +443,13 @@ function sessionSeedScript(origin) {
           token_type: 'Bearer',
           scope: 'openid profile email groups',
           profile: {
-            sub: 'jev-exploratory-bot',
-            email: 'jev-bot@example.invalid',
-            name: 'Jev Exploratory Bot',
-            groups: ['superadmin'],
+            sub: 'demo-user',
+            email: 'demo-user@signalloom.local',
+            preferred_username: 'demo-user',
+            name: 'demo-user',
+            groups: ['superadmin', 'signalloom-superadmins', 'signalloom-admins'],
           },
-          expires_at: now + 3600,
+          expires_at: now + 86400,
         }),
       )
     } catch {
@@ -632,6 +634,113 @@ async function exploreRoute({ context, base, route, opts, decider, snapshotFn, p
         }
       }
       return routeObj.continue().catch(() => {})
+    })
+  }
+
+  if (opts.mock) {
+    await page.route('**/api/v1/features*', async (routeObj) => {
+      await routeObj.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          tenant_id: 'default',
+          flags: {
+            core_governance: true,
+            audit: true,
+            compliance: true,
+            demos_fleet: true,
+            supercred: true,
+            rbac_analysis: true,
+            collusion_access: true,
+            page_discovery: true,
+            page_agents: true,
+            page_topology: true,
+            page_weave: true,
+            page_signals: true,
+            page_risk: true,
+            page_policies: true,
+            page_compliance: true,
+            page_audit: true,
+            page_federated_services: true,
+            page_cryptography: true,
+            page_credential_inventory: true,
+            page_signal_store: true,
+            page_feeds: true,
+            page_network_tests: true,
+            page_agentmaxxing: true,
+          },
+        }),
+      }).catch(() => {})
+    })
+    await page.route('**/api/v1/me*', async (routeObj) => {
+      await routeObj.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          subject: 'demo-user',
+          tenant: 'default',
+          email: 'demo-user@signalloom.local',
+          superadmin: true,
+        }),
+      }).catch(() => {})
+    })
+    await page.route('**/api/agents/*', async (routeObj) => {
+      const url = routeObj.request().url()
+      const seg = url.split('/api/agents/')[1]?.split('?')[0] || 'agent-cardvault'
+      await routeObj.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: seg,
+          name: seg,
+          status: 'active',
+          lifecycle_state: 'active',
+          record_class: 'discovered',
+          namespace: 'fe-signalloom-agents',
+          service_account: `${seg}-sa`,
+          identity: {
+            spiffe_id: `spiffe://cluster.local/ns/fe-signalloom-agents/sa/${seg}-sa`,
+          },
+          compliance: {
+            score: 92,
+            frameworks: ['k8s-cis-benchmark', 'soc2'],
+          },
+          compliance_summary: {
+            total_controls: 10,
+            passing: 8,
+            failing: 1,
+            pending: 1,
+            posture_score: 85,
+          },
+          runtime: {
+            pod_name: `${seg}-1d5f7`,
+            namespace: 'fe-signalloom-agents',
+            node: 'worker-node-1',
+          },
+          violations: [],
+        }),
+      }).catch(() => {})
+    })
+    await page.route('**/api/audit*', async (routeObj) => {
+      await routeObj.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ events: [], total: 0 }),
+      }).catch(() => {})
+    })
+    await page.route('**/api/compliance/posture*', async (routeObj) => {
+      await routeObj.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ agents: [], overall_score: 95 }),
+      }).catch(() => {})
+    })
+    await page.route('**/api/telemetry/**', async (routeObj) => {
+      await routeObj.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ observations: [] }),
+      }).catch(() => {})
     })
   }
 
@@ -1154,6 +1263,7 @@ export async function main(argv) {
   const context = await chromium.launchPersistentContext(profileDir, {
     headless: true,
     ignoreHTTPSErrors: true,
+    permissions: ['clipboard-read', 'clipboard-write'],
     ...(opts.channel ? { channel: opts.channel } : {}),
     args: [
       '--no-sandbox',

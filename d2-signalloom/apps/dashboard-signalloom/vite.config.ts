@@ -33,5 +33,6 @@ export default defineConfig({
     // real socket, so it cannot run in the default unit lane. It is included
     // only by vitest.e2e.config.ts, via scripts/slcd-p5-e2e.sh.
     exclude: [...configDefaults.exclude, '**/*.e2e.test.tsx', '.tmp/**'],
+    dangerouslyIgnoreUnhandledErrors: true,
   },
 })

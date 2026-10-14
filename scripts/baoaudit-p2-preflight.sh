@@ -9,6 +9,15 @@ echo "=========================================================="
 FAILURES=0
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+gopath="${GOPATH:-}"
+if [ "$gopath" = "/usr/local/src/gocode" ] || [ -z "$gopath" ]; then gopath=/tmp/gopath; fi
+export GOPATH="$gopath"
+export GOCACHE="${GOCACHE:-/tmp/gocache}"
+export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
+export GONOSUMDB="*"
+export CGO_ENABLED=0
+mkdir -p "$GOPATH" "$GOCACHE" "$GOMODCACHE"
+
 # 1. Bun & Vitest test runner check
 echo -n "[1/4] Checking Bun & Vitest runtime in dashboard-signalloom... "
 if (cd "$REPO_ROOT/d2-signalloom/apps/dashboard-signalloom" && bun --version >/dev/null 2>&1); then

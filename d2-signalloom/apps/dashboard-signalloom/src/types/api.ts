@@ -78,6 +78,7 @@ export interface RuntimeMetadata {
   namespace?: string | null
   pod_name?: string | null
   pod_uid?: string | null
+  workload_name?: string | null
   service_account?: string | null
   framework?: string | null
   model?: string | null

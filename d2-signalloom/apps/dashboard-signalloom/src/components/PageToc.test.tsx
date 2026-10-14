@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { createPortal } from 'react-dom'
 import PageTocLayout, { TOC_SCAN_LINE, type TocEntry } from './PageToc'
 import {
   installMockIntersectionObserver,
@@ -238,6 +239,28 @@ describe('PageTocLayout', () => {
     expect(window.location.hash).toBe('#charlie')
     // Immediate, not waiting for the observer to catch up mid-animation.
     expect(currentId()).toBe('charlie')
+  })
+
+  it('finds and highlights iframe sections without changing parent history', async () => {
+    const frame = document.createElement('iframe')
+    document.body.append(frame)
+    const preview = frame.contentDocument!
+    const targetScroll = vi.fn()
+    const initialHash = window.location.hash
+    const { unmount } = render(createPortal(<Harness />, preview.body))
+    try {
+      const child = within(preview.body)
+      const target = child.getByTestId('section-charlie')
+      Object.defineProperty(target, 'scrollIntoView', { configurable: true, value: targetScroll })
+      expect(handle.latest().targets).toContain(target)
+      await userEvent.setup({ document: preview }).click(child.getByTestId('page-toc-link-charlie'))
+      expect(targetScroll).toHaveBeenCalledTimes(1)
+      expect(child.getByTestId('page-toc-link-charlie')).toHaveAttribute('aria-current', 'location')
+      expect(window.location.hash).toBe(initialHash)
+    } finally {
+      unmount()
+      frame.remove()
+    }
   })
 
   it('jumps without animation when the reader asked for reduced motion', async () => {

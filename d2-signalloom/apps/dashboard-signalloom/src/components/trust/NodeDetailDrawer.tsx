@@ -32,6 +32,8 @@ export function NodeDetailDrawer({
   // Handle Escape key and focus trapping
   useEffect(() => {
     if (!isOpen) return
+    const ownerDocument = drawerRef.current?.ownerDocument
+    if (!ownerDocument) return
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -48,22 +50,22 @@ export function NodeDetailDrawer({
         const firstElement = focusableElements[0]
         const lastElement = focusableElements[focusableElements.length - 1]
 
-        if (e.shiftKey && document.activeElement === firstElement) {
+        if (e.shiftKey && ownerDocument.activeElement === firstElement) {
           e.preventDefault()
           lastElement.focus()
-        } else if (!e.shiftKey && document.activeElement === lastElement) {
+        } else if (!e.shiftKey && ownerDocument.activeElement === lastElement) {
           e.preventDefault()
           firstElement.focus()
         }
       }
     }
 
-    document.addEventListener('keydown', handleKeyDown)
+    ownerDocument.addEventListener('keydown', handleKeyDown)
     // Focus close button upon opening
     closeButtonRef.current?.focus()
 
     return () => {
-      document.removeEventListener('keydown', handleKeyDown)
+      ownerDocument.removeEventListener('keydown', handleKeyDown)
     }
   }, [isOpen, onClose])
 

@@ -19,11 +19,22 @@ export default function CredentialActionsMenu({ onIssue, onRevoke }: {
 
   useEffect(() => {
     if (!open) return
+    const ownerDocument = ref.current?.ownerDocument
+    if (!ownerDocument) return
     function handle(e: MouseEvent) {
       if (!ref.current?.contains(e.target as Node)) setOpen(false)
     }
-    document.addEventListener('mousedown', handle)
-    return () => document.removeEventListener('mousedown', handle)
+    function handleKey(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return
+      setOpen(false)
+      ref.current?.querySelector('button')?.focus()
+    }
+    ownerDocument.addEventListener('mousedown', handle)
+    ownerDocument.addEventListener('keydown', handleKey)
+    return () => {
+      ownerDocument.removeEventListener('mousedown', handle)
+      ownerDocument.removeEventListener('keydown', handleKey)
+    }
   }, [open])
 
   const item: React.CSSProperties = {

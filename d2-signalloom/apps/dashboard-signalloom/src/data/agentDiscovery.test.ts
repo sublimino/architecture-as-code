@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { FAKE_SWARM_AGENTS } from '../api/fakeSwarmData'
+import { CONFIG_REGISTRATION_ENTRIES } from './credentialInventory'
 import {
   AGENT_LABELS,
   proxyRecordToDiscovery,
@@ -8,8 +9,18 @@ import {
 } from './agentDiscovery'
 
 describe('agentDiscovery — fake swarm agents', () => {
-  it('has exactly 10 swarm agents', () => {
-    expect(FAKE_SWARM_AGENTS).toHaveLength(10)
+  it('matches the independently declared swarm registration identities', () => {
+    const declaredServiceAccounts = CONFIG_REGISTRATION_ENTRIES
+      .filter((entry) => entry.selectors.includes('k8s:pod-label:signalloom.ai/agent:true'))
+      .map((entry) => entry.serviceAccount)
+      .sort()
+    const fixtureServiceAccounts = FAKE_SWARM_AGENTS
+      .map((agent) => agent.service_account)
+      .sort()
+
+    expect(fixtureServiceAccounts).toEqual(declaredServiceAccounts)
+    expect(fixtureServiceAccounts).toContain('cpai-engineer')
+    expect(fixtureServiceAccounts).toContain('signalloom-warden')
   })
 
   it('every agent has all required orthogonal label fields', () => {

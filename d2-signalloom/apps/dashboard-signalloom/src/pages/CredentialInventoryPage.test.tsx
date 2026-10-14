@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import CredentialInventoryPage from './CredentialInventoryPage'
 import { setDemoMode } from '../api/demoMode'
+import { FAKE_SWARM_AGENTS } from '../api/fakeSwarmData'
 
 // The real useAuth0 returns a stable getAccessTokenSilently; the mock must too.
 // A fresh identity per render invalidates the page's load useCallback and turns
@@ -22,6 +23,26 @@ interface AgentFixture {
   state?: string | null
   supercred?: boolean
 }
+
+// Independent live-test contract: the page consumes CONFIG_REGISTRATION_ENTRIES,
+// while these expectations come from the two stable base identities plus the
+// separately maintained swarm discovery fixture. This keeps the test exact for
+// either the committed ten-agent estate or the intentional nine-agent estate.
+const BASE_DECLARED_IDENTITY_IDS = [
+  'spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom',
+  'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent',
+]
+const DECLARED_SWARM_IDENTITY_IDS = FAKE_SWARM_AGENTS.map((agent) => agent.spiffe_id)
+const EXPECTED_DECLARED_IDENTITY_IDS = new Set([
+  ...BASE_DECLARED_IDENTITY_IDS,
+  ...DECLARED_SWARM_IDENTITY_IDS,
+])
+const EXPECTED_LIVE_IDENTITY_COUNT = EXPECTED_DECLARED_IDENTITY_IDS.size
+const EXPECTED_CONFIG_ONLY_IDENTITY_COUNT = EXPECTED_LIVE_IDENTITY_COUNT - 1
+const CREDENTIALS_PER_IDENTITY = 3
+const EXPECTED_LIVE_CREDENTIAL_COUNT = EXPECTED_LIVE_IDENTITY_COUNT * CREDENTIALS_PER_IDENTITY
+const EXPECTED_UNREGISTERED_IDENTITY_COUNT = EXPECTED_LIVE_IDENTITY_COUNT + 1
+const EXPECTED_UNREGISTERED_CREDENTIAL_COUNT = EXPECTED_UNREGISTERED_IDENTITY_COUNT * CREDENTIALS_PER_IDENTITY
 
 function cardvaultPod(overrides: Partial<AgentFixture> = {}): AgentFixture {
   return {
@@ -309,9 +330,8 @@ describe('CredentialInventoryPage — summary', () => {
   it('counts workloads and credentials', async () => {
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    // fe-signalloom (config) + cardvault-agent (live) = 2 workloads, 3 creds each.
-    await waitFor(() => expect(screen.getByTestId('summary-workloads')).toHaveTextContent('2'))
-    expect(screen.getByTestId('summary-total')).toHaveTextContent('6')
+    await waitFor(() => expect(screen.getByTestId('summary-workloads')).toHaveTextContent(String(EXPECTED_LIVE_IDENTITY_COUNT)))
+    expect(screen.getByTestId('summary-total')).toHaveTextContent(String(EXPECTED_LIVE_CREDENTIAL_COUNT))
   })
 
   it('reports revoked credentials for a stunned agent', async () => {
@@ -478,19 +498,19 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(identityRows()).toHaveLength(12))
+    await waitFor(() => expect(identityRows()).toHaveLength(EXPECTED_LIVE_IDENTITY_COUNT))
 
     await user.type(screen.getByTestId('identity-search'), 'cardvault-agent')
     await waitFor(() => expect(identityRows()).toHaveLength(1))
     expect(identityRows()[0]).toHaveTextContent('cardvault-agent')
-    expect(screen.getByTestId('identity-count')).toHaveTextContent('1 of 12 identities shown')
+    expect(screen.getByTestId('identity-count')).toHaveTextContent(`1 of ${EXPECTED_LIVE_IDENTITY_COUNT} identities shown`)
   })
 
   it('searches every identity column the reader can see, not just the name', async () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(identityRows()).toHaveLength(12))
+    await waitFor(() => expect(identityRows()).toHaveLength(EXPECTED_LIVE_IDENTITY_COUNT))
 
     // A selector value — visible in the table, and in no other field.
     await user.type(screen.getByTestId('identity-search'), 'sa:cardvault-agent')
@@ -501,7 +521,7 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod({ state: 'stunned' })] })
     renderPage()
-    await waitFor(() => expect(identityRows()).toHaveLength(12))
+    await waitFor(() => expect(identityRows()).toHaveLength(EXPECTED_LIVE_IDENTITY_COUNT))
 
     await user.selectOptions(screen.getByTestId('identity-state-filter'), 'revoked')
     await waitFor(() => expect(identityRows()).toHaveLength(1))
@@ -512,22 +532,22 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(identityRows()).toHaveLength(12))
+    await waitFor(() => expect(identityRows()).toHaveLength(EXPECTED_LIVE_IDENTITY_COUNT))
 
     await user.selectOptions(screen.getByTestId('identity-source-filter'), 'live')
     await waitFor(() => expect(identityRows()).toHaveLength(1))
     expect(identityRows()[0]).toHaveTextContent('cardvault-agent')
 
     await user.selectOptions(screen.getByTestId('identity-source-filter'), 'config')
-    // 11 config-only entries (fe-signalloom + 10 swarm; cardvault-agent is live-merged).
-    await waitFor(() => expect(identityRows()).toHaveLength(11))
+    // Every declared identity except cardvault-agent, which the live row replaces.
+    await waitFor(() => expect(identityRows()).toHaveLength(EXPECTED_CONFIG_ONLY_IDENTITY_COUNT))
   })
 
   it('offers an identity empty state that says which zero this is, and undoes itself', async () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(identityRows()).toHaveLength(12))
+    await waitFor(() => expect(identityRows()).toHaveLength(EXPECTED_LIVE_IDENTITY_COUNT))
 
     await user.type(screen.getByTestId('identity-search'), 'no-such-workload')
     await waitFor(() => expect(identityRows()).toHaveLength(0))
@@ -541,7 +561,7 @@ describe('CredentialInventoryPage — filtering', () => {
     // reason the toolbar is a DataTable prop rather than markup above it.
     const clear = screen.getByRole('button', { name: 'Clear filters' })
     await user.click(clear)
-    await waitFor(() => expect(identityRows()).toHaveLength(12))
+    await waitFor(() => expect(identityRows()).toHaveLength(EXPECTED_LIVE_IDENTITY_COUNT))
     expect(screen.queryByTestId('identity-empty')).toBeNull()
   })
 
@@ -549,14 +569,14 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(identityRows()).toHaveLength(12))
+    await waitFor(() => expect(identityRows()).toHaveLength(EXPECTED_LIVE_IDENTITY_COUNT))
 
     await user.type(screen.getByTestId('identity-search'), 'cardvault-agent')
     await user.selectOptions(screen.getByTestId('identity-source-filter'), 'config')
     await waitFor(() => expect(identityRows()).toHaveLength(0))
 
     await user.click(screen.getByTestId('identity-count-clear'))
-    await waitFor(() => expect(identityRows()).toHaveLength(12))
+    await waitFor(() => expect(identityRows()).toHaveLength(EXPECTED_LIVE_IDENTITY_COUNT))
     expect(screen.getByTestId('identity-search')).toHaveValue('')
     expect(screen.getByTestId('identity-source-filter')).toHaveValue('all')
   })
@@ -565,7 +585,7 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(identityRows()).toHaveLength(12))
+    await waitFor(() => expect(identityRows()).toHaveLength(EXPECTED_LIVE_IDENTITY_COUNT))
 
     expect(screen.queryByTestId('identity-count-clear')).toBeNull()
     await user.selectOptions(screen.getByTestId('identity-state-filter'), 'active')
@@ -578,11 +598,11 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(credentialRows()).toHaveLength(36))
+    await waitFor(() => expect(credentialRows()).toHaveLength(EXPECTED_LIVE_CREDENTIAL_COUNT))
 
     await user.type(screen.getByTestId('credential-search'), 'fe-signalloom-api')
     await waitFor(() => expect(credentialRows()).toHaveLength(3))
-    expect(screen.getByTestId('credential-count')).toHaveTextContent('3 of 36 credentials shown')
+    expect(screen.getByTestId('credential-count')).toHaveTextContent(`3 of ${EXPECTED_LIVE_CREDENTIAL_COUNT} credentials shown`)
   })
 
   // Found by writing this suite: searching "cardvault" returns FOUR of the six
@@ -594,10 +614,10 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(credentialRows()).toHaveLength(36))
+    await waitFor(() => expect(credentialRows()).toHaveLength(EXPECTED_LIVE_CREDENTIAL_COUNT))
 
     await user.type(screen.getByTestId('credential-search'), 'cardvault.inf-signalloom')
-    await waitFor(() => expect(credentialRows()).toHaveLength(12))
+    await waitFor(() => expect(credentialRows()).toHaveLength(EXPECTED_LIVE_IDENTITY_COUNT))
     expect(credentialRows().every((r) => /service-token/.test(r.textContent ?? ''))).toBe(true)
   })
 
@@ -605,17 +625,17 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(credentialRows()).toHaveLength(36))
+    await waitFor(() => expect(credentialRows()).toHaveLength(EXPECTED_LIVE_CREDENTIAL_COUNT))
 
     await user.type(screen.getByTestId('credential-search'), 'openbao-lease')
-    await waitFor(() => expect(credentialRows()).toHaveLength(12))
+    await waitFor(() => expect(credentialRows()).toHaveLength(EXPECTED_LIVE_IDENTITY_COUNT))
   })
 
   it('narrows the credentials by source', async () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(credentialRows()).toHaveLength(36))
+    await waitFor(() => expect(credentialRows()).toHaveLength(EXPECTED_LIVE_CREDENTIAL_COUNT))
 
     await user.selectOptions(screen.getByTestId('credential-source-filter'), 'live')
     // Only the live-discovered cardvault-agent's 3 credentials.
@@ -627,23 +647,23 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(credentialRows()).toHaveLength(36))
+    await waitFor(() => expect(credentialRows()).toHaveLength(EXPECTED_LIVE_CREDENTIAL_COUNT))
 
     await user.type(screen.getByTestId('credential-search'), 'no-such-credential')
     await waitFor(() => expect(credentialRows()).toHaveLength(0))
     expect(screen.getByTestId('credential-inventory-empty')).toHaveTextContent('No credential matches those filters')
 
     await user.click(screen.getByTestId('credential-count-clear'))
-    await waitFor(() => expect(credentialRows()).toHaveLength(36))
+    await waitFor(() => expect(credentialRows()).toHaveLength(EXPECTED_LIVE_CREDENTIAL_COUNT))
   })
 
   it('combines the status select with search rather than letting one win', async () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod({ state: 'stunned' })] })
     renderPage()
-    await waitFor(() => expect(credentialRows()).toHaveLength(36))
+    await waitFor(() => expect(credentialRows()).toHaveLength(EXPECTED_LIVE_CREDENTIAL_COUNT))
 
-    // Stunned revokes cardvault's three; the other 33 stay active.
+    // Stunned revokes cardvault's three; every other declared credential stays active.
     await user.selectOptions(screen.getByTestId('credential-status-filter'), 'revoked')
     await waitFor(() => expect(credentialRows()).toHaveLength(3))
 
@@ -705,15 +725,14 @@ describe('CredentialInventoryPage — filtering', () => {
     mockAgentFetch({ agents: [cardvaultPod({ id: 'agent-dennis', name: 'Dennis', service_account: 'default', supercred: false })] })
     renderPage()
     await screen.findByTestId('unregistered-warning')
-    // Both config entries plus the discovered `default`-SA pod = 3 workloads.
-    await waitFor(() => expect(screen.getByTestId('summary-workloads')).toHaveTextContent('3'))
+    await waitFor(() => expect(screen.getByTestId('summary-workloads')).toHaveTextContent(String(EXPECTED_UNREGISTERED_IDENTITY_COUNT)))
 
     await user.type(screen.getByTestId('identity-search'), 'fe-signalloom/sa/fe-signalloom')
     await user.type(screen.getByTestId('credential-search'), 'fe-signalloom-api')
     await waitFor(() => expect(identityRows()).toHaveLength(1))
 
-    expect(screen.getByTestId('summary-workloads')).toHaveTextContent('3')
-    expect(screen.getByTestId('summary-total')).toHaveTextContent('9')
+    expect(screen.getByTestId('summary-workloads')).toHaveTextContent(String(EXPECTED_UNREGISTERED_IDENTITY_COUNT))
+    expect(screen.getByTestId('summary-total')).toHaveTextContent(String(EXPECTED_UNREGISTERED_CREDENTIAL_COUNT))
     // The unregistered workload is filtered out of the table and still warned about.
     expect(screen.getByTestId('unregistered-warning')).toHaveTextContent('sa/default')
   })
@@ -907,5 +926,4 @@ describe('CredentialInventoryPage — agent and workload drill-downs', () => {
     expect(link.getAttribute('href')).toMatch(/^\/agents/)
   })
 })
-
 

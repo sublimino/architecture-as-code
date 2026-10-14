@@ -2,9 +2,10 @@
 // Copyright 2026 ControlPlane Security Authors
 
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
+import { createPortal } from 'react-dom'
 import DiscoveredWorkloadDrawer from './DiscoveredWorkloadDrawer'
 import type { DiscoveryWorkload, AgentResponse } from '../types/api'
 
@@ -174,5 +175,33 @@ describe('DiscoveredWorkloadDrawer', () => {
 
     await userEvent.keyboard('{Escape}')
     expect(handleClose).toHaveBeenCalled()
+  })
+
+  it('handles Escape only from the iframe owner window', () => {
+    const handleClose = vi.fn()
+    const frame = document.createElement('iframe')
+    document.body.appendChild(frame)
+    const mount = frame.contentDocument!.createElement('div')
+    frame.contentDocument!.body.appendChild(mount)
+    const { unmount } = render(createPortal(
+      <MemoryRouter>
+        <DiscoveredWorkloadDrawer
+          isOpen={true}
+          workload={mockWorkload}
+          onClose={handleClose}
+          onEnroll={vi.fn()}
+          onDismiss={vi.fn()}
+        />
+      </MemoryRouter>,
+      mount,
+    ))
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(handleClose).not.toHaveBeenCalled()
+    fireEvent.keyDown(frame.contentWindow!, { key: 'Escape' })
+    expect(handleClose).toHaveBeenCalledOnce()
+
+    unmount()
+    frame.remove()
   })
 })

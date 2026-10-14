@@ -93,6 +93,8 @@ export function NotificationBell({
   // Dismiss dropdown on click outside or Escape
   useEffect(() => {
     if (!open) return
+    const ownerDocument = containerRef.current?.ownerDocument
+    if (!ownerDocument) return
 
     function handleClickOutside(event: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
@@ -107,11 +109,11 @@ export function NotificationBell({
       }
     }
 
-    document.addEventListener('mousedown', handleClickOutside)
-    document.addEventListener('keydown', handleKeyDown)
+    ownerDocument.addEventListener('mousedown', handleClickOutside)
+    ownerDocument.addEventListener('keydown', handleKeyDown)
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('keydown', handleKeyDown)
+      ownerDocument.removeEventListener('mousedown', handleClickOutside)
+      ownerDocument.removeEventListener('keydown', handleKeyDown)
     }
   }, [open])
 

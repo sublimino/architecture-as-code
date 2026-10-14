@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 interface Props {
   connectedCount: number
   totalCount: number
+  onContinue?: () => void
 }
 
 // Persistent dashboard-wide "Complete setup" nudge (US-ENHC-011 closeout).
@@ -10,9 +11,10 @@ interface Props {
 // tracks per-provider connect status within the wizard's step machine: this
 // one is coarser (just "setup incomplete, click to resume") and renders on
 // every page except the wizard and its help pages (see App.tsx).
-export default function SetupBanner({ connectedCount, totalCount }: Props) {
+export default function SetupBanner({ connectedCount, totalCount, onContinue }: Props) {
   const navigate = useNavigate()
   const progressPct = totalCount > 0 ? Math.round((connectedCount / totalCount) * 100) : 0
+  const handleContinue = onContinue ?? (() => navigate('/onboarding'))
 
   return (
     <div
@@ -56,7 +58,7 @@ export default function SetupBanner({ connectedCount, totalCount }: Props) {
         </span>
       </div>
 
-      <button className="btn btn-primary" onClick={() => navigate('/onboarding')}>
+      <button className="btn btn-primary" onClick={handleContinue}>
         Complete setup
       </button>
     </div>

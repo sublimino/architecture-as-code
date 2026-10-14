@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import SetupBanner from './SetupBanner'
@@ -10,6 +10,8 @@ vi.mock('react-router-dom', async () => {
 })
 
 describe('SetupBanner', () => {
+  beforeEach(() => navigateMock.mockClear())
+
   it('shows the connected/total provider count', () => {
     render(
       <MemoryRouter>
@@ -27,6 +29,19 @@ describe('SetupBanner', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: 'Complete setup' }))
     expect(navigateMock).toHaveBeenCalledWith('/onboarding')
+  })
+
+  it('uses an injected continuation without changing routes', () => {
+    const onContinue = vi.fn()
+    render(
+      <MemoryRouter>
+        <SetupBanner connectedCount={0} totalCount={5} onContinue={onContinue} />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Complete setup' }))
+    expect(onContinue).toHaveBeenCalledOnce()
+    expect(navigateMock).not.toHaveBeenCalled()
   })
 
   it('handles zero total providers without dividing by zero', () => {

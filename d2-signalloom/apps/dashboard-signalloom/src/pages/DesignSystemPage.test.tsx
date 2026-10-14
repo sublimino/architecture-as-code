@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import DesignSystemPage from './DesignSystemPage'
+import { CORE_SPECIMEN_NAMES } from './design-system/CoreSpecimens'
+import { EXTRA_SPECIMEN_NAMES } from './design-system/ExtraSpecimens'
+import { WORKFLOW_SPECIMEN_NAMES } from './design-system/WorkflowSpecimens'
+import { COMPONENT_COVERAGE } from './design-system/componentCoverage'
 
 // The page under test is deliberately provider-free: it imports presentational
 // components only, so it must render with no router, no auth context and no API
@@ -135,7 +139,11 @@ const superOwnerSelect = () => screen.getByTestId('ds-datatable-super-owner')
  * regions and this list stays at eight.
  */
 const EXPECTED_LIVE_REGIONS: readonly [testId: string, role: string][] = [
+  ['(no testid)', 'status'],
+  ['(no testid)', 'status'],
+  ['cockpit-live-region', 'status'],
   ['credential-state-revoked', 'status'],
+  ['cycle-detected-warning', 'alert'],
   ['ds-loadingstate-block-error', 'alert'],
   ['ds-loadingstate-block-loading', 'status'],
   ['ds-loadingstate-inline-error', 'alert'],
@@ -143,6 +151,10 @@ const EXPECTED_LIVE_REGIONS: readonly [testId: string, role: string][] = [
   ['ds-loadingstate-inline-loading', 'status'],
   ['ds-loadingstate-inline-success', 'status'],
   ['ds-stream-live-stream-announce', 'status'],
+  ['fleet-risk-gauge', 'status'],
+  ['open-findings-panel', 'status'],
+  ['stepper-aria-live', 'status'],
+  ['validation-error-banner', 'alert'],
 ]
 
 describe('DesignSystemPage', () => {
@@ -377,7 +389,11 @@ describe('DesignSystemPage', () => {
     'safe-link',
     'agent-deep-link',
     'dash-kit',
-    'not-shown',
+    'core-examples',
+    'extra-examples',
+    'workflow-examples',
+    'context-examples',
+    'coverage-catalogue',
   ] as const
 
   it('renders every documented section with a heading and a when-to-use note', () => {
@@ -974,18 +990,40 @@ describe('DesignSystemPage', () => {
     })
   })
 
-  // ── Coverage ledger ───────────────────────────────────────────────────────
+  // ── Coverage catalogue ────────────────────────────────────────────────────
 
-  it('lists the components it could not show, each with a reason', () => {
+  it('mounts every supplied core, extra and workflow specimen', () => {
     render(<DesignSystemPage />)
-    const ledger = screen.getByTestId('ds-section-not-shown')
-    const rows = within(ledger).getAllByTestId(/^ds-skipped-/)
-    expect(rows.length).toBeGreaterThanOrEqual(8)
-    for (const row of rows) {
-      // A name with no reason beside it is the failure mode this page exists to
-      // avoid — an omission that looks like an oversight.
-      expect(row.textContent?.trim().length ?? 0).toBeGreaterThan(20)
-    }
-    expect(within(ledger).getByTestId('ds-skipped-Sidebar')).toBeInTheDocument()
+    expect(screen.getByTestId('core-specimens')).toBeInTheDocument()
+    expect(screen.getByTestId('workflow-specimens')).toBeInTheDocument()
+    expect(screen.getByTestId('extra-specimens')).toBeInTheDocument()
+    expect(screen.getByTestId('context-specimens')).toBeInTheDocument()
+    for (const name of CORE_SPECIMEN_NAMES) expect(screen.getByTestId(`core-specimen-${name}`)).toBeInTheDocument()
+    for (const name of WORKFLOW_SPECIMEN_NAMES) expect(screen.getByTestId(`workflow-specimen-${name}`)).toBeInTheDocument()
+    for (const name of EXTRA_SPECIMEN_NAMES) expect(screen.getByTestId(`extra-specimen-${name}`)).toBeInTheDocument()
+  })
+
+  it('shows shared direct, contextual, and unwired totals from the symbol registry', () => {
+    render(<DesignSystemPage />)
+    const direct = COMPONENT_COVERAGE.filter(({ kind, scope }) => scope === 'shared' && kind === 'specimen').length
+    const contextual = COMPONENT_COVERAGE.filter(({ kind, scope }) => scope === 'shared' && kind === 'route').length
+    const unwired = COMPONENT_COVERAGE.filter(({ kind, scope }) => scope === 'shared' && kind === 'unwired').length
+    expect(screen.getByTestId('ds-coverage-direct-count')).toHaveTextContent(String(direct))
+    expect(screen.getByTestId('ds-coverage-route-count')).toHaveTextContent(String(contextual))
+    expect(screen.getByTestId('ds-coverage-unwired-count')).toHaveTextContent(String(unwired))
+    expect(screen.getByTestId('ds-coverage-total-count')).toHaveTextContent(String(COMPONENT_COVERAGE.length))
+  })
+
+  it('searches symbol names and preserves source plus representation links', () => {
+    render(<DesignSystemPage />)
+    fireEvent.change(screen.getByRole('searchbox', { name: /search component coverage/i }), {
+      target: { value: 'Sidebar' },
+    })
+    const rows = screen.getAllByTestId(/^ds-coverage-row-/)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toHaveTextContent('Sidebar')
+    expect(rows[0]).toHaveTextContent('components/Sidebar.tsx')
+    expect(within(rows[0]).getByRole('link')).toHaveAttribute('href', '/agents')
+    expect(rows[0]).toHaveTextContent(/application sidebar/i)
   })
 })

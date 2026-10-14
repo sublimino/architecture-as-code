@@ -17,12 +17,13 @@ const RIGHT_OFFSET = 140
 
 export interface ThemeToggleProps {
   bottom?: number
+  embedded?: boolean
 }
 
 // Corner widget that repaints the app palette. Purely client-side: it writes
 // the selected theme's CSS custom properties onto <html> and remembers the
 // choice in localStorage. No reload, no API call, no stored user preference.
-export default function ThemeToggle({ bottom = 16 }: ThemeToggleProps = {}) {
+export default function ThemeToggle({ bottom = 16, embedded = false }: ThemeToggleProps = {}) {
   const [theme, setTheme] = useState<ThemeName>(() => readStoredTheme())
 
   useLayoutEffect(() => {
@@ -43,10 +44,14 @@ export default function ThemeToggle({ bottom = 16 }: ThemeToggleProps = {}) {
       aria-label="Colour theme"
       title="Change the dashboard colour theme"
       style={{
-        position: 'fixed',
-        bottom,
-        right: RIGHT_OFFSET,
-        zIndex: 4000,
+        ...(embedded
+          ? { position: 'static' as const }
+          : {
+              position: 'fixed' as const,
+              bottom,
+              right: RIGHT_OFFSET,
+              zIndex: 4000,
+            }),
         padding: '8px 12px',
         borderRadius: 8,
         cursor: 'pointer',

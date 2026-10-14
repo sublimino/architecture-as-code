@@ -3,11 +3,12 @@ import { isDemoMode, toggleDemoMode, subscribeDemoMode, showDemoToggle } from '.
 
 export interface DemoToggleProps {
   bottom?: number
+  embedded?: boolean
 }
 
 // Corner widget that flips the api client between the live backend and local
 // demo fixtures. Hidden in ci/uat/prod environments (controlled by SL_ENV).
-export default function DemoToggle({ bottom = 16 }: DemoToggleProps = {}) {
+export default function DemoToggle({ bottom = 16, embedded = false }: DemoToggleProps = {}) {
   const [on, setOn] = useState(isDemoMode())
   useEffect(() => subscribeDemoMode(setOn), [])
 
@@ -33,10 +34,14 @@ export default function DemoToggle({ bottom = 16 }: DemoToggleProps = {}) {
           : 'Click to render with demo data (works even if the API is unavailable).'
       }
       style={{
-        position: 'fixed',
-        bottom,
-        right: 16,
-        zIndex: 4000,
+        ...(embedded
+          ? { position: 'static' as const }
+          : {
+              position: 'fixed' as const,
+              bottom,
+              right: 16,
+              zIndex: 4000,
+            }),
         padding: '8px 12px',
         borderRadius: 8,
         cursor: 'pointer',

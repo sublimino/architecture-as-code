@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 ControlPlane Security Authors
 
-import React, { useEffect, useState, memo } from "react"
+import React, { useEffect, useState, memo, useRef } from "react"
 import { WhoAuthorizedPanel } from "./WhoAuthorizedPanel"
 import type { AuthorizationChain } from "../api/weaveApi"
 
@@ -29,16 +29,19 @@ export const AuthorizationProofDrawer: React.FC<AuthorizationProofDrawerProps> =
   rekorUrl = "https://rekor.sigstore.dev",
 }) => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const drawerRootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!isOpen) return
+    const ownerWindow = drawerRootRef.current?.ownerDocument.defaultView
+    if (!ownerWindow) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         onClose()
       }
     }
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
+    ownerWindow.addEventListener("keydown", handleKeyDown)
+    return () => ownerWindow.removeEventListener("keydown", handleKeyDown)
   }, [isOpen, onClose])
 
   if (!isOpen) return null
@@ -60,6 +63,7 @@ export const AuthorizationProofDrawer: React.FC<AuthorizationProofDrawerProps> =
 
   return (
     <div
+      ref={drawerRootRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="proof-drawer-title"

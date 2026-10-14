@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { createPortal } from 'react-dom'
 import { NotificationBell } from './NotificationBell'
 import type { TenantWarning } from '../hooks/useTenantWarnings'
 
@@ -114,5 +115,38 @@ describe('NotificationBell component', () => {
 
     expect(screen.getByTestId('tenant-warnings-empty')).toBeInTheDocument()
     expect(screen.getByTestId('tenant-warnings-empty').textContent).toContain('No active tenant warnings')
+  })
+
+  it('scopes iframe dismissal events to the rendered owner document', () => {
+    const frame = document.createElement('iframe')
+    document.body.appendChild(frame)
+    const frameDocument = frame.contentDocument!
+    const mount = frameDocument.createElement('div')
+    frameDocument.body.appendChild(mount)
+
+    const { unmount } = render(createPortal(
+      <MemoryRouter>
+        <NotificationBell warnings={[]} unreadWarnings={[]} unreadCount={0} />
+      </MemoryRouter>,
+      mount,
+    ))
+    const bell = frameDocument.querySelector<HTMLElement>('[data-testid="tenant-warnings-bell"]')!
+
+    fireEvent.click(bell)
+    expect(frameDocument.querySelector('[data-testid="tenant-warnings-panel"]')).not.toBeNull()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(frameDocument.querySelector('[data-testid="tenant-warnings-panel"]')).not.toBeNull()
+
+    fireEvent.mouseDown(frameDocument.body)
+    expect(frameDocument.querySelector('[data-testid="tenant-warnings-panel"]')).toBeNull()
+
+    fireEvent.click(bell)
+    fireEvent.keyDown(frameDocument, { key: 'Escape' })
+    expect(frameDocument.querySelector('[data-testid="tenant-warnings-panel"]')).toBeNull()
+    expect(frameDocument.activeElement).toBe(bell)
+
+    unmount()
+    frame.remove()
   })
 })

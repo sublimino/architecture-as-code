@@ -83,6 +83,19 @@ describe('DemoToggle', () => {
       Object.defineProperty(window, 'location', { value: realLocation, configurable: true, writable: true })
     }
   })
+
+  it('preserves fixed standalone positioning and supports embedded toolbar positioning', () => {
+    const { unmount } = render(<DemoToggle />)
+    expect(toggleButton().style.position).toBe('fixed')
+    expect(toggleButton().style.bottom).toBe('16px')
+    expect(toggleButton().style.right).toBe('16px')
+    unmount()
+
+    render(<DemoToggle embedded />)
+    expect(toggleButton().style.position).toBe('static')
+    expect(toggleButton().style.bottom).toBe('')
+    expect(toggleButton().style.right).toBe('')
+  })
 })
 
 describe('DemoToggle focus ring', () => {

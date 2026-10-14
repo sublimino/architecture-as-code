@@ -188,4 +188,12 @@ describe('ThemeToggle', () => {
     // DemoToggle owns right: 16 and is ~125px wide; this must clear it.
     expect(parseInt(style.right, 10)).toBeGreaterThanOrEqual(136)
   })
+
+  it('uses normal flow positioning when embedded in a toolbar', () => {
+    render(<ThemeToggle embedded />)
+    const style = toggle().style
+    expect(style.position).toBe('static')
+    expect(style.bottom).toBe('')
+    expect(style.right).toBe('')
+  })
 })

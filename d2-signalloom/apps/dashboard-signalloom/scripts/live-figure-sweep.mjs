@@ -188,6 +188,11 @@ const RENDERED_DIRS = ['pages', 'components', 'views']
 // silences every future figure in the file too, which is how a reviewed
 // decision quietly becomes a blind spot.
 export const EXCEPTIONS = [
+  ...['CoreSpecimens', 'WorkflowSpecimens', 'ContextSpecimens', 'ExtraSpecimens'].map((name) => ({
+    file: `pages/design-system/${name}.tsx`,
+    rule: 'figure-literal',
+    reason: 'Fixed-prop design-system specimens mounted only by the gallery and CSS Lab, labelled as fixtures rather than live estate measurements.',
+  })),
   {
     file: 'pages/DesignSystemPage.tsx',
     rule: 'figure-literal',

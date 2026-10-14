@@ -5,6 +5,8 @@ import ThemeToggle from './ThemeToggle'
 import WidthToggle from './WidthToggle'
 
 export const CONFIG_CONTROLS_COLLAPSED_STORAGE_KEY = 'signalloom.config-controls-collapsed'
+const NARROW_VIEWPORT_MAX_WIDTH = 600
+const SIDEBAR_FOOTER_GAP = 16
 
 export function readStoredConfigCollapsed(): boolean {
   if (typeof window === 'undefined' || !window.localStorage) return false
@@ -42,23 +44,40 @@ export default function FloatingConfigControls({
   // Detect whether the quick evidence drawer or other right drawer is active
   const hasDrawerParam = new URLSearchParams(location.search).has('drawer')
   const [hasDrawerInDom, setHasDrawerInDom] = useState(false)
+  const [sidebarFooterClearance, setSidebarFooterClearance] = useState(0)
 
   useEffect(() => {
     if (typeof document === 'undefined') return
-    const checkDrawer = () => {
-      const el = document.querySelector('[data-testid="agent-evidence-drawer"], [data-testid="evidence-drawer"]')
-      setHasDrawerInDom(Boolean(el))
+    const checkDockingObstacles = () => {
+      const drawer = document.querySelector('[data-testid="agent-evidence-drawer"], [data-testid="evidence-drawer"]')
+      setHasDrawerInDom(Boolean(drawer))
+
+      const sidebarFooter = document.querySelector<HTMLElement>(
+        'nav[aria-label="Primary navigation"] > div:last-child'
+      )
+      if (window.innerWidth > NARROW_VIEWPORT_MAX_WIDTH || !sidebarFooter) {
+        setSidebarFooterClearance(0)
+        return
+      }
+
+      const footerTop = sidebarFooter.getBoundingClientRect().top
+      const clearance = Math.max(0, Math.ceil(window.innerHeight - footerTop + SIDEBAR_FOOTER_GAP))
+      setSidebarFooterClearance(clearance)
     }
-    checkDrawer()
-    const observer = new MutationObserver(checkDrawer)
+    checkDockingObstacles()
+    const observer = new MutationObserver(checkDockingObstacles)
     observer.observe(document.body, { childList: true, subtree: true })
-    return () => observer.disconnect()
+    window.addEventListener('resize', checkDockingObstacles)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', checkDockingObstacles)
+    }
   }, [])
 
   const hasDrawer = forceDrawerOffset ?? (hasDrawerParam || hasDrawerInDom)
   // When a drawer is open, dock at bottom: 70 to fully clear the drawer's footer actions.
   // When no drawer is open, dock comfortably at bottom: 16.
-  const bottom = hasDrawer ? 70 : 16
+  const bottom = Math.max(hasDrawer ? 70 : 16, sidebarFooterClearance)
 
   function handleToggle() {
     setCollapsed((prev) => {
@@ -68,10 +87,24 @@ export default function FloatingConfigControls({
     })
   }
 
-  const buttonStyle: React.CSSProperties = {
+  const toolbarStyle: React.CSSProperties = {
     position: 'fixed',
     bottom,
+    right: 16,
     zIndex: 4000,
+    display: 'flex',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 8,
+    width: 'max-content',
+    maxWidth: 'calc(100vw - 32px)',
+    boxSizing: 'border-box',
+    transition: 'bottom 0.15s ease-out',
+  }
+
+  const buttonStyle: React.CSSProperties = {
+    position: 'static',
     padding: '8px 12px',
     borderRadius: 8,
     cursor: 'pointer',
@@ -85,34 +118,39 @@ export default function FloatingConfigControls({
     display: 'inline-flex',
     alignItems: 'center',
     gap: 6,
-    transition: 'bottom 0.15s ease-out',
   }
 
   if (collapsed) {
     return (
-      <button
-        type="button"
-        data-testid="config-collapse-toggle"
-        onClick={handleToggle}
-        aria-expanded={false}
-        aria-label="Show configuration options"
-        title="Show configuration options (Theme, Width, Demo)"
-        style={{
-          ...buttonStyle,
-          right: 16,
-        }}
+      <div
+        data-testid="floating-config-controls"
+        role="group"
+        aria-label="Dashboard configuration"
+        style={toolbarStyle}
       >
-        <span aria-hidden="true" style={{ fontSize: 13 }}>⚙</span>
-        <span>Config</span>
-      </button>
+        <button
+          type="button"
+          data-testid="config-collapse-toggle"
+          onClick={handleToggle}
+          aria-expanded={false}
+          aria-label="Show configuration options"
+          title="Show configuration options (Theme, Width, Demo)"
+          style={buttonStyle}
+        >
+          <span aria-hidden="true" style={{ fontSize: 13 }}>⚙</span>
+          <span>Config</span>
+        </button>
+      </div>
     )
   }
 
   return (
-    <div data-testid="floating-config-controls">
-      <WidthToggle bottom={bottom} />
-      <ThemeToggle bottom={bottom} />
-      <DemoToggle bottom={bottom} />
+    <div
+      data-testid="floating-config-controls"
+      role="group"
+      aria-label="Dashboard configuration"
+      style={toolbarStyle}
+    >
       <button
         type="button"
         data-testid="config-collapse-toggle"
@@ -120,14 +158,14 @@ export default function FloatingConfigControls({
         aria-expanded={true}
         aria-label="Hide configuration options"
         title="Hide configuration options"
-        style={{
-          ...buttonStyle,
-          right: 355,
-        }}
+        style={buttonStyle}
       >
         <span aria-hidden="true" style={{ fontSize: 11 }}>▾</span>
         <span>Hide</span>
       </button>
+      <WidthToggle embedded />
+      <ThemeToggle embedded />
+      <DemoToggle embedded />
     </div>
   )
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 ControlPlane Security Authors
 
-import React, { useEffect, useCallback, useState } from 'react'
+import React, { useEffect, useCallback, useState, useRef } from 'react'
 import type { DiscoveryWorkload, AgentResponse, ControlRecommendations } from '../types/api'
 import { colors } from '../styles/tokens'
 import AgentDeepLink from './AgentDeepLink'
@@ -132,6 +132,7 @@ export default function DiscoveredWorkloadDrawer({
 }: DiscoveredWorkloadDrawerProps) {
   const [copiedId, setCopiedId] = useState(false)
   const [actionInProgress, setActionInProgress] = useState<string | null>(null)
+  const drawerRef = useRef<HTMLDivElement>(null)
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -144,8 +145,10 @@ export default function DiscoveredWorkloadDrawer({
 
   useEffect(() => {
     if (isOpen && workload) {
-      window.addEventListener('keydown', handleKeyDown)
-      return () => window.removeEventListener('keydown', handleKeyDown)
+      const ownerWindow = drawerRef.current?.ownerDocument.defaultView
+      if (!ownerWindow) return
+      ownerWindow.addEventListener('keydown', handleKeyDown)
+      return () => ownerWindow.removeEventListener('keydown', handleKeyDown)
     }
   }, [isOpen, workload, handleKeyDown])
 
@@ -204,6 +207,7 @@ export default function DiscoveredWorkloadDrawer({
 
       {/* Drawer panel */}
       <div
+        ref={drawerRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="discovered-workload-drawer-title"

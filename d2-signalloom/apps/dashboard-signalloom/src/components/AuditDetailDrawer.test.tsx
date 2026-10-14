@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { createPortal } from 'react-dom'
 import AuditDetailDrawer from './AuditDetailDrawer'
 import type { AuditEventResponse } from '../types/api'
 
@@ -145,6 +146,28 @@ describe('AuditDetailDrawer', () => {
 
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('handles Escape only from the iframe owner window', () => {
+    const onClose = vi.fn()
+    const frame = document.createElement('iframe')
+    document.body.appendChild(frame)
+    const mount = frame.contentDocument!.createElement('div')
+    frame.contentDocument!.body.appendChild(mount)
+    const { unmount } = render(createPortal(
+      <MemoryRouter>
+        <AuditDetailDrawer isOpen={true} event={SAMPLE_EVENT} onClose={onClose} />
+      </MemoryRouter>,
+      mount,
+    ))
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.keyDown(frame.contentWindow!, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledOnce()
+
+    unmount()
+    frame.remove()
   })
 
   it('renders raw string payloads safely without error', () => {

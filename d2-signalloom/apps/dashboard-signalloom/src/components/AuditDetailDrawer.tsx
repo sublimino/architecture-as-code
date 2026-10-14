@@ -199,6 +199,7 @@ export default function AuditDetailDrawer({
   onClose,
 }: AuditDetailDrawerProps) {
   const [copied, setCopied] = useState(false)
+  const drawerRef = useRef<HTMLDivElement | null>(null)
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
 
   const handleKeyDown = useCallback(
@@ -213,12 +214,14 @@ export default function AuditDetailDrawer({
 
   useEffect(() => {
     if (isOpen) {
-      window.addEventListener('keydown', handleKeyDown)
+      const ownerWindow = drawerRef.current?.ownerDocument.defaultView
+      if (!ownerWindow) return
+      ownerWindow.addEventListener('keydown', handleKeyDown)
       // Focus the close button for accessibility
       setTimeout(() => {
         closeButtonRef.current?.focus()
       }, 50)
-      return () => window.removeEventListener('keydown', handleKeyDown)
+      return () => ownerWindow.removeEventListener('keydown', handleKeyDown)
     }
   }, [isOpen, handleKeyDown])
 
@@ -233,14 +236,15 @@ export default function AuditDetailDrawer({
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(raw)
       } else {
-        const textarea = document.createElement('textarea')
+        const ownerDocument = drawerRef.current?.ownerDocument ?? document
+        const textarea = ownerDocument.createElement('textarea')
         textarea.value = raw
         textarea.style.position = 'fixed'
         textarea.style.opacity = '0'
-        document.body.appendChild(textarea)
+        ownerDocument.body.appendChild(textarea)
         textarea.select()
-        document.execCommand('copy')
-        document.body.removeChild(textarea)
+        ownerDocument.execCommand('copy')
+        ownerDocument.body.removeChild(textarea)
       }
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
@@ -278,6 +282,7 @@ export default function AuditDetailDrawer({
 
   return (
     <div
+      ref={drawerRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="audit-detail-drawer-title"

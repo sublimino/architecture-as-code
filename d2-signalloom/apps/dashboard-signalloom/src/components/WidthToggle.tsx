@@ -16,12 +16,13 @@ export const WIDTH_TOGGLE_RIGHT_OFFSET = 250
 
 export interface WidthToggleProps {
   bottom?: number
+  embedded?: boolean
 }
 
 // Corner widget that controls the main page container max-width ceiling.
 // Purely client-side: updates --content-max-width on <html> and remembers
 // the choice in localStorage. No reload, no API call.
-export default function WidthToggle({ bottom = 16 }: WidthToggleProps = {}) {
+export default function WidthToggle({ bottom = 16, embedded = false }: WidthToggleProps = {}) {
   const [width, setWidth] = useState<LayoutWidth>(() => readStoredLayoutWidth())
 
   useLayoutEffect(() => {
@@ -42,10 +43,14 @@ export default function WidthToggle({ bottom = 16 }: WidthToggleProps = {}) {
       aria-label="Layout width"
       title="Change the dashboard content width"
       style={{
-        position: 'fixed',
-        bottom,
-        right: WIDTH_TOGGLE_RIGHT_OFFSET,
-        zIndex: 4000,
+        ...(embedded
+          ? { position: 'static' as const }
+          : {
+              position: 'fixed' as const,
+              bottom,
+              right: WIDTH_TOGGLE_RIGHT_OFFSET,
+              zIndex: 4000,
+            }),
         padding: '8px 12px',
         borderRadius: 8,
         cursor: 'pointer',

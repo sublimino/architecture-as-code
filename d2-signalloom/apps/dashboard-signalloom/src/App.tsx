@@ -85,6 +85,7 @@ const FeedsExplorerPage = lazy(() => import('./pages/FeedsExplorerPage'))
 const DesignSystemPage = lazy(() => import('./pages/DesignSystemPage'))
 const DesignSystemHeadersPage = lazy(() => import('./pages/DesignSystemHeadersPage'))
 const DesignSystemCssLabPage = lazy(() => import('./pages/DesignSystemCssLabPage'))
+const DesignSystemCssLabPage = lazy(() => import('./pages/DesignSystemCssLabPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const CallbackPage = lazy(() => import('./pages/CallbackPage'))
 const AdminUsersPage = lazy(() => import('./pages/admin/UsersPage'))
@@ -483,6 +484,7 @@ export default function App() {
                 <Route path={'/demos/agentmaxxing/*'} element={<ProtectedRoute><SuperadminRoute><FeatureGate flag="page_agentmaxxing" fallback={<NotFoundPage />}><AgentMaxxingDemoPage /></FeatureGate></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/design-system" element={<ProtectedRoute><SuperadminRoute><DesignSystemPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/design-system/headers" element={<ProtectedRoute><SuperadminRoute><DesignSystemHeadersPage /></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/design-system/css" element={<ProtectedRoute><SuperadminRoute><DesignSystemCssLabPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/design-system/css" element={<ProtectedRoute><SuperadminRoute><DesignSystemCssLabPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/admin/users" element={<ProtectedRoute><AdminRoute><AdminUsersPage /></AdminRoute></ProtectedRoute>} />
                 <Route path="/admin/features" element={<ProtectedRoute><AdminRoute><AdminFeaturesPage /></AdminRoute></ProtectedRoute>} />

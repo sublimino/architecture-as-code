@@ -208,7 +208,7 @@ function hashTarget(): string {
 }
 
 function scrollToSection(element: HTMLElement, animate: boolean): void {
-  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+  const reduced = element.ownerDocument.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
   // jsdom implements no layout and leaves scrollIntoView undefined, so the
   // optional call is load-bearing for every page test that mounts this.
   element.scrollIntoView?.({ behavior: animate && !reduced ? 'smooth' : 'auto', block: 'start' })
@@ -244,7 +244,7 @@ export default function PageTocLayout({
 
   /** Scoped to our own subtree: an id elsewhere in the app is not our section. */
   const findSection = useCallback((id: string): HTMLElement | null => {
-    const element = document.getElementById(id)
+    const element = contentRef.current?.ownerDocument.getElementById(id)
     return element && contentRef.current?.contains(element) ? element : null
   }, [])
 
@@ -252,7 +252,9 @@ export default function PageTocLayout({
   useEffect(() => {
     // Missing in jsdom and in any non-DOM renderer. Degrade to a plain index:
     // the links and anchors still work, only the highlight stops moving.
-    if (typeof IntersectionObserver === 'undefined') return
+    const Observer = contentRef.current?.ownerDocument.defaultView?.IntersectionObserver
+      ?? globalThis.IntersectionObserver
+    if (typeof Observer === 'undefined') return
 
     const targets = ids.map(findSection).filter((el): el is HTMLElement => el !== null)
     if (targets.length === 0) return
@@ -263,7 +265,7 @@ export default function PageTocLayout({
     // question about the whole page rather than about the latest batch.
     const intersecting = new Set<string>()
 
-    const observer = new IntersectionObserver(
+    const observer = new Observer(
       (records) => {
         for (const record of records) {
           if (record.isIntersecting) intersecting.add(record.target.id)
@@ -284,6 +286,7 @@ export default function PageTocLayout({
 
   // ── Landing on an anchor ──────────────────────────────────────────────────
   useEffect(() => {
+    if (contentRef.current?.ownerDocument !== document) return
     const target = hashTarget()
     if (!target || !ids.includes(target)) return
 
@@ -324,7 +327,9 @@ export default function PageTocLayout({
     // button walking a stack it cannot explain. The address bar still updates,
     // which is the part that makes the link copyable. The existing state object
     // is passed through because react-router keeps its own bookkeeping there.
-    window.history.replaceState(window.history.state, '', `#${id}`)
+    if (element.ownerDocument === document) {
+      window.history.replaceState(window.history.state, '', `#${id}`)
+    }
   }
 
   return (

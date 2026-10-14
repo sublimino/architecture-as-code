@@ -107,6 +107,14 @@ describe('WidthToggle component', () => {
     expect(select.style.zIndex).toBe('4000')
   })
 
+  it('uses normal flow positioning when embedded in a toolbar', () => {
+    render(<WidthToggle embedded />)
+    const select = toggle()
+    expect(select.style.position).toBe('static')
+    expect(select.style.bottom).toBe('')
+    expect(select.style.right).toBe('')
+  })
+
   it('includes proper accessible attributes', () => {
     render(<WidthToggle />)
     const select = toggle()

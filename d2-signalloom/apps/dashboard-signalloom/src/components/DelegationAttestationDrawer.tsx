@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 ControlPlane Security Authors
 
-import React, { useEffect, memo } from "react"
+import React, { useEffect, memo, useRef } from "react"
 
 export interface AttestationPayload {
   actionId?: string
@@ -29,15 +29,19 @@ export const DelegationAttestationDrawer: React.FC<DelegationAttestationDrawerPr
   onClose,
   attestation,
 }) => {
+  const drawerRootRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
     if (!isOpen) return
+    const ownerWindow = drawerRootRef.current?.ownerDocument.defaultView
+    if (!ownerWindow) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         onClose()
       }
     }
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
+    ownerWindow.addEventListener("keydown", handleKeyDown)
+    return () => ownerWindow.removeEventListener("keydown", handleKeyDown)
   }, [isOpen, onClose])
 
   if (!isOpen) return null
@@ -53,6 +57,7 @@ export const DelegationAttestationDrawer: React.FC<DelegationAttestationDrawerPr
 
   return (
     <div
+      ref={drawerRootRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="attestation-drawer-title"

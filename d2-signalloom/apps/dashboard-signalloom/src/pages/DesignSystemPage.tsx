@@ -64,6 +64,13 @@ import ButtonWait from '../components/ButtonWait'
 import SafeLink from '../components/SafeLink'
 import AgentDeepLink from '../components/AgentDeepLink'
 import PageTocLayout, { type TocEntry } from '../components/PageToc'
+import { CoreSpecimens } from './design-system/CoreSpecimens'
+import { ExtraSpecimens } from './design-system/ExtraSpecimens'
+import { WorkflowSpecimens } from './design-system/WorkflowSpecimens'
+import { ContextSpecimens } from './design-system/ContextSpecimens'
+import { CurrencyContext } from '../money/CurrencyContext'
+import { FIXTURE_CURRENCY_CONTEXT_VALUE } from './design-system/fixtureCurrency'
+import { COMPONENT_COVERAGE, coverageKey } from './design-system/componentCoverage'
 
 // ── Loader gallery ───────────────────────────────────────────────────────────
 
@@ -546,36 +553,6 @@ const REVOKED_CREDENTIAL = {
   revoked_at: '2026-08-12T09:41:00Z',
 }
 
-/**
- * Everything under src/components/ that this page does NOT render, and why.
- *
- * An omission with no reason beside it reads as an oversight, and the next
- * person re-litigates it. Two honest categories: components that own a
- * full-screen overlay (rendering one here would cover the gallery), and
- * components that reach for an API client, an auth token or an app context and
- * so cannot be driven by fixed props.
- */
-const NOT_SHOWN: { name: string; reason: string }[] = [
-  { name: 'Sidebar', reason: 'Needs the router, the auth context and a live failing-controls count; it is the app shell, not a specimen.' },
-  { name: 'TopNav', reason: 'Reads the OIDC profile from useAuth0; renders empty without a signed-in user.' },
-  { name: 'AddClusterModal', reason: 'Full-screen overlay. Rendering it here would sit on top of the gallery.' },
-  { name: 'ConfirmDialog', reason: 'Full-screen overlay, and meaningless without the destructive action it guards.' },
-  { name: 'ConsentModal', reason: 'Full-screen overlay; accepting posts document versions to the consent API.' },
-  { name: 'CookieSettingsModal', reason: 'Full-screen overlay; reads and writes cookie preferences through api/client with a bearer token.' },
-  { name: 'ApiKeyRevealModal', reason: 'Full-screen overlay driven by AppContext.apiKeyReveal: there is no key to reveal here.' },
-  { name: 'ApiKeyRotateModal', reason: 'Full-screen overlay; confirming rotates a real credential.' },
-  { name: 'KeyboardShortcutsOverlay', reason: 'Full-screen overlay bound to a global key handler; open it anywhere with "?".' },
-  { name: 'HelpModal', reason: 'Full-screen overlay; fetches help content from api/client.' },
-  { name: 'DemoToggle / ThemeToggle / WidthToggle / FloatingConfigControls', reason: 'Position-fixed app-shell controls rendered once by App.tsx. A second copy would overlap the real one.' },
-  { name: 'CredentialEvidencePanel', reason: 'Fetches evidence bundles from api/credentialEvidence for a specific credential.' },
-  { name: 'RbacImporterPanel', reason: 'Uploads and parses a live RBAC dump through api/afmApi.' },
-  { name: 'SuperCredInstructorPanel', reason: 'Drives a live demo runner against a cluster via api/demoRunner.' },
-  { name: 'CredentialActionsMenu / TriageMenu', reason: 'Row-anchored popovers whose actions mutate the row they hang off; nothing to anchor to here.' },
-  { name: 'OpenFindingsPanel', reason: 'Derives its content from an AgentPosture[] fetched by the posture page; a fake array would document the fake, not the component.' },
-  { name: 'fleet/ and trust/ subtrees', reason: 'React Flow and gauge canvases that size themselves from real layout; they belong on their own pages, not in a grid of small boxes.' },
-  { name: 'onboarding/ subtree', reason: 'Wizard steps that only make sense in sequence, sharing the wizard’s step state.' },
-]
-
 // ── Layout helpers ───────────────────────────────────────────────────────────
 
 /**
@@ -606,7 +583,11 @@ export const DESIGN_SYSTEM_SECTIONS: readonly TocEntry[] = [
   { id: 'safe-link', title: 'SafeLink' },
   { id: 'agent-deep-link', title: 'AgentDeepLink' },
   { id: 'dash-kit', title: 'DashKit' },
-  { id: 'not-shown', title: 'Not shown on this page' },
+  { id: 'core-examples', title: 'Core component examples' },
+  { id: 'extra-examples', title: 'Additional component examples' },
+  { id: 'workflow-examples', title: 'Workflow component examples' },
+  { id: 'context-examples', title: 'Context-safe component examples' },
+  { id: 'coverage-catalogue', title: 'Component coverage catalogue' },
 ]
 
 const cardStyle: CSSProperties = {
@@ -758,6 +739,45 @@ function ExampleHeading({ id, title, blurb }: { id: string; title: string; blurb
   )
 }
 
+function CoverageCatalogue() {
+  const [search, setSearch] = useState('')
+  const query = search.trim().toLowerCase()
+  const rows = query
+    ? COMPONENT_COVERAGE.filter((entry) =>
+      `${entry.symbol} ${entry.source} ${entry.scope} ${entry.kind} ${'href' in entry ? entry.href : ''}`.toLowerCase().includes(query))
+    : COMPONENT_COVERAGE
+  const sharedDirect = COMPONENT_COVERAGE.filter(({ kind, scope }) => scope === 'shared' && kind === 'specimen').length
+  const sharedContextual = COMPONENT_COVERAGE.filter(({ kind, scope }) => scope === 'shared' && kind === 'route').length
+  const sharedUnwired = COMPONENT_COVERAGE.filter(({ kind, scope }) => scope === 'shared' && kind === 'unwired').length
+
+  return <>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+      <div data-testid="ds-coverage-total-count"><StatCard label="Visual symbols" value={String(COMPONENT_COVERAGE.length)} sub="AST inventory" accent="var(--cyan)" /></div>
+      <div data-testid="ds-coverage-direct-count"><StatCard label="Shared direct" value={String(sharedDirect)} sub="safe fixture rendering" accent="var(--teal)" /></div>
+      <div data-testid="ds-coverage-route-count"><StatCard label="Shared contextual" value={String(sharedContextual)} sub="verified application state" accent="var(--amber)" /></div>
+      <div data-testid="ds-coverage-unwired-count"><StatCard label="Shared unwired" value={String(sharedUnwired)} sub="present in source, not live" accent="var(--error)" /></div>
+    </div>
+    <label style={{ display: 'grid', gap: 5, maxWidth: 520, marginBottom: 14, color: 'var(--muted)', fontSize: 12 }}>
+      Search component coverage
+      <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Symbol, source, status or route" style={{ background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border-subtle)', borderRadius: 4, padding: '8px 10px' }} />
+    </label>
+    <p style={{ color: 'var(--muted)', fontSize: 12, margin: '0 0 8px' }}>{rows.length} of {COMPONENT_COVERAGE.length} symbols shown</p>
+    <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+      {rows.map((entry, i) => <div key={coverageKey(entry)} data-testid={`ds-coverage-row-${entry.symbol}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 0.7fr) minmax(220px, 1fr) minmax(120px, auto) minmax(260px, 1.2fr)', gap: 12, padding: '9px 14px', fontSize: 12, lineHeight: 1.5, borderTop: i === 0 ? undefined : '1px solid var(--border)' }}>
+        <code style={{ color: 'var(--text)' }}>{entry.symbol}</code>
+        <code style={{ color: 'var(--muted)', overflowWrap: 'anywhere' }}>{entry.source}</code>
+        <span>
+          {'href' in entry
+            ? <a href={entry.href} style={{ color: 'var(--cyan)' }}>{entry.kind === 'specimen' ? 'Direct specimen' : 'Open route'}</a>
+            : <span style={{ color: 'var(--text)', textTransform: 'capitalize' }}>{entry.kind}</span>}
+          <span style={{ color: 'var(--dim)' }}> · {entry.scope}</span>
+        </span>
+        <span style={{ color: 'var(--muted)' }}>{entry.kind === 'specimen' ? 'Safe deterministic fixture.' : entry.kind === 'route' ? `${entry.state} ${entry.reason}` : entry.reason}</span>
+      </div>)}
+    </div>
+  </>
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DesignSystemPage() {
@@ -881,6 +901,7 @@ export default function DesignSystemPage() {
   )
 
   return (
+    <CurrencyContext.Provider value={FIXTURE_CURRENCY_CONTEXT_VALUE}>
     <PageTocLayout entries={DESIGN_SYSTEM_SECTIONS}>
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Design System &amp; Component Library</h1>
       <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 0, marginBottom: 26, maxWidth: 820, lineHeight: 1.55 }}>
@@ -888,6 +909,28 @@ export default function DesignSystemPage() {
         the next page does not reinvent one. Internal and superadmin-only: clarity over polish. Nothing
         below talks to the API: every specimen is driven by constants in this file.
       </p>
+
+      <a
+        href="/design-system/css"
+        data-testid="design-system-css-lab-link"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 8,
+          color: 'var(--cyan)',
+          background: 'color-mix(in srgb, var(--cyan) 10%, var(--surface))',
+          border: '1px solid var(--cyan)',
+          borderRadius: 6,
+          padding: '9px 12px',
+          margin: '0 0 26px',
+          fontSize: 13,
+          fontWeight: 700,
+          textDecoration: 'none',
+        }}
+      >
+        Open CSS Lab
+        <span aria-hidden="true">→</span>
+      </a>
 
       {/* ── Tokens ─────────────────────────────────────────────────────────── */}
       <Group
@@ -1842,32 +1885,47 @@ export default function DesignSystemPage() {
         </Caveat>
       </Group>
 
-      {/* ── Coverage ledger ────────────────────────────────────────────────── */}
       <Group
-        id="not-shown"
-        title="Not shown on this page"
-        when="What the gallery leaves out, and why. A component library page that silently omits half the library is worse than one that admits what it could not render: these are the components that need an overlay, a router, an auth token or a live API to mean anything."
+        id="core-examples"
+        title="Core component examples"
+        when="Deterministic fixtures for safe standalone components, including fleet selectors, header primitives, status treatments, policy editing and read-only telemetry. These are real components with local data, not catalogue placeholders."
       >
-        <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-          {NOT_SHOWN.map(({ name, reason }, i) => (
-            <div
-              key={name}
-              data-testid={`ds-skipped-${name.split(' ')[0]}`}
-              style={{
-                display: 'flex',
-                gap: 14,
-                padding: '9px 14px',
-                fontSize: 12.5,
-                lineHeight: 1.5,
-                borderTop: i === 0 ? undefined : '1px solid var(--border)',
-              }}
-            >
-              <code style={{ color: 'var(--text)', flex: '0 0 230px' }}>{name}</code>
-              <span style={{ color: 'var(--muted)' }}>{reason}</span>
-            </div>
-          ))}
-        </div>
+        <CoreSpecimens />
+      </Group>
+
+      <Group
+        id="extra-examples"
+        title="Additional component examples"
+        when="Fixed-prop specimens for production components that can render safely without live transports. Components that own API, authentication or telemetry effects remain route-linked or explicitly unwired instead of pretending to be isolated fixtures."
+      >
+        <ExtraSpecimens />
+      </Group>
+
+      <Group
+        id="workflow-examples"
+        title="Workflow component examples"
+        when="Deterministic, non-mutating workflow fixtures for AgentMaxxing demonstrations and onboarding states. No specimen calls a backend or changes a real credential, policy or cluster."
+      >
+        <WorkflowSpecimens />
+      </Group>
+
+      <Group
+        id="context-examples"
+        title="Context-safe component examples"
+        when="Fixed-prop examples for signal, administration and collusion visuals whose domain-shaped inputs are safe to construct locally. No fixture calls an API or mutates application state."
+      >
+        <ContextSpecimens />
+      </Group>
+
+      {/* ── Coverage catalogue ─────────────────────────────────────────────── */}
+      <Group
+        id="coverage-catalogue"
+        title="Component coverage catalogue"
+        when="Every JSX-bearing exported visual plus page-local and view-local composite discovered by the source inventory. Each exact source and symbol is labelled as a safe specimen, a verified application route, explicitly unwired, internal-only, a guard, or a provider."
+      >
+        <CoverageCatalogue />
       </Group>
     </PageTocLayout>
+    </CurrencyContext.Provider>
   )
 }

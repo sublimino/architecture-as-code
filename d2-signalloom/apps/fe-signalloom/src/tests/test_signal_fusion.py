@@ -8,6 +8,7 @@ Three concerns:
 from __future__ import annotations
 
 import re
+import urllib.parse
 import textwrap
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -307,8 +308,39 @@ class TestSeedProxy:
         assert sent.url.params["cursor"] == "custom-cursor-123"
         assert sent.url.params["layer"] == "network"
         assert resp.headers.get("x-next-cursor") == ingest["headers"]["x-next-cursor"]
-        assert resp.headers.get("link") == ingest["headers"]["link"]
         assert resp.headers.get("x-result-truncated") == "true"
+
+    def test_observations_link_points_at_the_gateway_not_signal_ingest(self, client, ingest):
+        """The relayed Link must be followable through this gateway: signal-ingest's own Link
+        names its internal path (/api/v1/observations), which the dashboard cannot reach."""
+        next_cursor = "eyJ2IjoxLCJpZCI6Im9icy0yIn0"
+        ingest["status"] = 200
+        ingest["body"] = [{"id": "obs-1"}]
+        ingest["headers"] = {
+            "x-next-cursor": next_cursor,
+            "link": f'</api/v1/observations?cursor={next_cursor}&limit=50>; rel="next"',
+        }
+        resp = client.get("/api/signals/observations?limit=50&cursor=old-cursor&layer=network")
+        link = resp.headers.get("link")
+        assert link is not None
+        assert link.endswith('>; rel="next"')
+        target = urllib.parse.urlsplit(link[1 : link.index(">")])
+        assert target.path == "/api/signals/observations"
+        assert urllib.parse.parse_qs(target.query) == {
+            "limit": ["50"], "layer": ["network"], "cursor": [next_cursor],
+        }
+
+    def test_observations_last_page_carries_no_link(self, client, ingest):
+        """No X-Next-Cursor means no next page, so no Link even if upstream sent one."""
+        ingest["status"] = 200
+        ingest["body"] = []
+        ingest["headers"] = {
+            "link": '</api/v1/observations?cursor=stale>; rel="next"',
+            "x-result-truncated": "false",
+        }
+        resp = client.get("/api/signals/observations?limit=50")
+        assert resp.headers.get("link") is None
+        assert resp.headers.get("x-result-truncated") == "false"
 
 
 # ---------------------------------------------------------------------------

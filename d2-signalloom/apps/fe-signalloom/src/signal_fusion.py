@@ -87,11 +87,13 @@ async def _proxy(
     headers_obj = getattr(resp, "headers", None)
     if isinstance(headers_obj, Mapping):
         resp_headers_map = {str(k).lower(): str(v) for k, v in headers_obj.items()}
-    # The last three are the observations paging contract (EAPCI P1-6): without them the
+    # The last two are the observations paging contract (EAPCI P1-6): without them the
     # dashboard cannot ask for the next page or tell a full page from a truncated one.
+    # signal-ingest's ``Link`` is deliberately not relayed: it names signal-ingest's own
+    # path, unreachable through this gateway. ``get_observations`` mints the gateway one.
     for header_key in (
         "allow", "etag", "location", "x-tenant-id", "retry-after", "x-request-id",
-        "x-next-cursor", "link", "x-result-truncated",
+        "x-next-cursor", "x-result-truncated",
     ):
         if header_key in resp_headers_map:
             forwarded_headers[header_key] = resp_headers_map[header_key]
@@ -142,7 +144,20 @@ async def get_observations(
         params["before"] = before
     if cursor:
         params["cursor"] = cursor
-    return await _proxy("GET", "/api/v1/observations", principal, params=params, request=request)
+    resp = await _proxy("GET", "/api/v1/observations", principal, params=params, request=request)
+    next_cursor = resp.headers.get("x-next-cursor")
+    if next_cursor and request is not None:
+        resp.headers["link"] = _next_page_link(request, next_cursor)
+    return resp
+
+
+def _next_page_link(request: Request, next_cursor: str) -> str:
+    """RFC 8288 ``Link`` to the next page *through this gateway*: the caller's own path and
+    query with ``cursor`` replaced. Relative, so it resolves against whatever host and
+    scheme the caller used to reach us rather than one we would have to guess."""
+    query = [(k, v) for k, v in request.query_params.multi_items() if k != "cursor"]
+    query.append(("cursor", next_cursor))
+    return f'<{request.url.path}?{urllib.parse.urlencode(query)}>; rel="next"'
 
 
 

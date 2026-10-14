@@ -1,0 +1,74 @@
+{
+  "task": "Replace Agents Attention Required panel with actionable read-only review queue",
+  "url": "https://ftna-signalloom.taild4da3.ts.net/agents",
+  "feature_status": "verified_deployed",
+  "whole_dashboard_suite_status": "not_green_unrelated_changes",
+  "image_digest": "sha256:8243b9d1607e714740618b9458c7f31ec5ac8f4b96d7b321250e9d4dd6ed0bd8",
+  "running_source_id": "bbab3a9d4f968a48e6920a87bd382f2d08707093d8a4257237c63591a9df67bd",
+  "build": {
+    "method": "Standard build-sign-dashboard.sh using frozen source snapshot and temporary Bun Dockerfile override",
+    "snapshot": "/tmp/opencode/review-dashboard-final-source",
+    "canonical_dockerfile_changed": false,
+    "typecheck": "passed",
+    "production_build": "passed",
+    "sbom": "dashboard-signalloom.sbom.spdx.json",
+    "provenance": "dashboard-signalloom.provenance.slsa.json",
+    "cosign_signature_verified": true,
+    "transparency_log_verification": "disabled for private local key-based signing"
+  },
+  "targeted_tests": {
+    "command": "bun run test --run src/components/Sidebar.test.tsx src/data/agentReview.test.ts src/components/AgentReviewQueue.test.tsx src/pages/AgentsPage.test.tsx src/pages/AgentsPage.kernelSplitBrain.test.tsx src/pages/AgentsPage.codingAgents.test.tsx src/pages/AgentsPage.donut.test.ts src/pages/supercredDemoEffects.test.tsx src/pages/audienceEvidence.test.tsx",
+    "suites_passed": 9,
+    "tests_passed": 254,
+    "tests_failed": 0
+  },
+  "browser": {
+    "method": "Installed Chrome fallback documented by Interceptor skill; normal Dex authentication",
+    "assertions_passed": 27,
+    "assertions_failed": 0,
+    "conditional_skips": 1,
+    "skip_reason": "Demo has exactly five issues; expansion instead verified with live API data",
+    "entry_bundle": "index-B7dhAsGH.js",
+    "demo_and_live_tested_separately": true,
+    "live_agents_api": "200 application/json",
+    "review_navigation": "passed",
+    "expansion": "passed",
+    "inventory_filter_count_agreement": "passed",
+    "desktop_and_mobile_widths": [1440, 390],
+    "mobile_queue_client_width": 255,
+    "mobile_queue_scroll_width": 255,
+    "dark_and_light_themes": "passed",
+    "javascript_exceptions": 0,
+    "relevant_network_failures": 0,
+    "recovered_pre_auth_features_response": "401 followed by 200",
+    "governance_actions_triggered": false,
+    "desktop_screenshot": "review-queue-final-desktop-section.png",
+    "mobile_screenshot": "review-queue-final-mobile-section.png",
+    "rerunnable_diagnostic_script": "/tmp/opencode/signalloom-agents-qa.ts"
+  },
+  "full_suite_on_frozen_deployed_snapshot": {
+    "suites_passed": 243,
+    "suites_failed": 3,
+    "tests_passed": 4158,
+    "tests_failed": 17,
+    "tests_skipped": 4,
+    "failures": [
+      {"file": "src/data/agentDiscovery.test.ts", "failed": 1, "cause": "Unrelated Zulip fixture removal: nine swarm agents rather than ten"},
+      {"file": "src/pages/CredentialInventoryPage.test.tsx", "failed": 15, "cause": "Unrelated credential fixture changes: eleven identities and thirty-three credentials rather than twelve and thirty-six"},
+      {"file": "src/api/liveFigureSweep.test.ts", "failed": 1, "cause": "Unrelated concurrent design-system specimen additions introduce thirteen un-gated figures"}
+    ],
+    "comparison": "These three suites pass in isolated Git HEAD archive; unrelated shared working-tree edits preserved"
+  },
+  "changes": [
+    "src/data/agentReview.ts",
+    "src/data/agentReview.test.ts",
+    "src/components/AgentReviewQueue.tsx",
+    "src/components/AgentReviewQueue.test.tsx",
+    "src/pages/AgentsPage.tsx",
+    "src/pages/AgentsPage.test.tsx",
+    "src/pages/supercredDemoEffects.test.tsx",
+    "src/pages/audienceEvidence.test.tsx",
+    "src/components/Sidebar.tsx",
+    "src/components/Sidebar.test.tsx"
+  ]
+}

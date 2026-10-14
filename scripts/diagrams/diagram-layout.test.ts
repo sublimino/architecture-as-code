@@ -97,15 +97,24 @@ function segmentsCrossOrOverlap(s1: Segment, s2: Segment, eps = 1e-4): { cross: 
     return { cross: true, reason: `X-crossing` };
   }
 
-  function onSegment(p: Point, a: Point, b: Point): boolean {
-    const cp = Math.abs(crossProduct(a, b, p));
-    if (cp > eps) return false;
-    const minX = Math.min(a.x, b.x) + eps, maxX = Math.max(a.x, b.x) - eps;
-    const minY = Math.min(a.y, b.y) + eps, maxY = Math.max(a.y, b.y) - eps;
-    return p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY;
+  function pointOnSegmentInterior(p: Point, a: Point, b: Point): boolean {
+    const vx = b.x - a.x;
+    const vy = b.y - a.y;
+    const lenSq = vx * vx + vy * vy;
+    if (lenSq < eps * eps) return false;
+    const len = Math.sqrt(lenSq);
+    const cp = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    if (Math.abs(cp) / len > eps) return false;
+    const dot = (p.x - a.x) * vx + (p.y - a.y) * vy;
+    return dot > eps * len && dot < lenSq - eps * len;
   }
 
-  if (onSegment(p3, p1, p2) || onSegment(p4, p1, p2) || onSegment(p1, p3, p4) || onSegment(p2, p3, p4)) {
+  if (
+    pointOnSegmentInterior(p3, p1, p2) ||
+    pointOnSegmentInterior(p4, p1, p2) ||
+    pointOnSegmentInterior(p1, p3, p4) ||
+    pointOnSegmentInterior(p2, p3, p4)
+  ) {
     return { cross: true, reason: `T-junction strike` };
   }
 
@@ -259,6 +268,42 @@ describe("edge crossings gate", () => {
     expect(edgeCrossings(dJunction)).toEqual([]);
   });
 
+  test("flags T-junction strike on orthogonal edge", () => {
+    const dT = doc(`
+      <mxCell id="a" vertex="1" parent="1"><mxGeometry x="10" y="50" width="20" height="20" as="geometry" /></mxCell>
+      <mxCell id="b" vertex="1" parent="1"><mxGeometry x="100" y="50" width="20" height="20" as="geometry" /></mxCell>
+      <mxCell id="c" vertex="1" parent="1"><mxGeometry x="50" y="10" width="20" height="20" as="geometry" /></mxCell>
+      <mxCell id="d" vertex="1" parent="1"><mxGeometry x="50" y="60" width="20" height="20" as="geometry" /></mxCell>
+      <mxCell id="e1" edge="1" parent="1" source="a" target="b" style="exitX=1;exitY=0.5;entryX=0;entryY=0.5;"><mxGeometry relative="1" as="geometry" /></mxCell>
+      <mxCell id="e2" edge="1" parent="1" source="c" target="d" style="exitX=0.5;exitY=1;entryX=0.5;entryY=0;"><mxGeometry relative="1" as="geometry" /></mxCell>
+    `);
+    expect(edgeCrossings(dT)).toEqual(["e1 crosses e2 (T-junction strike)"]);
+  });
+
+  test("flags diagonal edge crossing with non-orthogonal routing", () => {
+    const dDiag = doc(`
+      <mxCell id="a" vertex="1" parent="1"><mxGeometry x="10" y="10" width="10" height="10" as="geometry" /></mxCell>
+      <mxCell id="b" vertex="1" parent="1"><mxGeometry x="100" y="100" width="10" height="10" as="geometry" /></mxCell>
+      <mxCell id="c" vertex="1" parent="1"><mxGeometry x="10" y="100" width="10" height="10" as="geometry" /></mxCell>
+      <mxCell id="d" vertex="1" parent="1"><mxGeometry x="100" y="10" width="10" height="10" as="geometry" /></mxCell>
+      <mxCell id="e1" edge="1" parent="1" source="a" target="b" style="exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;"><mxGeometry relative="1" as="geometry" /></mxCell>
+      <mxCell id="e2" edge="1" parent="1" source="c" target="d" style="exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;"><mxGeometry relative="1" as="geometry" /></mxCell>
+    `);
+    expect(edgeCrossings(dDiag)).toEqual(["e1 crosses e2 (X-crossing)"]);
+  });
+
+  test("passes non-intersecting diagonal edges", () => {
+    const dParallel = doc(`
+      <mxCell id="a" vertex="1" parent="1"><mxGeometry x="10" y="10" width="10" height="10" as="geometry" /></mxCell>
+      <mxCell id="b" vertex="1" parent="1"><mxGeometry x="100" y="100" width="10" height="10" as="geometry" /></mxCell>
+      <mxCell id="c" vertex="1" parent="1"><mxGeometry x="20" y="10" width="10" height="10" as="geometry" /></mxCell>
+      <mxCell id="d" vertex="1" parent="1"><mxGeometry x="110" y="100" width="10" height="10" as="geometry" /></mxCell>
+      <mxCell id="e1" edge="1" parent="1" source="a" target="b" style="exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;"><mxGeometry relative="1" as="geometry" /></mxCell>
+      <mxCell id="e2" edge="1" parent="1" source="c" target="d" style="exitX=0.5;exitY=0.5;entryX=0.5;entryY=0.5;"><mxGeometry relative="1" as="geometry" /></mxCell>
+    `);
+    expect(edgeCrossings(dParallel)).toEqual([]);
+  });
+
   for (const name of readdirSync(DIAGRAMS).filter((f) => f.endsWith(".drawio")).sort()) {
     test(`${name} has zero edge crossings`, () => {
       expect(edgeCrossings(readFileSync(join(DIAGRAMS, name), "utf8"))).toEqual([]);
@@ -307,6 +352,38 @@ describe("warden branding", () => {
   }
 });
 
+export function countCellTags(xml: string): { openCount: number; selfClosingCount: number; closeCount: number } {
+  const openCount = (xml.match(/<mxCell\b/g) ?? []).length;
+  const closeCount = (xml.match(/<\/mxCell>/g) ?? []).length;
+  let pos = 0;
+  let selfClosingCount = 0;
+  const re = /<mxCell\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml))) {
+    pos = m.index + m[0].length;
+    let inQuote = false;
+    let quoteChar = "";
+    while (pos < xml.length) {
+      const ch = xml[pos];
+      if (inQuote) {
+        if (ch === quoteChar) inQuote = false;
+      } else {
+        if (ch === '"' || ch === "'") {
+          inQuote = true;
+          quoteChar = ch;
+        } else if (ch === "/" && xml[pos + 1] === ">") {
+          selfClosingCount++;
+          break;
+        } else if (ch === ">") {
+          break;
+        }
+      }
+      pos++;
+    }
+  }
+  return { openCount, selfClosingCount, closeCount };
+}
+
 describe("diagram data integrity and XML balance across all diagrams", () => {
   for (const name of readdirSync(DIAGRAMS).filter((f) => f.endsWith(".drawio")).sort()) {
     test(`${name} all image vertices have non-empty data URI icons`, () => {
@@ -323,10 +400,31 @@ describe("diagram data integrity and XML balance across all diagrams", () => {
 
     test(`${name} mxCell tags are properly balanced without dangling close tags`, () => {
       const xml = readFileSync(join(DIAGRAMS, name), "utf8");
-      const openTags = (xml.match(/<mxCell\b/g) ?? []).length;
-      const selfClosing = (xml.match(/<mxCell\b[^>]*\/>/g) ?? []).length;
-      const closeTags = (xml.match(/<\/mxCell>/g) ?? []).length;
-      expect(closeTags).toBe(openTags - selfClosing);
+      const parsed = parseDrawio(xml);
+      const { openCount, selfClosingCount, closeCount } = countCellTags(xml);
+      expect(openCount).toBe(parsed.cells.length);
+      expect(closeCount).toBe(openCount - selfClosingCount);
+      expect(closeCount).toBeGreaterThan(0);
+    });
+  }
+});
+
+describe("SaaS regional layout parity", () => {
+  for (const name of ["osramp-aws-multitenant-saas.drawio", "osramp-azure-multitenant-saas.drawio", "osramp-gcp-multitenant-saas.drawio"]) {
+    test(`${name} maintains symmetrical regional box dimensions and placement`, () => {
+      const parsed = parseDrawio(readFileSync(join(DIAGRAMS, name), "utf8"));
+      const rg1 = parsed.byId.get("rg1_box")?.geometry;
+      const rg2 = parsed.byId.get("rg2_box")?.geometry;
+      expect(rg1).toBeDefined();
+      expect(rg2).toBeDefined();
+      expect(rg1!.width).toBe(440);
+      expect(rg2!.width).toBe(440);
+      expect(rg1!.height).toBe(840);
+      expect(rg2!.height).toBe(840);
+      expect(rg1!.y).toBe(320);
+      expect(rg2!.y).toBe(320);
+      expect(rg1!.x).toBe(70);
+      expect(rg2!.x).toBe(690);
     });
   }
 });
@@ -354,10 +452,9 @@ describe("sovereign kind diagram components and layout", () => {
   });
 
   test("mxCell tags are properly balanced without dangling close tags", () => {
-    const openTags = (xml.match(/<mxCell\b/g) ?? []).length;
-    const selfClosing = (xml.match(/<mxCell\b[^>]*\/>/g) ?? []).length;
-    const closeTags = (xml.match(/<\/mxCell>/g) ?? []).length;
-    expect(closeTags).toBe(openTags - selfClosing);
+    const { openCount, selfClosingCount, closeCount } = countCellTags(xml);
+    expect(closeCount).toBe(openCount - selfClosingCount);
+    expect(closeCount).toBeGreaterThan(0);
   });
 
   test("osramp-kind-sovereign-airgap.drawio has zero icon overlaps", () => {

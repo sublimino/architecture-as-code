@@ -199,6 +199,13 @@ postgres-data-reset: ## Remove persisted local PostgreSQL data; the next pod res
 postgres-data-recreate: ## Reset persisted local PostgreSQL data and recreate pod to re-bootstrap fresh.
 	CLUSTER_NAME="$(CLUSTER_NAME)" POSTGRES_DATA_DIR="$(POSTGRES_DATA_DIR)" ./scripts/postgres-data-recreate.sh
 
+.PHONY: demo-reset-user-data
+demo-reset-user-data: ## Reset platform user data, agent claims, and onboarding state for a fresh onboarding start.
+	@./scripts/prelive-clean-down.sh --clean
+
+.PHONY: demo-onboard-clean
+demo-onboard-clean: demo-reset-user-data ## Alias for demo-reset-user-data.
+
 .PHONY: registry
 registry: ## Deploy the in-cluster zot registry.
 	$(MAKE) -C d2-osramp-fleet zot-up
@@ -3171,6 +3178,9 @@ gcp-tf-clean-down: ## Reset customer database and test state to pristine baselin
 		exit 2; \
 	fi
 	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' clean-down
+
+.PHONY: gcp-tf-reset-user-data
+gcp-tf-reset-user-data: gcp-tf-clean-down ## Alias for gcp-tf-clean-down: reset database user data, claims, and state (ENV=<key>).
 
 # Asserts the PROPERTY, rather than trusting whoever typed the two commands.
 #

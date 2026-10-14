@@ -75,49 +75,84 @@ fail()   { echo -e "  ${RED}✗${NC} $1"; FAILURES=$((FAILURES + 1)); }
 FAILURES=0
 
 do_clean_down() {
-  header "EXECUTING CLEAN-DOWN RESET FOR NEW USER ONBOARDING"
+  header "EXECUTING FULL REFRESH & USER DATA RESET FOR NEW ONBOARDING"
 
-  # 1. Reset PostgreSQL tenant onboarding to pending
-  echo "--> Resetting tenant_onboarding for ${TARGET_TENANT}..."
+  # 1. Teardown any running SuperCred demo resources and credential material
+  echo "--> Tearing down SuperCred demo resources..."
+  if [[ -x "${REPO_ROOT}/scripts/supercred-demo.sh" ]]; then
+    bash "${REPO_ROOT}/scripts/supercred-demo.sh" 5 >/dev/null 2>&1 || true
+    ok "SuperCred demo workloads and credential material cleaned down"
+  fi
+
+  # 2. Reset PostgreSQL database user data and onboarding
+  echo "--> Resetting database user data, agent claims, and onboarding state..."
   if kubectl get deployment postgresql -n inf-signalloom >/dev/null 2>&1; then
     kubectl exec -n inf-signalloom deployment/postgresql -- psql -U signalloom -d signalloom -c "
-      UPDATE public.tenant_onboarding
-      SET status = 'pending',
-          completed_at = NULL,
-          skipped_at = NULL,
-          wizard_state = '{\"step_index\": 0, \"provider_run_state\": {}, \"selected_provider_ids\": []}'
-      WHERE tenant_id = '${TARGET_TENANT}';
-    " >/dev/null 2>&1 || true
-
-    # Also clean audit trails, logs, and transient/dirty test tables
-    kubectl exec -n inf-signalloom deployment/postgresql -- psql -U signalloom -d signalloom -c "
+      DELETE FROM public.tenant_onboarding;
+      TRUNCATE public.agent_claims CASCADE;
+      TRUNCATE public.agent_registry CASCADE;
+      TRUNCATE public.agent_credentials CASCADE;
+      TRUNCATE public.agent_origin_verifications CASCADE;
+      TRUNCATE public.agent_compliance_results CASCADE;
+      TRUNCATE public.agent_violations CASCADE;
+      TRUNCATE public.discovered_agents CASCADE;
+      TRUNCATE public.discovery_scan_sessions CASCADE;
+      TRUNCATE public.host_enrollment_tokens CASCADE;
+      TRUNCATE public.external_agent_evidence CASCADE;
+      TRUNCATE public.external_agent_registrations CASCADE;
+      TRUNCATE public.lifecycle_transitions CASCADE;
+      TRUNCATE public.actor_evidence CASCADE;
+      TRUNCATE public.consent_events CASCADE;
       TRUNCATE public.audit_events CASCADE;
       TRUNCATE public.signal_audit_trail CASCADE;
       TRUNCATE public.signed_audit_sessions CASCADE;
-      TRUNCATE public.consent_events CASCADE;
-      TRUNCATE public.actor_evidence CASCADE;
-      TRUNCATE public.external_agent_evidence CASCADE;
+      TRUNCATE public.quarantined_synthetic_audit_events CASCADE;
       TRUNCATE public.retention_deletion_receipts CASCADE;
       TRUNCATE public.retention_legal_holds CASCADE;
-      TRUNCATE public.quarantined_synthetic_audit_events CASCADE;
-      TRUNCATE public.agent_violations CASCADE;
-      TRUNCATE public.lifecycle_transitions CASCADE;
-      TRUNCATE public.discovered_agents CASCADE;
-      TRUNCATE public.discovery_scan_sessions CASCADE;
+      TRUNCATE public.user_preferences CASCADE;
+      TRUNCATE public.support_requests CASCADE;
+      TRUNCATE public.tenant_api_keys CASCADE;
+      TRUNCATE public.invites CASCADE;
+      TRUNCATE public.nhi_discovered_accounts CASCADE;
+      TRUNCATE public.nhi_scans CASCADE;
+      TRUNCATE public.delegations CASCADE;
+      TRUNCATE public.aliases CASCADE;
+      TRUNCATE public.provisional_actors CASCADE;
+      TRUNCATE public.operator_identities CASCADE;
+      TRUNCATE public.subject_key_erasures CASCADE;
+      TRUNCATE public.subject_keys CASCADE;
+      TRUNCATE public.subject_tenants CASCADE;
+      DELETE FROM public.tenant_settings WHERE tenant_id NOT IN ('default');
     " >/dev/null 2>&1 || true
-    ok "PostgreSQL tenant_onboarding reset to 'pending', audit trails, and transient tables truncated"
+    ok "PostgreSQL user data, agent claims, audit trails, and onboarding reset"
   else
     warn "PostgreSQL not reachable; skipping database onboarding reset"
   fi
 
-  # 2. Flush Redis cache
+  # 3. Flush Redis cache
   echo "--> Flushing Redis cache..."
   if kubectl get deployment redis -n inf-signalloom >/dev/null 2>&1; then
     kubectl exec -n inf-signalloom deployment/redis -- redis-cli flushall >/dev/null 2>&1 || true
     ok "Redis cache flushed"
   fi
 
-  # 3. Unfreeze any cgroups left in frozen containment state
+  # 4. Restart fe-signalloom to purge in-memory stores and cached discovery
+  echo "--> Restarting fe-signalloom to purge in-memory stores..."
+  if kubectl get deployment fe-signalloom -n fe-signalloom >/dev/null 2>&1; then
+    kubectl rollout restart deployment/fe-signalloom -n fe-signalloom >/dev/null 2>&1 || true
+    kubectl rollout status deployment/fe-signalloom -n fe-signalloom --timeout=60s >/dev/null 2>&1 || true
+    ok "fe-signalloom restarted with clean in-memory state"
+  fi
+
+  # 5. Restart fake-integration-proxy to clear any cached proxy observations
+  echo "--> Restarting fake-integration-proxy..."
+  if kubectl get deployment fake-integration-proxy -n inf-signalloom >/dev/null 2>&1; then
+    kubectl rollout restart deployment/fake-integration-proxy -n inf-signalloom >/dev/null 2>&1 || true
+    kubectl rollout status deployment/fake-integration-proxy -n inf-signalloom --timeout=60s >/dev/null 2>&1 || true
+    ok "fake-integration-proxy restarted"
+  fi
+
+  # 6. Unfreeze any cgroups left in frozen containment state
   echo "--> Unfreezing any stunned/frozen cgroup workloads..."
   local frozen_count=0
   for f in $(find /sys/fs/cgroup -name "cgroup.freeze" 2>/dev/null || true); do
@@ -128,10 +163,25 @@ do_clean_down() {
   done
   ok "Cgroup freezer audited; ${frozen_count} frozen workload(s) unfrozen"
 
-  # 4. Clean host /tmp test artifacts
+  # 7. Clean host /tmp test artifacts
   echo "--> Cleaning host /tmp test artifacts..."
   rm -f /tmp/osramp-tenant-*.kubeconfig /tmp/test-tenant* /tmp/slsi-test-* /tmp/cgroup-freeze-proof.json 2>/dev/null || true
   ok "Host /tmp test artifacts cleaned"
+
+  # 8. Verify clean baseline
+  echo "--> Verifying clean baseline in PostgreSQL..."
+  if kubectl get deployment postgresql -n inf-signalloom >/dev/null 2>&1; then
+    local reg_count claim_count audit_count ob_count
+    reg_count=$(kubectl exec -n inf-signalloom deployment/postgresql -- psql -U signalloom -d signalloom -t -A -c "SELECT COUNT(*) FROM public.agent_registry;" 2>/dev/null || echo "-1")
+    claim_count=$(kubectl exec -n inf-signalloom deployment/postgresql -- psql -U signalloom -d signalloom -t -A -c "SELECT COUNT(*) FROM public.agent_claims;" 2>/dev/null || echo "-1")
+    audit_count=$(kubectl exec -n inf-signalloom deployment/postgresql -- psql -U signalloom -d signalloom -t -A -c "SELECT COUNT(*) FROM public.audit_events;" 2>/dev/null || echo "-1")
+    ob_count=$(kubectl exec -n inf-signalloom deployment/postgresql -- psql -U signalloom -d signalloom -t -A -c "SELECT COUNT(*) FROM public.tenant_onboarding WHERE status IN ('completed', 'skipped');" 2>/dev/null || echo "-1")
+    if [[ "$reg_count" == "0" && "$claim_count" == "0" && "$audit_count" == "0" && "$ob_count" == "0" ]]; then
+      ok "Clean baseline verified: 0 registered agents, 0 agent claims, 0 audit events, 0 completed onboarding"
+    else
+      warn "Baseline check: registry=${reg_count}, claims=${claim_count}, audit=${audit_count}, onboarding_done=${ob_count}"
+    fi
+  fi
 }
 
 do_prelive_check() {

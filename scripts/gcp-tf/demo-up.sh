@@ -2222,9 +2222,9 @@ cmd_up() {
 cmd_clean_down() {
   prepare clean-down
   ensure_vm_ready || exit 2
-  log "Cleaning down estate on ${INSTANCE_NAME} (resetting database and removing test artifacts)..."
+  log "Cleaning down estate on ${INSTANCE_NAME} (resetting database, agent claims, and user state)..."
   local clean_cmd
-  clean_cmd='cd '"${REMOTE_WORK_DIR}"' && export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}" && make postgres-data-recreate && if [ -x ./scripts/clean-test-artifacts.sh ]; then ./scripts/clean-test-artifacts.sh; fi && make healthcheck'
+  clean_cmd='cd '"${REMOTE_WORK_DIR}"' && export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}" && ./scripts/prelive-clean-down.sh --clean && make healthcheck'
   remote_run "$clean_cmd"
   log "==> PASS — estate on ${INSTANCE_NAME} is cleaned down to pristine state ready for login."
 }

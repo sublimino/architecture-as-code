@@ -77,6 +77,7 @@ vi.mock('./pages/SuperCredPage', () => ({ default: () => <div data-testid="super
 vi.mock('./pages/RbacAnalysisPage', () => ({ default: () => <div data-testid="rbac-analysis-page">Rbac Analysis Page</div> }))
 vi.mock('./pages/RbacExplorerPage', () => ({ default: () => <div data-testid="rbac-explorer-page">Rbac Explorer Page</div> }))
 vi.mock('./pages/CollusionAccessPage', () => ({ default: () => <div data-testid="collusion-access-page">Collusion Access Page</div> }))
+vi.mock('./pages/DiscoveryPage', () => ({ default: () => <div data-testid="discovery-page">Discovery Page</div> }))
 
 /**
  * The markers of the ring that used to render here: its keyframe, and the
@@ -356,6 +357,28 @@ describe('FeatureGate route guards and NotFound fallback', () => {
     renderAt('/collusion-access')
 
     await waitFor(() => expect(screen.getByTestId('collusion-access-page')).toBeInTheDocument())
+    expect(screen.queryByTestId('not-found')).toBeNull()
+  })
+
+  it('renders NotFound (404) on direct navigation to /discovery when page_discovery is disabled', async () => {
+    auth.user = { name: 'Standard User', email: 'user@acme.com' }
+    auth.getAccessTokenSilently = () => Promise.resolve('test-token')
+    featuresMock.flags.page_discovery = false
+
+    renderAt('/discovery')
+
+    await waitFor(() => expect(screen.getByTestId('not-found')).toBeInTheDocument())
+    expect(screen.queryByTestId('discovery-page')).toBeNull()
+  })
+
+  it('renders DiscoveryPage on direct navigation to /discovery when page_discovery is enabled', async () => {
+    auth.user = { name: 'Standard User', email: 'user@acme.com' }
+    auth.getAccessTokenSilently = () => Promise.resolve('test-token')
+    featuresMock.flags.page_discovery = true
+
+    renderAt('/discovery')
+
+    await waitFor(() => expect(screen.getByTestId('discovery-page')).toBeInTheDocument())
     expect(screen.queryByTestId('not-found')).toBeNull()
   })
 })

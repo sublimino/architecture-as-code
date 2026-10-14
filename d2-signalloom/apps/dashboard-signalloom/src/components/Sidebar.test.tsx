@@ -75,22 +75,41 @@ const appCtxValue = {
   setSuperadmin: () => undefined,
 }
 
+const ALL_TEST_FLAGS: Record<string, boolean> = {
+  core_governance: true,
+  audit: true,
+  compliance: true,
+  demos_fleet: true,
+  supercred: true,
+  rbac_analysis: true,
+  collusion_access: true,
+  page_discovery: true,
+  page_agents: true,
+  page_topology: true,
+  page_weave: true,
+  page_signals: true,
+  page_risk: true,
+  page_policies: true,
+  page_compliance: true,
+  page_audit: true,
+  page_federated_services: true,
+  page_cryptography: true,
+  page_credential_inventory: true,
+  page_signal_store: true,
+  page_feeds: true,
+  page_network_tests: true,
+  page_agentmaxxing: true,
+}
+
 function renderSidebar(
   ctx: Partial<typeof appCtxValue> = {},
-  initialFlags: Record<string, boolean> = {
-    core_governance: true,
-    audit: true,
-    compliance: true,
-    demos_fleet: true,
-    supercred: true,
-    rbac_analysis: true,
-    collusion_access: true,
-  },
+  initialFlags: Record<string, boolean> = ALL_TEST_FLAGS,
 ) {
+  const mergedFlags = { ...ALL_TEST_FLAGS, ...initialFlags }
   return render(
     <MemoryRouter>
       <AppContext.Provider value={{ ...appCtxValue, ...ctx }}>
-        <FeatureFlagProvider initialFlags={initialFlags} disableAutoFetch>
+        <FeatureFlagProvider initialFlags={mergedFlags} disableAutoFetch>
           <Sidebar />
         </FeatureFlagProvider>
       </AppContext.Provider>
@@ -557,6 +576,72 @@ describe('Sidebar collapse', () => {
     await waitFor(() =>
       expect(screen.getByRole('link', { name: /Agents/ })).toHaveAttribute('aria-current', 'page')
     )
+  })
+})
+
+describe('Sidebar responsive collapse preserves desktop preference', () => {
+  const desktopWidth = window.innerWidth
+  function resize(width: number) {
+    Object.defineProperty(window, 'innerWidth', { value: width, configurable: true })
+    fireEvent(window, new Event('resize'))
+  }
+  beforeEach(() => {
+    installMemoryStorage()
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    resize(1024)
+  })
+  afterEach(() => { resize(desktopWidth) })
+
+  it.each([null, 'false', 'true'])('initialises narrow viewports collapsed without writing desktop preference %s', async preference => {
+    if (preference !== null) localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, preference)
+    resize(390)
+    renderSidebar()
+    expect(screen.getByRole('button', { name: 'Expand sidebar' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('navigation', { name: 'Primary navigation' })).toHaveStyle({ width: '64px' })
+    expect(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe(preference)
+    expect(await screen.findByRole('link', { name: 'Agents' })).toHaveAttribute('title', 'Agents')
+  })
+  it('auto-collapses on crossing below 768, clears hidden search, and restores expanded desktop preference', async () => {
+    localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, 'false')
+    renderSidebar()
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+    fireEvent.change(search, { target: { value: 'audit' } })
+    resize(768)
+    expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toHaveAttribute('aria-expanded', 'true')
+    resize(767)
+    expect(screen.getByRole('button', { name: 'Expand sidebar' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('link', { name: 'Agents' })).toBeInTheDocument()
+    expect(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe('false')
+    resize(1024)
+    expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('textbox', { name: 'Quick search navigation' })).toHaveValue('')
+  })
+  it('honours mobile expansion and same-breakpoint resizing, without replacing a collapsed desktop preference', async () => {
+    localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, 'true')
+    renderSidebar()
+    await screen.findByRole('link', { name: 'Agents' })
+    resize(390)
+    await userEvent.click(screen.getByRole('button', { name: 'Expand sidebar' }))
+    expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toHaveAttribute('aria-expanded', 'true')
+    resize(430)
+    expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBeInTheDocument()
+    expect(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe('true')
+    resize(1024)
+    expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeInTheDocument()
+    resize(390)
+    expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeInTheDocument()
+  })
+  it('mobile collapse and slash-to-search also leave an expanded desktop preference unchanged', async () => {
+    localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, 'false')
+    resize(390)
+    renderSidebar()
+    await screen.findByRole('link', { name: 'Agents' })
+    fireEvent.keyDown(window, { key: '/' })
+    expect(await screen.findByRole('textbox', { name: 'Quick search navigation' })).toHaveFocus()
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
+    expect(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe('false')
+    resize(1024)
+    expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBeInTheDocument()
   })
 })
 
@@ -1074,20 +1159,13 @@ describe('Sidebar selection highlight', () => {
   function renderAt(
     entry: string,
     ctx: Partial<typeof appCtxValue> = {},
-    initialFlags: Record<string, boolean> = {
-      core_governance: true,
-      audit: true,
-      compliance: true,
-      demos_fleet: true,
-      supercred: true,
-      rbac_analysis: true,
-      collusion_access: true,
-    },
+    initialFlags: Record<string, boolean> = ALL_TEST_FLAGS,
   ) {
+    const mergedFlags = { ...ALL_TEST_FLAGS, ...initialFlags }
     return render(
       <MemoryRouter initialEntries={[entry]}>
         <AppContext.Provider value={{ ...appCtxValue, ...ctx }}>
-          <FeatureFlagProvider initialFlags={initialFlags} disableAutoFetch>
+          <FeatureFlagProvider initialFlags={mergedFlags} disableAutoFetch>
             <Sidebar />
           </FeatureFlagProvider>
         </AppContext.Provider>
@@ -1227,21 +1305,13 @@ describe('Sidebar selection highlight', () => {
 
   it('withdraws the highlight when the active route is hidden behind the superadmin flag', async () => {
     renderAt('/cryptography', { superadmin: false })
-    await screen.findByRole('link', { name: 'Agents' })
-
     expect(selectedHrefs()).toEqual([])
     expect(selection()).toBeNull()
   })
 
   it('seats the highlight when the superadmin block opens onto the active route', async () => {
     const defaultFlags = {
-      core_governance: true,
-      audit: true,
-      compliance: true,
-      demos_fleet: true,
-      supercred: true,
-      rbac_analysis: true,
-      collusion_access: true,
+      ...ALL_TEST_FLAGS,
     }
     const { rerender } = render(
       <MemoryRouter initialEntries={['/cryptography']}>
@@ -1378,6 +1448,31 @@ describe('Sidebar OpenFeature flag gating', () => {
     expect(screen.getByTestId('sidebar-no-matches')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Fleet/ })).not.toBeInTheDocument()
   })
-})
 
+  it('hides discovery navigation item when page_discovery flag is false', async () => {
+    renderSidebar({}, { page_discovery: false })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    expect(screen.queryByRole('link', { name: 'Discovery' })).not.toBeInTheDocument()
+  })
+
+  it('shows discovery navigation item when page_discovery flag is true', async () => {
+    renderSidebar({}, { page_discovery: true })
+    const link = await screen.findByRole('link', { name: 'Discovery' })
+    expect(link).toHaveAttribute('href', '/discovery')
+  })
+
+  it('hides agents navigation item when page_agents flag is false', async () => {
+    renderSidebar({}, { page_agents: false })
+    await screen.findByRole('link', { name: 'Discovery' })
+
+    expect(screen.queryByRole('link', { name: 'Agents' })).not.toBeInTheDocument()
+  })
+
+  it('shows Feature Flags admin link when superadmin is true', async () => {
+    renderSidebar({ superadmin: true })
+    const link = await screen.findByRole('link', { name: 'Feature Flags' })
+    expect(link).toHaveAttribute('href', '/admin/features')
+  })
+})
 

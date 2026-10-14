@@ -9,7 +9,8 @@ import { api } from '../api/client'
 import type { TenantSettingsResponse } from '../types/api'
 import FeatureGate from './common/FeatureGate'
 import { useFeatureFlag } from '../hooks/useFeatureFlag'
-import type { KnownFeatureFlag } from '../types/features'
+import { useFeatureFlagContext } from '../providers/FeatureFlagProvider'
+import { DEFAULT_SYSTEM_FLAGS, type KnownFeatureFlag } from '../types/features'
 import HelpModal from './HelpModal'
 import ApiKeyRevealModal from './ApiKeyRevealModal'
 import NotificationBell from './NotificationBell'
@@ -38,6 +39,7 @@ export type IconKind =
   | 'signalFusion' | 'distanceLatency' | 'signalStore' | 'feeds'
   | 'designSystem' | 'designSystemHeaders'
   | 'onboarding' | 'docs'
+  | 'features'
 
 function NavIcon({ kind }: { kind: IconKind }) {
   const paths: Record<IconKind, React.ReactNode> = {
@@ -94,6 +96,7 @@ function NavIcon({ kind }: { kind: IconKind }) {
     feeds: <><path d="M4 11a9 9 0 0 1 9 9" /><path d="M4 4a16 16 0 0 1 16 16" /><circle cx="5" cy="19" r="1" /></>,
     designSystem: <><path d="M12 3a9 9 0 0 0 0 18 1.6 1.6 0 0 0 1.6-1.6c0-.42-.16-.8-.42-1.08a1.6 1.6 0 0 1 1.18-2.7h1.9A4.74 4.74 0 0 0 21 10.9C21 6.54 16.97 3 12 3Z" /><circle cx="7.5" cy="12.5" r="1.15" /><circle cx="9.5" cy="8.5" r="1.15" /><circle cx="14" cy="7.5" r="1.15" /></>,
     designSystemHeaders: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18" /><circle cx="17.5" cy="7.5" r="1" /><path d="M6 7.5h4" /></>,
+    features: <><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" /><line x1="4" y1="22" x2="4" y2="15" /></>,
 
     // ─── Persistent Anchors ─────────────────────────────────
     onboarding: <><circle cx="12" cy="12" r="9" /><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" /></>,
@@ -104,38 +107,39 @@ function NavIcon({ kind }: { kind: IconKind }) {
 
 export const NAV: NavItem[] = [
   // ─── View Group ─────────────────────────────────────────
-  { to: '/discovery', label: 'Discovery', section: 'View', icon: 'overview' },
-  { to: '/agents', label: 'Agents', section: 'View', icon: 'agents' },
-  { to: '/topology', label: 'Topology', section: 'View', icon: 'topology' },
-  { to: '/weave', label: 'The Weave', section: 'View', icon: 'weave' },
-  { to: '/signals', label: 'Signals', section: 'View', icon: 'signals' },
-  { to: '/risk', label: 'FAIR Risk', section: 'View', icon: 'risk' },
+  { to: '/discovery', label: 'Discovery', section: 'View', icon: 'overview', flag: 'page_discovery' },
+  { to: '/agents', label: 'Agents', section: 'View', icon: 'agents', flag: 'page_agents' },
+  { to: '/topology', label: 'Topology', section: 'View', icon: 'topology', flag: 'page_topology' },
+  { to: '/weave', label: 'The Weave', section: 'View', icon: 'weave', flag: 'page_weave' },
+  { to: '/signals', label: 'Signals', section: 'View', icon: 'signals', flag: 'page_signals' },
+  { to: '/risk', label: 'FAIR Risk', section: 'View', icon: 'risk', flag: 'page_risk' },
 
   // ─── Control Group ──────────────────────────────────────
-  { to: '/policies', label: 'Policies', section: 'Control', icon: 'policies' },
-  { to: '/compliance', label: 'Compliance', section: 'Control', icon: 'containment' },
+  { to: '/policies', label: 'Policies', section: 'Control', icon: 'policies', flag: 'page_policies' },
+  { to: '/compliance', label: 'Compliance', section: 'Control', icon: 'containment', flag: 'page_compliance' },
   { to: '/collusion-access', label: 'Collusion & Access', section: 'Control', icon: 'collusion', flag: 'collusion_access' },
   { to: '/users', label: 'Users & Permissions', section: 'Control', icon: 'approvals' },
-  { to: '/audit', label: 'Audit Trail', section: 'Control', icon: 'audit' },
+  { to: '/audit', label: 'Audit Trail', section: 'Control', icon: 'audit', flag: 'page_audit' },
 
   // ─── Design Group ───────────────────────────────────────
-  { to: '/federated-services', label: 'Federated Services', section: 'Design', icon: 'federation' },
+  { to: '/federated-services', label: 'Federated Services', section: 'Design', icon: 'federation', flag: 'page_federated_services' },
   { to: '/settings', label: 'Settings', section: 'Design', icon: 'settings' },
 
   // ─── Superadmin Specialized Modules ─────────────────────
-  { to: '/cryptography', label: 'Cryptography', section: 'Control', icon: 'crypto', superadminOnly: true },
-  { to: '/credential-inventory', label: 'Credential Inventory', section: 'Control', icon: 'credentials', superadminOnly: true },
+  { to: '/admin/features', label: 'Feature Flags', section: 'Control', icon: 'features', superadminOnly: true },
+  { to: '/cryptography', label: 'Cryptography', section: 'Control', icon: 'crypto', superadminOnly: true, flag: 'page_cryptography' },
+  { to: '/credential-inventory', label: 'Credential Inventory', section: 'Control', icon: 'credentials', superadminOnly: true, flag: 'page_credential_inventory' },
   { to: '/rbac-analysis', label: 'RBAC Analysis', section: 'Control', icon: 'rbacAnalysis', superadminOnly: true, flag: 'rbac_analysis' },
   { to: '/rbac-explorer', label: 'RBAC Explorer', section: 'Control', icon: 'rbacExplorer', superadminOnly: true, flag: 'rbac_analysis' },
-  { to: '/network-tests', label: 'Network Tests', section: 'Control', icon: 'network', superadminOnly: true },
-  { to: '/signal-store', label: 'Signal Store', section: 'View', icon: 'signalStore', superadminOnly: true },
-  { to: '/feeds', label: 'Feeds & Collectors', section: 'View', icon: 'feeds', superadminOnly: true },
+  { to: '/network-tests', label: 'Network Tests', section: 'Control', icon: 'network', superadminOnly: true, flag: 'page_network_tests' },
+  { to: '/signal-store', label: 'Signal Store', section: 'View', icon: 'signalStore', superadminOnly: true, flag: 'page_signal_store' },
+  { to: '/feeds', label: 'Feeds & Collectors', section: 'View', icon: 'feeds', superadminOnly: true, flag: 'page_feeds' },
 
   // ─── Demos Group ────────────────────────────────────────
   { to: '/fleet', label: 'Fleet Demo', section: 'Demos', icon: 'fleet', superadminOnly: true, flag: 'demos_fleet' },
   { to: '/fleet/audience', label: 'Fleet Demo Audience', section: 'Demos', icon: 'fleetAudience', superadminOnly: true, flag: 'demos_fleet' },
   { to: '/supercred', label: 'SuperCredential Demo', section: 'Demos', icon: 'supercred', superadminOnly: true, flag: 'supercred' },
-  { to: '/demos/agentmaxxing', label: 'AgentMaxxing Demo', section: 'Demos', icon: 'agentmaxxing', superadminOnly: true },
+  { to: '/demos/agentmaxxing', label: 'AgentMaxxing Demo', section: 'Demos', icon: 'agentmaxxing', superadminOnly: true, flag: 'page_agentmaxxing' },
   { to: '/signal-fusion', label: 'Signal Fusion Demo', section: 'Demos', icon: 'signalFusion', superadminOnly: true },
   { to: '/distance-latency', label: 'Distance Latency Demo', section: 'Demos', icon: 'distanceLatency', superadminOnly: true },
 
@@ -173,6 +177,10 @@ function writeSidebarCollapsed(on: boolean): void {
   }
 }
 
+function isNarrowSidebarViewport(): boolean {
+  return typeof window !== 'undefined' && window.innerWidth < 768
+}
+
 export default function Sidebar() {
   const { user, logout, getAccessTokenSilently } = useAuth0()
   const { failingControls, setHelpOpen, superadmin, setSuperadmin, needsOnboarding } = useAppContext()
@@ -182,7 +190,8 @@ export default function Sidebar() {
   const [needsTriage, setNeedsTriage] = useState<number | null>(null)
   const [hoveredNav, setHoveredNav] = useState<number | null>(null)
   const [query, setQuery] = useState('')
-  const [collapsed, setCollapsed] = useState(readSidebarCollapsed)
+  const narrowViewportRef = useRef(isNarrowSidebarViewport())
+  const [collapsed, setCollapsed] = useState(() => narrowViewportRef.current || readSidebarCollapsed())
   const [pendingSearchFocus, setPendingSearchFocus] = useState(false)
   // `to` is the row the highlight is currently sitting on. Carrying it in the
   // state (rather than deriving it twice) is what makes "the pill and the
@@ -196,6 +205,7 @@ export default function Sidebar() {
   const { isEnabled: isSupercredEnabled } = useFeatureFlag('supercred')
   const { isEnabled: isRbacAnalysisEnabled } = useFeatureFlag('rbac_analysis')
   const { isEnabled: isCollusionAccessEnabled } = useFeatureFlag('collusion_access')
+  const { flags: contextFlags } = useFeatureFlagContext()
 
   const flagStatus: Record<string, boolean> = {
     demos_fleet: isDemosFleetEnabled,
@@ -206,7 +216,13 @@ export default function Sidebar() {
 
   const isFlagActive = (flag?: string) => {
     if (!flag) return true
-    return flagStatus[flag] ?? true
+    if (contextFlags && flag in contextFlags) {
+      return Boolean(contextFlags[flag])
+    }
+    if (flag in flagStatus) {
+      return flagStatus[flag] ?? true
+    }
+    return DEFAULT_SYSTEM_FLAGS[flag] ?? true
   }
 
   const canSuperadmin = isSuperadminEligible(user)
@@ -223,11 +239,28 @@ export default function Sidebar() {
 
   function applyCollapsed(next: boolean) {
     setCollapsed(next)
-    writeSidebarCollapsed(next)
+    // Mobile expansion is intentional but temporary, not a desktop preference.
+    if (!narrowViewportRef.current) writeSidebarCollapsed(next)
     // Collapsing hides the search box, so a live filter would silently shrink
     // the rail with no visible way to undo it.
     if (next) setQuery('')
   }
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    function handleViewportChange() {
+      const narrow = isNarrowSidebarViewport()
+      if (narrow === narrowViewportRef.current) return
+      narrowViewportRef.current = narrow
+      const nextCollapsed = narrow || readSidebarCollapsed()
+      setCollapsed(nextCollapsed)
+      if (nextCollapsed) setQuery('')
+      setPendingSearchFocus(false)
+    }
+    window.addEventListener('resize', handleViewportChange)
+    handleViewportChange()
+    return () => window.removeEventListener('resize', handleViewportChange)
+  }, [])
 
   function clearSearch() {
     setQuery('')
@@ -706,4 +739,3 @@ export default function Sidebar() {
     </>
   )
 }
-

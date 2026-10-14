@@ -14,6 +14,7 @@ import {
 import UserTable from './UserTable'
 import InviteUserModal from '../../components/admin/InviteUserModal'
 import EditUserModal from '../../components/admin/EditUserModal'
+import AdminNavTabs from '../../components/admin/AdminNavTabs'
 import LoadingState, { loadPhase } from '../../components/LoadingState'
 import ErrorState from '../../components/ErrorState'
 import EmptyState from '../../components/EmptyState'
@@ -269,6 +270,9 @@ export default function UsersPage({
           </button>
         </div>
       </div>
+
+      {/* Admin Sub-navigation Tabs */}
+      <AdminNavTabs />
 
       {/* Summary KPI Cards */}
       <div

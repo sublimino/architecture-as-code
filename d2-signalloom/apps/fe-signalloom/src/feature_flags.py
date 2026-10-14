@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 #: Default system-wide feature flags applied when no tenant override is present.
 DEFAULT_SYSTEM_FLAGS: dict[str, bool] = {
+    # Core system flags (retained for backward-compat)
     "core_governance": True,
     "audit": True,
     "compliance": True,
@@ -37,7 +38,129 @@ DEFAULT_SYSTEM_FLAGS: dict[str, bool] = {
     "supercred": False,
     "rbac_analysis": False,
     "collusion_access": False,
+    # Granular page flags (Operational & Governance enabled by default)
+    "page_discovery": True,
+    "page_agents": True,
+    "page_topology": True,
+    "page_weave": True,
+    "page_signals": True,
+    "page_risk": True,
+    "page_policies": True,
+    "page_compliance": True,
+    "page_audit": True,
+    "page_federated_services": True,
+    "page_cryptography": True,
+    "page_credential_inventory": True,
+    # Advanced & Experimental Demos (disabled by default)
+    "page_signal_store": False,
+    "page_feeds": False,
+    "page_network_tests": False,
+    "page_agentmaxxing": False,
 }
+
+#: Pre-packaged feature flag bundles for customer profiles and partner onboarding.
+FEATURE_PRESETS: dict[str, dict[str, Any]] = {
+    "eap_pilot": {
+        "name": "EAP Pilot Preset",
+        "description": "Enterprise early access pilot preset. Exposes core agent governance, telemetry, compliance, and credential inventories while suppressing internal demos and experimental labs.",
+        "flags": {
+            "core_governance": True,
+            "audit": True,
+            "compliance": True,
+            "demos_fleet": False,
+            "supercred": False,
+            "rbac_analysis": False,
+            "collusion_access": False,
+            "page_discovery": True,
+            "page_agents": True,
+            "page_topology": True,
+            "page_weave": True,
+            "page_signals": True,
+            "page_risk": True,
+            "page_policies": True,
+            "page_compliance": True,
+            "page_audit": True,
+            "page_federated_services": True,
+            "page_cryptography": True,
+            "page_credential_inventory": True,
+            "page_signal_store": False,
+            "page_feeds": False,
+            "page_network_tests": False,
+            "page_agentmaxxing": False,
+        },
+    },
+    "full_demo": {
+        "name": "Full Platform Demo",
+        "description": "Complete platform demonstration bundle with every page, demo scenario, and experimental laboratory enabled.",
+        "flags": {
+            "core_governance": True,
+            "audit": True,
+            "compliance": True,
+            "demos_fleet": True,
+            "supercred": True,
+            "rbac_analysis": True,
+            "collusion_access": True,
+            "page_discovery": True,
+            "page_agents": True,
+            "page_topology": True,
+            "page_weave": True,
+            "page_signals": True,
+            "page_risk": True,
+            "page_policies": True,
+            "page_compliance": True,
+            "page_audit": True,
+            "page_federated_services": True,
+            "page_cryptography": True,
+            "page_credential_inventory": True,
+            "page_signal_store": True,
+            "page_feeds": True,
+            "page_network_tests": True,
+            "page_agentmaxxing": True,
+        },
+    },
+    "minimal_governance": {
+        "name": "Minimal Governance",
+        "description": "Focused minimal posture exposing only the agent registry and authoritative immutable audit log.",
+        "flags": {
+            "core_governance": True,
+            "audit": True,
+            "compliance": False,
+            "demos_fleet": False,
+            "supercred": False,
+            "rbac_analysis": False,
+            "collusion_access": False,
+            "page_discovery": False,
+            "page_agents": True,
+            "page_topology": False,
+            "page_weave": False,
+            "page_signals": False,
+            "page_risk": False,
+            "page_policies": False,
+            "page_compliance": False,
+            "page_audit": True,
+            "page_federated_services": False,
+            "page_cryptography": False,
+            "page_credential_inventory": False,
+            "page_signal_store": False,
+            "page_feeds": False,
+            "page_network_tests": False,
+            "page_agentmaxxing": False,
+        },
+    },
+}
+
+
+def get_preset(preset_name: str) -> dict[str, Any] | None:
+    """Retrieve preset configuration dictionary by preset name."""
+    return FEATURE_PRESETS.get(preset_name)
+
+
+def list_presets() -> list[dict[str, Any]]:
+    """Return list of available preset bundles for superadmin selection."""
+    return [
+        {"id": k, "name": v["name"], "description": v["description"], "flags": v["flags"]}
+        for k, v in FEATURE_PRESETS.items()
+    ]
 
 #: In-memory evaluation cache: (tenant_id, flag_key) -> (enabled, config, timestamp)
 _FLAG_CACHE_TTL_SECONDS = 10.0
@@ -465,6 +588,51 @@ class FeatureFlagRepository:
             )
             results.append(saved)
         return results
+
+    @classmethod
+    async def update_tenant_flags(
+        cls,
+        pool_or_conn: Any,
+        tenant_id: str,
+        flags: dict[str, bool | tuple[bool, dict[str, Any]]],
+    ) -> dict[str, bool]:
+        """Batch update or insert multiple feature flags for a tenant."""
+        if not tenant_id or not isinstance(tenant_id, str):
+            raise ValueError("tenant_id must be a non-empty string")
+        if not isinstance(flags, dict):
+            raise ValueError("flags must be a dictionary")
+
+        results: dict[str, bool] = {}
+        for flag_key, val in flags.items():
+            if isinstance(val, tuple) and len(val) == 2:
+                enabled, config = bool(val[0]), val[1]
+            else:
+                enabled, config = bool(val), {}
+            saved = await cls.set_feature_flag(
+                pool_or_conn,
+                tenant_id=tenant_id,
+                flag_key=flag_key,
+                enabled=enabled,
+                config_json=config,
+            )
+            results[flag_key] = saved.enabled
+
+        invalidate_flag_cache(tenant_id)
+        return results
+
+    @classmethod
+    async def apply_preset(
+        cls,
+        pool_or_conn: Any,
+        tenant_id: str,
+        preset_name: str,
+    ) -> dict[str, bool]:
+        """Apply a named preset bundle of flags to a tenant."""
+        preset = get_preset(preset_name)
+        if not preset:
+            raise ValueError(f"Unknown preset: {preset_name}")
+        return await cls.update_tenant_flags(pool_or_conn, tenant_id, preset["flags"])
+
 
 
 async def is_feature_enabled(

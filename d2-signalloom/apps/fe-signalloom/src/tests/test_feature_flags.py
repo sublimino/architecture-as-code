@@ -91,6 +91,8 @@ class FakeConnection:
             tenant_id, flag_key = args[0], args[1]
             deleted = self.db.delete(tenant_id, flag_key)
             return "DELETE 1" if deleted else "DELETE 0"
+        if "audit_events" in query or "INSERT INTO" in query:
+            return "INSERT 0 1"
         raise NotImplementedError(f"Unhandled execute query: {query}")
 
 
@@ -102,6 +104,18 @@ class FakePool:
 
     def acquire(self) -> _FakePoolContext:
         return _FakePoolContext(FakeConnection(self.db))
+
+    async def execute(self, query: str, *args: Any) -> str:
+        async with self.acquire() as conn:
+            return await conn.execute(query, *args)
+
+    async def fetch(self, query: str, *args: Any) -> list[dict[str, Any]]:
+        async with self.acquire() as conn:
+            return await conn.fetch(query, *args)
+
+    async def fetchrow(self, query: str, *args: Any) -> dict[str, Any] | None:
+        async with self.acquire() as conn:
+            return await conn.fetchrow(query, *args)
 
 
 class _FakePoolContext:

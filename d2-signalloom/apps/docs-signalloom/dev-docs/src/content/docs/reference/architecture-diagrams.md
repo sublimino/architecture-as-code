@@ -25,13 +25,60 @@ other caller. Tracked in [Current limits and roadmap](/docs/reference/roadmap/).
 
 The single-node foundation that `make up` builds.
 The platform operates without cloud control plane dependencies.
-External audit logs and telemetry signals flow into `signal-ingest` collectors for normalization and storage in FrostDB.
 
 ![Sovereign Kind air-gapped architecture](/docs/diagrams/osramp-kind-sovereign-airgap.svg)
 
 - Editable vector SVG: [osramp-kind-sovereign-airgap.drawio.svg](/docs/diagrams/osramp-kind-sovereign-airgap.drawio.svg)
 - Native Draw.io XML: [osramp-kind-sovereign-airgap.drawio](/docs/diagrams/osramp-kind-sovereign-airgap.drawio)
 - High-resolution raster PNG: [osramp-kind-sovereign-airgap.png](/docs/diagrams/osramp-kind-sovereign-airgap.png)
+
+#### Sovereign ingress with zero outbound WAN egress
+
+The single-node foundation operates with zero outbound WAN egress to protect data sovereignty and maintain a local control plane.
+All control planes, evaluators, and data stores operate inside the local cluster.
+The ingress perimeter supports unidirectional telemetry ingress from external audit sources.
+Supported sources include AWS CloudTrail, GCP Audit (gcpaudit) logs, and Kubernetes audit (K8s Audit) streams.
+External telemetry enters the cluster without permitting outbound egress to the public internet.
+
+#### Inbound receiver protocols
+
+The `signal-ingest` service exposes dedicated receivers for external telemetry ingestion.
+These receivers accept three primary protocols:
+- OpenTelemetry Protocol (OTLP) gRPC and HTTP endpoints for structured metric and trace feeds.
+- RFC 5424 Syslog listeners for host and network event streams.
+- Audit Webhook endpoints for direct push deliveries from external audit services.
+
+The receivers normalise incoming event payloads before downstream evaluation and storage in FrostDB.
+
+#### Core governance platform
+
+The core platform coordinates identity, admission, inspection, and policy evaluation:
+- Envoy Gateway serves as the TLS reverse proxy and API gateway with cert-manager TLS certificates.
+- Automated certificates issue from an in-cluster cert-manager issuer.
+- The Signal Loom API (`api-signalloom`, hosted in `fe-signalloom`) handles configuration and telemetry queries.
+- The Dashboard single-page application (SPA) renders audit visualizations, active swarms, and incident timelines.
+- Fleet Manager reconciles multi-tenant agent fleets and cluster registrations.
+- Policy Engine evaluates Common Expression Language (CEL) governance bundles across incoming telemetry and agent actions.
+
+#### Governed agent workloads under Landlock LSM
+
+Autonomous agent workloads run in the `fe-signalloom-agents` namespace under strict isolation.
+Deterministic Landlock LSM sandboxing (`#nono`) restricts local file system paths and process privileges.
+The warden continuously monitors agent pods through eBPF telemetry, cgroups freeze controllers, and traffic control tc stun network actions.
+SPIRE provides workload identity by issuing short-lived SVIDs and securing mTLS communication across platform components.
+
+#### Dual storage tiering
+
+The platform uses a dual storage model tailored for governance records:
+- In-cluster PostgreSQL persists the `audit_events` audit trail, tenant policies, and session state.
+- FrostDB provides a native columnar store for high-throughput time-series telemetry.
+
+This division keeps transactional policy records distinct from analytical event streams.
+
+#### Cert-manager PKI foundation
+
+An in-cluster self-signed cluster issuer provides the Public Key Infrastructure (PKI) foundation.
+It automatically provisions and renews TLS certificates for Envoy Gateway and cluster workloads without external Certificate Authority dependencies.
 
 Component-level call diagrams from the repository are in [Internal Architecture](/dev-docs/reference/internal-architecture/).
 

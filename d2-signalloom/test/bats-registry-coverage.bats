@@ -646,7 +646,7 @@ $(sed 's/#.*//' "$runner")"
 	#                               gate, not inside a pipeline that already runs
 	#                               those same suites and times out at 900s per
 	#                               stage. Its value is the FLOOR assertion, not
-	#   docs-lint.bats, docs-index-sync.bats, docs-rewrite-guard.bats - documentation lint suites owned by `make docs-lint-test`.
+	#   docs-lint.bats, docs-index-sync.bats, docs-rewrite-guard.bats, dev-docs-sovereign.bats - documentation lint suites owned by `make docs-lint-test`.
 	#   dashboard-route-collisions.bats - offline route collision lint suite.
 	#   e2e-dual-cluster-containment.bats - SLDC five-step live suite; needs BOTH
 	#                               kind clusters and the kusari workload, which no
@@ -699,6 +699,7 @@ dashboard-route-collisions.bats
 docs-index-sync.bats
 docs-lint.bats
 docs-rewrite-guard.bats
+dev-docs-sovereign.bats
 afm-importer-key.bats
 afm-importer-key-stdin.bats
 afm-import-gateway-manifests.bats

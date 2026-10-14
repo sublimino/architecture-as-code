@@ -680,7 +680,7 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
               <ul style={{ margin: 0, paddingLeft: 18, fontSize: 11, color: 'var(--muted)', lineHeight: 1.6 }}>
                 <li>RFC 1123 DNS-compliant namespace format</li>
                 <li>Valid SPIFFE URI prefix (<code>spiffe://</code>)</li>
-                <li>Token budget configured (1k – 10M tokens)</li>
+                <li>Token budget configured (1k to 10M tokens)</li>
                 <li>CEL admission and continuous posture hooks</li>
               </ul>
             </div>

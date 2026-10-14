@@ -550,16 +550,65 @@ export const REGULATORY_FRAMEWORKS: RegulatoryFrameworkMeta[] = [
  * Backwards-compatible alias map reconciling old or alternate framework keys.
  */
 export const FRAMEWORK_ALIASES: Record<string, string> = {
+  // CIS Kubernetes Benchmark
   'cis-kubernetes': 'k8s-cis-benchmark',
+  'k8s-cis': 'k8s-cis-benchmark',
+  'cis': 'k8s-cis-benchmark',
+  'f0000000-0000-0000-0000-000000000003': 'k8s-cis-benchmark',
+  'cis kubernetes benchmark': 'k8s-cis-benchmark',
+
+  // EU AI Act
+  'eu-ai-act': 'eu-ai-act',
+  'eu-ai': 'eu-ai-act',
+  'eu ai act': 'eu-ai-act',
+  'f0000000-0000-0000-0000-000000000001': 'eu-ai-act',
+
+  // SOC 2 Type II
+  'soc2': 'soc2-type-2',
+  'soc 2': 'soc2-type-2',
+  'soc-2': 'soc2-type-2',
+  'soc 2 type ii': 'soc2-type-2',
+  'soc2-type-ii': 'soc2-type-2',
+  'f0000000-0000-0000-0000-000000000002': 'soc2-type-2',
+
+  // FINOS
+  'finos': 'finos-ai-governance-framework',
+  'finos-ai-governance-framework': 'finos-ai-governance-framework',
+  'finos ai governance framework': 'finos-ai-governance-framework',
+  'f0000000-0000-0000-0000-000000000004': 'finos-ai-governance-framework',
+
+  // NIST SP 800-53
+  'nist': 'nist-sp-800-53',
+  'nist-800-53': 'nist-sp-800-53',
+  'nist-sp-800-53': 'nist-sp-800-53',
+  'nist sp 800-53': 'nist-sp-800-53',
+
+  // NIST AI RMF
+  'nist-ai-rmf': 'nist-ai-rmf-1.0',
+  'nist ai rmf': 'nist-ai-rmf-1.0',
+  'nist-ai-rmf-1.0': 'nist-ai-rmf-1.0',
 }
 
 /**
- * Normalizes any framework ID string to its canonical ID.
+ * Normalizes any framework ID string or name to its canonical ID.
  */
-export function normalizeFrameworkId(id: string | null | undefined): string {
-  if (!id) return 'eu-ai-act'
-  const trimmed = id.trim().toLowerCase()
-  return FRAMEWORK_ALIASES[trimmed] || trimmed
+export function normalizeFrameworkId(id: string | null | undefined, name?: string | null): string {
+  if (!id && !name) return 'eu-ai-act'
+  const trimmedId = id ? id.trim().toLowerCase() : ''
+  if (trimmedId && FRAMEWORK_ALIASES[trimmedId]) return FRAMEWORK_ALIASES[trimmedId]
+
+  const trimmedName = name ? name.trim().toLowerCase() : ''
+  if (trimmedName && FRAMEWORK_ALIASES[trimmedName]) return FRAMEWORK_ALIASES[trimmedName]
+
+  // Substring heuristics for database names
+  if (trimmedName.includes('cis') || trimmedId.includes('cis')) return 'k8s-cis-benchmark'
+  if (trimmedName.includes('eu ai') || trimmedId.includes('eu-ai')) return 'eu-ai-act'
+  if (trimmedName.includes('soc 2') || trimmedId.includes('soc2')) return 'soc2-type-2'
+  if (trimmedName.includes('finos') || trimmedId.includes('finos')) return 'finos-ai-governance-framework'
+  if (trimmedName.includes('800-53') || trimmedId.includes('800-53')) return 'nist-sp-800-53'
+  if (trimmedName.includes('ai rmf') || trimmedId.includes('ai-rmf')) return 'nist-ai-rmf-1.0'
+
+  return trimmedId || trimmedName || 'eu-ai-act'
 }
 
 /**
@@ -586,8 +635,12 @@ export const CANONICAL_BUNDLES: Record<string, PolicyBundle> = Object.fromEntrie
   REGULATORY_FRAMEWORKS.map((fw) => [fw.id, frameworkToPolicyBundle(fw)])
 )
 
-// Add alias mapping for backwards-compatibility
-CANONICAL_BUNDLES['cis-kubernetes'] = CANONICAL_BUNDLES['k8s-cis-benchmark']
+// Add alias mappings so lookup by database UUID or alias succeeds
+for (const [alias, canonical] of Object.entries(FRAMEWORK_ALIASES)) {
+  if (CANONICAL_BUNDLES[canonical]) {
+    CANONICAL_BUNDLES[alias] = CANONICAL_BUNDLES[canonical]
+  }
+}
 
 /**
  * Returns deduplicated framework options for dropdown selectors.

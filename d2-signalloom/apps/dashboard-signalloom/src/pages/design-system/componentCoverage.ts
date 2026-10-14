@@ -20,6 +20,7 @@ export type ComponentCoverageEntry = CoverageBase & (
 type SourceSymbols = readonly [source: string, symbols: string]
 
 const SOURCE_SYMBOLS: readonly SourceSymbols[] = [
+  ['components/GovernancePolicyTable.tsx', 'GovernancePolicyTable'],
   ['components/ProofConsole.tsx', 'ProofConsole'],
   ['components/ConfirmDialog.tsx', 'ConfirmDialog'],
   ['components/CodingAgentCard.tsx', 'CodingAgentCard'],
@@ -54,6 +55,9 @@ const SOURCE_SYMBOLS: readonly SourceSymbols[] = [
   ['components/LoadingState.tsx', 'LoadingState'],
   ['components/WhoAuthorizedPanel.tsx', 'WhoAuthorizedPanel'],
   ['components/AgentAssessmentsTab.tsx', 'AgentAssessmentsTab'],
+  ['components/AgentReviewQueue.tsx', 'AgentReviewQueue'],
+  ['components/CompactOperationalTable.tsx', 'CompactOperationalTable CompactDisclosure CompactEmail CompactObservedTime'],
+  ['pages/design-system/CompactInventorySpecimen.tsx', 'CompactInventorySpecimen'],
   ['components/AgentIdentityTab.tsx', 'AgentIdentityTab'],
   ['components/SignalFusionDemoControls.tsx', 'SignalFusionDemoControls'],
   ['components/fleet/RoleViewSelector.tsx', 'RoleViewSelector'],
@@ -169,13 +173,14 @@ const SOURCE_SYMBOLS: readonly SourceSymbols[] = [
   ['pages/FrameworkDetailPage.tsx', 'FrameworkDetailPage'],
   ['pages/SignalsPage.tsx', 'SignalsPage'],
   ['pages/design-system/WorkflowSpecimens.tsx', 'WorkflowSpecimens Specimen DemoSpecimens ProviderSelectFixture WelcomeFixture WizardFieldsFixture OnboardingSpecimens'],
-  ['pages/AgentsPage.tsx', 'AgentsPage RegisterModal EditAgentModal AgentStatCards AgentTableRow GovernedTab SignalSummaryPanel AttentionPanel'],
+  ['pages/AgentsPage.tsx', 'AgentsPage RegisterModal EditAgentModal AgentStatCards AgentTableRow GovernedTab SignalSummaryPanel'],
   ['pages/FederatedServicesPage.tsx', 'FederatedServicesPage Unmeasured PanelRefusal FieldRefusals Panel FilterBar NoMatch'],
   ['pages/AgentPosturePage.tsx', 'AgentPosturePage SignalEvidenceSection'],
   ['pages/CodingAgentTopologyPage.tsx', 'CodingAgentTopologyPage'],
   ['pages/LoginPage.tsx', 'LoginPage'],
   ['pages/RbacExplorerPage.tsx', 'RbacExplorerPage RbacErrorBoundary TableToolbar TableEmptyState'],
   ['pages/RbacAnalysisPage.tsx', 'RbacAnalysisPage'],
+  ['pages/PolicyEvaluationPage.tsx', 'PolicyEvaluationPage'],
   ['pages/AgentMaxxingDemoPage.tsx', 'AgentMaxxingDemoPage'],
   ['pages/FleetDemoPage.tsx', 'FleetDemoPage'],
   ['pages/WeavePage.tsx', 'WeavePage SignalThread ActorCard CoverageHonestyPanel'],
@@ -260,6 +265,7 @@ const ROUTE_SOURCES: readonly [source: string, href: string, state: string][] = 
   ['pages/LoginPage.tsx', '/login', 'Open the unauthenticated login route.'],
   ['pages/RbacExplorerPage.tsx', '/rbac-explorer', 'Open RBAC Explorer with the rbac_analysis feature enabled.'],
   ['pages/RbacAnalysisPage.tsx', '/rbac-analysis', 'Open RBAC Analysis with the rbac_analysis feature enabled.'],
+  ['pages/PolicyEvaluationPage.tsx', '/evaluations', 'Open Policy Evaluation to inspect CEL rules, input sources, and in-toto attestation statements.'],
   ['pages/AgentMaxxingDemoPage.tsx', '/demos/agentmaxxing', 'Open AgentMaxxing as a superadmin and advance its staged containment demo.'],
   ['pages/FleetDemoPage.tsx', '/fleet', 'Open Fleet Demo as a superadmin with demos_fleet enabled.'],
   ['pages/WeavePage.tsx', '/weave', 'Open The Weave in demo mode to view signal threads, actors, and coverage honesty.'],
@@ -289,6 +295,7 @@ routeSource('components/AgentAssessmentsTab.tsx', '/agents/demo-agent', 'Open th
 routeSource('components/AgentActivityTab.tsx', '/agents/demo-agent', 'Open the demo agent and choose the Activity tab.')
 routeSource('components/AgentAccessTab.tsx', '/agents/demo-agent', 'Open the demo agent and choose the Access tab.')
 routeSource('components/CodingAgentsTab.tsx', '/agents/demo-agent', 'Open the demo agent and choose the Coding agents tab.')
+routeSource('components/AgentReviewQueue.tsx', '/agents', 'Open Agents; the review queue appears above the inventory after evidence loads.')
 routeSource('components/admin/EditUserModal.tsx', '/admin/users', 'Open Admin Users as a superadmin and choose Edit on a user row.')
 routeSource('components/admin/InviteUserModal.tsx', '/admin/users', 'Open Admin Users as a superadmin and choose Invite user.')
 routeSource('components/demos/RevocationPanel.tsx', '/demos/agentmaxxing', 'Open AgentMaxxing and advance to the Revocation Race stage.')
@@ -356,6 +363,8 @@ for (const [source, symbol, reason] of [
 ] as const) represent(source, symbol, { kind: 'unwired', reason })
 
 const DIRECT_SPECIMENS: readonly [source: string, symbols: string, href: string][] = [
+  ['components/CompactOperationalTable.tsx', 'CompactOperationalTable CompactDisclosure CompactEmail CompactObservedTime', '/design-system#compact-inventory'],
+  ['pages/design-system/CompactInventorySpecimen.tsx', 'CompactInventorySpecimen', '/design-system#compact-inventory'],
   ['components/PixelLoader.tsx', 'PixelLoader', '/design-system#pixel-loader'],
   ['components/LoadingState.tsx', 'LoadingState', '/design-system#loading-state'],
   ['components/ErrorState.tsx', 'ErrorState', '/design-system#error-state'],

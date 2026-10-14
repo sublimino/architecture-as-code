@@ -223,14 +223,16 @@ export default function CompliancePolicyPage() {
 
     // Add any backend frameworks, normalizing aliases so duplicates never occur
     for (const fw of frameworks) {
-      const normId = normalizeFrameworkId(fw.id)
+      const normId = normalizeFrameworkId(fw.id, fw.name)
       if (!map.has(normId)) {
         map.set(normId, fw.name)
       }
     }
 
     return Array.from(map.entries()).map(([id, name]) => {
-      const isActive = activeTenantFrameworks.length === 0 || activeTenantFrameworks.includes(id)
+      const isActive =
+        activeTenantFrameworks.length === 0 ||
+        activeTenantFrameworks.some((afw) => normalizeFrameworkId(afw) === id || afw === id)
       return {
         id,
         name: isActive ? name : `${name} (Inactive)`,

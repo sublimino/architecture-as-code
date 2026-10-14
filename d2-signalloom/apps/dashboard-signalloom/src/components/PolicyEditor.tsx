@@ -231,7 +231,16 @@ export default function PolicyEditor({
     const bRules = effectiveBundle.rules || []
     setRules(bRules)
     if (selectedRuleId) {
-      const idx = bRules.findIndex((r) => r.id === selectedRuleId)
+      let idx = bRules.findIndex((r) => r.id === selectedRuleId)
+      if (idx === -1) {
+        const clean = selectedRuleId.toLowerCase()
+        idx = bRules.findIndex(
+          (r) =>
+            r.id.toLowerCase() === clean ||
+            r.id.toLowerCase().includes(clean) ||
+            r.name.toLowerCase().includes(clean),
+        )
+      }
       setSelectedRuleIndex(idx >= 0 ? idx : 0)
     } else {
       setSelectedRuleIndex(0)

@@ -1,0 +1,187 @@
+.governance-policy-table {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+}
+
+.governance-policy-table__header {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(220px, 2fr) 110px;
+  gap: 12px;
+  padding: 4px 12px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  box-sizing: border-box;
+}
+
+.governance-policy-table__header-col {
+  min-width: 0;
+}
+
+.governance-policy-table__header-col--actions {
+  text-align: right;
+  justify-self: end;
+}
+
+.governance-policy-table__row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(220px, 2fr) 110px;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  transition: border-color var(--motion-fast);
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.governance-policy-table__row:hover {
+  border-color: var(--border-subtle);
+}
+
+.governance-policy-table__identity {
+  min-width: 0;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.governance-policy-table__title-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.governance-policy-table__title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.governance-policy-table__id-badge {
+  font-size: 10px;
+  font-family: monospace;
+  color: var(--muted);
+  background: var(--surface2);
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.governance-policy-table__manual-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--violet-bg);
+  color: var(--violet);
+  border: 1px solid var(--violet-border);
+  white-space: nowrap;
+}
+
+.governance-policy-table__severity-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.governance-policy-table__severity-badge--critical {
+  background: var(--red-bg);
+  color: var(--error);
+  border: 1px solid var(--red-border);
+}
+
+.governance-policy-table__severity-badge--high {
+  background: var(--amber-bg);
+  color: var(--amber);
+  border: 1px solid var(--amber-border);
+}
+
+.governance-policy-table__severity-badge--medium,
+.governance-policy-table__severity-badge--low {
+  background: var(--cyan-bg);
+  color: var(--cyan);
+  border: 1px solid var(--cyan-border);
+}
+
+.governance-policy-table__description-col {
+  min-width: 0;
+}
+
+.governance-policy-table__description {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.governance-policy-table__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+  width: 110px;
+  justify-self: end;
+}
+
+.governance-policy-table__edit-btn {
+  background: none;
+  border: none;
+  color: var(--cyan);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  white-space: nowrap;
+}
+
+.governance-policy-table__edit-btn:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 768px) {
+  .governance-policy-table__header {
+    display: none;
+  }
+
+  .governance-policy-table__row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "identity actions"
+      "description description";
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .governance-policy-table__identity {
+    grid-area: identity;
+  }
+
+  .governance-policy-table__actions {
+    grid-area: actions;
+    width: auto;
+  }
+
+  .governance-policy-table__description-col {
+    grid-area: description;
+  }
+}

@@ -7,6 +7,7 @@ import PolicyEditor from '../../components/PolicyEditor'
 import RiskWidget, { SourceBadge } from '../../components/RiskWidget'
 import { KernelStateBadge } from '../../components/StatusBadge'
 import StreamingLogBlock from '../../components/StreamingLogBlock'
+import GovernancePolicyTable from '../../components/GovernancePolicyTable'
 import { PlaneOutcomeTable, PlaneStrip, StunOverallHeadline } from '../../components/StunPlanes'
 import StunReasonForm from '../../components/StunReasonForm'
 import { CodingAgentCard } from '../../components/CodingAgentCard'
@@ -70,6 +71,7 @@ export const CORE_SPECIMEN_NAMES = [
   'RoleViewSelector',
   'FleetBadge',
   'ConfirmDialog',
+  'GovernancePolicyTable',
 ] as const satisfies readonly string[]
 
 const SPECIMEN_STYLE: CSSProperties = {
@@ -293,6 +295,45 @@ export function CoreSpecimens() {
         <Specimen name="RoleViewSelector" source="components/fleet/RoleViewSelector.tsx"><RoleViewSelectorSpecimen /></Specimen>
         <Specimen name="FleetBadge" source="components/fleet/FleetBadge.tsx"><FleetBadge label="active" token={stateToken('active')} testId="core-fleet-badge" /></Specimen>
         <Specimen name="ConfirmDialog" source="components/ConfirmDialog.tsx"><ConfirmDialogSpecimen /></Specimen>
+        <Specimen name="GovernancePolicyTable" source="components/GovernancePolicyTable.tsx">
+          <GovernancePolicyTable
+            frameworkId="k8s-cis"
+            testId="core-governance-policy-table"
+            rules={[
+              {
+                id: 'CIS-5.1.6',
+                name: 'CIS 5.1.6 ServiceAccount Tokens Mounted Only Where Necessary',
+                description: 'ServiceAccount tokens should only be mounted where necessary to reduce lateral movement risk across tenant workloads.',
+                cel_expression: 'object.spec.automountServiceAccountToken == false',
+                severity: 'critical',
+                remediation: 'Set automountServiceAccountToken to false.',
+                attestation_type: 'cel',
+                manual_attestation: false,
+              },
+              {
+                id: 'CIS-5.2.2',
+                name: 'CIS 5.2.2 Minimize Admission of Privileged Containers',
+                description: 'Privileged containers have root capabilities on the host and must be forbidden across agent workloads.',
+                cel_expression: 'object.spec.containers.all(c, !has(c.securityContext.privileged) || c.securityContext.privileged == false)',
+                severity: 'high',
+                remediation: 'Set securityContext.privileged to false.',
+                attestation_type: 'cel',
+                manual_attestation: false,
+              },
+              {
+                id: 'attestation-annex-iv',
+                name: 'Annex IV: Architecture & Threat Model Dossier',
+                description: 'Formal architectural documentation attestation signed by designated compliance lead.',
+                cel_expression: 'true',
+                severity: 'medium',
+                remediation: 'Attach signed annex IV dossier.',
+                attestation_type: 'manual',
+                manual_attestation: true,
+                manual_attestation_note: 'Signed by compliance lead',
+              },
+            ]}
+          />
+        </Specimen>
       </div>
     </section>
   )

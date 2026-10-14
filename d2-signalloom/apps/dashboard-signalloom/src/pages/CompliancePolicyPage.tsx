@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { colors, exposureAccent } from '../styles/tokens'
@@ -12,8 +12,13 @@ import type { PolicyBundle, PolicyBundleSummary, VersionHistoryItem } from '../t
 import { useMoney } from '../money/CurrencyContext'
 import ConversionNote from '../components/ConversionNote'
 import PolicyEditor from '../components/PolicyEditor'
-import EmptyState from '../components/EmptyState'
-import { isDemoMode } from '../api/demoMode'
+import {
+  getBundleForFramework,
+  getCanonicalFrameworkOptions,
+  normalizeFrameworkId,
+  CANONICAL_BUNDLES,
+  REGULATORY_FRAMEWORKS,
+} from '../data/regulatoryFrameworks'
 
 function fmtPct(n: number, d: number) {
   if (d === 0) return '0%'
@@ -41,298 +46,31 @@ function VersionPill({ version, status }: { version: string; status: 'satisfied'
   )
 }
 
-/**
- * Demo-only policy bundle catalogue.
- *
- * `api.policies.list` has no fixture route, so demo mode cannot obtain bundle
- * content through the api client's fixture gate. These bundles are therefore
- * seeded here and reachable ONLY when `isDemoMode()` is true (see
- * `currentBundle` below). In live mode a framework with no registered bundle
- * renders an explicit empty state: the versions, checksums and CEL rules
- * below were authored for the demo and are not evidence of anything.
- */
-export const DEMO_BUNDLES: Record<string, PolicyBundle> = {
-  'eu-ai-act': {
-    id: 'eu-ai-act-v2.1.0',
-    framework_id: 'eu-ai-act',
-    version: 'v2.1.0',
-    author: 'system',
-    description: 'EU AI Act: High-Risk AI System Requirements',
-    created_at: '2026-09-28T12:00:00Z',
-    checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-    rules: [
-      {
-        id: 'container-run-as-non-root',
-        name: 'AI system container runs as non-root',
-        description: 'Ensures high-risk AI workloads do not execute with root UID privileges.',
-        cel_expression: 'object.spec.containers.all(c, c.securityContext.runAsNonRoot == true)',
-        severity: 'high',
-        remediation: 'Configure securityContext.runAsNonRoot to true.',
-      },
-      {
-        id: 'no-privilege-escalation',
-        name: 'No privilege escalation in AI workloads',
-        description: 'Prohibits processes within AI workloads from gaining more privileges than their parent process.',
-        cel_expression: 'object.spec.containers.all(c, c.securityContext.allowPrivilegeEscalation == false)',
-        severity: 'critical',
-        remediation: 'Set securityContext.allowPrivilegeEscalation to false.',
-      },
-      {
-        id: 'training-data-provenance',
-        name: 'Training data provenance and validation',
-        description: 'Validates that training and validation data sets have verified provenance records.',
-        cel_expression: 'has(agent.training_data_provenance) && agent.training_data_provenance.validated == true',
-        severity: 'high',
-        remediation: 'Attach verified data provenance metadata to agent definition.',
-      },
-      {
-        id: 'block-unauthorized-host-exec',
-        name: 'Privileged action human authorization SVID',
-        description: 'Mandates human approval credential for sensitive host execution or IAM modification actions.',
-        cel_expression: "request.tool_call.action in ['exec', 'write_file', 'modify_iam'] ? (has(request.context.claims) && request.context.claims.exists(c, c.type == 'human_approval_svid' && c.valid == true)) : true",
-        severity: 'critical',
-        remediation: 'Obtain valid human approval SVID prior to executing privileged host operations.',
-      },
-    ],
-  },
-  'nist-800-53': {
-    id: 'nist-800-53-v2.1.0',
-    framework_id: 'nist-800-53',
-    version: 'v2.1.0',
-    author: 'system',
-    description: 'NIST SP 800-53 Rev. 5',
-    created_at: '2026-09-28T12:00:00Z',
-    checksum: 'a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0',
-    rules: [
-      {
-        id: 'no-automount-sa-token',
-        name: 'Service account token auto-mount disabled',
-        description: 'Prevents automatic injection of default API credentials into container pods.',
-        cel_expression: 'object.spec.automountServiceAccountToken == false',
-        severity: 'high',
-        remediation: 'Set automountServiceAccountToken: false in pod spec.',
-      },
-      {
-        id: 'spiffe-peer-authorization',
-        name: 'SPIFFE peer workload identity authorization',
-        description: 'Enforces cryptographically verifiable SPIFFE SVID peer authentication.',
-        cel_expression: "has(request.peer.spiffe_id) && request.peer.spiffe_id.startsWith('spiffe://signalloom.demo/ns/')",
-        severity: 'critical',
-        remediation: 'Present valid SPIFFE SVID rooted in the Signal Loom trust domain.',
-      },
-      {
-        id: 'audit-trail-tamper-protection',
-        name: 'Cryptographic audit log integrity validation',
-        description: 'Enforces tamper-evident append-only logging with hash chaining for all agent operational transactions.',
-        cel_expression: 'has(agent.audit_logging) && agent.audit_logging.tamper_evident == true && agent.audit_logging.retention_days >= 365',
-        severity: 'high',
-        remediation: 'Enable tamper-evident cryptographic audit log signing and set retention >= 365 days.',
-      },
-      {
-        id: 'least-privilege-sa-roles',
-        name: 'Least privilege service account and role binding constraint',
-        description: 'Prohibits cluster-admin and wildcard verb permissions on agent service account role bindings.',
-        cel_expression: "!object.spec.role_bindings.exists(r, r.role == 'cluster-admin' || r.verbs.exists(v, v == '*'))",
-        severity: 'critical',
-        remediation: 'Restrict role bindings to enumerated read/execute actions without wildcard cluster permissions.',
-      },
-    ],
-  },
-  'cra': {
-    id: 'cra-v1.0.0',
-    framework_id: 'cra',
-    version: 'v1.0.0',
-    author: 'system',
-    description: 'Cyber Resilience Act (CRA)',
-    created_at: '2026-09-28T12:00:00Z',
-    checksum: 'c1c2c3c4c5c60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0',
-    rules: [
-      {
-        id: 'default-secure-configuration',
-        name: 'Secure-by-default runtime profile',
-        description: 'Ensures system components ship and run with hardened security configurations by default.',
-        cel_expression: 'has(agent.security_profile) && agent.security_profile.secure_by_default == true',
-        severity: 'high',
-        remediation: 'Enable default hardened security profile in agent manifest.',
-      },
-      {
-        id: 'sbom-verified-provenance',
-        name: 'Verified Software Bill of Materials (SBOM)',
-        description: 'Requires machine-readable CycloneDX or SPDX SBOM with verified supply chain provenance.',
-        cel_expression: "has(agent.sbom) && (agent.sbom.format == 'CycloneDX' || agent.sbom.format == 'SPDX') && agent.sbom.verified == true",
-        severity: 'critical',
-        remediation: 'Attach signed CycloneDX or SPDX SBOM metadata to agent workload.',
-      },
-      {
-        id: 'vulnerability-handling-sla',
-        name: 'Automated vulnerability remediation SLA compliance',
-        description: 'Verifies container images contain zero unpatched critical CVEs older than the 48-hour regulatory window.',
-        cel_expression: 'has(agent.vulnerability_report) && agent.vulnerability_report.critical_count == 0 && agent.vulnerability_report.sla_breached == false',
-        severity: 'critical',
-        remediation: 'Patch or mitigate critical vulnerabilities within the 48-hour CRA notification threshold.',
-      },
-      {
-        id: 'attack-surface-reduction-ports',
-        name: 'External interface and listening port minimization',
-        description: 'Prohibits unnecessary open network ingress ports and debug endpoints on production agent workloads.',
-        cel_expression: 'object.spec.containers.all(c, !has(c.ports) || c.ports.all(p, p.containerPort in [8080, 8443, 9090]))',
-        severity: 'high',
-        remediation: 'Close unapproved ports and restrict container network listening surfaces to authorized application ports.',
-      },
-    ],
-  },
-  'finos-aigf': {
-    id: 'finos-aigf-v1.0.0',
-    framework_id: 'finos-aigf',
-    version: 'v1.0.0',
-    author: 'system',
-    description: 'FINOS AI Governance Framework (AIGF)',
-    created_at: '2026-09-28T12:00:00Z',
-    checksum: 'f1f2f3f4f5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0',
-    rules: [
-      {
-        id: 'registered-model-registry-entry',
-        name: 'Model catalog registration and approval',
-        description: 'Verifies AI agent model is registered and actively approved in the enterprise model catalog.',
-        cel_expression: 'has(agent.registry) && agent.registry.model_registered == true',
-        severity: 'high',
-        remediation: 'Register model in the centralized enterprise AI model registry.',
-      },
-      {
-        id: 'prompt-injection-guardrail-active',
-        name: 'Active prompt injection filter guardrail',
-        description: 'Enforces real-time input and output guardrails to detect adversarial prompt injection attacks.',
-        cel_expression: 'has(agent.guardrails) && agent.guardrails.prompt_injection_filter == true',
-        severity: 'critical',
-        remediation: 'Enable prompt injection detection filter in agent inference pipeline.',
-      },
-      {
-        id: 'multi-agent-trust-boundary',
-        name: 'Multi-agent mutual mTLS and SPIFFE trust boundary',
-        description: 'Ensures all inter-agent messages and tool delegations traverse SPIFFE-authenticated mTLS channels.',
-        cel_expression: "has(request.peer.trust_domain) && request.peer.trust_domain == 'signalloom.demo' && request.peer.mtls_authenticated == true",
-        severity: 'critical',
-        remediation: 'Enforce mutual TLS and authenticate peer SPIFFE SVID rooted in the Signal Loom trust domain.',
-      },
-      {
-        id: 'vector-store-data-leak-prevention',
-        name: 'Vector database RAG embedding data leak prevention',
-        description: 'Requires differential privacy, PII scrubbing, and tenant-scoped partition keys on all vector embeddings.',
-        cel_expression: 'has(agent.rag_pipeline) && agent.rag_pipeline.pii_filter_active == true && has(agent.rag_pipeline.tenant_isolation_key)',
-        severity: 'high',
-        remediation: 'Enable automated PII scrubbing filter and attach tenant-scoped isolation key to vector database queries.',
-      },
-    ],
-  },
-  'k8s-cis-benchmark': {
-    id: 'k8s-cis-benchmark-v1.8.0',
-    framework_id: 'k8s-cis-benchmark',
-    version: 'v1.8.0',
-    author: 'Center for Internet Security (CIS)',
-    description: 'CIS Kubernetes Benchmark v1.8: Workload Security & Namespace Governance',
-    created_at: '2026-10-10T12:00:00Z',
-    checksum: 'c15b3c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789cis18',
-    official_docs_url: 'https://www.cisecurity.org/benchmark/kubernetes',
-    rules: [
-      {
-        id: 'cis-5.2.6',
-        name: 'CIS 5.2.6: Minimize the admission of root containers',
-        description: 'Containers must run as a non-root user to mitigate privilege escalation and container breakout risks.',
-        cel_expression: 'object.spec.containers.all(c, has(c.securityContext) && has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot == true)',
-        severity: 'high',
-        remediation: 'Set securityContext.runAsNonRoot to true on all containers.',
-        docs_url: 'https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted',
-        tested_separately: false,
-      },
-      {
-        id: 'cis-5.2.5',
-        name: 'CIS 5.2.5: Minimize the admission of containers with allowPrivilegeEscalation',
-        description: 'Prohibits a container process from gaining more privileges than its parent process within the pod.',
-        cel_expression: 'object.spec.containers.all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false)',
-        severity: 'critical',
-        remediation: 'Set securityContext.allowPrivilegeEscalation to false on all containers.',
-        docs_url: 'https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted',
-        tested_separately: false,
-      },
-      {
-        id: 'cis-5.7.4',
-        name: 'CIS 5.7.4: Ensure default seccomp profile is set to RuntimeDefault',
-        description: 'Applies system call filtering via RuntimeDefault seccomp profile to restrict sensitive kernel surfaces.',
-        cel_expression: 'has(object.spec.securityContext) && has(object.spec.securityContext.seccompProfile) && object.spec.securityContext.seccompProfile.type in ["RuntimeDefault", "Localhost"]',
-        severity: 'high',
-        remediation: 'Configure pod securityContext.seccompProfile.type to RuntimeDefault.',
-        docs_url: 'https://kubernetes.io/docs/concepts/security/pod-security-standards/#baseline',
-        tested_separately: false,
-      },
-      {
-        id: 'cis-5.7.1',
-        name: 'CIS 5.7.1: Minimize default service account token auto-mount',
-        description: 'Disable automatic injection of default API credentials into container pods to prevent lateral movement.',
-        cel_expression: '!has(object.spec.automountServiceAccountToken) || object.spec.automountServiceAccountToken == false',
-        severity: 'medium',
-        remediation: 'Set automountServiceAccountToken: false in pod spec or service account.',
-        docs_url: 'https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/',
-        tested_separately: false,
-      },
-      {
-        id: 'cis-5.2.2',
-        name: 'CIS 5.2.2: Minimize host PID, IPC, and Network namespace sharing',
-        description: 'Containers must not share host PID, IPC, or network namespaces with the host operating system.',
-        cel_expression: '(!has(object.spec.hostPID) || object.spec.hostPID == false) && (!has(object.spec.hostIPC) || object.spec.hostIPC == false) && (!has(object.spec.hostNetwork) || object.spec.hostNetwork == false)',
-        severity: 'critical',
-        remediation: 'Ensure hostPID, hostIPC, and hostNetwork are omitted or set to false.',
-        docs_url: 'https://kubernetes.io/docs/concepts/security/pod-security-standards/#baseline',
-        tested_separately: false,
-      },
-      {
-        id: 'cis-5.3.1',
-        name: 'CIS 5.3.1: Ensure NetworkPolicies are defined for all namespaces',
-        description: 'Agent namespaces must enforce default-deny ingress and egress network microsegmentation.',
-        cel_expression: '/* Cluster-level audit: audited via Cilium / NetworkPolicy controller. Not tested in pod admission CEL. */',
-        severity: 'high',
-        remediation: 'Apply CiliumNetworkPolicy with default-deny rules in the agent namespace.',
-        docs_url: 'https://kubernetes.io/docs/concepts/services-networking/network-policies/',
-        tested_separately: true,
-        tested_separately_note: 'Audited at namespace/cluster scope via NetworkPolicy controller',
-      },
-      {
-        id: 'cis-5.4.1',
-        name: 'CIS 5.4.1: Ensure ResourceQuotas are defined for agent namespaces',
-        description: 'Namespaces running autonomous AI workloads must define compute and memory ResourceQuotas.',
-        cel_expression: '/* Namespace-level audit: audited via ResourceQuota admission controller. Not tested in pod admission CEL. */',
-        severity: 'medium',
-        remediation: 'Apply ResourceQuota manifest to namespace fe-signalloom-agents.',
-        docs_url: 'https://kubernetes.io/docs/concepts/policy/resource-quotas/',
-        tested_separately: true,
-        tested_separately_note: 'Audited at namespace scope via ResourceQuota controller',
-      },
-      {
-        id: 'cis-5.1.1',
-        name: 'CIS 5.1.1: Ensure cluster-admin role is restricted and audited',
-        description: 'Agent service accounts must not be bound to cluster-admin ClusterRole.',
-        cel_expression: '/* RBAC-level audit: audited via KubeSec-AFM formal verification engine (/rbac-analysis). Not tested in pod admission CEL. */',
-        severity: 'critical',
-        remediation: 'Bind agent service account to least-privilege Role instead of ClusterRole.',
-        docs_url: 'https://kubernetes.io/docs/reference/access-authn-authz/rbac/',
-        tested_separately: true,
-        tested_separately_note: 'Audited via KubeSec-AFM formal RBAC analysis engine (/rbac-analysis)',
-      },
-    ],
-  },
-}
+export { CANONICAL_BUNDLES as DEMO_BUNDLES, normalizeFrameworkId }
 
 export default function CompliancePolicyPage() {
   const { getAccessTokenSilently } = useAuth0()
   const { fmtMoney, noteFor } = useMoney()
   const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const frameworkQuery = searchParams.get('framework')
+  const ruleQuery = searchParams.get('rule')
   const isPoliciesRoute = location.pathname.startsWith('/policies')
+
   const [summary, setSummary] = useState<PostureSummary | null>(null)
   const [frameworks, setFrameworks] = useState<FrameworkSummary[]>([])
   const [policySummaries, setPolicySummaries] = useState<PolicyBundleSummary[]>([])
-  const [selectedFrameworkId, setSelectedFrameworkId] = useState<string>('eu-ai-act')
+  const [activeTenantFrameworks, setActiveTenantFrameworks] = useState<string[]>([])
+  const [selectedFrameworkId, setSelectedFrameworkId] = useState<string>(() => {
+    return normalizeFrameworkId(frameworkQuery)
+  })
+  const [selectedRuleId, setSelectedRuleId] = useState<string | null>(ruleQuery)
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'editor' | 'overview'>(isPoliciesRoute ? 'editor' : 'overview')
+  const [activeTab, setActiveTab] = useState<'editor' | 'overview'>(
+    isPoliciesRoute || Boolean(frameworkQuery) ? 'editor' : 'overview',
+  )
 
   useEffect(() => {
     if (location.pathname.startsWith('/policies')) {
@@ -340,23 +78,64 @@ export default function CompliancePolicyPage() {
     }
   }, [location.pathname])
 
+  // Synchronize internal state with external URL query parameters
+  useEffect(() => {
+    const fw = searchParams.get('framework')
+    const normalized = normalizeFrameworkId(fw)
+    if (normalized !== selectedFrameworkId) {
+      setSelectedFrameworkId(normalized)
+    }
+    const r = searchParams.get('rule')
+    if (r !== selectedRuleId) {
+      setSelectedRuleId(r)
+    }
+  }, [searchParams, selectedFrameworkId, selectedRuleId])
+
+  const handleSelectFramework = useCallback((fwId: string) => {
+    const canonical = normalizeFrameworkId(fwId)
+    setSelectedFrameworkId(canonical)
+    setSelectedRuleId(null)
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.set('framework', canonical)
+        next.delete('rule')
+        return next
+      },
+      { replace: true },
+    )
+  }, [setSearchParams])
+
+  const handleSelectRule = useCallback((ruleId: string) => {
+    setSelectedRuleId(ruleId)
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.set('framework', selectedFrameworkId)
+        next.set('rule', ruleId)
+        return next
+      },
+      { replace: true },
+    )
+  }, [selectedFrameworkId, setSearchParams])
+
   const load = useCallback(async () => {
     try {
       const token = await getAccessTokenSilently()
-      const [fw, sum, pol] = await Promise.allSettled([
+      const [fw, sum, pol, sett] = await Promise.allSettled([
         api.compliancePolicy.frameworks(token),
         api.compliancePolicy.summary(token),
         api.policies ? api.policies.list(token) : Promise.resolve([]),
+        api.settings ? api.settings(token) : Promise.resolve(null),
       ])
 
       if (fw.status === 'fulfilled') setFrameworks(fw.value)
       if (sum.status === 'fulfilled') setSummary(sum.value)
       if (pol.status === 'fulfilled' && Array.isArray(pol.value)) setPolicySummaries(pol.value)
+      if (sett.status === 'fulfilled' && sett.value?.selected_frameworks) {
+        setActiveTenantFrameworks(sett.value.selected_frameworks)
+      }
 
-      // allSettled never throws, so a rejected leg used to be indistinguishable
-      // from one that legitimately returned nothing, and the unconditional
-      // setError(null) below cleared any earlier error too. Surface the
-      // rejections instead: a page that cannot load its figures must say so.
       const failures = [
         fw.status === 'rejected' ? 'frameworks' : null,
         sum.status === 'rejected' ? 'posture summary' : null,
@@ -398,50 +177,66 @@ export default function CompliancePolicyPage() {
   }
 
   const activeBundleSummary = useMemo(() => {
-    return policySummaries.find((s) => s.framework_id === selectedFrameworkId)
+    const canonical = normalizeFrameworkId(selectedFrameworkId)
+    return policySummaries.find(
+      (s) => normalizeFrameworkId(s.framework_id) === canonical,
+    )
   }, [policySummaries, selectedFrameworkId])
 
-  // null means "no bundle is registered for this framework". Only demo mode
-  // substitutes the seeded catalogue; live mode renders an empty state so a
-  // demo bundle is never mistaken for the active policy (it was previously
-  // editable and savable straight back to the live API).
-  const currentBundle: PolicyBundle | null = useMemo(() => {
+  // Returns bundle if available from policy service or fallback to built-in regulatory catalogue
+  const currentBundle: PolicyBundle = useMemo(() => {
     if (activeBundleSummary?.active_bundle) {
       return activeBundleSummary.active_bundle
     }
-    return isDemoMode() ? DEMO_BUNDLES[selectedFrameworkId] ?? null : null
+    const template = getBundleForFramework(selectedFrameworkId)
+    if (template) {
+      return template
+    }
+    // Return empty bundle stub rather than null to preserve navigation and framework selector
+    return {
+      id: `${selectedFrameworkId}-bundle`,
+      framework_id: selectedFrameworkId,
+      version: 'v0.0.0',
+      author: 'system',
+      description: `Unregistered bundle for ${selectedFrameworkId}`,
+      created_at: new Date().toISOString(),
+      checksum: '',
+      rules: [],
+    }
   }, [activeBundleSummary, selectedFrameworkId])
 
   const versionHistory: VersionHistoryItem[] = useMemo(() => {
     if (activeBundleSummary?.version_history?.length) {
       return activeBundleSummary.version_history
     }
-    // No synthesised history: a single entry derived from the bundle on screen
-    // is a restatement, not a record of versions the registry actually holds.
     return []
   }, [activeBundleSummary])
 
+  // Strictly deduplicated list of available frameworks
   const availableFrameworkOptions = useMemo(() => {
-    const live = frameworks.map((fw) => ({ id: fw.id, name: fw.name }))
-    if (!isDemoMode()) {
-      // Live mode lists exactly the frameworks the API registered. The former
-      // default list was unioned in even when the API answered, so two entries
-      // literally labelled "(Placeholder)" appeared in a live selector.
-      return live
+    const map = new Map<string, string>()
+
+    // Canonical defaults
+    for (const opt of getCanonicalFrameworkOptions()) {
+      map.set(opt.id, opt.name)
     }
-    const map = new Map<string, string>([
-      ['eu-ai-act', 'EU AI Act'],
-      ['nist-800-53', 'NIST SP 800-53'],
-      ['cra', 'Cyber Resilience Act (CRA)'],
-      ['finos-aigf', 'FINOS AIGF'],
-      ['dora', 'DORA (Placeholder)'],
-      ['nis2', 'NIS2 (Placeholder)'],
-    ])
-    for (const fw of live) {
-      if (!map.has(fw.id)) map.set(fw.id, fw.name)
+
+    // Add any backend frameworks, normalizing aliases so duplicates never occur
+    for (const fw of frameworks) {
+      const normId = normalizeFrameworkId(fw.id)
+      if (!map.has(normId)) {
+        map.set(normId, fw.name)
+      }
     }
-    return Array.from(map.entries()).map(([id, name]) => ({ id, name }))
-  }, [frameworks])
+
+    return Array.from(map.entries()).map(([id, name]) => {
+      const isActive = activeTenantFrameworks.length === 0 || activeTenantFrameworks.includes(id)
+      return {
+        id,
+        name: isActive ? name : `${name} (Inactive)`,
+      }
+    })
+  }, [frameworks, activeTenantFrameworks])
 
   const handleSaveBundle = async (updatedBundle: PolicyBundle) => {
     const token = await getAccessTokenSilently()
@@ -564,21 +359,16 @@ export default function CompliancePolicyPage() {
       {activeTab === 'editor' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Section title="Policy-as-Code Editor" hint="Client-side syntax diagnostics with authoritative Go CEL engine">
-            {currentBundle ? (
-              <PolicyEditor
-                bundle={currentBundle}
-                versionHistory={versionHistory}
-                availableFrameworks={availableFrameworkOptions}
-                onSelectFramework={setSelectedFrameworkId}
-                onSave={handleSaveBundle}
-                onRollback={handleRollbackBundle}
-              />
-            ) : (
-              <EmptyState
-                kicker="No policy bundle registered"
-                body={`The policy registry holds no active bundle for "${selectedFrameworkId}". Register one to edit its CEL rules here.`}
-              />
-            )}
+            <PolicyEditor
+              bundle={currentBundle}
+              versionHistory={versionHistory}
+              availableFrameworks={availableFrameworkOptions}
+              onSelectFramework={handleSelectFramework}
+              selectedRuleId={selectedRuleId}
+              onSelectRule={handleSelectRule}
+              onSave={handleSaveBundle}
+              onRollback={handleRollbackBundle}
+            />
           </Section>
         </div>
       )}
@@ -603,7 +393,15 @@ export default function CompliancePolicyPage() {
                 const currentVersion = fw.versions[fw.versions.length - 1] ?? 'None'
                 return (
                   <div key={fw.id} className="card" style={{ flex: '1 1 280px', padding: 16 }}>
-                    <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>{fw.name}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>{fw.name}</div>
+                      <Link
+                        to={`/policies?framework=${normalizeFrameworkId(fw.id)}`}
+                        style={{ fontSize: 11, color: 'var(--cyan)', textDecoration: 'none', fontWeight: 600 }}
+                      >
+                        Edit CEL →
+                      </Link>
+                    </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
                       Current version: <strong style={{ color: 'var(--text)' }}>{currentVersion}</strong>
                     </div>
@@ -649,7 +447,7 @@ export default function CompliancePolicyPage() {
 
           {/* Framework breakdown table */}
           <Section title="Framework Breakdown" hint="per-framework detail">
-            <Table headers={['Framework', 'Control Set', 'Controls', 'Passed', 'Coverage', 'Exposure']}>
+            <Table headers={['Framework', 'Control Set', 'Controls', 'Passed', 'Coverage', 'Exposure', 'Action']}>
               {frameworks.map((fw) => (
                 <tr key={fw.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={td}>{fw.name}</td>
@@ -664,6 +462,15 @@ export default function CompliancePolicyPage() {
                     {' '}{fmtPct(fw.passedControls, fw.totalControls)}
                   </td>
                   <td style={td}>{fmtMoney(fw.totalExposure ?? fw.exposure)}</td>
+                  <td style={td}>
+                    <Link
+                      to={`/policies?framework=${normalizeFrameworkId(fw.id)}`}
+                      className="btn btn-secondary"
+                      style={{ fontSize: 11, padding: '3px 8px', textDecoration: 'none' }}
+                    >
+                      Open Editor
+                    </Link>
+                  </td>
                 </tr>
               ))}
             </Table>

@@ -2,15 +2,19 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { parse } from '@marcbachmann/cel-js'
 import type { PolicyBundle, PolicyRule, VersionHistoryItem } from '../types/policies'
 import ConfirmDialog from './ConfirmDialog'
+import { prettifyCel } from '../utils/celFormatter'
+import { getBundleForFramework } from '../data/regulatoryFrameworks'
 
 export interface PolicyEditorProps {
-  bundle: PolicyBundle
+  bundle: PolicyBundle | null
   versionHistory?: VersionHistoryItem[]
   onSave?: (updatedBundle: PolicyBundle) => Promise<void>
   onRollback?: (frameworkId: string, targetVersion: string) => Promise<void>
   readOnly?: boolean
   availableFrameworks?: Array<{ id: string; name: string }>
   onSelectFramework?: (frameworkId: string) => void
+  selectedRuleId?: string | null
+  onSelectRule?: (ruleId: string) => void
 }
 
 export interface CelDiagnostic {
@@ -61,6 +65,19 @@ export function tokenizeCel(code: string): Token[][] {
         break
       }
 
+      // Block comment start
+      if (ch === '/' && line[i + 1] === '*') {
+        const endIdx = line.indexOf('*/', i + 2)
+        if (endIdx !== -1) {
+          tokens.push({ text: line.slice(i, endIdx + 2), type: 'comment' })
+          i = endIdx + 2
+        } else {
+          tokens.push({ text: line.slice(i), type: 'comment' })
+          break
+        }
+        continue
+      }
+
       // Strings
       if (ch === '"' || ch === "'") {
         const quote = ch
@@ -105,48 +122,58 @@ export function tokenizeCel(code: string): Token[][] {
         }
         if (celKeywords.has(ident)) {
           tokens.push({ text: ident, type: 'keyword' })
-        } else if (celVariables.has(ident)) {
-          tokens.push({ text: ident, type: 'variable' })
         } else if (celMacros.has(ident)) {
           tokens.push({ text: ident, type: 'macro' })
+        } else if (celVariables.has(ident)) {
+          tokens.push({ text: ident, type: 'variable' })
         } else {
           tokens.push({ text: ident, type: 'identifier' })
         }
         continue
       }
 
-      // Operators and Punctuation
-      if (/[:?&|=!<>+\-*/%~^]/.test(ch)) {
-        let op = ch
-        i++
-        while (i < line.length && /[:?&|=!<>+\-*/%~^]/.test(line[i])) {
-          op += line[i]
-          i++
-        }
-        tokens.push({ text: op, type: 'operator' })
+      // Multi-character operators
+      const two = line.slice(i, i + 2)
+      if (['==', '!=', '<=', '>=', '&&', '||'].includes(two)) {
+        tokens.push({ text: two, type: 'operator' })
+        i += 2
         continue
       }
 
-      if (/[()\[\]{},;.]/.test(ch)) {
+      // Single character operators and punctuation
+      if (['<', '>', '!', '+', '-', '*', '/', '%', '?', ':'].includes(ch)) {
+        tokens.push({ text: ch, type: 'operator' })
+        i++
+        continue
+      }
+
+      if (['(', ')', '[', ']', '{', '}', '.', ',', ';'].includes(ch)) {
         tokens.push({ text: ch, type: 'punctuation' })
         i++
         continue
       }
 
-      tokens.push({ text: ch, type: 'identifier' })
+      // Fallback
+      tokens.push({ text: ch, type: 'error' })
       i++
     }
     return tokens
   })
 }
 
-export function validateCelExpression(expression: string): CelDiagnostic {
-  const trimmed = expression.trim()
-  if (!trimmed) {
+export function validateCelExpression(code: string): CelDiagnostic {
+  if (!code || !code.trim()) {
     return { valid: true }
   }
+
+  // Treat comments as valid informational stubs
+  const trimmed = code.trim()
+  if (trimmed.startsWith('/*') && trimmed.endsWith('*/')) {
+    return { valid: true }
+  }
+
   try {
-    parse(trimmed)
+    parse(code)
     return { valid: true }
   } catch (err: unknown) {
     const parseErr = err as { message?: string; line?: number; column?: number }
@@ -170,9 +197,22 @@ export default function PolicyEditor({
   readOnly = false,
   availableFrameworks = [],
   onSelectFramework,
+  selectedRuleId,
+  onSelectRule,
 }: PolicyEditorProps) {
+  const effectiveBundle = bundle || {
+    id: 'unregistered-bundle',
+    framework_id: availableFrameworks[0]?.id || 'unknown',
+    version: 'v0.0.0',
+    author: 'system',
+    description: 'No bundle registered',
+    created_at: new Date().toISOString(),
+    checksum: '',
+    rules: [],
+  }
+
   const [selectedRuleIndex, setSelectedRuleIndex] = useState(0)
-  const [rules, setRules] = useState<PolicyRule[]>(bundle.rules || [])
+  const [rules, setRules] = useState<PolicyRule[]>(effectiveBundle.rules || [])
   const [historyOpen, setHistoryOpen] = useState(false)
   const [selectedHistoryVersion, setSelectedHistoryVersion] = useState<string | null>(null)
   const [rollbackConfirmOpen, setRollbackConfirmOpen] = useState(false)
@@ -181,13 +221,33 @@ export default function PolicyEditor({
   const [saveError, setSaveError] = useState<string | null>(null)
   const [rollbackError, setRollbackError] = useState<string | null>(null)
   const [diagnosticTooltipOpen, setDiagnosticTooltipOpen] = useState(false)
+  const [ruleSearch, setRuleSearch] = useState('')
+  const [wrapLines, setWrapLines] = useState(true)
+  const [copiedLink, setCopiedLink] = useState(false)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    setRules(bundle.rules || [])
-    setSelectedRuleIndex(0)
-  }, [bundle])
+    const bRules = effectiveBundle.rules || []
+    setRules(bRules)
+    if (selectedRuleId) {
+      const idx = bRules.findIndex((r) => r.id === selectedRuleId)
+      setSelectedRuleIndex(idx >= 0 ? idx : 0)
+    } else {
+      setSelectedRuleIndex(0)
+    }
+  }, [effectiveBundle.rules, effectiveBundle.id, selectedRuleId])
+
+  const filteredRules = useMemo(() => {
+    if (!ruleSearch.trim()) return rules
+    const q = ruleSearch.toLowerCase()
+    return rules.filter(
+      (r) =>
+        r.id.toLowerCase().includes(q) ||
+        r.name.toLowerCase().includes(q) ||
+        (r.description && r.description.toLowerCase().includes(q))
+    )
+  }, [rules, ruleSearch])
 
   const currentRule = rules[selectedRuleIndex] || {
     id: 'rule-0',
@@ -205,6 +265,13 @@ export default function PolicyEditor({
     return tokenizeCel(currentRule.cel_expression || '')
   }, [currentRule.cel_expression])
 
+  const handleSelectRuleAt = (idx: number) => {
+    setSelectedRuleIndex(idx)
+    if (rules[idx] && onSelectRule) {
+      onSelectRule(rules[idx].id)
+    }
+  }
+
   const handleExpressionChange = (val: string) => {
     if (readOnly) return
     const updated = [...rules]
@@ -214,6 +281,22 @@ export default function PolicyEditor({
     }
     setRules(updated)
     setSaveSuccess(false)
+  }
+
+  const handlePrettify = () => {
+    if (!currentRule.cel_expression || readOnly) return
+    const pretty = prettifyCel(currentRule.cel_expression)
+    handleExpressionChange(pretty)
+  }
+
+  const handleCopyLink = () => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const url = `${origin}/policies?framework=${effectiveBundle.framework_id}&rule=${encodeURIComponent(currentRule.id)}`
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(url)
+      setCopiedLink(true)
+      setTimeout(() => setCopiedLink(false), 2000)
+    }
   }
 
   const handleSave = async () => {
@@ -226,14 +309,13 @@ export default function PolicyEditor({
     setSaving(true)
     setSaveError(null)
     try {
-      // Monotonically bump patch version (e.g. v2.1.0 -> v2.1.1)
-      const verParts = bundle.version.replace(/^v/, '').split('.').map(Number)
+      const verParts = (effectiveBundle.version || 'v1.0.0').replace(/^v/, '').split('.').map(Number)
       while (verParts.length < 3) verParts.push(0)
       verParts[2] = (verParts[2] || 0) + 1
       const nextVersion = `v${verParts.join('.')}`
 
       const updatedBundle: PolicyBundle = {
-        ...bundle,
+        ...effectiveBundle,
         version: nextVersion,
         rules,
         created_at: new Date().toISOString(),
@@ -258,14 +340,22 @@ export default function PolicyEditor({
     setRollbackConfirmOpen(false)
     setRollbackError(null)
     try {
-      await onRollback(bundle.framework_id, selectedHistoryVersion)
+      await onRollback(effectiveBundle.framework_id, selectedHistoryVersion)
       setHistoryOpen(false)
     } catch (err: unknown) {
       setRollbackError(err instanceof Error ? err.message : 'Rollback failed')
     }
   }
 
-  // Token color styling mapping
+  const handleInitializeFromTemplate = () => {
+    const template = getBundleForFramework(effectiveBundle.framework_id)
+    if (template && template.rules.length > 0) {
+      setRules(template.rules)
+      setSelectedRuleIndex(0)
+      if (onSelectRule) onSelectRule(template.rules[0].id)
+    }
+  }
+
   const getTokenStyle = (type: Token['type']): React.CSSProperties => {
     switch (type) {
       case 'keyword':
@@ -288,6 +378,10 @@ export default function PolicyEditor({
     }
   }
 
+  const isManualAttestation = Boolean(
+    currentRule.manual_attestation || currentRule.attestation_type === 'manual' || currentRule.attestation_type === 'cluster'
+  )
+
   return (
     <div
       data-testid="policy-editor-container"
@@ -301,7 +395,7 @@ export default function PolicyEditor({
         padding: 16,
       }}
     >
-      {/* Top Header Bar */}
+      {/* Top Header Bar with Framework Switcher */}
       <div
         style={{
           display: 'flex',
@@ -313,11 +407,11 @@ export default function PolicyEditor({
           borderBottom: '1px solid var(--border)',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           {availableFrameworks.length > 0 && onSelectFramework ? (
             <select
               data-testid="framework-selector"
-              value={bundle.framework_id}
+              value={effectiveBundle.framework_id}
               onChange={(e) => onSelectFramework(e.target.value)}
               style={{
                 background: 'var(--bg)',
@@ -337,7 +431,7 @@ export default function PolicyEditor({
             </select>
           ) : (
             <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
-              {bundle.framework_id.toUpperCase()}
+              {effectiveBundle.framework_id.toUpperCase()}
             </span>
           )}
 
@@ -354,10 +448,10 @@ export default function PolicyEditor({
               color: 'var(--cyan)',
             }}
           >
-            {bundle.version}
+            {effectiveBundle.version}
           </span>
 
-          {bundle.status === 'placeholder' && (
+          {effectiveBundle.status === 'placeholder' && (
             <span
               data-testid="policy-placeholder-badge"
               style={{
@@ -374,6 +468,23 @@ export default function PolicyEditor({
               Placeholder
             </span>
           )}
+
+          <button
+            data-testid="copy-shareable-link-btn"
+            type="button"
+            className="btn btn-secondary"
+            onClick={handleCopyLink}
+            style={{
+              fontSize: 11,
+              padding: '4px 8px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+            title="Copy shareable link with framework and active rule"
+          >
+            <span>{copiedLink ? '✓ Copied' : '🔗 Share Link'}</span>
+          </button>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -410,7 +521,7 @@ export default function PolicyEditor({
               type="button"
               className="btn btn-primary"
               onClick={handleSave}
-              disabled={saving || !diagnostic.valid}
+              disabled={saving || (!diagnostic.valid && !isManualAttestation)}
               style={{ fontSize: 12, padding: '6px 14px' }}
             >
               {saving ? 'Saving...' : 'Save New Version'}
@@ -451,496 +562,603 @@ export default function PolicyEditor({
         </div>
       )}
 
-      {/* Main Workspace Layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: historyOpen ? '1fr 340px' : '1fr', gap: 16 }}>
-        {/* Editor Main Column */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Rules Tabs */}
-          <div
-            style={{
-              display: 'flex',
-              gap: 6,
-              overflowX: 'auto',
-              paddingBottom: 4,
-              borderBottom: '1px solid var(--border)',
-            }}
-          >
-            {rules.map((rule, idx) => {
-              const isSelected = idx === selectedRuleIndex
-              const ruleDiag = validateCelExpression(rule.cel_expression || '')
-              return (
-                <button
-                  key={rule.id}
-                  data-testid={`rule-tab-${rule.id}`}
-                  type="button"
-                  onClick={() => setSelectedRuleIndex(idx)}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: '6px 6px 0 0',
-                    border: '1px solid',
-                    borderColor: isSelected ? 'var(--cyan)' : 'transparent',
-                    borderBottom: isSelected ? '2px solid var(--cyan)' : 'none',
-                    background: isSelected ? 'var(--bg)' : 'transparent',
-                    color: isSelected ? 'var(--text)' : 'var(--muted)',
-                    fontSize: 12,
-                    fontWeight: isSelected ? 600 : 400,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  <span>{rule.id}</span>
-                  {!ruleDiag.valid && (
-                    <span
-                      title={ruleDiag.message}
-                      style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: '50%',
-                        background: 'var(--error)',
-                      }}
-                    />
-                  )}
-                </button>
-              )
-            })}
+      {/* When bundle has 0 rules: keep workspace intact with Initialize button */}
+      {rules.length === 0 ? (
+        <div
+          data-testid="empty-bundle-notice"
+          style={{
+            padding: 36,
+            textAlign: 'center',
+            background: 'var(--bg)',
+            borderRadius: 8,
+            border: '1px dashed var(--border)',
+          }}
+        >
+          <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>
+            No policy rules registered in &ldquo;{effectiveBundle.framework_id}&rdquo;
           </div>
-
-          {/* Rule Metadata Header */}
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 4,
-              padding: '10px 14px',
-              background: 'var(--bg)',
-              borderRadius: 6,
-              border: '1px solid var(--border)',
-            }}
+          <p style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 520, margin: '0 auto 16px auto', lineHeight: 1.5 }}>
+            This policy bundle currently contains no active CEL or governance rules. You can select another framework using the dropdown above, or initialize this bundle with default baseline regulatory rules.
+          </p>
+          <button
+            data-testid="initialize-template-btn"
+            type="button"
+            className="btn btn-primary"
+            onClick={handleInitializeFromTemplate}
+            style={{ fontSize: 13, padding: '8px 18px' }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-                {currentRule.name}
-              </span>
-              <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  padding: '2px 6px',
-                  borderRadius: 4,
-                  background: currentRule.severity === 'critical' ? 'rgba(220,38,38,0.15)' : 'rgba(217,119,6,0.15)',
-                  color: currentRule.severity === 'critical' ? 'var(--error)' : 'var(--amber)',
-                }}
-              >
-                {currentRule.severity || 'high'}
-              </span>
-            </div>
-            {currentRule.description && (
-              <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
-                {currentRule.description}
-              </p>
-            )}
-            {currentRule.remediation && (
-              <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
-                <strong style={{ color: 'var(--text)' }}>Remediation:</strong> {currentRule.remediation}
-              </p>
-            )}
-          </div>
-
-          {/* CEL Code Editor Area */}
-          <div
-            data-testid="cel-editor-workspace"
-            style={{
-              position: 'relative',
-              display: 'flex',
-              flexDirection: 'column',
-              borderRadius: 6,
-              border: `1px solid ${diagnostic.valid ? 'var(--border)' : 'var(--error)'}`,
-              background: 'var(--bg)',
-              fontFamily: 'monospace',
-              fontSize: 13,
-              lineHeight: '20px',
-              overflow: 'hidden',
-            }}
-          >
-            {/* Editor Focus Accessibility Help */}
-            <div
-              style={{
-                position: 'absolute',
-                top: 6,
-                right: 10,
-                fontSize: 10,
-                color: 'var(--muted)',
-                zIndex: 10,
-                pointerEvents: 'none',
-              }}
-            >
-              Press Esc to exit editor focus
-            </div>
-
-            <div style={{ display: 'flex', minHeight: 180, position: 'relative' }}>
-              {/* Line Numbers Gutter */}
-              <div
-                style={{
-                  padding: '12px 8px',
-                  background: 'var(--surface2)',
-                  color: 'var(--muted)',
-                  textAlign: 'right',
-                  userSelect: 'none',
-                  borderRight: '1px solid var(--border)',
-                  minWidth: 40,
-                }}
-              >
-                {tokenizedLines.map((_, i) => (
-                  <div key={i} style={{ height: 20 }}>
-                    {i + 1}
-                  </div>
-                ))}
-              </div>
-
-              {/* Textarea Input Overlay and Syntax Token Display */}
-              <div style={{ position: 'relative', flex: 1, padding: 12, overflow: 'auto' }}>
-                <textarea
-                  ref={textareaRef}
-                  data-testid="cel-code-textarea"
-                  aria-label="CEL Expression Editor"
-                  value={currentRule.cel_expression || ''}
-                  onChange={(e) => handleExpressionChange(e.target.value)}
-                  readOnly={readOnly}
-                  spellCheck={false}
-                  autoCapitalize="off"
-                  autoComplete="off"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      textareaRef.current?.blur()
-                    }
-                  }}
-                  style={{
-                    position: 'absolute',
-                    top: 12,
-                    left: 12,
-                    right: 12,
-                    bottom: 12,
-                    width: 'calc(100% - 24px)',
-                    height: 'calc(100% - 24px)',
-                    background: 'transparent',
-                    color: 'transparent',
-                    caretColor: 'var(--text)',
-                    border: 'none',
-                    outline: 'none',
-                    resize: 'none',
-                    fontFamily: 'monospace',
-                    fontSize: 13,
-                    lineHeight: '20px',
-                    whiteSpace: 'pre',
-                    zIndex: 2,
-                    margin: 0,
-                    padding: 0,
-                  }}
-                />
-
-                {/* Tokenized Syntax Highlighting Display */}
-                <div
-                  data-testid="cel-syntax-highlight-overlay"
-                  aria-hidden="true"
-                  style={{
-                    position: 'relative',
-                    zIndex: 1,
-                    whiteSpace: 'pre',
-                    fontFamily: 'monospace',
-                    fontSize: 13,
-                    lineHeight: '20px',
-                    pointerEvents: 'none',
-                  }}
-                >
-                  {tokenizedLines.map((lineTokens, lineIdx) => {
-                    const isErrorLine = !diagnostic.valid && (diagnostic.line === lineIdx + 1 || (tokenizedLines.length === 1 && lineIdx === 0))
-                    return (
-                      <div key={lineIdx} style={{ height: 20 }}>
-                        {lineTokens.map((tok, tokIdx) => (
-                          <span
-                            key={tokIdx}
-                            style={{
-                              ...getTokenStyle(tok.type),
-                              ...(isErrorLine && tok.type !== 'whitespace'
-                                ? {
-                                    textDecoration: 'underline wavy var(--error)',
-                                    textUnderlineOffset: 3,
-                                  }
-                                : {}),
-                            }}
-                          >
-                            {tok.text}
-                          </span>
-                        ))}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* Diagnostic Footer Bar */}
+            Initialize from Baseline Template
+          </button>
+        </div>
+      ) : (
+        /* Main Workspace Layout */
+        <div style={{ display: 'grid', gridTemplateColumns: historyOpen ? '1fr 340px' : '1fr', gap: 16 }}>
+          {/* Editor Main Column */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Rules Navigation Bar with Search and Wrapped Chips */}
             <div
               style={{
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '8px 12px',
-                borderTop: '1px solid var(--border)',
-                background: diagnostic.valid ? 'var(--surface)' : 'rgba(220, 38, 38, 0.12)',
-                fontSize: 12,
+                flexDirection: 'column',
+                gap: 8,
+                paddingBottom: 8,
+                borderBottom: '1px solid var(--border)',
               }}
             >
-              {diagnostic.valid ? (
-                <div
-                  data-testid="cel-diagnostic-valid"
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--teal)' }}
-                >
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--teal)' }} />
-                  <span>Valid CEL syntax</span>
-                </div>
-              ) : (
-                <div
-                  data-testid="cel-diagnostic-error"
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '0.06em' }}>
+                  Policy Controls ({rules.length})
+                </span>
+                <input
+                  data-testid="rule-search-input"
+                  type="text"
+                  placeholder="Filter rules..."
+                  value={ruleSearch}
+                  onChange={(e) => setRuleSearch(e.target.value)}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    color: 'var(--error)',
-                    fontWeight: 500,
+                    padding: '4px 10px',
+                    fontSize: 12,
+                    background: 'var(--bg)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 6,
+                    color: 'var(--text)',
+                    width: 160,
                   }}
-                >
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--error)' }} />
-                  <span>{diagnostic.message} (line {diagnostic.line}, col {diagnostic.column})</span>
-                  <button
-                    type="button"
-                    onClick={() => setDiagnosticTooltipOpen(!diagnosticTooltipOpen)}
-                    style={{
-                      background: 'none',
-                      border: '1px solid var(--error)',
-                      color: 'var(--error)',
-                      borderRadius: 4,
-                      fontSize: 10,
-                      padding: '1px 6px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Details
-                  </button>
-                </div>
-              )}
-
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                Evaluator: Go Policy Engine (Authoritative)
-              </span>
-            </div>
-
-            {/* Diagnostic Details Popover Tooltip */}
-            {!diagnostic.valid && diagnosticTooltipOpen && diagnostic.snippet && (
-              <div
-                data-testid="cel-diagnostic-tooltip"
-                style={{
-                  padding: 10,
-                  background: 'var(--surface2)',
-                  borderTop: '1px solid var(--error)',
-                  color: 'var(--text)',
-                  fontSize: 11,
-                  fontFamily: 'monospace',
-                  whiteSpace: 'pre-wrap',
-                }}
-              >
-                {diagnostic.snippet}
+                />
               </div>
-            )}
-          </div>
-        </div>
 
-        {/* Version History Drawer / Column */}
-        {historyOpen && (
-          <div
-            data-testid="version-history-drawer"
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-              background: 'var(--bg)',
-              border: '1px solid var(--border)',
-              borderRadius: 6,
-              padding: 12,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
-                Monotonic Versions
-              </span>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setHistoryOpen(false)}
-                style={{ fontSize: 11, padding: '2px 6px' }}
-              >
-                Close
-              </button>
-            </div>
-
-            {rollbackError && (
+              {/* Wrapped Rule Selector Chips */}
               <div
-                data-testid="rollback-error"
-                style={{
-                  padding: '6px 8px',
-                  borderRadius: 4,
-                  background: 'rgba(220, 38, 38, 0.15)',
-                  color: 'var(--error)',
-                  fontSize: 11,
-                }}
-              >
-                {rollbackError}
-              </div>
-            )}
-
-            <div
-              data-testid="version-history-list"
-              style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300, overflowY: 'auto' }}
-            >
-              {versionHistory.map((item) => {
-                const isSelected = selectedHistoryVersion === item.version
-                const isCurrent = item.version === bundle.version
-                return (
-                  <div
-                    key={item.version}
-                    data-testid={`version-item-${item.version}`}
-                    onClick={() => setSelectedHistoryVersion(item.version)}
-                    style={{
-                      padding: 8,
-                      borderRadius: 6,
-                      background: isSelected ? 'var(--surface2)' : 'var(--surface)',
-                      border: `1px solid ${isSelected ? 'var(--cyan)' : 'var(--border)'}`,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 4,
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>
-                        {item.version}
-                      </span>
-                      {isCurrent && (
-                        <span
-                          style={{
-                            fontSize: 9,
-                            fontWeight: 700,
-                            padding: '1px 5px',
-                            borderRadius: 4,
-                            background: 'rgba(16, 185, 129, 0.15)',
-                            color: 'var(--teal)',
-                          }}
-                        >
-                          ACTIVE
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 10, color: 'var(--muted)' }}>
-                      Author: {item.author || 'system'}
-                    </div>
-                    <div style={{ fontSize: 10, color: 'var(--muted)' }}>
-                      {new Date(item.created_at).toLocaleString('en-GB')}
-                    </div>
-                    {item.checksum && (
-                      <div
-                        style={{
-                          fontSize: 9,
-                          fontFamily: 'monospace',
-                          color: 'var(--muted)',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        sha256:{item.checksum.slice(0, 12)}...
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Version Diff View */}
-            {selectedHistoryVersion && (
-              <div
-                data-testid="version-diff-viewer"
+                data-testid="rule-chips-container"
                 style={{
                   display: 'flex',
-                  flexDirection: 'column',
-                  gap: 8,
-                  padding: 10,
-                  background: 'var(--surface)',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  fontSize: 11,
+                  flexWrap: 'wrap',
+                  gap: 6,
+                  maxHeight: 140,
+                  overflowY: 'auto',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <strong style={{ color: 'var(--text)' }}>Diff Comparison</strong>
-                  <span style={{ color: 'var(--muted)', fontSize: 10 }}>
-                    {selectedHistoryVersion} vs {bundle.version}
+                {filteredRules.map((rule) => {
+                  const actualIdx = rules.findIndex((r) => r.id === rule.id)
+                  const isSelected = actualIdx === selectedRuleIndex
+                  const isManual = rule.manual_attestation || rule.attestation_type === 'manual' || rule.attestation_type === 'cluster'
+                  const ruleDiag = validateCelExpression(rule.cel_expression || '')
+
+                  return (
+                    <button
+                      key={rule.id}
+                      data-testid={`rule-tab-${rule.id}`}
+                      type="button"
+                      onClick={() => handleSelectRuleAt(actualIdx)}
+                      style={{
+                        padding: '5px 10px',
+                        borderRadius: 6,
+                        border: '1px solid',
+                        borderColor: isSelected ? 'var(--cyan)' : 'var(--border)',
+                        background: isSelected ? 'rgba(6, 182, 212, 0.12)' : 'var(--bg)',
+                        color: isSelected ? 'var(--cyan)' : 'var(--text)',
+                        fontSize: 12,
+                        fontWeight: isSelected ? 600 : 400,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        whiteSpace: 'nowrap',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {isManual ? (
+                        <span title="Manual / Cluster Attestation Control" style={{ fontSize: 11 }}>📋</span>
+                      ) : null}
+                      <span>{rule.id}</span>
+                      {!isManual && !ruleDiag.valid && (
+                        <span
+                          title={ruleDiag.message}
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: '50%',
+                            background: 'var(--error)',
+                          }}
+                        />
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Redesigned Policy Name & Metadata Header Section */}
+            <div
+              data-testid="policy-name-header"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+                padding: '12px 16px',
+                background: 'var(--bg)',
+                borderRadius: 8,
+                border: '1px solid var(--border)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--cyan)', letterSpacing: '0.06em' }}>
+                    {effectiveBundle.framework_id}
+                  </span>
+                  <span style={{ color: 'var(--border)' }}>/</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', fontFamily: 'monospace' }}>
+                    {currentRule.id}
                   </span>
                 </div>
 
-                <div
-                  style={{
-                    background: 'var(--bg)',
-                    padding: 8,
-                    borderRadius: 4,
-                    fontFamily: 'monospace',
-                    maxHeight: 120,
-                    overflowY: 'auto',
-                    whiteSpace: 'pre-wrap',
-                    color: 'var(--muted)',
-                  }}
-                >
-                  {selectedHistoryVersion === bundle.version ? (
-                    <span>No differences. Current active version.</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {isManualAttestation ? (
+                    <span
+                      data-testid="manual-attestation-badge"
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                        background: 'rgba(139, 92, 246, 0.15)',
+                        color: 'var(--violet, #a78bfa)',
+                        border: '1px solid rgba(139, 92, 246, 0.3)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
+                      📋 Manual Attestation
+                    </span>
                   ) : (
-                    <span>
-                      - Target Version: {selectedHistoryVersion}{'\n'}
-                      + Active Version: {bundle.version}{'\n'}
-                      Rules count: {rules.length}
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                        background: 'rgba(6, 182, 212, 0.15)',
+                        color: 'var(--cyan)',
+                      }}
+                    >
+                      CEL Evaluated
                     </span>
                   )}
-                </div>
 
-                {!readOnly && onRollback && selectedHistoryVersion !== bundle.version && (
-                  <button
-                    data-testid="rollback-btn"
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={handleTriggerRollback}
+                  <span
                     style={{
-                      marginTop: 4,
-                      fontSize: 11,
-                      padding: '4px 8px',
-                      color: 'var(--amber)',
-                      borderColor: 'var(--amber)',
+                      fontSize: 10,
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      background: currentRule.severity === 'critical' ? 'rgba(220,38,38,0.15)' : 'rgba(217,119,6,0.15)',
+                      color: currentRule.severity === 'critical' ? 'var(--error)' : 'var(--amber)',
                     }}
                   >
-                    Rollback to {selectedHistoryVersion}
-                  </button>
-                )}
+                    {currentRule.severity || 'high'}
+                  </span>
+                </div>
               </div>
-            )}
+
+              <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginTop: 2 }}>
+                {currentRule.name}
+              </div>
+
+              {currentRule.description && (
+                <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0, lineHeight: 1.4 }}>
+                  {currentRule.description}
+                </p>
+              )}
+
+              {currentRule.remediation && (
+                <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0, lineHeight: 1.4 }}>
+                  <strong style={{ color: 'var(--text)' }}>Remediation:</strong> {currentRule.remediation}
+                </p>
+              )}
+
+              {isManualAttestation && (
+                <div
+                  style={{
+                    marginTop: 4,
+                    padding: '8px 12px',
+                    borderRadius: 6,
+                    background: 'rgba(139, 92, 246, 0.08)',
+                    border: '1px solid rgba(139, 92, 246, 0.25)',
+                    fontSize: 11,
+                    color: 'var(--text)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                  }}
+                >
+                  <div style={{ fontWeight: 600, color: 'var(--violet, #a78bfa)' }}>
+                    Non-CEL Verification Context
+                  </div>
+                  <div>
+                    {currentRule.manual_attestation_note ||
+                      currentRule.tested_separately_note ||
+                      'This control cannot be evaluated via inline CEL pod admission. In upcoming releases, manual auditor attestation and external telemetry connectors can be recorded against this control.'}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* CEL Code Editor Area with Prettify and Wrap Toolbar */}
+            <div
+              data-testid="cel-editor-workspace"
+              style={{
+                position: 'relative',
+                display: 'flex',
+                flexDirection: 'column',
+                borderRadius: 6,
+                border: `1px solid ${diagnostic.valid ? 'var(--border)' : 'var(--error)'}`,
+                background: 'var(--bg)',
+                fontFamily: 'monospace',
+                fontSize: 13,
+                lineHeight: '20px',
+                overflow: 'hidden',
+              }}
+            >
+              {/* Editor Secondary Actions Bar (Prettify & Line Wrap) */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '6px 12px',
+                  background: 'var(--surface2)',
+                  borderBottom: '1px solid var(--border)',
+                  fontSize: 11,
+                }}
+              >
+                <span style={{ color: 'var(--muted)' }}>
+                  Common Expression Language (CEL) Syntax
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button
+                    data-testid="prettify-cel-btn"
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={handlePrettify}
+                    style={{ fontSize: 11, padding: '2px 8px' }}
+                    title="Intelligently format and indent CEL expression"
+                  >
+                    ✨ Prettify CEL
+                  </button>
+                  <button
+                    data-testid="toggle-wrap-btn"
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setWrapLines(!wrapLines)}
+                    style={{ fontSize: 11, padding: '2px 8px' }}
+                    title="Toggle line wrapping on box width"
+                  >
+                    {wrapLines ? 'Wrap: ON' : 'Wrap: OFF'}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', minHeight: 180, position: 'relative' }}>
+                {/* Line Numbers Gutter */}
+                <div
+                  style={{
+                    padding: '12px 8px',
+                    background: 'var(--surface2)',
+                    color: 'var(--muted)',
+                    textAlign: 'right',
+                    userSelect: 'none',
+                    borderRight: '1px solid var(--border)',
+                    minWidth: 40,
+                  }}
+                >
+                  {tokenizedLines.map((_, i) => (
+                    <div key={i} style={{ height: 20 }}>
+                      {i + 1}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Textarea Input Overlay and Syntax Token Display */}
+                <div style={{ position: 'relative', flex: 1, padding: 12, overflow: 'auto' }}>
+                  <textarea
+                    ref={textareaRef}
+                    data-testid="cel-code-textarea"
+                    aria-label="CEL Expression Editor"
+                    value={currentRule.cel_expression || ''}
+                    onChange={(e) => handleExpressionChange(e.target.value)}
+                    readOnly={readOnly}
+                    spellCheck={false}
+                    autoCapitalize="off"
+                    autoComplete="off"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        textareaRef.current?.blur()
+                      }
+                    }}
+                    style={{
+                      position: 'absolute',
+                      top: 12,
+                      left: 12,
+                      right: 12,
+                      bottom: 12,
+                      width: 'calc(100% - 24px)',
+                      height: 'calc(100% - 24px)',
+                      background: 'transparent',
+                      color: 'transparent',
+                      caretColor: 'var(--text)',
+                      border: 'none',
+                      outline: 'none',
+                      resize: 'none',
+                      fontFamily: 'monospace',
+                      fontSize: 13,
+                      lineHeight: '20px',
+                      whiteSpace: wrapLines ? 'pre-wrap' : 'pre',
+                      wordBreak: wrapLines ? 'break-word' : 'normal',
+                      zIndex: 2,
+                      margin: 0,
+                      padding: 0,
+                    }}
+                  />
+
+                  {/* Tokenized Syntax Highlighting Display */}
+                  <div
+                    data-testid="cel-syntax-highlight-overlay"
+                    aria-hidden="true"
+                    style={{
+                      position: 'relative',
+                      zIndex: 1,
+                      whiteSpace: wrapLines ? 'pre-wrap' : 'pre',
+                      wordBreak: wrapLines ? 'break-word' : 'normal',
+                      fontFamily: 'monospace',
+                      fontSize: 13,
+                      lineHeight: '20px',
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    {tokenizedLines.map((lineTokens, lineIdx) => {
+                      const isErrorLine = !diagnostic.valid && (diagnostic.line === lineIdx + 1 || (tokenizedLines.length === 1 && lineIdx === 0))
+                      return (
+                        <div key={lineIdx} style={{ minHeight: 20 }}>
+                          {lineTokens.map((tok, tokIdx) => (
+                            <span
+                              key={tokIdx}
+                              style={{
+                                ...getTokenStyle(tok.type),
+                                ...(isErrorLine && tok.type !== 'whitespace'
+                                  ? {
+                                      textDecoration: 'underline wavy var(--error)',
+                                      textUnderlineOffset: 3,
+                                    }
+                                  : {}),
+                              }}
+                            >
+                              {tok.text}
+                            </span>
+                          ))}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Diagnostic Footer Bar */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px 12px',
+                  borderTop: '1px solid var(--border)',
+                  background: diagnostic.valid ? 'var(--surface)' : 'rgba(220, 38, 38, 0.12)',
+                  fontSize: 12,
+                }}
+              >
+                {diagnostic.valid ? (
+                  <div
+                    data-testid="cel-diagnostic-valid"
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--teal)' }}
+                  >
+                    <span>✓</span>
+                    <span>Valid CEL syntax</span>
+                  </div>
+                ) : (
+                  <div
+                    data-testid="cel-diagnostic-error"
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--error)' }}
+                  >
+                    <span>✕</span>
+                    <span>Line {diagnostic.line}, Col {diagnostic.column}: {diagnostic.message}</span>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: 'var(--muted)', fontSize: 11 }}>
+                  <span>{tokenizedLines.length} lines</span>
+                  <span>{(currentRule.cel_expression || '').length} chars</span>
+                </div>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+
+          {/* Version History Drawer Column */}
+          {historyOpen && (
+            <div
+              data-testid="version-history-drawer"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+                background: 'var(--surface2)',
+                borderRadius: 8,
+                padding: 12,
+                border: '1px solid var(--border)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text)' }}>
+                  Version History
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setHistoryOpen(false)}
+                  style={{ fontSize: 11, padding: '2px 6px' }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {rollbackError && (
+                <div style={{ padding: '6px 10px', borderRadius: 4, background: 'rgba(220,38,38,0.15)', color: 'var(--error)', fontSize: 11 }}>
+                  {rollbackError}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
+                {versionHistory.map((item) => {
+                  const isSelected = selectedHistoryVersion === item.version
+                  const isCurrent = effectiveBundle.version === item.version
+                  return (
+                    <div
+                      key={item.version}
+                      data-testid={`version-item-${item.version}`}
+                      onClick={() => setSelectedHistoryVersion(item.version)}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: 6,
+                        background: isSelected ? 'var(--surface)' : 'var(--bg)',
+                        border: `1px solid ${isSelected ? 'var(--cyan)' : 'var(--border)'}`,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>
+                          {item.version}
+                        </span>
+                        {isCurrent && (
+                          <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, background: 'rgba(16, 185, 129, 0.15)', color: 'var(--teal)', fontWeight: 600 }}>
+                            Active
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                        {item.description || 'No description'}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--muted)' }}>
+                        <span>by {item.author}</span>
+                        <span>{item.rule_count} rules</span>
+                      </div>
+                      {item.checksum && (
+                        <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          sha256:{item.checksum.slice(0, 12)}...
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Version Diff View */}
+              {selectedHistoryVersion && (
+                <div
+                  data-testid="version-diff-viewer"
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                    padding: 10,
+                    background: 'var(--surface)',
+                    borderRadius: 6,
+                    border: '1px solid var(--border)',
+                    fontSize: 11,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <strong style={{ color: 'var(--text)' }}>Diff Comparison</strong>
+                    <span style={{ color: 'var(--muted)', fontSize: 10 }}>
+                      {selectedHistoryVersion} vs {effectiveBundle.version}
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      background: 'var(--bg)',
+                      padding: 8,
+                      borderRadius: 4,
+                      fontFamily: 'monospace',
+                      maxHeight: 120,
+                      overflowY: 'auto',
+                      whiteSpace: 'pre-wrap',
+                      color: 'var(--muted)',
+                    }}
+                  >
+                    {selectedHistoryVersion === effectiveBundle.version ? (
+                      <span>No differences. Current active version.</span>
+                    ) : (
+                      <span>
+                        - Target Version: {selectedHistoryVersion}{'\n'}
+                        + Active Version: {effectiveBundle.version}{'\n'}
+                        Rules count: {rules.length}
+                      </span>
+                    )}
+                  </div>
+
+                  {!readOnly && onRollback && selectedHistoryVersion !== effectiveBundle.version && (
+                    <button
+                      data-testid="rollback-btn"
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={handleTriggerRollback}
+                      style={{
+                        fontSize: 11,
+                        padding: '6px 10px',
+                        color: 'var(--amber)',
+                        borderColor: 'var(--amber)',
+                        width: '100%',
+                      }}
+                    >
+                      Rollback to {selectedHistoryVersion}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Rollback Confirmation Modal */}
-      {rollbackConfirmOpen && selectedHistoryVersion && (
+      {rollbackConfirmOpen && (
         <ConfirmDialog
           title="Confirm Policy Rollback"
-          body={`Are you sure you want to rollback ${bundle.framework_id.toUpperCase()} policy rules to version ${selectedHistoryVersion}? Active evaluation will immediately adopt the target version.`}
+          body={`Are you sure you want to rollback ${effectiveBundle.framework_id} to version ${selectedHistoryVersion}? This will revert active rules.`}
           confirmLabel={`Rollback to ${selectedHistoryVersion}`}
           onConfirm={handleConfirmRollback}
           onCancel={() => setRollbackConfirmOpen(false)}

@@ -516,3 +516,86 @@ describe('Settings: Policy-as-Code Navigation Card', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/policies')
   })
 })
+
+describe('Settings: Governance Frameworks & Child Policies Expansion', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(api.settings).mockResolvedValue(
+      makeSettings({ selected_frameworks: ['eu-ai-act'] }),
+    )
+    vi.mocked(api.compliance.frameworks).mockResolvedValue([
+      {
+        id: 'eu-ai-act',
+        name: 'EU AI Act',
+        version: '1.0',
+        regulatory_body: 'EU',
+        compliance_deadline: null,
+        control_count: 42,
+        controls: [],
+      },
+    ])
+    vi.mocked(connectorsApi.listProviders).mockResolvedValue([])
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([])
+  })
+
+  it('renders auto-expanded child policies underneath EU AI Act', async () => {
+    renderSettings(['/settings?tab=governance'])
+    expect(await screen.findByText('EU AI Act')).toBeInTheDocument()
+
+    // Child policies container should exist
+    const childContainer = screen.getByTestId('framework-children-eu-ai-act')
+    expect(childContainer).toBeInTheDocument()
+
+    // Check specific child rules from regulatoryFrameworks
+    expect(screen.getByText(/Workload container execution as non-root/i)).toBeInTheDocument()
+    expect(screen.getByText(/Technical Documentation & Annex IV Architecture Dossier/i)).toBeInTheDocument()
+
+    // Non-CEL / manual attestation badge should be visible for Art 11
+    const manualSign = screen.getByTestId('manual-sign-eu-ai-act-art-11-tech-doc')
+    expect(manualSign).toBeInTheDocument()
+    expect(manualSign).toHaveTextContent(/Manual Attestation/i)
+  })
+
+  it('navigates to policy editor with URL params when clicking a child policy row', async () => {
+    renderSettings(['/settings?tab=governance'])
+    expect(await screen.findByText('EU AI Act')).toBeInTheDocument()
+
+    const techDocRow = screen.getByTestId('policy-row-eu-ai-act-art-11-tech-doc')
+    expect(techDocRow).toBeInTheDocument()
+
+    const clickableArea = techDocRow.querySelector('div[title*="Click to view and edit"]')
+    expect(clickableArea).not.toBeNull()
+    await userEvent.click(clickableArea!)
+
+    expect(mockNavigate).toHaveBeenCalledWith(
+      '/policies?framework=eu-ai-act&rule=eu-ai-act-art-11-tech-doc',
+    )
+  })
+
+  it('navigates to /policies when clicking Compliance Frameworks card header button', async () => {
+    renderSettings(['/settings?tab=governance'])
+    expect(await screen.findByText('Compliance Frameworks')).toBeInTheDocument()
+
+    const openEditorBtn = screen.getByRole('button', { name: /Open Policy Editor/i })
+    await userEvent.click(openEditorBtn)
+
+    expect(mockNavigate).toHaveBeenCalledWith('/policies')
+  })
+
+  it('toggles child policy active state when its switch is clicked', async () => {
+    renderSettings(['/settings?tab=governance'])
+    expect(await screen.findByText('EU AI Act')).toBeInTheDocument()
+
+    const techDocRow = screen.getByTestId('policy-row-eu-ai-act-art-11-tech-doc')
+    const switchBtn = techDocRow.querySelector('button[role="switch"]')
+    expect(switchBtn).toBeInTheDocument()
+    expect(switchBtn).toHaveAttribute('aria-checked', 'true')
+
+    await userEvent.click(switchBtn!)
+    expect(switchBtn).toHaveAttribute('aria-checked', 'false')
+
+    await userEvent.click(switchBtn!)
+    expect(switchBtn).toHaveAttribute('aria-checked', 'true')
+  })
+})
+

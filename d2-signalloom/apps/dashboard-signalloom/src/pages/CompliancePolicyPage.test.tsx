@@ -275,4 +275,48 @@ describe('CompliancePolicyPage', () => {
       }
     }
   })
+
+  it('deep links to k8s-cis-benchmark via ?framework query parameter', async () => {
+    render(
+      <MemoryRouter initialEntries={['/compliance?framework=k8s-cis-benchmark']}>
+        <CompliancePolicyPage />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByTestId('policy-editor-container')).toBeInTheDocument()
+    const selector = screen.getByTestId('framework-selector') as HTMLSelectElement
+    expect(selector.value).toBe('k8s-cis-benchmark')
+    expect(screen.getByText(/CIS 5.2.6/i)).toBeInTheDocument()
+  })
+
+  it('supports aliasing between k8s-cis-benchmark and cis-kubernetes via deep link', async () => {
+    render(
+      <MemoryRouter initialEntries={['/compliance?framework=cis-kubernetes']}>
+        <CompliancePolicyPage />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByTestId('policy-editor-container')).toBeInTheDocument()
+    const selector = screen.getByTestId('framework-selector') as HTMLSelectElement
+    expect(selector.value).toBe('k8s-cis-benchmark')
+    expect(screen.getByText(/CIS 5.2.6/i)).toBeInTheDocument()
+  })
+
+  it('keeps URL searchParams in sync when selected framework changes in editor', async () => {
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={['/compliance?framework=k8s-cis-benchmark']}>
+        <CompliancePolicyPage />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByTestId('policy-editor-container')).toBeInTheDocument()
+    const selector = screen.getByTestId('framework-selector')
+    await user.selectOptions(selector, 'nist-800-53')
+
+    await waitFor(() => {
+      const updatedSelector = screen.getByTestId('framework-selector') as HTMLSelectElement
+      expect(updatedSelector.value).toBe('nist-800-53')
+    })
+  })
 })

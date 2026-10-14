@@ -15,6 +15,7 @@ import HelpHint from '../components/HelpHint'
 import LoadingState from '../components/LoadingState'
 import DataTable, { type Column } from '../components/DataTable'
 import ComplianceDrawer, { type ComplianceDrawerItem } from '../components/ComplianceDrawer'
+import { normalizeFrameworkId } from '../data/regulatoryFrameworks'
 
 // Watched by the demo audience in a second window: see api/pollInterval.ts.
 const POLL_MS = LIVE_POLL_MS
@@ -123,9 +124,12 @@ export default function Compliance() {
         api.settings(token),
       ])
       setPosture(postureRes)
-      const sel = settingsRes?.selected_frameworks ?? []
+      const rawSel = settingsRes?.selected_frameworks ?? []
+      const selNormalized = rawSel.map(normalizeFrameworkId)
       setFrameworks(
-        sel.length > 0 ? frameworksRes.filter(fw => sel.includes(fw.id)) : frameworksRes
+        selNormalized.length > 0
+          ? frameworksRes.filter(fw => selNormalized.includes(normalizeFrameworkId(fw.id)))
+          : frameworksRes
       )
       setFailingControls(summaryRes.controls_failing)
       const map = new Map<string, AgentResponse>()
@@ -405,24 +409,39 @@ export default function Compliance() {
                     )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
                       <span style={{ fontSize: 11, color: 'var(--cyan)' }}>Inspect evidence →</span>
-                      <button
-                        type="button"
-                        onClick={e => {
-                          e.stopPropagation()
-                          navigate(`/compliance/${fw.id}`)
-                        }}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          fontSize: 11,
-                          color: 'var(--muted)',
-                          cursor: 'pointer',
-                          padding: '2px 4px',
-                          textDecoration: 'underline',
-                        }}
-                      >
-                        Details
-                      </button>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <Link
+                          to={`/policies?framework=${normalizeFrameworkId(fw.id)}`}
+                          onClick={e => e.stopPropagation()}
+                          style={{
+                            fontSize: 11,
+                            color: 'var(--cyan)',
+                            textDecoration: 'none',
+                            fontWeight: 600,
+                          }}
+                          title={`Open ${fw.name} in Policy Editor`}
+                        >
+                          Policy Editor ↗
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation()
+                            navigate(`/compliance/${fw.id}`)
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            fontSize: 11,
+                            color: 'var(--muted)',
+                            cursor: 'pointer',
+                            padding: '2px 4px',
+                            textDecoration: 'underline',
+                          }}
+                        >
+                          Details
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )

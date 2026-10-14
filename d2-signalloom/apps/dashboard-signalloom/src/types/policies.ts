@@ -9,6 +9,9 @@ export interface PolicyRule {
   docs_url?: string
   tested_separately?: boolean
   tested_separately_note?: string
+  attestation_type?: 'cel' | 'manual' | 'cluster' | string
+  manual_attestation?: boolean
+  manual_attestation_note?: string
 }
 
 export interface PolicyBundle {

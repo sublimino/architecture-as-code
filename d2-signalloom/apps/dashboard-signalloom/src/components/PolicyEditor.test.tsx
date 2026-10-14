@@ -223,4 +223,96 @@ describe('PolicyEditor Component', () => {
     await user.keyboard('{Escape}')
     expect(document.activeElement).not.toBe(textarea)
   })
+
+  it('prettifies unformatted CEL expression when Prettify button is clicked', async () => {
+    const user = userEvent.setup()
+    const bundleWithUnformatted: PolicyBundle = {
+      ...mockBundle,
+      rules: [
+        {
+          id: 'long-rule',
+          name: 'Long Rule',
+          cel_expression: 'has(object.spec.hostPID) && object.spec.hostPID == false && has(object.spec.hostIPC) && object.spec.hostIPC == false',
+        },
+      ],
+    }
+
+    render(<PolicyEditor bundle={bundleWithUnformatted} />)
+
+    const textarea = screen.getByTestId('cel-code-textarea') as HTMLTextAreaElement
+    const prettifyBtn = screen.getByTestId('prettify-cel-btn')
+    await user.click(prettifyBtn)
+
+    expect(textarea.value).toContain('\n  && ')
+  })
+
+  it('toggles line wrapping when wrap button is clicked', async () => {
+    const user = userEvent.setup()
+    render(<PolicyEditor bundle={mockBundle} />)
+
+    const wrapBtn = screen.getByTestId('toggle-wrap-btn')
+    expect(wrapBtn).toHaveTextContent('Wrap: ON')
+
+    const textarea = screen.getByTestId('cel-code-textarea')
+    expect(textarea.style.whiteSpace).toBe('pre-wrap')
+
+    await user.click(wrapBtn)
+    expect(wrapBtn).toHaveTextContent('Wrap: OFF')
+    expect(textarea.style.whiteSpace).toBe('pre')
+  })
+
+  it('filters rules list using the search input', async () => {
+    const user = userEvent.setup()
+    render(<PolicyEditor bundle={mockBundle} />)
+
+    expect(screen.getByTestId('rule-tab-container-run-as-non-root')).toBeInTheDocument()
+    expect(screen.getByTestId('rule-tab-block-unauthorized-host-exec')).toBeInTheDocument()
+
+    const searchInput = screen.getByTestId('rule-search-input')
+    await user.type(searchInput, 'non-root')
+
+    expect(screen.getByTestId('rule-tab-container-run-as-non-root')).toBeInTheDocument()
+    expect(screen.queryByTestId('rule-tab-block-unauthorized-host-exec')).not.toBeInTheDocument()
+  })
+
+  it('displays manual attestation badge for non-CEL controls', () => {
+    const bundleWithManual: PolicyBundle = {
+      ...mockBundle,
+      rules: [
+        {
+          id: 'art-11-tech-doc',
+          name: 'Art. 11 Technical Documentation',
+          cel_expression: '/* Non-CEL: Requires human architect certification. */',
+          manual_attestation: true,
+          manual_attestation_note: 'Non-CEL control. Requires manual sign-off.',
+        },
+      ],
+    }
+
+    render(<PolicyEditor bundle={bundleWithManual} />)
+    expect(screen.getByTestId('manual-attestation-badge')).toBeInTheDocument()
+    expect(screen.getByText(/Non-CEL Verification Context/i)).toBeInTheDocument()
+  })
+
+  it('renders resilient empty bundle state without removing framework selector', () => {
+    const emptyBundle: PolicyBundle = {
+      ...mockBundle,
+      rules: [],
+    }
+
+    const available = [{ id: 'eu-ai-act', name: 'EU AI Act' }, { id: 'cra', name: 'Cyber Resilience Act' }]
+    const onSelect = vi.fn()
+
+    render(
+      <PolicyEditor
+        bundle={emptyBundle}
+        availableFrameworks={available}
+        onSelectFramework={onSelect}
+      />
+    )
+
+    expect(screen.getByTestId('empty-bundle-notice')).toBeInTheDocument()
+    expect(screen.getByTestId('framework-selector')).toBeInTheDocument()
+    expect(screen.getByTestId('initialize-template-btn')).toBeInTheDocument()
+  })
 })

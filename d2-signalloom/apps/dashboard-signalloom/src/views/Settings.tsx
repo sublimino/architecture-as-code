@@ -13,6 +13,8 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import ProviderLogo from '../components/onboarding/ProviderLogo'
 import CurrencySetting from '../components/CurrencySetting'
 import { useAppContext } from '../App'
+import { getBundleForFramework, normalizeFrameworkId } from '../data/regulatoryFrameworks'
+import type { PolicyRule } from '../types/policies'
 
 const POLL_MS = 15 * 60 * 1000
 
@@ -127,6 +129,28 @@ export default function Settings() {
   const [preferencesSaved, setPreferencesSaved] = useState(false)
   const [preferencesError, setPreferencesError] = useState<string | null>(null)
   const [teamMembers, setTeamMembers] = useState<PlatformUser[]>([])
+  const [disabledPolicies, setDisabledPolicies] = useState<string[]>(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem('signalloom_disabled_policies') : null
+      return raw ? JSON.parse(raw) : []
+    } catch {
+      return []
+    }
+  })
+
+  const handleTogglePolicy = useCallback((policyId: string) => {
+    setDisabledPolicies((prev) => {
+      const next = prev.includes(policyId) ? prev.filter((id) => id !== policyId) : [...prev, policyId]
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('signalloom_disabled_policies', JSON.stringify(next))
+        }
+      } catch {
+        // ignore storage errors
+      }
+      return next
+    })
+  }, [])
 
   // Browser-local, not tenant state: it is read straight from the store rather
   // than mirrored into React state here, so the control and every loader
@@ -780,7 +804,39 @@ export default function Settings() {
           data-testid="settings-tabpanel-governance"
         >
           {/* Compliance Frameworks */}
-          <SectionCard title="Compliance Frameworks">
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <h2
+                data-testid="compliance-frameworks-header"
+                onClick={() => navigate('/policies')}
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: 'var(--muted)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  margin: 0,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+                title="Click to open Policy Editor for all compliance frameworks"
+              >
+                <span>Compliance Frameworks</span>
+                <span style={{ color: 'var(--cyan)', fontSize: 13 }}>↗</span>
+              </h2>
+              <button
+                data-testid="goto-policy-editor-top-btn"
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => navigate('/policies')}
+                style={{ fontSize: 11, padding: '3px 8px' }}
+              >
+                Open Policy Editor
+              </button>
+            </div>
+
             {toastError && (
               <div style={{ marginBottom: 12, padding: '8px 12px', background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.25)', borderRadius: 6, fontSize: 12, color: 'var(--error)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 {toastError}
@@ -790,45 +846,221 @@ export default function Settings() {
             {frameworks.length === 0 ? (
               <p style={{ fontSize: 13, color: 'var(--muted)' }}>No frameworks available for this plan tier.</p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {frameworks.map(fw => {
-                  const active = selectedFrameworks.includes(fw.id)
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {frameworks.map((fw) => {
+                  const canonicalId = normalizeFrameworkId(fw.id)
+                  const active = selectedFrameworks.includes(fw.id) || selectedFrameworks.includes(canonicalId)
+                  const bundle = getBundleForFramework(fw.id)
+                  const childRules: PolicyRule[] = bundle?.rules && bundle.rules.length > 0
+                    ? bundle.rules
+                    : (fw.controls || []).map((c) => ({
+                        id: c.id,
+                        name: c.name,
+                        description: c.description ?? undefined,
+                        cel_expression: '',
+                        severity: 'high',
+                        attestation_type: 'cel',
+                        manual_attestation: false,
+                      }))
+
                   return (
                     <div
                       key={fw.id}
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}
+                      data-testid={`framework-card-${fw.id}`}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        background: 'var(--surface2)',
+                        borderRadius: 8,
+                        border: '1px solid var(--border)',
+                        overflow: 'hidden',
+                      }}
                     >
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{fw.name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                          {[fw.version && `v${fw.version}`, fw.regulatory_body, `${fw.control_count} controls`].filter(Boolean).join(' · ')}
-                        </div>
-                      </div>
-                      <FrameworkToggle
-                        active={active}
-                        onToggle={async () => {
-                          const prev = selectedFrameworks
-                          const next = active
-                            ? prev.filter(id => id !== fw.id)
-                            : [...prev, fw.id]
-                          setSelectedFrameworks(next)
-                          setToastError(null)
-                          try {
-                            const token = await getAccessTokenSilently()
-                            const updated = await api.patchFrameworks(token, next)
-                            setSelectedFrameworks(updated.selected_frameworks ?? next)
-                          } catch {
-                            setSelectedFrameworks(prev)
-                            setToastError('Failed to update framework selection. Please try again.')
-                          }
+                      {/* Framework Main Header Row */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '12px 14px',
+                          borderBottom: '1px solid var(--border)',
+                          background: active ? 'transparent' : 'rgba(0,0,0,0.1)',
                         }}
-                      />
+                      >
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span
+                              style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', cursor: 'pointer' }}
+                              onClick={() => navigate(`/policies?framework=${canonicalId}`)}
+                              title={`Open ${fw.name} in CEL Policy Editor`}
+                            >
+                              {fw.name}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                padding: '1px 6px',
+                                borderRadius: 4,
+                                background: active ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+                                color: active ? 'var(--teal)' : 'var(--muted)',
+                              }}
+                            >
+                              {active ? 'Active' : 'Inactive'}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span>
+                              {[fw.version && `v${fw.version}`, fw.regulatory_body, `${childRules.length || fw.control_count} controls`].filter(Boolean).join(' · ')}
+                            </span>
+                            <span>•</span>
+                            <Link
+                              to={`/policies?framework=${canonicalId}`}
+                              style={{ color: 'var(--cyan)', textDecoration: 'none', fontWeight: 600 }}
+                            >
+                              Edit in Editor ↗
+                            </Link>
+                          </div>
+                        </div>
+
+                        <FrameworkToggle
+                          active={active}
+                          onToggle={async () => {
+                            const prev = selectedFrameworks
+                            const next = active
+                              ? prev.filter((id) => id !== fw.id && id !== canonicalId)
+                              : [...prev, fw.id]
+                            setSelectedFrameworks(next)
+                            setToastError(null)
+                            try {
+                              const token = await getAccessTokenSilently()
+                              const updated = await api.patchFrameworks(token, next)
+                              setSelectedFrameworks(updated.selected_frameworks ?? next)
+                            } catch {
+                              setSelectedFrameworks(prev)
+                              setToastError('Failed to update framework selection. Please try again.')
+                            }
+                          }}
+                        />
+                      </div>
+
+                      {/* Auto-Expanded Child Policies List */}
+                      <div
+                        data-testid={`framework-children-${fw.id}`}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          padding: '8px 12px',
+                          gap: 6,
+                          background: 'var(--bg)',
+                        }}
+                      >
+                        <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 2 }}>
+                          Child Policies & Controls ({childRules.length})
+                        </div>
+
+                        {childRules.map((rule) => {
+                          const isRuleActive = active && !disabledPolicies.includes(rule.id)
+                          const isManual = Boolean(rule.manual_attestation || rule.attestation_type === 'manual' || rule.attestation_type === 'cluster')
+
+                          return (
+                            <div
+                              key={rule.id}
+                              data-testid={`policy-row-${rule.id}`}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '8px 10px',
+                                background: 'var(--surface)',
+                                borderRadius: 6,
+                                border: '1px solid var(--border)',
+                                gap: 10,
+                              }}
+                            >
+                              <div
+                                style={{ flex: 1, cursor: 'pointer' }}
+                                onClick={() => navigate(`/policies?framework=${canonicalId}&rule=${encodeURIComponent(rule.id)}`)}
+                                title="Click to view and edit this policy in the Policy Editor"
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
+                                    {rule.name}
+                                  </span>
+                                  <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--muted)' }}>
+                                    ({rule.id})
+                                  </span>
+                                  {isManual && (
+                                    <span
+                                      data-testid={`manual-sign-${rule.id}`}
+                                      style={{
+                                        fontSize: 9,
+                                        fontWeight: 700,
+                                        textTransform: 'uppercase',
+                                        padding: '1px 5px',
+                                        borderRadius: 3,
+                                        background: 'rgba(139, 92, 246, 0.15)',
+                                        color: 'var(--violet, #a78bfa)',
+                                        border: '1px solid rgba(139, 92, 246, 0.25)',
+                                      }}
+                                      title={rule.manual_attestation_note || 'Manual Attestation / Non-CEL control'}
+                                    >
+                                      📋 Manual Attestation
+                                    </span>
+                                  )}
+                                  <span
+                                    style={{
+                                      fontSize: 9,
+                                      fontWeight: 700,
+                                      textTransform: 'uppercase',
+                                      padding: '1px 4px',
+                                      borderRadius: 3,
+                                      background: rule.severity === 'critical' ? 'rgba(220,38,38,0.15)' : 'rgba(217,119,6,0.15)',
+                                      color: rule.severity === 'critical' ? 'var(--error)' : 'var(--amber)',
+                                    }}
+                                  >
+                                    {rule.severity || 'high'}
+                                  </span>
+                                </div>
+                                {rule.description && (
+                                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 600 }}>
+                                    {rule.description}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => navigate(`/policies?framework=${canonicalId}&rule=${encodeURIComponent(rule.id)}`)}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: 'var(--cyan)',
+                                    fontSize: 11,
+                                    cursor: 'pointer',
+                                    padding: '2px 4px',
+                                  }}
+                                  title="Open rule in CEL editor"
+                                >
+                                  Edit ↗
+                                </button>
+                                <FrameworkToggle
+                                  active={isRuleActive}
+                                  onToggle={() => handleTogglePolicy(rule.id)}
+                                />
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
                     </div>
                   )
                 })}
               </div>
             )}
-          </SectionCard>
+          </div>
 
           {/* Policy-as-Code & CEL Rules */}
           <SectionCard title="Policy-as-Code & CEL Rules">

@@ -12,7 +12,7 @@ flowchart TD
   C --> D["4. Sync Kustomization Patches"]
   D --> E["5. Build and Sign Images"]
   E --> F["6. Push OCI Manifests"]
-  F --> G["7. Reconcile Flux and Rollout"]
+  F --> G["7. Preflight Images and Rollout"]
   G --> H["8. Heal Ingress Port-Forwards"]
   H --> I["9. Run Staleness Readback Proof"]
 ```
@@ -20,7 +20,7 @@ flowchart TD
 ## Step 1: Inspect Working Tree and Current Pods
 
 Check whether the running pods already match your current code.
-Execute the preflight staleness auditor:
+Run the preflight staleness auditor:
 
 ```bash
 KUBECONFIG=/tmp/osramp-kubeconfig.yaml ./scripts/check-deployed-staleness.sh
@@ -52,14 +52,16 @@ Run the deployment tool to build, sign, and roll out changes:
 ```
 
 The script performs the following actions:
-1. Detects which workloads changed based on Git diffs.
-2. Synchronizes image tag patches in `d2-signalloom/apps/fe-signalloom/local/kustomization.yaml`.
-3. Builds container images using `docker buildx` with provenance attestations and SBOM metadata.
+1. Detects which workloads changed based on Git diffs (`dashboard`, `backend`, `docs`, `signal-ingest`, or discovered apps).
+2. Synchronizes image tag patches in `d2-signalloom/apps/fe-signalloom/local/kustomization.yaml` and deployment pins in `d2-signalloom/apps/signal-ingest/base/deployment.yaml`.
+3. Builds container images with provenance attestations and SBOM metadata.
 4. Signs images and OCI artifacts using Cosign.
-5. Loads images into the Kind node via `kind load docker-image`.
+5. Loads images into the Kind node via `kind load docker-image` and `kind-load-verified.sh`.
 6. Publishes manifests to the in-cluster Zot registry via `scripts/push-local.sh signalloom`.
-7. Reconciles Flux Kustomizations and restarts deployments.
-8. Re-establishes severed port-forwards on port 19080.
+7. Verifies required container images are present in the Kind CRI image store before rollout.
+8. Reconciles Flux Kustomizations and restarts deployments.
+9. Re-establishes severed port-forwards on port 19080.
+10. Proves deployment freshness via `check-deployed-staleness.sh` and halts if stale.
 
 ## Step 4: Verify Deployment Freshness
 

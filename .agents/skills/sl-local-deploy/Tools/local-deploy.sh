@@ -33,6 +33,19 @@ DRY_RUN=false
 SKIP_RECONCILE=false
 FORCE_SYNC_KUSTOMIZE=true
 
+# Injectable tool binaries for testing and custom environments
+DOCKER_BIN="${DOCKER_BIN:-docker}"
+KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
+KIND_BIN="${KIND_BIN:-kind}"
+MAKE_BIN="${MAKE_BIN:-make}"
+CURL_BIN="${CURL_BIN:-curl}"
+CHECK_STALENESS_BIN="${CHECK_STALENESS_BIN:-./scripts/check-deployed-staleness.sh}"
+SIGNAL_INGEST_TAG_BIN="${SIGNAL_INGEST_TAG_BIN:-./scripts/signal-ingest-image-tag.sh}"
+BUILD_DASHBOARD_BIN="${BUILD_DASHBOARD_BIN:-./scripts/build-sign-dashboard.sh}"
+BUILD_DOCS_BIN="${BUILD_DOCS_BIN:-./scripts/build-sign-docs.sh}"
+KIND_LOAD_VERIFIED_BIN="${KIND_LOAD_VERIFIED_BIN:-./scripts/kind-load-verified.sh}"
+PUSH_LOCAL_BIN="${PUSH_LOCAL_BIN:-./scripts/push-local.sh}"
+
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
@@ -40,7 +53,7 @@ Usage: $(basename "$0") [OPTIONS]
 Fast, observable developer deployment pipeline for in-flight changes.
 
 Options:
-  -w, --workload <name>    Workload to deploy: dashboard, backend, docs, manifests, all, auto (default: auto)
+  -w, --workload <name>    Workload to deploy: dashboard, backend, docs, ingest, manifests, all, auto (default: auto)
   -c, --commit <msg>       Commit in-flight changes with conventional commit message (--no-gpg-sign)
   --auto-commit            Automatically commit dirty files before deploying
   --no-commit              Proceed without committing
@@ -52,6 +65,7 @@ Workload mapping:
   dashboard  d2-signalloom/apps/dashboard-signalloom (React frontend)
   backend    d2-signalloom/apps/fe-signalloom (FastAPI + DB migrations)
   docs       d2-signalloom/apps/docs-signalloom (Docs portal)
+  ingest     d2-signalloom/apps/signal-ingest (Signal Fusion Ingest Service)
   manifests  d2-signalloom/apps, d2-signalloom/infra, d2-osramp-fleet
   all        All Signal Loom workloads and manifests
   auto       Automatically detect affected workloads from git diff
@@ -102,7 +116,7 @@ echo "════════════════════════�
 
 # 1. Cluster Reachability Preflight
 echo "==> Step 1: Preflight cluster checks..."
-if ! kubectl cluster-info --request-timeout=4s >/dev/null 2>&1; then
+if ! "${KUBECTL_BIN}" cluster-info --request-timeout=4s >/dev/null 2>&1; then
   echo "ERROR: Cluster is not reachable. Verify cluster is running: 'make up'" >&2
   exit 2
 fi
@@ -111,7 +125,7 @@ echo "    ✓ Kind cluster 'kind-${CLUSTER_NAME}' is responsive."
 # 2. Inspect In-Flight Working Tree
 echo "==> Step 2: Inspecting in-flight changes..."
 DIRTY_FILES=$(git status --porcelain || true)
-CURRENT_HEAD=$(git rev-parse --short HEAD)
+CURRENT_HEAD=$(git rev-parse --short HEAD 2>/dev/null || echo "0000000")
 
 if [[ -n "${DIRTY_FILES}" ]]; then
   DIRTY_COUNT=$(echo "${DIRTY_FILES}" | wc -l)
@@ -141,57 +155,146 @@ else
   echo "    Working tree is clean at HEAD (${CURRENT_HEAD})."
 fi
 
+# Helpers for Image Preflight & Flux Configuration Inspection
+check_image_on_node() {
+  local img="$1"
+  # 1. Direct crictl inspecti inside the kind control plane node container
+  if "${DOCKER_BIN}" exec "${CLUSTER_NAME}-control-plane" crictl inspecti "${img}" >/dev/null 2>&1; then
+    return 0
+  fi
+  # 2. Direct host crictl if accessible
+  if command -v crictl >/dev/null 2>&1; then
+    if crictl inspecti "${img}" >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+  # 3. Fallback: parse crictl images table
+  local listing
+  listing="$("${DOCKER_BIN}" exec "${CLUSTER_NAME}-control-plane" crictl images 2>/dev/null || true)"
+  if [[ -n "${listing}" ]]; then
+    local canonical="${img}"
+    if [[ "${img}" != *"/"* ]]; then
+      canonical="docker.io/library/${img}"
+    fi
+    if echo "${listing}" | awk -v want="${canonical}" '$1":"$2 == want { found = 1 } END { exit !found }'; then
+      return 0
+    fi
+    if echo "${listing}" | awk -v want="${img}" '$1":"$2 == want { found = 1 } END { exit !found }'; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
+extract_deployment_images() {
+  local target_dep="$1"
+  local kustomize_dirs=(
+    "d2-signalloom/apps/fe-signalloom/local"
+    "d2-signalloom/infra/kagent/local"
+  )
+  for kd in "${kustomize_dirs[@]}"; do
+    if [[ -d "$kd" ]]; then
+      "${KUBECTL_BIN}" kustomize "$kd" 2>/dev/null | sed \
+        -e "s|\${IMAGE_BASE}|${IMAGE_BASE:-zot.registry.svc.cluster.local:5000/acme/images}|g" \
+        -e "s|\${ARTIFACT_TAG}|${ARTIFACT_TAG:-latest}|g" \
+        -e "s|\${REGISTRY_BASE}|${REGISTRY_BASE:-zot.registry.svc.cluster.local:5000/acme}|g" | awk -v dep="$target_dep" '
+        /^kind: Deployment$/ { in_deploy=1; deploy_name="" }
+        in_deploy && /^  name: / && deploy_name=="" {
+          deploy_name=$2
+          gsub(/["'\'' ]/, "", deploy_name)
+        }
+        in_deploy && deploy_name == dep && /image: / {
+          img=$NF
+          gsub(/["'\'' ]/, "", img)
+          if (img != "" && img !~ /^\$\{/) print img
+        }
+        /^---$/ { in_deploy=0 }
+      '
+    fi
+  done
+}
+
 # 3. Workload Detection
+TARGET_DASHBOARD=false
+TARGET_BACKEND=false
+TARGET_DOCS=false
+TARGET_INGEST=false
+TARGET_MANIFESTS=false
+DYNAMIC_APPS=()
+
 if [[ "${WORKLOAD}" == "auto" ]]; then
   echo "==> Step 3: Auto-detecting affected workloads from git diff..."
-  TARGET_DASHBOARD=false
-  TARGET_BACKEND=false
-  TARGET_DOCS=false
-  TARGET_MANIFESTS=false
 
-  DIFF_PATHS=$(git diff --name-only HEAD~1 2>/dev/null || true)
-  if [[ -n "${DIRTY_FILES}" ]]; then
-    DIFF_PATHS="${DIFF_PATHS}"$'\n'"$(git status --porcelain | awk '{print $2}')"
+  if [[ -n "${OVERRIDE_DIFF_PATHS:-}" ]]; then
+    DIFF_PATHS="${OVERRIDE_DIFF_PATHS}"
+  else
+    DIFF_PATHS=""
+    if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+      DIFF_PATHS="$(git diff --name-only HEAD~1 2>/dev/null || true)"
+    fi
+    DIFF_PATHS="${DIFF_PATHS}"$'\n'"$(git diff --name-only HEAD 2>/dev/null || true)"
+    DIFF_PATHS="${DIFF_PATHS}"$'\n'"$(git diff --name-only --cached 2>/dev/null || true)"
+    if [[ -n "${DIRTY_FILES}" ]]; then
+      DIFF_PATHS="${DIFF_PATHS}"$'\n'"$(echo "${DIRTY_FILES}" | awk '{print $NF}')"
+    fi
   fi
 
-  if echo "${DIFF_PATHS}" | grep -q "^d2-signalloom/apps/dashboard-signalloom"; then
-    TARGET_DASHBOARD=true
-  fi
-  if echo "${DIFF_PATHS}" | grep -q "^d2-signalloom/apps/fe-signalloom"; then
-    TARGET_BACKEND=true
-  fi
-  if echo "${DIFF_PATHS}" | grep -q "^d2-signalloom/apps/docs-signalloom"; then
-    TARGET_DOCS=true
-  fi
-  if echo "${DIFF_PATHS}" | grep -q -E "^d2-signalloom/infra/|^d2-osramp-fleet/|^d2-signalloom/apps/[^/]+/base/|^d2-signalloom/apps/[^/]+/local/"; then
-    TARGET_MANIFESTS=true
+  DIFF_PATHS="$(echo "${DIFF_PATHS}" | sed '/^$/d' | sort -u || true)"
+
+  while IFS= read -r path; do
+    [[ -z "$path" ]] && continue
+    if [[ "$path" =~ ^d2-signalloom/apps/([^/]+) ]]; then
+      app="${BASH_REMATCH[1]}"
+      case "$app" in
+        dashboard-signalloom) TARGET_DASHBOARD=true ;;
+        fe-signalloom)        TARGET_BACKEND=true ;;
+        docs-signalloom)      TARGET_DOCS=true ;;
+        signal-ingest)        TARGET_INGEST=true ;;
+        *)
+          if [[ -d "d2-signalloom/apps/${app}" ]]; then
+            DYNAMIC_APPS+=("${app}")
+            TARGET_MANIFESTS=true
+          fi
+          ;;
+      esac
+    elif [[ "$path" =~ ^d2-signalloom/pkg/obscel ]]; then
+      TARGET_INGEST=true
+    elif [[ "$path" =~ ^d2-signalloom/infra/ ]] || [[ "$path" =~ ^d2-osramp-fleet/ ]]; then
+      TARGET_MANIFESTS=true
+    fi
+  done <<< "${DIFF_PATHS}"
+
+  if [[ ${#DYNAMIC_APPS[@]} -gt 0 ]]; then
+    mapfile -t DYNAMIC_APPS < <(printf '%s\n' "${DYNAMIC_APPS[@]}" | sort -u)
   fi
 
   # If nothing specific detected, default to dashboard
-  if ! ${TARGET_DASHBOARD} && ! ${TARGET_BACKEND} && ! ${TARGET_DOCS} && ! ${TARGET_MANIFESTS}; then
+  if ! ${TARGET_DASHBOARD} && ! ${TARGET_BACKEND} && ! ${TARGET_DOCS} && ! ${TARGET_INGEST} && ! ${TARGET_MANIFESTS} && [[ ${#DYNAMIC_APPS[@]} -eq 0 ]]; then
     echo "    No specific workload edits detected; defaulting to dashboard."
     TARGET_DASHBOARD=true
   fi
 else
-  TARGET_DASHBOARD=false
-  TARGET_BACKEND=false
-  TARGET_DOCS=false
-  TARGET_MANIFESTS=false
-
   case "${WORKLOAD}" in
     dashboard) TARGET_DASHBOARD=true ;;
     backend)   TARGET_BACKEND=true ;;
     docs)      TARGET_DOCS=true ;;
+    ingest|signal-ingest) TARGET_INGEST=true ;;
     manifests) TARGET_MANIFESTS=true ;;
     all)
       TARGET_DASHBOARD=true
       TARGET_BACKEND=true
       TARGET_DOCS=true
+      TARGET_INGEST=true
       TARGET_MANIFESTS=true
       ;;
     *)
-      echo "ERROR: Unknown workload '${WORKLOAD}'." >&2
-      exit 1
+      if [[ -d "d2-signalloom/apps/${WORKLOAD}" ]]; then
+        DYNAMIC_APPS+=("${WORKLOAD}")
+        TARGET_MANIFESTS=true
+      else
+        echo "ERROR: Unknown workload '${WORKLOAD}'." >&2
+        exit 1
+      fi
       ;;
   esac
 fi
@@ -200,34 +303,57 @@ echo "    Targets selected:"
 ${TARGET_DASHBOARD} && echo "      - dashboard-signalloom (Frontend)"
 ${TARGET_BACKEND}   && echo "      - fe-signalloom (FastAPI Backend / Migrations)"
 ${TARGET_DOCS}      && echo "      - docs-signalloom (Documentation Portal)"
+${TARGET_INGEST}    && echo "      - signal-ingest (Signal Fusion Ingest Service)"
+for dapp in "${DYNAMIC_APPS[@]:-}"; do
+  [[ -n "$dapp" ]] && echo "      - ${dapp} (Discovered App)"
+done
 ${TARGET_MANIFESTS} && echo "      - manifests / Kustomizations"
 
 if [[ "${DRY_RUN}" == "true" ]]; then
   echo ""
   echo "==> [DRY RUN] Current deployed staleness report:"
-  ./scripts/check-deployed-staleness.sh || true
+  "${CHECK_STALENESS_BIN}" || true
   echo ""
   echo "==> [DRY RUN] Plan complete. Exiting without modifications."
   exit 0
 fi
 
-# 4. Kustomization Tag Synchronization (Prevents GitOps from locking to old release)
-if [[ "${FORCE_SYNC_KUSTOMIZE}" == "true" && -f "d2-signalloom/apps/fe-signalloom/local/kustomization.yaml" ]]; then
-  echo "==> Step 4: Synchronizing local Kustomization image patches..."
-  source ./scripts/lib/source-id.sh
-  DASH_SRC_ID="$(source_id_for dashboard-signalloom)"
-  DASH_SHORT_TAG="src-${DASH_SRC_ID:0:16}"
+# 4. Kustomization Tag Synchronization & Deployment Pinning
+if [[ "${FORCE_SYNC_KUSTOMIZE}" == "true" ]]; then
+  echo "==> Step 4: Synchronizing local Kustomization image patches and deployment pins..."
 
-  KUST_FILE="d2-signalloom/apps/fe-signalloom/local/kustomization.yaml"
-  if grep -q "dashboard-signalloom:" "${KUST_FILE}"; then
-    OLD_TAG=$(grep -o "dashboard-signalloom:[^ \"']*" "${KUST_FILE}" | cut -d: -f2)
-    if [[ "${OLD_TAG}" != "${DASH_SHORT_TAG}" ]]; then
-      echo "    Updating kustomization image patch: ${OLD_TAG} -> ${DASH_SHORT_TAG}"
-      sed -i "s|dashboard-signalloom:${OLD_TAG}|dashboard-signalloom:${DASH_SHORT_TAG}|g" "${KUST_FILE}"
-      echo "    ✓ Patch synchronized in ${KUST_FILE}."
-    else
-      echo "    ✓ Kustomization image patch is already aligned (${DASH_SHORT_TAG})."
+  if [[ ("${TARGET_DASHBOARD}" == "true" || "${TARGET_MANIFESTS}" == "true") && -f "d2-signalloom/apps/fe-signalloom/local/kustomization.yaml" ]]; then
+    source ./scripts/lib/source-id.sh
+    DASH_SRC_ID="$(source_id_for dashboard-signalloom)"
+    DASH_SHORT_TAG="src-${DASH_SRC_ID:0:16}"
+
+    KUST_FILE="d2-signalloom/apps/fe-signalloom/local/kustomization.yaml"
+    if grep -q "dashboard-signalloom:" "${KUST_FILE}"; then
+      OLD_TAG=$(grep -o "dashboard-signalloom:[^ \"']*" "${KUST_FILE}" | cut -d: -f2)
+      if [[ "${OLD_TAG}" != "${DASH_SHORT_TAG}" ]]; then
+        echo "    Updating kustomization image patch: ${OLD_TAG} -> ${DASH_SHORT_TAG}"
+        sed -i "s|dashboard-signalloom:${OLD_TAG}|dashboard-signalloom:${DASH_SHORT_TAG}|g" "${KUST_FILE}"
+        echo "    ✓ Patch synchronized in ${KUST_FILE}."
+      else
+        echo "    ✓ Kustomization image patch is already aligned (${DASH_SHORT_TAG})."
+      fi
     fi
+  fi
+
+  if [[ "${TARGET_INGEST}" == "true" ]]; then
+    echo "    Synchronizing signal-ingest deployment pin..."
+    INGEST_TAG_OUTPUT=""
+    if ! INGEST_TAG_OUTPUT="$("${SIGNAL_INGEST_TAG_BIN}" 2>&1)"; then
+      echo "ERROR: signal-ingest refused to generate image tag due to uncommitted changes in inputs:" >&2
+      echo "${INGEST_TAG_OUTPUT}" >&2
+      echo "" >&2
+      echo "signal-ingest requires a clean source tree to generate an immutable image tag." >&2
+      echo "Please commit your changes ('git commit' or 'local-deploy.sh -c \"...\"') or re-run with '--auto-commit'." >&2
+      exit 1
+    fi
+    INGEST_TAG="${INGEST_TAG_OUTPUT}"
+    "${MAKE_BIN}" -C d2-signalloom signal-ingest-image-pin
+    echo "    ✓ signal-ingest deployment pinned to :${INGEST_TAG}."
   fi
 fi
 
@@ -236,14 +362,14 @@ echo "==> Step 5: Building and loading workload image(s)..."
 
 if [[ "${TARGET_DASHBOARD}" == "true" ]]; then
   echo "    Building dashboard-signalloom..."
-  ./scripts/build-sign-dashboard.sh
+  "${BUILD_DASHBOARD_BIN}"
   # Also tag with source fingerprint for exact kustomization matching
   source ./scripts/lib/source-id.sh
   DASH_SRC_ID="$(source_id_for dashboard-signalloom)"
   DASH_SHORT_TAG="src-${DASH_SRC_ID:0:16}"
-  docker tag "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest" \
+  "${DOCKER_BIN}" tag "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest" \
     "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:${DASH_SHORT_TAG}" || true
-  kind load docker-image --name "${CLUSTER_NAME}" \
+  "${KIND_BIN:-kind}" load docker-image --name "${CLUSTER_NAME}" \
     "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:${DASH_SHORT_TAG}" || true
   echo "    ✓ dashboard-signalloom built and loaded into Kind (${DASH_SHORT_TAG})."
 fi
@@ -252,21 +378,42 @@ if [[ "${TARGET_BACKEND}" == "true" ]]; then
   echo "    Building fe-signalloom backend..."
   source ./scripts/lib/source-id.sh
   mapfile -t FE_BUILD_ARGS < <(source_id_build_args fe-signalloom)
-  docker build "${FE_BUILD_ARGS[@]}" -t zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest d2-signalloom/apps/fe-signalloom
-  CLUSTER_NAME="${CLUSTER_NAME}" ./scripts/kind-load-verified.sh zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest
+  "${DOCKER_BIN}" build "${FE_BUILD_ARGS[@]}" -t zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest d2-signalloom/apps/fe-signalloom
+  CLUSTER_NAME="${CLUSTER_NAME}" "${KIND_LOAD_VERIFIED_BIN}" zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest
   echo "    ✓ fe-signalloom built and verified on Kind node."
 fi
 
 if [[ "${TARGET_DOCS}" == "true" ]]; then
   echo "    Building docs-signalloom..."
-  ./scripts/build-sign-docs.sh
+  "${BUILD_DOCS_BIN}"
   echo "    ✓ docs-signalloom built and loaded."
+fi
+
+if [[ "${TARGET_INGEST}" == "true" ]]; then
+  if [[ -z "${INGEST_TAG:-}" ]]; then
+    INGEST_TAG_OUTPUT=""
+    if ! INGEST_TAG_OUTPUT="$("${SIGNAL_INGEST_TAG_BIN}" 2>&1)"; then
+      echo "ERROR: signal-ingest refused to generate image tag due to uncommitted changes in inputs:" >&2
+      echo "${INGEST_TAG_OUTPUT}" >&2
+      echo "" >&2
+      echo "signal-ingest requires a clean source tree to generate an immutable image tag." >&2
+      echo "Please commit your changes ('git commit' or 'local-deploy.sh -c \"...\"') or re-run with '--auto-commit'." >&2
+      exit 1
+    fi
+    INGEST_TAG="${INGEST_TAG_OUTPUT}"
+  fi
+  echo "    Building and publishing signal-ingest..."
+  if ! "${MAKE_BIN}" -C d2-signalloom signal-ingest-image-publish CLUSTER_NAME="${CLUSTER_NAME}"; then
+    echo "ERROR: Failed to build and publish signal-ingest image." >&2
+    exit 1
+  fi
+  echo "    ✓ signal-ingest built, verified on Kind, and published to Zot."
 fi
 
 # 6. GitOps Reconciliation (Push OCI Artifact & Reconcile Flux)
 if [[ "${SKIP_RECONCILE}" == "false" ]]; then
   echo "==> Step 6: Pushing OCI manifests and reconciling Flux..."
-  ./scripts/push-local.sh signalloom
+  "${PUSH_LOCAL_BIN}" signalloom
 
   if command -v flux >/dev/null 2>&1; then
     echo "    Reconciling Flux OCI source 'fe-signalloom'..."
@@ -278,28 +425,122 @@ else
   echo "==> Step 6: Skipping Flux reconciliation (--no-reconcile specified)."
 fi
 
-# 7. Deployment Rollout
-echo "==> Step 7: Rolling out deployments..."
+# 7. Node CRI Image Preflight Check & Deployment Rollout
+echo "==> Step 7: Preflight CRI image verification on Kind node..."
+
+TARGET_DEPLOYMENTS=()
 if [[ "${TARGET_DASHBOARD}" == "true" ]]; then
-  kubectl -n fe-signalloom rollout restart deployment/dashboard-signalloom
-  kubectl -n fe-signalloom rollout status deployment/dashboard-signalloom --timeout=180s
+  TARGET_DEPLOYMENTS+=("dashboard-signalloom")
+fi
+if [[ "${TARGET_BACKEND}" == "true" ]]; then
+  TARGET_DEPLOYMENTS+=("fe-signalloom")
+fi
+if [[ "${TARGET_DOCS}" == "true" ]]; then
+  TARGET_DEPLOYMENTS+=("docs-signalloom")
+fi
+if [[ "${TARGET_INGEST}" == "true" ]]; then
+  TARGET_DEPLOYMENTS+=("signal-ingest")
+fi
+for dapp in "${DYNAMIC_APPS[@]:-}"; do
+  [[ -n "$dapp" ]] && TARGET_DEPLOYMENTS+=("$dapp")
+done
+
+ALL_IMAGES_TO_VERIFY=()
+for dep in "${TARGET_DEPLOYMENTS[@]}"; do
+  dep_images=()
+  while IFS= read -r img; do
+    [[ -n "$img" ]] && dep_images+=("$img")
+  done < <(extract_deployment_images "$dep")
+
+  if [[ ${#dep_images[@]} -eq 0 ]]; then
+    case "$dep" in
+      dashboard-signalloom)
+        source ./scripts/lib/source-id.sh
+        dash_id="$(source_id_for dashboard-signalloom)"
+        dep_images+=("zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:src-${dash_id:0:16}")
+        ;;
+      fe-signalloom)
+        dep_images+=("zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest")
+        ;;
+      docs-signalloom)
+        dep_images+=("zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/docs-signalloom:latest")
+        ;;
+      signal-ingest)
+        tag="${INGEST_TAG:-}"
+        if [[ -z "$tag" && -f "d2-signalloom/apps/signal-ingest/base/deployment.yaml" ]]; then
+          tag="$(grep -o "signal-ingest:src-[0-9a-f]*" d2-signalloom/apps/signal-ingest/base/deployment.yaml | cut -d: -f2 || true)"
+        fi
+        tag="${tag:-latest}"
+        dep_images+=("zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/signal-ingest:${tag}")
+        ;;
+      *)
+        if [[ -f "d2-signalloom/apps/${dep}/base/deployment.yaml" ]]; then
+          while IFS= read -r raw_img; do
+            [[ -n "$raw_img" ]] && dep_images+=("$raw_img")
+          done < <(grep "image:" "d2-signalloom/apps/${dep}/base/deployment.yaml" | awk '{img=$NF; gsub(/["'\'' ]/, "", img); if (img !~ /^\$\{/) print img}')
+        fi
+        ;;
+    esac
+  fi
+
+  for img in "${dep_images[@]}"; do
+    ALL_IMAGES_TO_VERIFY+=("$img")
+  done
+done
+
+# Dedup images to verify
+if [[ ${#ALL_IMAGES_TO_VERIFY[@]} -gt 0 ]]; then
+  mapfile -t UNIQUE_IMAGES < <(printf '%s\n' "${ALL_IMAGES_TO_VERIFY[@]}" | sort -u)
+else
+  UNIQUE_IMAGES=()
+fi
+
+for img in "${UNIQUE_IMAGES[@]}"; do
+  echo "    Verifying image presence on Kind node: ${img}..."
+  if ! check_image_on_node "${img}"; then
+    echo "ERROR: Image '${img}' is missing from cluster node. Build and load it first." >&2
+    exit 1
+  fi
+  echo "    ✓ Image verified on node: ${img}"
+done
+
+echo "    ✓ All required images verified on Kind node."
+
+echo "==> Rolling out deployments..."
+if [[ "${TARGET_DASHBOARD}" == "true" ]]; then
+  "${KUBECTL_BIN}" -n fe-signalloom rollout restart deployment/dashboard-signalloom
+  "${KUBECTL_BIN}" -n fe-signalloom rollout status deployment/dashboard-signalloom --timeout=180s
 fi
 
 if [[ "${TARGET_BACKEND}" == "true" ]]; then
-  kubectl -n fe-signalloom rollout restart deployment/fe-signalloom
-  kubectl -n fe-signalloom rollout status deployment/fe-signalloom --timeout=180s
+  "${KUBECTL_BIN}" -n fe-signalloom rollout restart deployment/fe-signalloom
+  "${KUBECTL_BIN}" -n fe-signalloom rollout status deployment/fe-signalloom --timeout=180s
 fi
 
 if [[ "${TARGET_DOCS}" == "true" ]]; then
-  kubectl -n fe-signalloom rollout restart deployment/docs-signalloom
-  kubectl -n fe-signalloom rollout status deployment/docs-signalloom --timeout=180s
+  "${KUBECTL_BIN}" -n fe-signalloom rollout restart deployment/docs-signalloom
+  "${KUBECTL_BIN}" -n fe-signalloom rollout status deployment/docs-signalloom --timeout=180s
 fi
+
+if [[ "${TARGET_INGEST}" == "true" ]]; then
+  "${KUBECTL_BIN}" -n fe-signalloom rollout restart deployment/signal-ingest
+  "${KUBECTL_BIN}" -n fe-signalloom rollout status deployment/signal-ingest --timeout=180s
+fi
+
+for dapp in "${DYNAMIC_APPS[@]:-}"; do
+  [[ -z "$dapp" ]] && continue
+  if "${KUBECTL_BIN}" -n fe-signalloom get deployment/"$dapp" >/dev/null 2>&1; then
+    echo "    Rolling out deployment/${dapp}..."
+    "${KUBECTL_BIN}" -n fe-signalloom rollout restart deployment/"$dapp"
+    "${KUBECTL_BIN}" -n fe-signalloom rollout status deployment/"$dapp" --timeout=180s
+  fi
+done
 
 # 8. Port-Forward Healing & Ingress Verification
 echo "==> Step 8: Verifying ingress and port-forwards..."
 PORT_OK=false
 for i in {1..10}; do
-  if curl -fsS http://127.0.0.1:19080/ >/dev/null 2>&1; then
+  if "${CURL_BIN:-curl}" -fsS http://127.0.0.1:19080/ >/dev/null 2>&1; then
     PORT_OK=true
     break
   fi
@@ -308,13 +549,20 @@ done
 
 if [[ "${PORT_OK}" == "false" ]]; then
   echo "    Port-forward on 19080 severed or unresponsive; resuming supervisor..."
-  setsid kubectl -n fe-signalloom port-forward svc/dashboard-signalloom 19080:8080 --address 0.0.0.0 </dev/null >/dev/null 2>&1 & disown || true
+  setsid "${KUBECTL_BIN}" -n fe-signalloom port-forward svc/dashboard-signalloom 19080:8080 --address 0.0.0.0 </dev/null >/dev/null 2>&1 & disown || true
   sleep 2
 fi
 
 # 9. Conclusive Staleness & Evidence Verification
 echo "==> Step 9: Running deployed staleness proof..."
-./scripts/check-deployed-staleness.sh || true
+STALENESS_RC=0
+"${CHECK_STALENESS_BIN}" || STALENESS_RC=$?
+
+if [[ ${STALENESS_RC} -ne 0 ]]; then
+  echo "ERROR: Deployed staleness proof failed with exit code ${STALENESS_RC}." >&2
+  echo "       Cluster workloads are not running the current working tree." >&2
+  exit "${STALENESS_RC}"
+fi
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════"

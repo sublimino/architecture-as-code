@@ -26,6 +26,7 @@ Developer deployment pipeline for in-flight and committed code changes on the **
 1. **Zero Unobserved Drift**:
    Tests that inspect the source tree prove nothing about running pods.
    Every local deployment must finish with positive container readback proof via `scripts/check-deployed-staleness.sh`.
+   Non-zero exit codes halt deployment and propagate immediately.
 
 2. **Git Authority and Commit Invariants**:
    Flux OCI source artifacts track Git commits (`local@sha1:<git-rev>`).
@@ -35,6 +36,7 @@ Developer deployment pipeline for in-flight and committed code changes on the **
 3. **Kustomization Tag Synchronization**:
    Local overlays in `d2-signalloom/apps/fe-signalloom/local/kustomization.yaml` must stay aligned with current source fingerprints.
    Hardcoded legacy tags will cause Flux to roll back newly built images.
+   Deployments such as `signal-ingest` must have their immutable source tags pinned in manifests before GitOps packaging.
 
 4. **Supply Chain Integrity**:
    Images and OCI artifacts must be signed with Cosign using `.keys/cosign.key`.
@@ -43,6 +45,10 @@ Developer deployment pipeline for in-flight and committed code changes on the **
 5. **SPDY Port-Forward Healing**:
    Every deployment rollout terminates active `kubectl port-forward` streams.
    The deployment tool verifies HTTP responses on port 19080 and restarts listeners if severed.
+
+6. **Node CRI Image Preflight**:
+   Before restarting any deployment, the tool inspects whether required container images exist in the Kind cluster image store (`crictl inspecti` or `crictl images`).
+   Missing image tags abort deployment immediately before rollout, preventing `ImagePullBackOff`.
 
 ---
 
@@ -72,4 +78,5 @@ Run the deployment tool from repository root:
 # Target specific workload
 .agents/skills/sl-local-deploy/Tools/local-deploy.sh -w dashboard
 .agents/skills/sl-local-deploy/Tools/local-deploy.sh -w backend
+.agents/skills/sl-local-deploy/Tools/local-deploy.sh -w ingest
 ```

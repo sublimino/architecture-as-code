@@ -535,6 +535,18 @@ ACCEPTED_CLIENT_SUPPLIED_FIELDS: dict[tuple[str, str, str, str], str] = {
     ("environment_lifecycle.py", "api_register_lifecycle", "detail", "ttl_minutes"): (
         "EAP registration parameter recorded in audit detail as context for lifecycle creation."
     ),
+    ("admin_features.py", "update_tenant_features", "detail", "tenant_id"): (
+        "Superadmin operation specifying target tenant for feature flag updates."
+    ),
+    ("admin_features.py", "update_tenant_features", "detail", "flags"): (
+        "Count of explicit flags updated recorded in audit detail as metric of operation scope."
+    ),
+    ("admin_features.py", "update_tenant_features", "detail", "preset"): (
+        "Name of pre-configured feature flag preset bundle applied to tenant."
+    ),
+    ("admin_features.py", "update_single_tenant_feature", "detail", "enabled"): (
+        "Boolean flag toggle state persisted to tenant_feature_flags."
+    ),
     ("environment_lifecycle.py", "api_heartbeat", "detail", "extend_minutes"): (
         "EAP heartbeat extension parameter recorded in audit detail."
     ),
@@ -1333,6 +1345,15 @@ RECORDS_A_NON_DATABASE_ACTION: dict[tuple[str, str], str] = {
     ),
     ("environment_routing.py", "teardown_environment"): (
         "LEGITIMATE. Environment teardown purges in-memory routing/cluster allocations; audit event is recorded durably."
+    ),
+    ("admin_features.py", "update_tenant_features"): (
+        "LEGITIMATE. Database writes are performed via FeatureFlagRepository "
+        "(apply_preset/update_tenant_flags against tenant_feature_flags) using "
+        "the provided connection pool before the audit event is emitted."
+    ),
+    ("admin_features.py", "update_single_tenant_feature"): (
+        "LEGITIMATE. Database write is performed via FeatureFlagRepository.set_feature_flag "
+        "against tenant_feature_flags using the provided connection pool before the audit event is emitted."
     ),
     ("api_compat.py", "_audit_outbound_request"): (
         "LEGITIMATE. The state change is in another service: a policy bundle "

@@ -524,6 +524,8 @@ DB_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
         "/api/tenant/settings/risk-profile",
         {"jurisdiction": "UK", "reporting_currency": "GBP", "risk_load": 0.1},
     ),
+    ("PATCH", "/api/tenant/settings/organization", {"org_name": "Acme Global"}),
+    ("PATCH", "/api/tenant/settings/org-name", {"org_name": "Acme Global"}),
     ("PATCH", "/api/user/preferences", {"display_currency": "GBP"}),
     ("POST", "/api/support", {"subject": "probe", "urgency": "low", "message": "probe"}),
     ("POST", f"/api/tenants/{TENANT_A}/api-keys/initial", None),
@@ -817,6 +819,13 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("POST", "/api/v1/admin/users/invite"),
     ("PATCH", "/api/v1/admin/users/{user_id}"),
     ("DELETE", "/api/v1/admin/users/{user_id}"),
+    # Platform feature flags administration (admin_features.py, migration 060/065).
+    # Guarded by require_superadmin; superadmin manages cross-tenant feature flags.
+    # Covered by test_admin_features_api.py.
+    ("GET", "/api/v1/admin/features"),
+    ("GET", "/api/v1/admin/features/presets"),
+    ("PUT", "/api/v1/admin/features"),
+    ("PUT", "/api/v1/admin/features/{flag_key}"),
     ("GET", "/api/health/crypto"),                       # reads a keys directory
     ("GET", "/api/network-tests"),                       # in-process probe results
     ("POST", "/api/network-tests/scan"),                 # in-process probe results

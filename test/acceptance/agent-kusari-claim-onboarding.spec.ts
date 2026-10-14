@@ -46,7 +46,7 @@ test.describe("Kusari Agent Onboarding Guide & Claim Modal Pre-Flight Checks", (
     await expect(page.getByRole("heading", { name: /Pre-Flight Verification Matrix/i })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("onboarding-diag-tenant")).toBeVisible();
     await expect(page.getByTestId("onboarding-diag-spiffe")).toBeVisible();
-    await expect(page.getByTestId("onboarding-diag-sentinel")).toBeVisible();
+    await expect(page.getByTestId("onboarding-diag-sensor")).toBeVisible();
     await expect(page.getByTestId("onboarding-diag-policy")).toBeVisible();
 
     // 3-step remediation procedure

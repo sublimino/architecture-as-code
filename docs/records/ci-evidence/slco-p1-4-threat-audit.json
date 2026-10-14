@@ -1,0 +1,88 @@
+{
+  "schema_version": "1.0",
+  "logical_id": "SLCO-P1-4",
+  "created": "2026-10-15 00:48:59+01:00",
+  "status": "fail",
+  "proceed": false,
+  "blocking_drift": true,
+  "verification_scope": "Bounded static audit stopped at confirmed plan-versus-disk contradiction. No threat invariant compliance certification issued.",
+  "runtime": {
+    "configured_worktree": "/home/andy/src/.worktrees/70b28/osramp-demo",
+    "reported_pwd": "/home/andy/.cline/worktrees/70b28/osramp-demo",
+    "source_commit": "758258131e9b256767fa0f6f4aa046eef4aff46b",
+    "integration_ref": "integration/slco-v0.1.0",
+    "integration_ancestry_exit": 0,
+    "initial_git_status": "clean",
+    "board_inspection": "One read-only inspection: P1-1, P1-2, P1-3, P1-4 active. No state mutations, sibling edits, merges, or pushes."
+  },
+  "blocker": {
+    "type": "material_architecture_contract_mismatch",
+    "summary": "Required customer-table RLS is not implemented by migration 006; certifying identity-graph RLS would substitute a different architecture.",
+    "evidence": [
+      "006_tenant_isolation_rls.sql:232-240 enables and forces RLS on actors, aliases, delegations, identity_tenant_backfill_report only.",
+      "006_tenant_isolation_rls.sql:253-266 defines identity graph tenant policies; zero mentions of agent_registry, external_agents, external_agent_registrations, or signalloom_app occur in the entire readable migration.",
+      "004_agent_governance_schema.sql:45-48 creates public.agent_registry with tenant_id but no RLS in that migration.",
+      "039_external_agent_registrations.sql:10-14 creates public.external_agent_registrations, not external_agents; no RLS in that migration.",
+      "Committed slco-p1-pre-preflight-audit.json:4-6 says status=fail, proceed=false, blocking_drift=true; lines 18-41 record the same missing RLS blocker."
+    ],
+    "independent_review": "Read-only explore reviewer independently confirmed customer-table policy and role mismatch. No tests or live operations performed by reviewer.",
+    "recommended_action": "escalate: authorize customer-table RLS implementation and resolve schema/role/perimeter specification drift, then rerun P1-PRE before P1-4. Do not rewrite prerequisite evidence to claim success."
+  },
+  "threat_matrix": [
+    {"id": "T1", "assertion": "Customer rows partitioned by app.current_tenant database RLS", "status": "fail", "evidence": "Migration 006 protects identity graph only; customer-table isolation cannot be certified. No live database probe performed."},
+    {"id": "T2", "assertion": "Cross-tenant claim returns 409 without tenant identifiers", "status": "not_run", "evidence": "Stopped at material T1 mismatch before registration tests; neither hijack success nor absence of disclosure established."},
+    {"id": "T3", "assertion": "Single-use enrollment refuses replay across hosts", "status": "not_run", "evidence": "Stopped before replay and concurrent-consumption probes."},
+    {"id": "T4", "assertion": "Verified credential binds telemetry tenant identity", "status": "not_run", "evidence": "Stopped before payload/header spoofing probes; no attribution safety finding issued."},
+    {"id": "T5", "assertion": "Public ingest exposes only enroll and telemetry with CIDR enforcement", "status": "unverified", "evidence": "Named gateway-route.yaml has /api, /enroll, /warden-ingest, /warden-fleet and no /telemetry. Host/listener/security-policy attachment and live enforcement were not evaluated; this is manifest/spec drift, not proof of public exploitability."},
+    {"id": "T6", "assertion": "Dashboard/internal APIs require tailnet and Dex", "status": "not_run", "evidence": "No live exposure or authentication probe; static route presence alone cannot establish tailnet-only reachability."}
+  ],
+  "required_execution": [
+    {"command": "uv run pytest tests/test_external_agent_registration.py", "cwd": "d2-signalloom/apps/fe-signalloom/src", "expected_passed": 8, "status": "not_run", "exit": null, "verbatim_output": null},
+    {"command": "python3 test/unit/test_tenant_hash.py", "cwd": ".", "expected_passed": 29, "status": "not_run", "exit": null, "verbatim_output": null},
+    {"command": "Threat invariant probe verifying 409 status on duplicate claim", "status": "not_run"},
+    {"command": "Adversarial malformed-input, telemetry spoofing, enrollment replay and rapid-consecutive execution probes", "status": "not_run"},
+    {"command": "Repeated derive_tenant_hash.py consistency checks", "status": "not_run"},
+    {"command": "User-facing error and unhandled exception leakage audit", "status": "not_run"}
+  ],
+  "execution_qualifications": {
+    "timestamps": "Audit timestamp recorded above. No test execution timestamps exist because suites were not run.",
+    "process_ids": "No test process IDs: test execution stopped before spawning suites.",
+    "memory_utilization": "Not measured; no memory ceiling is numerically defined in the card. Cannot certify an unspecified budget.",
+    "wall_clock_ceiling_seconds": 10800,
+    "test_pass_claims": "None. Requested 8 and 29 counts are acceptance targets, not observed results.",
+    "signature": "No cryptographic signing key was selected or used. Git history observed unsigned. No signed compliance certificate is issued."
+  },
+  "architectural_compliance_matrix": [
+    {"invariant": "SLCO database-enforced customer isolation", "status": "fail", "basis": "Named migration has different protected tables and application role."},
+    {"invariant": "PAI evidence before assertion", "status": "observed", "basis": "Unsupported tests and live controls explicitly remain unverified."},
+    {"invariant": "PAI minimal authorized scope", "status": "observed", "basis": "No implementation, credentials, secrets, keys, production gateway, or live infrastructure changed."},
+    {"invariant": "Isolated integration-derived execution", "status": "observed", "basis": "Initial CWD and integration ancestry command evidence."},
+    {"invariant": "Life OS canonical security invariants", "status": "unverified", "basis": "No independently identified canonical Life OS invariant specification supplied; no universal compliance claim made."},
+    {"invariant": "Proposal identity and safe ownership", "status": "drift", "basis": "Named proposal resolves to regular repo document outside runtime worktree, not a vault symlink. Healthy bridge search/read did not locate the proposal note. Only specifically authorized errata and own Result cell may be changed; never stage that external document."}
+  ],
+  "artifact_sha256": [
+    {"path": "d2-signalloom/apps/signal-ingest/identity/migrations/006_tenant_isolation_rls.sql", "sha256": "c332dac1c4cac919f0500841bb4f95e11ce2b9880b9e98e2494348739a4aa80a", "bytes": 20591},
+    {"path": "d2-signalloom/apps/fe-signalloom/src/db/migrations/004_agent_governance_schema.sql", "sha256": "bd08b2c86eff0f96535cec7243f646e4a36e4db24eb1069291f25a9f631a91c8", "bytes": 27142},
+    {"path": "d2-signalloom/apps/fe-signalloom/src/db/migrations/039_external_agent_registrations.sql", "sha256": "9cc2f38516f3af69b1bd98f9d8b24dc72ca0080cfcec3ffb35e16698fbb416b9", "bytes": 5815},
+    {"path": "d2-signalloom/apps/fe-signalloom/base/gateway-route.yaml", "sha256": "457444b04c7d4c62370e7c08ea5c01093834b414e3faeb1c1f527977dd000ef1", "bytes": 4513},
+    {"path": "docs/records/ci-evidence/slco-p1-pre-preflight-audit.json", "sha256": "344acef783c50bb963340d98c1b3ceb647c719eb2da848c71b8ed1ced4068ca4", "bytes": 7630}
+  ],
+  "reproduction": {
+    "source": "Read evaluated paths at source_commit, not a mutable branch tip. Verify byte counts and SHA256 before comparing findings.",
+    "migration_scope_regex": "ALTER TABLE\\s+(\\w+)\\s+ENABLE ROW LEVEL SECURITY",
+    "expected_scope": ["actors", "aliases", "delegations", "identity_tenant_backfill_report"],
+    "zero_reference_identifiers": ["agent_registry", "external_agents", "external_agent_registrations", "signalloom_app"]
+  },
+  "record_validation": {
+    "artifact_validation": "PASS: JSON parse; 5/5 artifact byte counts and SHA256; migration scope; 4 absent identifiers; 6 threat dispositions; fail-closed status.",
+    "git_diff_check_exit": 0,
+    "docs_lint_exit": 0,
+    "docs_lint_output": "docs-lint: 785 file(s) clean (all checks: 174, correctness checks: 3, link checks: 608); STE-Code subset: 10 files, 0 findings. Editorial review remains required.; docs-lint: 10 file(s) clean (all checks: 10, correctness checks: 0, link checks: 0)",
+    "qualification": "These validate the audit record and documentation only; they do not turn unexecuted security gates green."
+  },
+  "verification_statement": {
+    "author": "sensai (cpai-opencode)",
+    "verdict": "FAIL — T1 contract mismatch confirmed; T2–T6 not certified. This record attests only to the bounded observations and checksums, not threat-model invariant compliance.",
+    "cryptographically_signed": false
+  }
+}

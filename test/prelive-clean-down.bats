@@ -101,6 +101,9 @@ EOF
   run grep "annotate resourceset agent-swarm fluxcd.controlplane.io/reconcile=disabled" "$log_file"
   [ "$status" -eq 0 ]
 
+  run grep "annotate resourceset signalloom-infra fluxcd.controlplane.io/reconcile=disabled" "$log_file"
+  [ "$status" -eq 0 ]
+
   run grep "scale deployment --all -n fe-signalloom-agents --replicas=0" "$log_file"
   [ "$status" -eq 0 ]
 
@@ -126,6 +129,9 @@ EOF
   [ "$status" -eq 0 ]
 
   run grep "annotate resourceset agent-swarm fluxcd.controlplane.io/reconcile-" "$log_file"
+  [ "$status" -eq 0 ]
+
+  run grep "annotate resourceset signalloom-infra fluxcd.controlplane.io/reconcile-" "$log_file"
   [ "$status" -eq 0 ]
 
   run grep "scale deployment --all -n fe-signalloom-agents --replicas=1" "$log_file"

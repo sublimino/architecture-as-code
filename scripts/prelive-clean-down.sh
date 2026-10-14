@@ -79,14 +79,15 @@ FAILURES=0
 do_clean_down() {
   header "EXECUTING FULL REFRESH & USER DATA RESET FOR NEW ONBOARDING"
 
-  # 1. Suspend Flux agent-swarm ResourceSet to prevent automatic re-spawning
-  echo "--> Suspending Flux agent-swarm ResourceSet..."
+  # 1. Suspend Flux agent-swarm & signalloom-infra ResourceSets to prevent automatic re-spawning
+  echo "--> Suspending Flux agent-swarm and signalloom-infra ResourceSets..."
   kubectl -n flux-system annotate resourceset agent-swarm fluxcd.controlplane.io/reconcile=disabled --overwrite 2>/dev/null || true
+  kubectl -n flux-system annotate resourceset signalloom-infra fluxcd.controlplane.io/reconcile=disabled --overwrite 2>/dev/null || true
   kubectl -n flux-system patch resourceset agent-swarm --type=merge -p '{"spec":{"suspend":true}}' 2>/dev/null || true
   flux suspend kustomization -n fe-signalloom-agents --all 2>/dev/null || true
   kubectl get kustomization -n fe-signalloom-agents -o name 2>/dev/null | xargs -r -I {} kubectl patch {} -n fe-signalloom-agents --type=merge -p '{"spec":{"suspend":true}}' 2>/dev/null || true
   kubectl -n fe-signalloom-agents annotate kustomization --all kustomize.toolkit.fluxcd.io/reconcile=disabled --overwrite 2>/dev/null || true
-  ok "Flux agent-swarm ResourceSet and child Kustomizations suspended"
+  ok "Flux agent-swarm and signalloom-infra ResourceSets and child Kustomizations suspended"
 
   # 2. Scale down workloads and delete agent pods in fe-signalloom-agents
   echo "--> Scaling down agent workloads in fe-signalloom-agents..."
@@ -215,14 +216,16 @@ do_clean_down() {
 do_restore_swarm() {
   header "RESTORING AGENT SWARM IN FE-SIGNALLOOM-AGENTS"
 
-  echo "--> Un-suspending Flux agent-swarm ResourceSet and child Kustomizations..."
+  echo "--> Un-suspending Flux agent-swarm and signalloom-infra ResourceSets and child Kustomizations..."
   kubectl -n flux-system annotate resourceset agent-swarm fluxcd.controlplane.io/reconcile- 2>/dev/null || true
+  kubectl -n flux-system annotate resourceset signalloom-infra fluxcd.controlplane.io/reconcile- 2>/dev/null || true
   kubectl -n flux-system annotate resourceset agent-swarm reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite 2>/dev/null || true
+  kubectl -n flux-system annotate resourceset signalloom-infra reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite 2>/dev/null || true
   kubectl -n flux-system patch resourceset agent-swarm --type=merge -p '{"spec":{"suspend":false}}' 2>/dev/null || true
   flux resume kustomization -n fe-signalloom-agents --all 2>/dev/null || true
   kubectl get kustomization -n fe-signalloom-agents -o name 2>/dev/null | xargs -r -I {} kubectl patch {} -n fe-signalloom-agents --type=merge -p '{"spec":{"suspend":false}}' 2>/dev/null || true
   kubectl -n fe-signalloom-agents annotate kustomization --all kustomize.toolkit.fluxcd.io/reconcile- 2>/dev/null || true
-  ok "Flux agent-swarm ResourceSet and child Kustomizations un-suspended"
+  ok "Flux agent-swarm and signalloom-infra ResourceSets and child Kustomizations un-suspended"
 
   echo "--> Scaling up workloads in fe-signalloom-agents..."
   kubectl scale deployment --all -n fe-signalloom-agents --replicas=1 2>/dev/null || true

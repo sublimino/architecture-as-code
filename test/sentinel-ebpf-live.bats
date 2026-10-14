@@ -106,12 +106,18 @@ warden_image_matches_pin() {
     [[ "$pin" == src-* ]]
     warden_image_matches_pin "ghcr.io/controlplaneio-in-toto/signalloom-warden:${pin}" "$pin"
     warden_image_matches_pin "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/signalloom-warden:${pin}@sha256:00" "$pin"
-    run ! warden_image_matches_pin "ghcr.io/controlplaneio-in-toto/signalloom-warden:src-08e40cec5d33" "$pin"
-    run ! warden_image_matches_pin "ghcr.io/controlplaneio-in-toto/signalloom-warden:${pin}-dirty" "$pin"
-    run ! warden_image_matches_pin "ghcr.io/controlplaneio-in-toto/signalloom-sentinel:${pin}" "$pin"
-    run ! warden_image_matches_pin "zot.registry.svc.cluster.local:5000/acme/signalloom-warden" "$pin"
-    run ! warden_image_matches_pin "ghcr.io/controlplaneio-in-toto/signalloom-warden:${pin}" ""
-    run ! warden_pinned_tag /dev/null
+    run warden_image_matches_pin "ghcr.io/controlplaneio-in-toto/signalloom-warden:src-08e40cec5d33" "$pin"
+    [ "$status" -ne 0 ]
+    run warden_image_matches_pin "ghcr.io/controlplaneio-in-toto/signalloom-warden:${pin}-dirty" "$pin"
+    [ "$status" -ne 0 ]
+    run warden_image_matches_pin "ghcr.io/controlplaneio-in-toto/signalloom-sentinel:${pin}" "$pin"
+    [ "$status" -ne 0 ]
+    run warden_image_matches_pin "zot.registry.svc.cluster.local:5000/acme/signalloom-warden" "$pin"
+    [ "$status" -ne 0 ]
+    run warden_image_matches_pin "ghcr.io/controlplaneio-in-toto/signalloom-warden:${pin}" ""
+    [ "$status" -ne 0 ]
+    run warden_pinned_tag /dev/null
+    [ "$status" -ne 0 ]
 }
 
 @test "eBPF warden preflight: deployed image tag matches manifest pin" {

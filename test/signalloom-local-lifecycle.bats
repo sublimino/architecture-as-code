@@ -118,7 +118,11 @@ assert_kind_loaded() {
 }
 
 @test "Phase 1 is exposed through the approved demo lifecycle rather than a new wrapper" {
-  run make -n demo-signalloom-up demo-signalloom-test demo-signalloom-down
+  # AFM_REQUIRED=0: demo-signalloom-afm-up's recipe line carries $(MAKE), so
+  # make -n really runs `k8s-afm.sh preflight`, which fails on any checkout
+  # without ../kubesec-afm or an image archive. AFM availability is not what
+  # this test is about; test/k8s-afm-preflight.bats owns it.
+  run make -n demo-signalloom-up demo-signalloom-test demo-signalloom-down AFM_REQUIRED=0
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"signalloom-local.sh up"* ]]

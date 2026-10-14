@@ -46,4 +46,44 @@ setup() {
     return 1
   }
   grep -qF 'SETUP failure, not a test failure' "$pipeline"
+  # Defined is not enough: it must RUN after the estate bring-up and before
+  # the first cluster-dependent stage.
+  up_line="$(grep -n '^retry .*demo-signalloom-up$' "$pipeline" | head -1 | cut -d: -f1)"
+  call_line="$(grep -n '^assert_infra_activated$' "$pipeline" | head -1 | cut -d: -f1)"
+  stage_line="$(grep -n 'MAKE_BIN} demo-signalloom-test"' "$pipeline" | head -1 | cut -d: -f1)"
+  [ -n "$up_line" ]
+  [ -n "$stage_line" ]
+  [ -n "$call_line" ] || { echo "assert_infra_activated is never called"; return 1; }
+  if [ "$call_line" -le "$up_line" ] || [ "$call_line" -ge "$stage_line" ]; then
+    echo "guard must run between bring-up (@$up_line) and first stage (@$stage_line), is @$call_line"
+    return 1
+  fi
+}
+
+# Behaviour, not just presence: extract the guard and run it against a stubbed
+# kubectl. The two greps above would still pass with the condition inverted.
+run_infra_guard() {
+  local fn
+  fn="$(awk '/^assert_infra_activated\(\)/,/^}/' "$pipeline")"
+  [ -n "$fn" ] || { echo "assert_infra_activated() not found in demo-pipeline.sh"; return 1; }
+  printf '%s' "$1" >"$BATS_TEST_TMPDIR/inputs"
+  printf '#!/usr/bin/env bash\ncat "%s"\n' "$BATS_TEST_TMPDIR/inputs" >"$BATS_TEST_TMPDIR/kubectl"
+  chmod +x "$BATS_TEST_TMPDIR/kubectl"
+  run bash -c "KUBECTL_BIN='$BATS_TEST_TMPDIR/kubectl'
+$fn
+assert_infra_activated
+echo GUARD-PASSED"
+}
+
+@test "RSRACE the infra guard stops the pipeline when signalloom-infra inputs are empty" {
+  run_infra_guard '[]'
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"SETUP failure, not a test failure"* ]]
+  [[ "$output" != *"GUARD-PASSED"* ]]
+}
+
+@test "RSRACE the infra guard lets an activated signalloom-infra through" {
+  run_infra_guard '[{"component":"inf-bao","tenant":"inf-bao"}]'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"GUARD-PASSED"* ]]
 }

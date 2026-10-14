@@ -1135,6 +1135,26 @@ PIPELINE_PHASE="estate"
 echo "==> [5/8] Bringing up the full Signal Loom estate (make demo-signalloom-up)..."
 retry 2 "$MAKE_BIN" demo-signalloom-up
 
+# A green `up` does not prove signalloom-infra is active. agent-trust-local.sh
+# snapshots and restores its siblings' inputs (see ORDERING above), and a lost
+# race there restores `[]`: infra-controllers is never created, and the stages
+# below each wait out their budget and report a TEST failure for a SETUP fault.
+# Ported from the retired vm-pipeline.sh (b65cdf54); the race that motivated it
+# is recorded in test/resourceset-activation-race.bats.
+assert_infra_activated() {
+  local infra_inputs
+  infra_inputs="$("$KUBECTL_BIN" -n flux-system get resourceset signalloom-infra \
+    -o jsonpath='{.spec.inputs}' 2>/dev/null)" || infra_inputs=""
+  if ! grep -q '"tenant"' <<<"$infra_inputs"; then
+    echo "ERROR: signalloom-infra was never activated — its inputs are empty." >&2
+    echo "       This is a SETUP failure, not a test failure. The stages below" >&2
+    echo "       would run against a cluster with no infra and report the tests" >&2
+    echo "       as broken. Check the demo-signalloom-up output above." >&2
+    exit 2
+  fi
+}
+assert_infra_activated
+
 # check-backends is NOT re-run here: it is the last step of the
 # demo-signalloom-up recipe above (see Makefile), and re-invoking it by name
 # here would be exactly the hand-copy class test/gcp-demo-pipeline.bats guards

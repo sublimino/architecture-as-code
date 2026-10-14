@@ -41,6 +41,13 @@ case "$name" in
         # nothing to hand over.
         printf '%s\n' "${STUB_GATEWAY_SVC-ingress cluster-envoy}"
         ;;
+      *"get resourceset signalloom-infra"*)
+        # assert_infra_activated reads the inputs after demo-signalloom-up and
+        # stops the run as a SETUP failure when they carry no tenant. Default
+        # is an activated set; set STUB_INFRA_INPUTS='[]' to simulate the lost
+        # snapshot/restore race.
+        printf '%s' "${STUB_INFRA_INPUTS-[{\"component\":\"inf-bao\",\"tenant\":\"inf-bao\"}]}"
+        ;;
     esac
     ;;
 esac

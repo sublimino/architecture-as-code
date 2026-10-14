@@ -5,7 +5,7 @@
 # cluster, e.g. Kusari). Decision 2026-10-03: such a cluster runs only
 #
 #   * the signalloom-warden DaemonSet (this overlay),
-#   * three Secrets in fe-signalloom-agents, two of them required:
+#   * three Secrets in inf-signalloom-warden, two of them required:
 #     signalloom-warden-ingest-token (the signal-ingest named key
 #     `signalloom-warden`) and signalloom-warden-fleet-key (the fleet-manager
 #     caller key `warden`, scope report), both minted on the CENTRAL cluster by
@@ -67,6 +67,9 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
+  # Namespace inf-signalloom-warden. A remote cluster runs no fleet ResourceSet,
+  # so the overlay has to create it; the Flux-reconciled base must not.
+  - ../../signalloom-warden-namespace
   - ../../signalloom-warden
   # Role signalloom-warden. See the note above: without it the base's
   # RoleBinding resolves to nothing on a cluster that runs no agent-swarm base.

@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# Namespace inf-signalloom-warden, for clusters where the warden is applied BY
+# HAND (kubectl apply -k): kind-signalloom-hub and the remote-tenant overlays.
+#
+# It is deliberately NOT part of ../signalloom-warden. On kind-osramp that base
+# is reconciled by the tenant Kustomization agent-signalloom-warden as the
+# TENANT ServiceAccount agent-swarm-flux, which has no RBAC on cluster-scoped
+# objects; a Namespace in that tree fails the whole dry-run apply
+# ("cannot patch resource namespaces"). There the Namespace is owned by the
+# cluster-level ResourceSet (d2-osramp-fleet/tenants/base/agent-swarm.yaml),
+# applied by flux-system. This copy must stay identical to that one;
+# test/signalloom-warden-manifests.bats compares them.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: inf-signalloom-warden
+  labels:
+    signalloom.ai/managed: "true"
+    signalloom.ai/tier: "infrastructure"
+    signalloom.ai/role: "sentinel"
+    app.kubernetes.io/part-of: signalloom-swarm

@@ -515,3 +515,42 @@ secret_ref() {
   [ "$(yq -r 'select(.kind == "NetworkPolicy" and .metadata.name == "signalloom-warden-captures") | .spec.policyTypes | join(",")' "${out}")" = "Ingress" ]
   [ "$(yq -r 'select(.kind == "NetworkPolicy" and .metadata.name == "signalloom-warden-captures") | .spec.podSelector.matchLabels["app.kubernetes.io/name"]' "${out}")" = "signalloom-warden" ]
 }
+
+# ── T9 namespace ownership (inf-signalloom-warden) ───────────────────────────
+# kind-osramp reconciles the warden as the TENANT ServiceAccount agent-swarm-flux,
+# which cannot patch cluster-scoped objects, so the Namespace belongs to the
+# cluster-level ResourceSet. The hand-applied overlays have no ResourceSet and
+# must create it themselves, as the same object.
+
+rs_warden_ns() {
+  yq -o=json -I=0 '.spec.resources[] | select(.kind == "Namespace" and .metadata.name == "inf-signalloom-warden") | .metadata' "${RS}" | jq -S -c .
+}
+
+@test "T9 the ResourceSet declares inf-signalloom-warden and the Flux-reconciled overlay does not render it" {
+  [ -n "$(rs_warden_ns)" ]
+  local out
+  out="$(remote_render kind-osramp)"
+  [ -z "$(yq -r 'select(.kind == "Namespace") | .metadata.name' "${out}")" ]
+  # and the warden still lands in that namespace
+  [ "$(yq -r 'select(.kind == "DaemonSet") | .metadata.namespace' "${out}")" = "inf-signalloom-warden" ]
+}
+
+@test "T9 every hand-applied overlay renders inf-signalloom-warden, identical to the ResourceSet's" {
+  local want ov out got
+  want="$(rs_warden_ns)"
+  [ -n "${want}" ]
+  for ov in kind-signalloom-hub remote-tenant remote-tenant-dev; do
+    out="$(remote_render "${ov}")"
+    got="$(yq -o=json -I=0 'select(.kind == "Namespace" and .metadata.name == "inf-signalloom-warden") | .metadata' "${out}" | jq -S -c .)"
+    [ "${got}" = "${want}" ] || { echo "${ov}: ${got} != ${want}" >&2; return 1; }
+    [ "$(yq -r 'select(.kind == "DaemonSet") | .metadata.namespace' "${out}")" = "inf-signalloom-warden" ]
+  done
+}
+
+@test "T9 agent-swarm-flux holds no update/patch/delete on inf-signalloom-warden (least privilege)" {
+  local names
+  names="$(yq -r '.spec.resources[] | select(.kind == "ClusterRole" and .metadata.name == "agent-swarm-flux-namespaces") | .rules[] | select(.resourceNames != null) | .resourceNames[]' "${RS}")"
+  echo "${names}" | grep -qx fe-signalloom-agents
+  run grep -qx inf-signalloom-warden <<<"${names}"
+  [ "${status}" -eq 1 ]
+}

@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# The warden's Namespace on its own, for the hand-applied overlays only
+# (kind-signalloom-hub, remote-tenant, remote-tenant-dev). See namespace.yaml
+# for why the Flux-reconciled path must not render it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml

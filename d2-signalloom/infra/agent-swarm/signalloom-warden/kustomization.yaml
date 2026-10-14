@@ -11,8 +11,11 @@ kind: Kustomization
 
 namespace: inf-signalloom-warden
 
+# No Namespace object here. On kind-osramp this tree is reconciled by the
+# TENANT ServiceAccount agent-swarm-flux, which cannot patch cluster-scoped
+# objects; the cluster-level ResourceSet owns inf-signalloom-warden. Overlays
+# applied by hand add ../signalloom-warden-namespace.
 resources:
-  - namespace.yaml
   - service-account.yaml
   - rbac.yaml
   - configmap.yaml

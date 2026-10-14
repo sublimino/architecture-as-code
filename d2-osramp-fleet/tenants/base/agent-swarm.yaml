@@ -79,7 +79,10 @@ spec:
     # ── ClusterRole: namespace discovery + create ─────────────────────
     # Kubernetes RBAC does not apply resourceNames to create, so the
     # create verb is global; mutation/deletion is restricted to the
-    # single namespace owned by this slice.
+    # single namespace owned by this slice. inf-signalloom-warden is NOT
+    # listed: it is declared above and applied by flux-system, and no path
+    # agent-swarm-flux reconciles renders it, so this identity never needs
+    # to patch or delete it.
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: ClusterRole
       metadata: {name: agent-swarm-flux-namespaces}
@@ -89,7 +92,7 @@ spec:
           verbs: [get, list, watch, create]
         - apiGroups: [""]
           resources: [namespaces]
-          resourceNames: [fe-signalloom-agents, inf-signalloom-warden]
+          resourceNames: [fe-signalloom-agents]
           verbs: [get, update, patch, delete]
 
     - apiVersion: rbac.authorization.k8s.io/v1

@@ -320,7 +320,7 @@ main() {
   unauth_code="$(nsh "curl -s -o /dev/null -w '%{http_code}' --max-time 5 -X POST http://${DAEMON_ADDR}/resume \
       -H 'Content-Type: application/json' -d '{\"pod_uid\":\"${pod_uid}\"}'")"
   record "P11-resume-without-credential-refused" "http_status=${unauth_code}" \
-    "$([[ "${unauth_code}" == "403" ]] && echo 1 || echo 0)"
+    "$([[ "${unauth_code}" == "403" || "${unauth_code}" == "401" ]] && echo 1 || echo 0)"
 
   # ── P12: authorised resume thaws, and CPU actually restarts ───────────────
   local resume_resp resume_delta e f

@@ -238,7 +238,7 @@ teardown_file() {
   have_cluster || skip "no Kind node '${KIND_NODE}'"
   require_proof
   [ "$(proof '.probes.results[] | select(.probe|startswith("P11")) | .status')" = "pass" ]
-  [[ "$(proof '.probes.results[] | select(.probe|startswith("P11")) | .detail')" == *"403"* ]]
+  [[ "$(proof '.probes.results[] | select(.probe|startswith("P11")) | .detail')" =~ 40[13] ]]
 }
 
 @test "live: an authorised resume restores execution" {

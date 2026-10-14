@@ -4,25 +4,25 @@ import { CopyableCodeBlock, DocLinkCard } from '../components/help/HelpCardCompo
 const KERNEL_DAEMONSET_YAML = `apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: stun-sentinel
-  namespace: signalloom-system
+  name: signalloom-warden
+  namespace: inf-signalloom-warden
   labels:
-    app.kubernetes.io/name: stun-sentinel
+    app.kubernetes.io/name: signalloom-warden
     app.kubernetes.io/part-of: signal-loom
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: stun-sentinel
+      app.kubernetes.io/name: signalloom-warden
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: stun-sentinel
+        app.kubernetes.io/name: signalloom-warden
     spec:
       hostPID: true
       hostNetwork: true
       containers:
-        - name: sentinel
-          image: ghcr.io/signalloom/stun-sentinel:latest
+        - name: warden
+          image: ghcr.io/controlplaneio-in-toto/signalloom-warden:latest
           imagePullPolicy: IfNotPresent
           securityContext:
             privileged: true
@@ -81,7 +81,7 @@ resources:
 patches:
   - target:
       kind: DaemonSet
-      name: stun-sentinel
+      name: signalloom-warden
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/env/0/value
@@ -369,7 +369,7 @@ export default function DeploySensorHelpPage() {
               The eBPF probe requires elevated permissions to attach to kernel tracepoints and load BPF bytecode.
             </p>
             <div style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--cyan)' }}>
-              Diagnosis: kubectl logs -n signalloom-system daemonset/stun-sentinel | grep -i bpf<br />
+              Diagnosis: kubectl logs -n inf-signalloom-warden daemonset/signalloom-warden | grep -i bpf<br />
               Fix: Ensure Pod spec has <code>securityContext.privileged: true</code> and capabilities <code>BPF</code>, <code>PERFMON</code>, <code>SYS_ADMIN</code>.
             </div>
           </div>

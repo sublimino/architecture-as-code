@@ -10,7 +10,9 @@ witness_local_validate_environment() {
     echo "Stale remote evidence configuration is forbidden for local evidence: AUDIT_ANCHOR_REQUIRE_LOG" >&2
     return 1
   fi
-  if env | grep -Eq '^ARCHIVISTA_|^WITNESS_.*ARCHIVIST'; then
+  # Here-string, not `env | grep -q`: callers run under pipefail, where grep's
+  # early exit on a match SIGPIPEs env and the refusal reads as "no match".
+  if grep -Eq '^ARCHIVISTA_|^WITNESS_.*ARCHIVIST' <<<"$(env)"; then
     echo "Archivista environment configuration is forbidden for local evidence" >&2
     return 1
   fi

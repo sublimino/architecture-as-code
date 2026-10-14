@@ -270,7 +270,7 @@ do_prelive_check() {
   header "PRE-LIVE READINESS VERIFICATION AUDIT"
 
   # 1. Foundation & Host Health
-  if kubectl get nodes --no-headers 2>/dev/null | grep -q "Ready"; then
+  if grep -q "Ready" <<<"$(kubectl get nodes --no-headers 2>/dev/null)"; then
     ok "Kubernetes control-plane node is Ready"
   else
     fail "Kubernetes control-plane node is NOT Ready"

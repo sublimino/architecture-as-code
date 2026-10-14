@@ -701,7 +701,7 @@ I am stopping. The commit stays `d79c34cd`. The card closes green with no P1-4 c
 - **Status:** Passed
 - **Decisions & Scope Resolved:**
   1. **Decision 10 Reversed & GH-3 Struck:** Containerised `openssl`/`envsubst` wrapper architecture was reversed by AJM. Replaced by `d2-signalloom/apps/fleet-manager/cmd/ed25519-keygen` staged into `bundle/bin/<arch>/`. `test/slsi-airgap-bundle.bats` inverted to assert absence of Decision 10 wrappers and severed execution of `ed25519-keygen`.
-  2. **OSD-2 Resolved:** The four tag-only domain image references (`signalloom-warden:src-30c1a69f5e57`, `podinfo:6.7.1`, `python:3.12-slim`, `coredns:v1.14.2`) are declared in `coverageExclusions` with `dev-deferred-pin`. G-COVERAGE passes cleanly. `test/slsi-bundle-osd.bats` passes 16/16.
+  2. **OSD-2 Resolved:** The four tag-only domain image references (`signalloom-warden:src-50c79ef7e84f`, `podinfo:6.7.1`, `python:3.12-slim`, `coredns:v1.14.2`) are declared in `coverageExclusions` with `dev-deferred-pin`. G-COVERAGE passes cleanly. `test/slsi-bundle-osd.bats` passes 16/16.
   3. **OSD-4 Resolved:** Dual-leg isolation architecture proven: container isolation via `docker run --pull=never --net none`, and host-level namespace severance via `unshare -Urnm` with masked networking.
 - **Evidence:**
   - `bats test/slsi-bundle-osd.bats` passes **16 ok, 0 failed, 0 skipped**.
@@ -729,7 +729,7 @@ I am stopping. The commit stays `d79c34cd`. The card closes green with no P1-4 c
 ##### Scope Decisions & Hazard Remediation
 1. **Decision 10 Reversed & GH-3 Struck:** Containerised `openssl`/`envsubst` wrapper architecture reversed; native `ed25519-keygen` built from source and staged into `bundle/bin/<arch>/`.
 2. **OSD-1 (First-Party Applications):** `fe-signalloom`, `dashboard-signalloom`, and `docs-signalloom` exported into `bundle/images/oci` under `acme/images` with immutable `sourceId` identity.
-3. **OSD-2 (Deferred Pins):** Four tag-only domain images (`signalloom-warden:src-30c1a69f5e57`, `podinfo:6.7.1`, `python:3.12-slim`, `coredns:v1.14.2`) declared in `coverageExclusions` with reason `dev-deferred-pin`.
+3. **OSD-2 (Deferred Pins):** Four tag-only domain images (`signalloom-warden:src-50c79ef7e84f`, `podinfo:6.7.1`, `python:3.12-slim`, `coredns:v1.14.2`) declared in `coverageExclusions` with reason `dev-deferred-pin`.
 4. **OSD-3 (Installer Slot):** `installer` slot measured and reported in `MANIFEST.json`.
 5. **OSD-4 (Air-gap Isolation):** Dual-leg air-gap verification adopted.
 

@@ -32,14 +32,14 @@ test.describe("Kusari Agent Onboarding Guide & Claim Modal Pre-Flight Checks", (
 
     // Clicking the guide button switches to Onboarding tab
     await viewGuideBtn.click();
-    await expect(page.getByTestId("agent-onboarding-guide-tab")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("agent-onboarding-tab")).toBeVisible({ timeout: 10_000 });
   });
 
   test("Onboarding tab displays pre-flight diagnostic matrix, tenant objection, and remediation runbook", async ({ page }) => {
     await page.goto(`${BASE}/agents/${KUSARI_AGENT_ID}?tab=onboarding`, { waitUntil: "domcontentloaded" });
 
     // Tab content is visible
-    const guideTab = page.getByTestId("agent-onboarding-guide-tab");
+    const guideTab = page.getByTestId("agent-onboarding-tab");
     await expect(guideTab).toBeVisible({ timeout: 15_000 });
 
     // Pre-flight matrix
@@ -68,21 +68,20 @@ test.describe("Kusari Agent Onboarding Guide & Claim Modal Pre-Flight Checks", (
     await openClaimBtn.click();
 
     // Verify claim dialog is visible
-    const dialog = page.locator('dialog[open], [role="dialog"], [data-testid="claim-modal-dialog"]');
-    await expect(dialog.first()).toBeVisible({ timeout: 10_000 });
+    const modal = page.getByTestId("claim-modal");
+    await expect(modal).toBeVisible({ timeout: 10_000 });
 
     // Verify right-hand info panel
     const infoPanel = page.getByTestId("claim-modal-info-panel");
     await expect(infoPanel).toBeVisible({ timeout: 10_000 });
 
-    // Verify workload profile and security checklist
-    await expect(page.getByTestId("claim-modal-profile-header")).toBeVisible();
-    await expect(page.getByTestId("claim-modal-invariants-checklist")).toBeVisible();
+    // Verify tenant boundary pre-flight check in modal
+    await expect(page.getByTestId("claim-modal-tenant-mismatch-warning")).toBeVisible();
 
     // Close modal
     const closeBtn = page.getByTestId("claim-modal-cancel-btn");
-    if (await closeBtn.isVisible()) {
-      await closeBtn.click();
-    }
+    await expect(closeBtn).toBeVisible();
+    await closeBtn.click();
+    await expect(modal).toBeHidden();
   });
 });

@@ -52,6 +52,7 @@ Options:
   --namespace, -n NS       Target specific namespace (default: core application filter)
   --all-namespaces, -A     Target all namespaces in the cluster
   --filter, -f REGEX       Custom namespace regex [default: ^(default|frontend|backend|(be|fe|inf)-)]
+  --env, --remote LANE     Target remote GCP demo/CI lane VM (e.g. demo-1, demo-2)
   --lines, -l NUM          Max log lines or errors to display [default: 50]
   --force-kubectl          Force native kubectl logs fallback even if stern is available
   --quiet, -q              Suppress informational banner headers
@@ -59,6 +60,7 @@ Options:
 
 Examples:
   ${PROGNAME}                         # Comprehensive cluster snapshot
+  ${PROGNAME} --remote demo-1         # Comprehensive snapshot of remote demo-1 VM
   ${PROGNAME} -e --since 10m          # Scan errors from the last 10 minutes
   ${PROGNAME} -n fe-signalloom        # Diagnose Signal Loom frontend namespace
   ${PROGNAME} --force-kubectl -e      # Test portable kubectl fallback
@@ -75,51 +77,68 @@ FILTER='^(default|frontend|backend|(be|fe|inf)-)'
 MAX_LINES=50
 FORCE_KUBECTL=0
 QUIET=0
+ENV_KEY="${ENV:-}"
+PASSED_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --snapshot|-s)
       MODE="snapshot"
+      PASSED_ARGS+=("$1")
       shift
       ;;
     --errors|-e)
       MODE="errors"
+      PASSED_ARGS+=("$1")
       shift
       ;;
     --stream|-w|--watch)
       MODE="stream"
+      PASSED_ARGS+=("$1")
       shift
       ;;
     --json|-j)
       MODE="json"
+      PASSED_ARGS+=("$1")
       shift
       ;;
     --since)
       SINCE="$2"
+      PASSED_ARGS+=("$1" "$2")
       shift 2
       ;;
     -n|--namespace)
       NAMESPACE="$2"
+      PASSED_ARGS+=("$1" "$2")
       shift 2
       ;;
     -A|--all-namespaces)
       ALL_NAMESPACES=1
+      PASSED_ARGS+=("$1")
       shift
       ;;
     -f|--filter)
       FILTER="$2"
+      PASSED_ARGS+=("$1" "$2")
       shift 2
       ;;
     -l|--lines)
       MAX_LINES="$2"
+      PASSED_ARGS+=("$1" "$2")
       shift 2
       ;;
     --force-kubectl)
       FORCE_KUBECTL=1
+      PASSED_ARGS+=("$1")
       shift
+      ;;
+    --env|--remote)
+      ENV_KEY="$2"
+      shift 2
       ;;
     -q|--quiet)
       QUIET=1
+      PASSED_ARGS+=("$1")
       shift
       ;;
     -h|--help)
@@ -133,6 +152,47 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# If remote environment is specified, dispatch execution to the target VM
+if [[ -n "${ENV_KEY:-}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
+  HANDOFF="${REPO_ROOT}/deploy/gcp/${ENV_KEY}.handoff.json"
+
+  if [[ ! -f "$HANDOFF" ]]; then
+    echo "ERROR: Environment handoff file not found: $HANDOFF" >&2
+    exit 2
+  fi
+
+  PROJECT_ID=$(jq -r '.project_id' "$HANDOFF")
+  ZONE=$(jq -r '.zone' "$HANDOFF")
+  INSTANCE_NAME=$(jq -r '.instance_name' "$HANDOFF")
+  OPERATOR_SA=$(jq -r '.operator_sa' "$HANDOFF")
+
+  if [[ "$QUIET" -eq 0 ]]; then
+    echo -e "\033[1;36mℹ\033[0m Dispatching cluster-diagnostics to remote VM ${INSTANCE_NAME} (${ENV_KEY})..."
+  fi
+
+  # SCP latest cluster-diagnostics script to VM
+  SCRIPT_ABS="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")"
+  systemd-run --user --wait --collect --pipe env SSH_AUTH_SOCK='' \
+    gcloud compute scp --tunnel-through-iap --zone="$ZONE" --project="$PROJECT_ID" \
+    --impersonate-service-account="$OPERATOR_SA" \
+    "$SCRIPT_ABS" "${INSTANCE_NAME}:/tmp/cluster-diagnostics.sh" >/dev/null 2>&1
+
+  # Execute on remote VM
+  TMP_LOG="$(mktemp "${TMPDIR:-/tmp}/remote-diag.XXXXXX")"
+  REMOTE_RC=0
+  systemd-run --user --wait --collect --pipe env SSH_AUTH_SOCK='' \
+    gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --project="$PROJECT_ID" \
+    --impersonate-service-account="$OPERATOR_SA" \
+    --tunnel-through-iap --command="sudo chmod +x /tmp/cluster-diagnostics.sh && export KUBECONFIG=/tmp/osramp-kubeconfig.yaml && /tmp/cluster-diagnostics.sh ${PASSED_ARGS[*]:-}" \
+    >"$TMP_LOG" 2>&1 || REMOTE_RC=$?
+
+  grep -v -E '^(Running as unit:|Finished with result:|Main processes terminated with:|Service runtime:|CPU time consumed:|Memory peak:|WARNING: This command is using service account impersonation)' "$TMP_LOG" || true
+  rm -f "$TMP_LOG"
+  exit "$REMOTE_RC"
+fi
 
 # Temporary workspace for captures
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cluster-diag.XXXXXX")"

@@ -222,6 +222,8 @@ RUNNER_SA="system:serviceaccount:fe-signalloom:supercred-demo-runner"
     "fe-signalloom|patch|pods|"
     "inf-signalloom|get|deployments.apps|"
     "inf-signalloom|create|pods|portforward"
+    "inf-signalloom|get|secrets/cardvault-credentials|"
+    "inf-signalloom|create|secrets|"
     "inf-bao|create|pods|exec"
     "kube-system|list|services|"
   )

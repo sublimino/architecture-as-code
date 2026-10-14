@@ -428,9 +428,8 @@ spec:
     # Every verb below is derived from a specific kubectl invocation in
     # scripts/supercred-demo.sh; line numbers refer to that file. No wildcards.
     #
-    # Deliberately absent: `secrets` (all OpenBao credential material is
-    # handled by exec'ing into the OpenBao pod, never via the Kubernetes API)
-    # and `configmaps` (nothing in the script touches one).
+    # Deliberately absent from ClusterRole: cluster-wide secrets,
+    # configmaps, pods (all scoped to specific namespace Roles below).
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: ClusterRole
       metadata:
@@ -543,6 +542,16 @@ spec:
         - apiGroups: ["networking.k8s.io"]
           resources: ["networkpolicies"]
           verbs: ["get", "create", "update", "patch", "delete"]
+        # cardvault's base ships Secret cardvault-credentials; the runner applies
+        # that base in step 1 and deletes it in teardown.
+        # step 1 also preflights signal-ingest-segment-pseudonym.
+        - apiGroups: [""]
+          resources: ["secrets"]
+          resourceNames: ["cardvault-credentials", "signal-ingest-segment-pseudonym"]
+          verbs: ["get", "update", "patch", "delete"]
+        - apiGroups: [""]
+          resources: ["secrets"]
+          verbs: ["create"]
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: RoleBinding
       metadata:

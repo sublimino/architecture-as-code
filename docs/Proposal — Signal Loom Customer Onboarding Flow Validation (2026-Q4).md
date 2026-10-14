@@ -64,12 +64,8 @@ flowchart LR
 
 ## Acceptance Commands
 
-- `cd d2-signalloom/apps/fe-signalloom/src && UV_CACHE_DIR=/tmp/uv-cache UV_CONFIG_FILE=/dev/null uv run pytest tests/test_tenant_isolation.py tests/test_kusari_tenant_isolation.py tests/test_eap_tenant_isolation.py` (Gate C1, 100% pass)
-- `cd d2-signalloom/apps/fe-signalloom/src && UV_CACHE_DIR=/tmp/uv-cache UV_CONFIG_FILE=/dev/null uv run pytest tests/test_host_enrollment.py` (Gate C2, 100% pass)
-- `cd d2-signalloom/apps/agentmaxxing-host-sensor && UV_CACHE_DIR=/tmp/uv-cache UV_CONFIG_FILE=/dev/null uv run pytest test_mission_tenant_isolation.py test_negative_security.py test_leak_falsification.py` (Gate C3, 100% pass)
-- `python3 test/unit/test_tenant_hash.py` (Salted hash derivation, 100% pass)
-- `cd d2-signalloom/apps/fe-signalloom/src && UV_CACHE_DIR=/tmp/uv-cache UV_CONFIG_FILE=/dev/null uv run pytest tests/test_external_agent_registration.py` (Gate T2, 100% pass)
-- `scripts/verify-tenant-readiness.sh kusari` (H2 verification tool, rc 0)
+- `make test-eap-offline` (Offline EAP suite, tenant isolation & auth checks)
+- `make test-kusari-e2e` (Offline Kusari e2e test suite)
 - `make docs-lint` (0 lint errors across tracked markdown)
 - `kanban-check.sh doctor --repo /home/andy/src/cp/osramp-demo --shortcode SLCO` (Clean health)
 

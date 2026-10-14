@@ -41,21 +41,21 @@ const MOCK_PRESETS = [
   {
     id: 'eap_pilot',
     name: 'EAP Pilot',
-    description: 'Enterprise pilot preset: all core governance, audit, and compliance views active.',
+    description: 'Enterprise pilot preset: all core governance, audit, and compliance views active; experimental demo labs, federated services, and topology views suppressed.',
     flags: {
       core_governance: true,
       audit: true,
       compliance: true,
       page_discovery: true,
       page_agents: true,
-      page_topology: true,
+      page_topology: false,
       page_weave: true,
       page_signals: true,
       page_risk: true,
       page_policies: true,
       page_compliance: true,
       page_audit: true,
-      page_federated_services: true,
+      page_federated_services: false,
       page_cryptography: true,
       page_credential_inventory: true,
       page_signal_store: false,
@@ -175,9 +175,16 @@ describe('FeaturesPage Component', () => {
 
     refetchMock = vi.fn().mockResolvedValue({} as any)
     mutateTenantAsyncMock = vi.fn().mockImplementation(async (payload) => {
+      let mergedFlags = { ...MOCK_FEATURES_DATA.flags, ...(payload.flags ?? {}) }
+      if (payload.preset) {
+        const found = MOCK_PRESETS.find((p) => p.id === payload.preset)
+        if (found) {
+          mergedFlags = { ...mergedFlags, ...found.flags }
+        }
+      }
       return {
         tenant_id: payload.tenant_id,
-        flags: { ...MOCK_FEATURES_DATA.flags, ...(payload.flags ?? {}) },
+        flags: mergedFlags,
       }
     })
     mutateSingleAsyncMock = vi.fn().mockImplementation(async ({ tenantId, flagKey, payload }) => {
@@ -324,6 +331,45 @@ describe('FeaturesPage Component', () => {
       const toast = screen.getByTestId('success-toast')
       expect(toast).toHaveTextContent(/Preset "EAP Pilot" applied successfully to account "kusari"/i)
     })
+  })
+
+  it('applying the eap_pilot preset configures page_federated_services: false and page_topology: false', async () => {
+    await renderFeaturesPage({ defaultTenant: 'kusari' })
+
+    const applyBtn = screen.getByTestId('apply-preset-eap_pilot')
+    await act(async () => {
+      fireEvent.click(applyBtn)
+    })
+
+    expect(mutateTenantAsyncMock).toHaveBeenCalledWith({
+      tenant_id: 'kusari',
+      preset: 'eap_pilot',
+    })
+
+    const mutationResult = await mutateTenantAsyncMock.mock.results[0].value
+    expect(mutationResult.flags.page_federated_services).toBe(false)
+    expect(mutationResult.flags.page_topology).toBe(false)
+
+    // Ensure preset definition explicitly suppresses federated services and page topology
+    const eapPreset = MOCK_PRESETS.find((p) => p.id === 'eap_pilot')
+    expect(eapPreset).toBeDefined()
+    expect(eapPreset?.flags.page_federated_services).toBe(false)
+    expect(eapPreset?.flags.page_topology).toBe(false)
+  })
+
+  it('fallback preset definition accurately suppresses federated services and topology', async () => {
+    mockUseFeaturePresets.mockReturnValue({
+      data: null,
+      isLoading: false,
+      isError: false,
+      error: null,
+    })
+
+    await renderFeaturesPage()
+
+    const eapCard = screen.getByTestId('preset-card-eap_pilot')
+    expect(eapCard).toBeInTheDocument()
+    expect(eapCard).toHaveTextContent(/federated services, and topology views suppressed/i)
   })
 
   it('renders KPI summary cards with computed metrics', async () => {

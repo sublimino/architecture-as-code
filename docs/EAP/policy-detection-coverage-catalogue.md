@@ -186,7 +186,7 @@ What is left, ordered by risk:
      `d2-signalloom/deploy/` — remove or replace with the stun-sentinel
      DaemonSet once the endpoint stream is live-wired.
    - Test harness: deleted Tetragon gRPC test mocks (`tetragon_grpc_mock.go`, `tetragon_grpc_test.go`, mock `go.mod`/`go.sum`).
-     Deleted test scripts (`test-tetragon-stream.sh`, `tetragon-telemetry-stream.bats`, and `test-tetragon-*` Makefile targets).
+     Deleted test scripts (`test-tetragon-stream.sh`, Tetragon telemetry stream BATS suite, and `test-tetragon-*` Makefile targets).
    - Docs/dashboard wording: `docs-signalloom/.../operate/detection-coverage.mdx`
      and `.../agents/dual-agent-onboarding.mdx`. Dashboard files include
      `FeedsExplorerPage`, `SignalsPage`, `AgentActivityTab`, `ClaimModal`,

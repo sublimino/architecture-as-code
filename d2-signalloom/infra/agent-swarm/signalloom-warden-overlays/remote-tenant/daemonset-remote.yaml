@@ -15,7 +15,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: signalloom-warden
-  namespace: fe-signalloom-agents
+  namespace: inf-signalloom-warden
 spec:
   template:
     spec:

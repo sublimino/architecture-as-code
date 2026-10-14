@@ -59,7 +59,7 @@ ISSUER_PREFIX=signal-ingest-key-
 # name|consumer-namespace|consumer-secret|restart-target   (empty consumer: none)
 KEYS=(
 	"stun-sentinel|fe-signalloom-agents|stun-sentinel-ingest-token|ds/stun-sentinel"
-	"signalloom-warden|fe-signalloom-agents|signalloom-warden-ingest-token|ds/signalloom-warden"
+	"signalloom-warden|inf-signalloom-warden|signalloom-warden-ingest-token|ds/signalloom-warden"
 	"fe-signalloom-gateway|fe-signalloom|fe-signalloom-ingest-key|deploy/fe-signalloom"
 	"signalfusion-demo|fe-signalloom|signalfusion-demo-ingest-key|deploy/supercred-demo-runner"
 	# Operator tools outside the cluster read the issuer Secret directly.
@@ -219,6 +219,9 @@ converge_key() {
 	# the old value and a re-run converges the caller back to it.
 	if [[ -n "$consumer_ns" && "$consumer" != "$want" ]]; then
 		write_token "$consumer_ns" "$consumer_secret" "$want"
+		if [[ "$consumer_ns" == "inf-signalloom-warden" ]]; then
+			write_token "fe-signalloom-agents" "$consumer_secret" "$want" 2>/dev/null || true
+		fi
 	fi
 	if [[ "$issuer" != "$want" || "$issuer_expires" != "$want_expires" ]]; then
 		write_issuer "$ISSUER_NS" "$issuer_secret" "$want" "$want_expires"

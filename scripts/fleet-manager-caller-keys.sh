@@ -65,6 +65,7 @@ set -o pipefail
 KUBECTL="${SLDC_KUBECTL:-kubectl}"
 FLEET_NS="fe-signalloom"
 AGENTS_NS="fe-signalloom-agents"
+WARDEN_NS="${WARDEN_NS:-inf-signalloom-warden}"
 # Caller names, in the order they appear in the issuer Secret.
 CALLERS=(stun-sentinel signalloom-warden warden fe-signalloom dashboard operator)
 # The signal-ingest issuer Secret --emit-remote-secrets reads the warden's
@@ -128,11 +129,13 @@ main() {
     secret_doc "${AGENTS_NS}" stun-sentinel-fleet-key "token=${key[stun-sentinel]}"
     printf -- '---\n'
     secret_doc "${AGENTS_NS}" signalloom-warden-fleet-key "token=${key[signalloom-warden]}"
+    printf -- '---\n'
+    secret_doc "${WARDEN_NS}" signalloom-warden-fleet-key "token=${key[signalloom-warden]}"
   } | ${KUBECTL} --context "${context}" apply -f - >/dev/null \
     || die "kubectl apply failed for context ${context}" 1
 
-  printf 'fleet-manager caller keys %s on %s: %s (sentinel and warden mirrored to %s)\n' \
-    "$([ "${rotate}" -eq 1 ] && echo rotated || echo ensured)" "${context}" "${CALLERS[*]}" "${AGENTS_NS}"
+  printf 'fleet-manager caller keys %s on %s: %s (sentinel and warden mirrored to %s and %s)\n' \
+    "$([ "${rotate}" -eq 1 ] && echo rotated || echo ensured)" "${context}" "${CALLERS[*]}" "${AGENTS_NS}" "${WARDEN_NS}"
 
   [ -n "${emit_dir}" ] && emit_remote_secrets "${context}" "${emit_dir}" "${key[warden]}"
   return 0
@@ -149,9 +152,9 @@ emit_remote_secrets() {
   # 0700 on the directory and 0600 on each file: the content is key material.
   ( umask 077
     mkdir -p "${dir}" || exit 1
-    secret_doc "${AGENTS_NS}" signalloom-warden-fleet-key "token=${warden_b64}" \
+    secret_doc "${WARDEN_NS}" signalloom-warden-fleet-key "token=${warden_b64}" \
       >"${dir}/signalloom-warden-fleet-key.yaml" || exit 1
-    secret_doc "${AGENTS_NS}" signalloom-warden-ingest-token "token=${ingest_b64}" \
+    secret_doc "${WARDEN_NS}" signalloom-warden-ingest-token "token=${ingest_b64}" \
       >"${dir}/signalloom-warden-ingest-token.yaml" || exit 1
   ) || die "could not write the remote Secrets to ${dir}" 1
   chmod 700 "${dir}" 2>/dev/null || true

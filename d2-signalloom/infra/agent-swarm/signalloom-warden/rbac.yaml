@@ -1,9 +1,23 @@
 ---
 apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: signalloom-warden
+  namespace: inf-signalloom-warden
+  labels:
+    app.kubernetes.io/name: signalloom-warden
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: "sentinel"
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "configmaps", "events"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: signalloom-warden
-  namespace: fe-signalloom-agents
+  namespace: inf-signalloom-warden
   labels:
     app.kubernetes.io/name: signalloom-warden
     signalloom.ai/agent: "true"
@@ -11,7 +25,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: signalloom-warden
-    namespace: fe-signalloom-agents
+    namespace: inf-signalloom-warden
 roleRef:
   kind: Role
   name: signalloom-warden

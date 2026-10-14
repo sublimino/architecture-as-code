@@ -111,7 +111,7 @@ EOF
   grep -q '^  name: signalloom-warden-fleet-key$' "${dir}/signalloom-warden-fleet-key.yaml"
   grep -q '^  name: signalloom-warden-ingest-token$' "${dir}/signalloom-warden-ingest-token.yaml"
   # Both in the namespace the overlay puts the DaemonSet in, both under `token`.
-  grep -cq '^  namespace: fe-signalloom-agents$' "${dir}/signalloom-warden-fleet-key.yaml"
+  grep -cq '^  namespace: inf-signalloom-warden$' "${dir}/signalloom-warden-fleet-key.yaml"
   grep -q '^  token: ' "${dir}/signalloom-warden-fleet-key.yaml"
   grep -q '^  token: aW5nZXN0LWtleS12YWx1ZQ==$' "${dir}/signalloom-warden-ingest-token.yaml"
 }

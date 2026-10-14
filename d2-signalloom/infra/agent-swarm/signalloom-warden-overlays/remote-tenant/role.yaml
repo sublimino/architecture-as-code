@@ -51,3 +51,21 @@ rules:
   - apiGroups: ["apps"]
     resources: ["replicasets", "deployments"]
     verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: signalloom-warden
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: signalloom-warden
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: "sentinel"
+subjects:
+  - kind: ServiceAccount
+    name: signalloom-warden
+    namespace: inf-signalloom-warden
+roleRef:
+  kind: Role
+  name: signalloom-warden
+  apiGroup: rbac.authorization.k8s.io

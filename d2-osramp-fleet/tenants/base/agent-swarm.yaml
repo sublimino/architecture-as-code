@@ -61,6 +61,16 @@ spec:
           signalloom.ai/agent: "true"
           app.kubernetes.io/part-of: signalloom-swarm
 
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: inf-signalloom-warden
+        labels:
+          signalloom.ai/managed: "true"
+          signalloom.ai/tier: "infrastructure"
+          signalloom.ai/role: "sentinel"
+          app.kubernetes.io/part-of: signalloom-swarm
+
     # ── Flux identity ─────────────────────────────────────────────────
     - apiVersion: v1
       kind: ServiceAccount
@@ -79,7 +89,7 @@ spec:
           verbs: [get, list, watch, create]
         - apiGroups: [""]
           resources: [namespaces]
-          resourceNames: [fe-signalloom-agents]
+          resourceNames: [fe-signalloom-agents, inf-signalloom-warden]
           verbs: [get, update, patch, delete]
 
     - apiVersion: rbac.authorization.k8s.io/v1
@@ -122,6 +132,13 @@ spec:
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: RoleBinding
       metadata: {name: agent-swarm-flux, namespace: fe-signalloom-agents}
+      roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-swarm-flux-workloads}
+      subjects: [{kind: ServiceAccount, name: agent-swarm-flux, namespace: fe-signalloom-agents}]
+
+    # ── RoleBinding: workloads in inf-signalloom-warden ───────────────
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata: {name: agent-swarm-flux, namespace: inf-signalloom-warden}
       roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-swarm-flux-workloads}
       subjects: [{kind: ServiceAccount, name: agent-swarm-flux, namespace: fe-signalloom-agents}]
 
@@ -522,6 +539,7 @@ spec:
           signalloom.ai/agent: "true"
           signalloom.ai/agent-name: "signalloom-warden"
       spec:
+        targetNamespace: inf-signalloom-warden
         dependsOn: [{name: agent-swarm-base}]
         serviceAccountName: agent-swarm-flux
         interval: 30m

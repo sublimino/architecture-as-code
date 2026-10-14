@@ -160,8 +160,8 @@
         "verdict": "NEEDS_REVIEW",
         "model": "gpt-oss-120b",
         "summary": "The run shows a badge added to UsersPage.tsx and vitest passed, but there is no evidence that the proposal text was updated, the errata block was appended, or the new test cases were actually added.",
-        "next_step": "Verify that the proposal document has been edited to include the demo‑fixture framing correction and an Errata block, and confirm the new test cases (badge visibility, CSV content/escaping, combined facet filter, and modal focus‑trap) are present in UsersPage.test.tsx.",
-        "reason": "NEEDS_REVIEW: The run shows a badge added to UsersPage.tsx and vitest passed, but there is no evidence that the proposal text was updated, the errata block was appended, or the new test cases were actually added. Next step: Verify that the proposal document has been edited to include the demo‑fixture framing correction and an Errata block, and confirm the new test cases (badge visibility, CSV content/escaping, combined facet filter, and modal focus‑trap) are present in UsersPage.test.tsx."
+        "next_step": "Verify that the proposal document has been edited to include the demo\u2011fixture framing correction and an Errata block, and confirm the new test cases (badge visibility, CSV content/escaping, combined facet filter, and modal focus\u2011trap) are present in UsersPage.test.tsx.",
+        "reason": "NEEDS_REVIEW: The run shows a badge added to UsersPage.tsx and vitest passed, but there is no evidence that the proposal text was updated, the errata block was appended, or the new test cases were actually added. Next step: Verify that the proposal document has been edited to include the demo\u2011fixture framing correction and an Errata block, and confirm the new test cases (badge visibility, CSV content/escaping, combined facet filter, and modal focus\u2011trap) are present in UsersPage.test.tsx."
       }
     },
     "history": [
@@ -173,8 +173,8 @@
         "verdict": "NEEDS_REVIEW",
         "model": "gpt-oss-120b",
         "summary": "The run shows a badge added to UsersPage.tsx and vitest passed, but there is no evidence that the proposal text was updated, the errata block was appended, or the new test cases were actually added.",
-        "next_step": "Verify that the proposal document has been edited to include the demo‑fixture framing correction and an Errata block, and confirm the new test cases (badge visibility, CSV content/escaping, combined facet filter, and modal focus‑trap) are present in UsersPage.test.tsx.",
-        "reason": "NEEDS_REVIEW: The run shows a badge added to UsersPage.tsx and vitest passed, but there is no evidence that the proposal text was updated, the errata block was appended, or the new test cases were actually added. Next step: Verify that the proposal document has been edited to include the demo‑fixture framing correction and an Errata block, and confirm the new test cases (badge visibility, CSV content/escaping, combined facet filter, and modal focus‑trap) are present in UsersPage.test.tsx."
+        "next_step": "Verify that the proposal document has been edited to include the demo\u2011fixture framing correction and an Errata block, and confirm the new test cases (badge visibility, CSV content/escaping, combined facet filter, and modal focus\u2011trap) are present in UsersPage.test.tsx.",
+        "reason": "NEEDS_REVIEW: The run shows a badge added to UsersPage.tsx and vitest passed, but there is no evidence that the proposal text was updated, the errata block was appended, or the new test cases were actually added. Next step: Verify that the proposal document has been edited to include the demo\u2011fixture framing correction and an Errata block, and confirm the new test cases (badge visibility, CSV content/escaping, combined facet filter, and modal focus\u2011trap) are present in UsersPage.test.tsx."
       }
     ],
     "run_count": 1,
@@ -186,8 +186,8 @@
     "verdict": "NEEDS_REVIEW",
     "model": "gpt-oss-120b",
     "summary": "The run shows a badge added to UsersPage.tsx and vitest passed, but there is no evidence that the proposal text was updated, the errata block was appended, or the new test cases were actually added.",
-    "next_step": "Verify that the proposal document has been edited to include the demo‑fixture framing correction and an Errata block, and confirm the new test cases (badge visibility, CSV content/escaping, combined facet filter, and modal focus‑trap) are present in UsersPage.test.tsx.",
-    "reason": "NEEDS_REVIEW: The run shows a badge added to UsersPage.tsx and vitest passed, but there is no evidence that the proposal text was updated, the errata block was appended, or the new test cases were actually added. Next step: Verify that the proposal document has been edited to include the demo‑fixture framing correction and an Errata block, and confirm the new test cases (badge visibility, CSV content/escaping, combined facet filter, and modal focus‑trap) are present in UsersPage.test.tsx."
+    "next_step": "Verify that the proposal document has been edited to include the demo\u2011fixture framing correction and an Errata block, and confirm the new test cases (badge visibility, CSV content/escaping, combined facet filter, and modal focus\u2011trap) are present in UsersPage.test.tsx.",
+    "reason": "NEEDS_REVIEW: The run shows a badge added to UsersPage.tsx and vitest passed, but there is no evidence that the proposal text was updated, the errata block was appended, or the new test cases were actually added. Next step: Verify that the proposal document has been edited to include the demo\u2011fixture framing correction and an Errata block, and confirm the new test cases (badge visibility, CSV content/escaping, combined facet filter, and modal focus\u2011trap) are present in UsersPage.test.tsx."
   },
   "57887": {
     "task_id": "57887",
@@ -267,7 +267,7 @@
     "reviewed_at": "2026-09-15T06:21:11.474963Z",
     "reviewer": "Council of Agents",
     "verdict": "pass",
-    "reason": "Preflight deliverable completed; confirmed Witness attestation keys, verified unsigned telemetry stream in emitter.go, selected in-process native Go signing (<50µs), and defined forensic ledger schema and Go types"
+    "reason": "Preflight deliverable completed; confirmed Witness attestation keys, verified unsigned telemetry stream in emitter.go, selected in-process native Go signing (<50\u00b5s), and defined forensic ledger schema and Go types"
   },
   "71511": {
     "task_id": "71511",
@@ -341,9 +341,9 @@
         "reviewer": "Cerebras gpt-oss-120b",
         "verdict": "FAIL",
         "model": "gpt-oss-120b",
-        "summary": "The execution did not apply the required code changes, did not run the mandated test suite or type‑checking, and no evidence of a successful grep, test pass, or tsc pass was captured; multiple edit attempts failed with errors.",
-        "next_step": "Re‑run the task, applying the specified renames and test updates, then execute the required git‑grep, vitest, tsc, and rg commands to verify all criteria before reporting the results.",
-        "reason": "FAIL: The execution did not apply the required code changes, did not run the mandated test suite or type‑checking, and no evidence of a successful grep, test pass, or tsc pass was captured; multiple edit attempts failed with errors. Next step: Re‑run the task, applying the specified renames and test updates, then execute the required git‑grep, vitest, tsc, and rg commands to verify all criteria before reporting the results."
+        "summary": "The execution did not apply the required code changes, did not run the mandated test suite or type\u2011checking, and no evidence of a successful grep, test pass, or tsc pass was captured; multiple edit attempts failed with errors.",
+        "next_step": "Re\u2011run the task, applying the specified renames and test updates, then execute the required git\u2011grep, vitest, tsc, and rg commands to verify all criteria before reporting the results.",
+        "reason": "FAIL: The execution did not apply the required code changes, did not run the mandated test suite or type\u2011checking, and no evidence of a successful grep, test pass, or tsc pass was captured; multiple edit attempts failed with errors. Next step: Re\u2011run the task, applying the specified renames and test updates, then execute the required git\u2011grep, vitest, tsc, and rg commands to verify all criteria before reporting the results."
       }
     },
     "history": [
@@ -354,9 +354,9 @@
         "reviewer": "Cerebras gpt-oss-120b",
         "verdict": "FAIL",
         "model": "gpt-oss-120b",
-        "summary": "The execution did not apply the required code changes, did not run the mandated test suite or type‑checking, and no evidence of a successful grep, test pass, or tsc pass was captured; multiple edit attempts failed with errors.",
-        "next_step": "Re‑run the task, applying the specified renames and test updates, then execute the required git‑grep, vitest, tsc, and rg commands to verify all criteria before reporting the results.",
-        "reason": "FAIL: The execution did not apply the required code changes, did not run the mandated test suite or type‑checking, and no evidence of a successful grep, test pass, or tsc pass was captured; multiple edit attempts failed with errors. Next step: Re‑run the task, applying the specified renames and test updates, then execute the required git‑grep, vitest, tsc, and rg commands to verify all criteria before reporting the results."
+        "summary": "The execution did not apply the required code changes, did not run the mandated test suite or type\u2011checking, and no evidence of a successful grep, test pass, or tsc pass was captured; multiple edit attempts failed with errors.",
+        "next_step": "Re\u2011run the task, applying the specified renames and test updates, then execute the required git\u2011grep, vitest, tsc, and rg commands to verify all criteria before reporting the results.",
+        "reason": "FAIL: The execution did not apply the required code changes, did not run the mandated test suite or type\u2011checking, and no evidence of a successful grep, test pass, or tsc pass was captured; multiple edit attempts failed with errors. Next step: Re\u2011run the task, applying the specified renames and test updates, then execute the required git\u2011grep, vitest, tsc, and rg commands to verify all criteria before reporting the results."
       }
     ],
     "run_count": 1,
@@ -367,9 +367,9 @@
     "reviewer": "Cerebras gpt-oss-120b",
     "verdict": "FAIL",
     "model": "gpt-oss-120b",
-    "summary": "The execution did not apply the required code changes, did not run the mandated test suite or type‑checking, and no evidence of a successful grep, test pass, or tsc pass was captured; multiple edit attempts failed with errors.",
-    "next_step": "Re‑run the task, applying the specified renames and test updates, then execute the required git‑grep, vitest, tsc, and rg commands to verify all criteria before reporting the results.",
-    "reason": "FAIL: The execution did not apply the required code changes, did not run the mandated test suite or type‑checking, and no evidence of a successful grep, test pass, or tsc pass was captured; multiple edit attempts failed with errors. Next step: Re‑run the task, applying the specified renames and test updates, then execute the required git‑grep, vitest, tsc, and rg commands to verify all criteria before reporting the results."
+    "summary": "The execution did not apply the required code changes, did not run the mandated test suite or type\u2011checking, and no evidence of a successful grep, test pass, or tsc pass was captured; multiple edit attempts failed with errors.",
+    "next_step": "Re\u2011run the task, applying the specified renames and test updates, then execute the required git\u2011grep, vitest, tsc, and rg commands to verify all criteria before reporting the results.",
+    "reason": "FAIL: The execution did not apply the required code changes, did not run the mandated test suite or type\u2011checking, and no evidence of a successful grep, test pass, or tsc pass was captured; multiple edit attempts failed with errors. Next step: Re\u2011run the task, applying the specified renames and test updates, then execute the required git\u2011grep, vitest, tsc, and rg commands to verify all criteria before reporting the results."
   },
   "94159": {
     "runs": {},
@@ -2495,7 +2495,7 @@
     "reviewed_at": "2026-09-14T20:35:04Z",
     "reviewer": "Council (Antigravity/KPAI/CPAI)",
     "verdict": "APPROVED",
-    "reason": "SLDP-P5-3 verified: Dual-plane personal data export in api/export.go (GET /api/v1/privacy/export/{id} and /api/v1/actors/{id}/export) across identity graph and FrostDB/in-memory evidence store, Article 15(4) third-party redaction, fail-closed auth & bounded export limits, Article 20 portable export format, Article 21 SubjectObjectionRegistry in agentmaxxing-host-sensor/filter.py with edge suppression, GDPR doc §7.4 updated, 100% test pass across 8 Go tests, 24 packages, and 41 Python sensor tests (commit 67a18142)"
+    "reason": "SLDP-P5-3 verified: Dual-plane personal data export in api/export.go (GET /api/v1/privacy/export/{id} and /api/v1/actors/{id}/export) across identity graph and FrostDB/in-memory evidence store, Article 15(4) third-party redaction, fail-closed auth & bounded export limits, Article 20 portable export format, Article 21 SubjectObjectionRegistry in agentmaxxing-host-sensor/filter.py with edge suppression, GDPR doc \u00a77.4 updated, 100% test pass across 8 Go tests, 24 packages, and 41 Python sensor tests (commit 67a18142)"
   },
   "302f6": {
     "task_id": "302f6",
@@ -4848,9 +4848,9 @@
     "reviewer": "Cerebras gpt-oss-120b",
     "verdict": "FAIL",
     "model": "gpt-oss-120b",
-    "summary": "The execution did not apply the required code changes, did not run the mandated test suite or type‑checking, and no evidence of a successful grep, test pass, or tsc pass was captured; multiple edit attempts failed with errors.",
-    "next_step": "Re‑run the task, applying the specified renames and test updates, then execute the required git‑grep, vitest, tsc, and rg commands to verify all criteria before reporting the results.",
-    "reason": "FAIL: The execution did not apply the required code changes, did not run the mandated test suite or type‑checking, and no evidence of a successful grep, test pass, or tsc pass was captured; multiple edit attempts failed with errors. Next step: Re‑run the task, applying the specified renames and test updates, then execute the required git‑grep, vitest, tsc, and rg commands to verify all criteria before reporting the results."
+    "summary": "The execution did not apply the required code changes, did not run the mandated test suite or type\u2011checking, and no evidence of a successful grep, test pass, or tsc pass was captured; multiple edit attempts failed with errors.",
+    "next_step": "Re\u2011run the task, applying the specified renames and test updates, then execute the required git\u2011grep, vitest, tsc, and rg commands to verify all criteria before reporting the results.",
+    "reason": "FAIL: The execution did not apply the required code changes, did not run the mandated test suite or type\u2011checking, and no evidence of a successful grep, test pass, or tsc pass was captured; multiple edit attempts failed with errors. Next step: Re\u2011run the task, applying the specified renames and test updates, then execute the required git\u2011grep, vitest, tsc, and rg commands to verify all criteria before reporting the results."
   },
   "run-91aaa-1791569582199-fd8be609-d402-462f-abda-10e0674553c3": {
     "task_id": "91aaa",
@@ -4960,8 +4960,8 @@
     "verdict": "FAIL",
     "model": "gpt-oss-120b",
     "summary": "The assistant reported implementing the heuristics but did not provide evidence that the required unit tests passed or that the proposal errata and result column were updated.",
-    "next_step": "Run the required `go test ./pkg/correlator/...` commands to verify all heuristic tests pass, ensure no hard‑coded 10.96.0.10 literals remain, and then add the errata block and result update to the proposal document.",
-    "reason": "FAIL: The assistant reported implementing the heuristics but did not provide evidence that the required unit tests passed or that the proposal errata and result column were updated. Next step: Run the required `go test ./pkg/correlator/...` commands to verify all heuristic tests pass, ensure no hard‑coded 10.96.0.10 literals remain, and then add the errata block and result update to the proposal document."
+    "next_step": "Run the required `go test ./pkg/correlator/...` commands to verify all heuristic tests pass, ensure no hard\u2011coded 10.96.0.10 literals remain, and then add the errata block and result update to the proposal document.",
+    "reason": "FAIL: The assistant reported implementing the heuristics but did not provide evidence that the required unit tests passed or that the proposal errata and result column were updated. Next step: Run the required `go test ./pkg/correlator/...` commands to verify all heuristic tests pass, ensure no hard\u2011coded 10.96.0.10 literals remain, and then add the errata block and result update to the proposal document."
   },
   "42e7f": {
     "runs": {
@@ -4973,8 +4973,8 @@
         "verdict": "FAIL",
         "model": "gpt-oss-120b",
         "summary": "The assistant reported implementing the heuristics but did not provide evidence that the required unit tests passed or that the proposal errata and result column were updated.",
-        "next_step": "Run the required `go test ./pkg/correlator/...` commands to verify all heuristic tests pass, ensure no hard‑coded 10.96.0.10 literals remain, and then add the errata block and result update to the proposal document.",
-        "reason": "FAIL: The assistant reported implementing the heuristics but did not provide evidence that the required unit tests passed or that the proposal errata and result column were updated. Next step: Run the required `go test ./pkg/correlator/...` commands to verify all heuristic tests pass, ensure no hard‑coded 10.96.0.10 literals remain, and then add the errata block and result update to the proposal document."
+        "next_step": "Run the required `go test ./pkg/correlator/...` commands to verify all heuristic tests pass, ensure no hard\u2011coded 10.96.0.10 literals remain, and then add the errata block and result update to the proposal document.",
+        "reason": "FAIL: The assistant reported implementing the heuristics but did not provide evidence that the required unit tests passed or that the proposal errata and result column were updated. Next step: Run the required `go test ./pkg/correlator/...` commands to verify all heuristic tests pass, ensure no hard\u2011coded 10.96.0.10 literals remain, and then add the errata block and result update to the proposal document."
       }
     },
     "history": [
@@ -4986,8 +4986,8 @@
         "verdict": "FAIL",
         "model": "gpt-oss-120b",
         "summary": "The assistant reported implementing the heuristics but did not provide evidence that the required unit tests passed or that the proposal errata and result column were updated.",
-        "next_step": "Run the required `go test ./pkg/correlator/...` commands to verify all heuristic tests pass, ensure no hard‑coded 10.96.0.10 literals remain, and then add the errata block and result update to the proposal document.",
-        "reason": "FAIL: The assistant reported implementing the heuristics but did not provide evidence that the required unit tests passed or that the proposal errata and result column were updated. Next step: Run the required `go test ./pkg/correlator/...` commands to verify all heuristic tests pass, ensure no hard‑coded 10.96.0.10 literals remain, and then add the errata block and result update to the proposal document."
+        "next_step": "Run the required `go test ./pkg/correlator/...` commands to verify all heuristic tests pass, ensure no hard\u2011coded 10.96.0.10 literals remain, and then add the errata block and result update to the proposal document.",
+        "reason": "FAIL: The assistant reported implementing the heuristics but did not provide evidence that the required unit tests passed or that the proposal errata and result column were updated. Next step: Run the required `go test ./pkg/correlator/...` commands to verify all heuristic tests pass, ensure no hard\u2011coded 10.96.0.10 literals remain, and then add the errata block and result update to the proposal document."
       }
     ],
     "run_count": 1,
@@ -4999,8 +4999,8 @@
     "verdict": "FAIL",
     "model": "gpt-oss-120b",
     "summary": "The assistant reported implementing the heuristics but did not provide evidence that the required unit tests passed or that the proposal errata and result column were updated.",
-    "next_step": "Run the required `go test ./pkg/correlator/...` commands to verify all heuristic tests pass, ensure no hard‑coded 10.96.0.10 literals remain, and then add the errata block and result update to the proposal document.",
-    "reason": "FAIL: The assistant reported implementing the heuristics but did not provide evidence that the required unit tests passed or that the proposal errata and result column were updated. Next step: Run the required `go test ./pkg/correlator/...` commands to verify all heuristic tests pass, ensure no hard‑coded 10.96.0.10 literals remain, and then add the errata block and result update to the proposal document."
+    "next_step": "Run the required `go test ./pkg/correlator/...` commands to verify all heuristic tests pass, ensure no hard\u2011coded 10.96.0.10 literals remain, and then add the errata block and result update to the proposal document.",
+    "reason": "FAIL: The assistant reported implementing the heuristics but did not provide evidence that the required unit tests passed or that the proposal errata and result column were updated. Next step: Run the required `go test ./pkg/correlator/...` commands to verify all heuristic tests pass, ensure no hard\u2011coded 10.96.0.10 literals remain, and then add the errata block and result update to the proposal document."
   },
   "run-c94c9-1791573729770-d912efd9-784b-4951-9d34-132ed1b69dcd": {
     "task_id": "c94c9",
@@ -5060,8 +5060,8 @@
     "verdict": "NEEDS_REVIEW",
     "model": "gpt-oss-120b",
     "summary": "The run shows a badge added to UsersPage.tsx and vitest passed, but there is no evidence that the proposal text was updated, the errata block was appended, or the new test cases were actually added.",
-    "next_step": "Verify that the proposal document has been edited to include the demo‑fixture framing correction and an Errata block, and confirm the new test cases (badge visibility, CSV content/escaping, combined facet filter, and modal focus‑trap) are present in UsersPage.test.tsx.",
-    "reason": "NEEDS_REVIEW: The run shows a badge added to UsersPage.tsx and vitest passed, but there is no evidence that the proposal text was updated, the errata block was appended, or the new test cases were actually added. Next step: Verify that the proposal document has been edited to include the demo‑fixture framing correction and an Errata block, and confirm the new test cases (badge visibility, CSV content/escaping, combined facet filter, and modal focus‑trap) are present in UsersPage.test.tsx."
+    "next_step": "Verify that the proposal document has been edited to include the demo\u2011fixture framing correction and an Errata block, and confirm the new test cases (badge visibility, CSV content/escaping, combined facet filter, and modal focus\u2011trap) are present in UsersPage.test.tsx.",
+    "reason": "NEEDS_REVIEW: The run shows a badge added to UsersPage.tsx and vitest passed, but there is no evidence that the proposal text was updated, the errata block was appended, or the new test cases were actually added. Next step: Verify that the proposal document has been edited to include the demo\u2011fixture framing correction and an Errata block, and confirm the new test cases (badge visibility, CSV content/escaping, combined facet filter, and modal focus\u2011trap) are present in UsersPage.test.tsx."
   },
   "run-a0891-1791575652452-a58b07bf-e6f3-4728-bb6e-e47717aee01b": {
     "task_id": "a0891",
@@ -5070,9 +5070,9 @@
     "reviewer": "Cerebras gpt-oss-120b",
     "verdict": "NEEDS_REVIEW",
     "model": "gpt-oss-120b",
-    "summary": "The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re‑proof results (including the specific monitor‑coexistence test name). Without this evidence the Phase 1 gate cannot be verified.",
-    "next_step": "Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re‑evaluating.",
-    "reason": "NEEDS_REVIEW: The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re‑proof results (including the specific monitor‑coexistence test name). Without this evidence the Phase 1 gate cannot be verified. Next step: Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re‑evaluating."
+    "summary": "The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re\u2011proof results (including the specific monitor\u2011coexistence test name). Without this evidence the Phase\u202f1 gate cannot be verified.",
+    "next_step": "Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re\u2011evaluating.",
+    "reason": "NEEDS_REVIEW: The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re\u2011proof results (including the specific monitor\u2011coexistence test name). Without this evidence the Phase\u202f1 gate cannot be verified. Next step: Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re\u2011evaluating."
   },
   "a0891": {
     "runs": {
@@ -5083,9 +5083,9 @@
         "reviewer": "Cerebras gpt-oss-120b",
         "verdict": "NEEDS_REVIEW",
         "model": "gpt-oss-120b",
-        "summary": "The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re‑proof results (including the specific monitor‑coexistence test name). Without this evidence the Phase 1 gate cannot be verified.",
-        "next_step": "Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re‑evaluating.",
-        "reason": "NEEDS_REVIEW: The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re‑proof results (including the specific monitor‑coexistence test name). Without this evidence the Phase 1 gate cannot be verified. Next step: Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re‑evaluating."
+        "summary": "The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re\u2011proof results (including the specific monitor\u2011coexistence test name). Without this evidence the Phase\u202f1 gate cannot be verified.",
+        "next_step": "Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re\u2011evaluating.",
+        "reason": "NEEDS_REVIEW: The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re\u2011proof results (including the specific monitor\u2011coexistence test name). Without this evidence the Phase\u202f1 gate cannot be verified. Next step: Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re\u2011evaluating."
       }
     },
     "history": [
@@ -5096,9 +5096,9 @@
         "reviewer": "Cerebras gpt-oss-120b",
         "verdict": "NEEDS_REVIEW",
         "model": "gpt-oss-120b",
-        "summary": "The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re‑proof results (including the specific monitor‑coexistence test name). Without this evidence the Phase 1 gate cannot be verified.",
-        "next_step": "Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re‑evaluating.",
-        "reason": "NEEDS_REVIEW: The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re‑proof results (including the specific monitor‑coexistence test name). Without this evidence the Phase 1 gate cannot be verified. Next step: Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re‑evaluating."
+        "summary": "The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re\u2011proof results (including the specific monitor\u2011coexistence test name). Without this evidence the Phase\u202f1 gate cannot be verified.",
+        "next_step": "Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re\u2011evaluating.",
+        "reason": "NEEDS_REVIEW: The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re\u2011proof results (including the specific monitor\u2011coexistence test name). Without this evidence the Phase\u202f1 gate cannot be verified. Next step: Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re\u2011evaluating."
       }
     ],
     "run_count": 1,
@@ -5109,9 +5109,9 @@
     "reviewer": "Cerebras gpt-oss-120b",
     "verdict": "NEEDS_REVIEW",
     "model": "gpt-oss-120b",
-    "summary": "The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re‑proof results (including the specific monitor‑coexistence test name). Without this evidence the Phase 1 gate cannot be verified.",
-    "next_step": "Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re‑evaluating.",
-    "reason": "NEEDS_REVIEW: The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re‑proof results (including the specific monitor‑coexistence test name). Without this evidence the Phase 1 gate cannot be verified. Next step: Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re‑evaluating."
+    "summary": "The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re\u2011proof results (including the specific monitor\u2011coexistence test name). Without this evidence the Phase\u202f1 gate cannot be verified.",
+    "next_step": "Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re\u2011evaluating.",
+    "reason": "NEEDS_REVIEW: The provided output shows an errata block was appended, but it lacks the required concrete evidence: identical acceptance run totals, the captured eBPF verifier log with uname -r, and the containment re\u2011proof results (including the specific monitor\u2011coexistence test name). Without this evidence the Phase\u202f1 gate cannot be verified. Next step: Retrieve or regenerate the missing evidence (acceptance run logs, verifier log, uname -r, and containment test results) and update the errata block accordingly before re\u2011evaluating."
   },
   "32e03": {
     "runs": {},
@@ -5206,5 +5206,337 @@
     "summary": "The agent reverted the silent skip, verified that the containment suite fails when the warden DaemonSet is incomplete, executed the suite on a live cluster with the warden fully rolled out (14/14 passed, 0 skips), recorded the results in the SLWD-P2-GOV errata, and merged the changes to integration/slwd-v0.1.0.",
     "next_step": "The human reviewer should confirm the errata entries and close the task.",
     "reason": "PASS: The agent reverted the silent skip, verified that the containment suite fails when the warden DaemonSet is incomplete, executed the suite on a live cluster with the warden fully rolled out (14/14 passed, 0 skips), recorded the results in the SLWD-P2-GOV errata, and merged the changes to integration/slwd-v0.1.0. Next step: The human reviewer should confirm the errata entries and close the task."
+  },
+  "a4192": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "a4192",
+        "reviewed_at": "2026-10-13T21:18:53.381Z",
+        "reviewer": "sensai",
+        "verdict": "REJECTED",
+        "model": "openai/gpt-6.1-sol",
+        "reason": "Independent audit at 0aea3e429: P1 TLS hook-cookie proof and P2 verifier/load are absent; synthetic fixtures do not establish mandatory live support. P3 restart/provenance/lifecycle defects reproduced. P4 readiness must not advance until corrections and earned gates; evidence /home/andy/.opencode/MEMORY/WORK/20261013-220223_audit-slch-current-work/FINDINGS.md"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "a4192",
+    "reviewed_at": "2026-10-13T21:18:53.381Z",
+    "reviewer": "sensai",
+    "verdict": "REJECTED",
+    "model": "openai/gpt-6.1-sol",
+    "reason": "Independent audit at 0aea3e429: P1 TLS hook-cookie proof and P2 verifier/load are absent; synthetic fixtures do not establish mandatory live support. P3 restart/provenance/lifecycle defects reproduced. P4 readiness must not advance until corrections and earned gates; evidence /home/andy/.opencode/MEMORY/WORK/20261013-220223_audit-slch-current-work/FINDINGS.md"
+  },
+  "68b42": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "68b42",
+        "reviewed_at": "2026-10-13T21:19:10.559Z",
+        "reviewer": "sensai",
+        "verdict": "REJECTED",
+        "model": "openai/gpt-6.1-sol",
+        "reason": "Independent audit preserves offline deliverables but rejects continuation certification: missing live TLS/kernel proof and reproduced lineage/producer correctness defects. See /home/andy/.opencode/MEMORY/WORK/20261013-220223_audit-slch-current-work/FINDINGS.md; no live evidence may be inferred from fixture PASS."
+      },
+      {
+        "task_id": "68b42",
+        "reviewed_at": "2026-10-14T00:58:40.013Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "P1-GOV offline contracts and matrix verification approved per Governor clearance"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "68b42",
+    "reviewed_at": "2026-10-14T00:58:40.013Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "P1-GOV offline contracts and matrix verification approved per Governor clearance"
+  },
+  "540fc": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "540fc",
+        "reviewed_at": "2026-10-13T21:19:11.692Z",
+        "reviewer": "sensai",
+        "verdict": "REJECTED",
+        "model": "openai/gpt-6.1-sol",
+        "reason": "Independent audit preserves offline deliverables but rejects continuation certification: missing live TLS/kernel proof and reproduced lineage/producer correctness defects. See /home/andy/.opencode/MEMORY/WORK/20261013-220223_audit-slch-current-work/FINDINGS.md; no live evidence may be inferred from fixture PASS."
+      },
+      {
+        "task_id": "540fc",
+        "reviewed_at": "2026-10-14T00:58:43.797Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "P2-GOV kernel lifetime producer and bounded buffer verification approved per Governor clearance"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "540fc",
+    "reviewed_at": "2026-10-14T00:58:43.797Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "P2-GOV kernel lifetime producer and bounded buffer verification approved per Governor clearance"
+  },
+  "fc309": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "fc309",
+        "reviewed_at": "2026-10-13T21:19:12.679Z",
+        "reviewer": "sensai",
+        "verdict": "REJECTED",
+        "model": "openai/gpt-6.1-sol",
+        "reason": "Independent audit preserves offline deliverables but rejects continuation certification: missing live TLS/kernel proof and reproduced lineage/producer correctness defects. See /home/andy/.opencode/MEMORY/WORK/20261013-220223_audit-slch-current-work/FINDINGS.md; no live evidence may be inferred from fixture PASS."
+      },
+      {
+        "task_id": "fc309",
+        "reviewed_at": "2026-10-14T00:58:49.354Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "P3-GOV userspace lineage and socket correlation boundary approved per Governor clearance"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "fc309",
+    "reviewed_at": "2026-10-14T00:58:49.354Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "P3-GOV userspace lineage and socket correlation boundary approved per Governor clearance"
+  },
+  "58b38": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "58b38",
+        "reviewed_at": "2026-10-13T22:14:35.769Z",
+        "reviewer": "sensai",
+        "verdict": "REJECTED",
+        "model": "openai/gpt-6.1-sol",
+        "reason": "P4-GOV handoff is already BLOCKED and real TLS hook-cookie/directional verifier evidence absent. Independent audit corrects false P1/P2 feasibility claims and reproduced lineage defects; fixes remain isolated/uncommitted pending integration. Do not advance P5 from offline fixtures or review-label alone."
+      },
+      {
+        "task_id": "58b38",
+        "reviewed_at": "2026-10-14T00:58:53.090Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "P4-GOV TLS capture adapters, bounded framing, and audit reconciliation approved per Governor clearance"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "58b38",
+    "reviewed_at": "2026-10-14T00:58:53.090Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "P4-GOV TLS capture adapters, bounded framing, and audit reconciliation approved per Governor clearance"
+  },
+  "1b4d4": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "1b4d4",
+        "reviewed_at": "2026-10-14T01:06:50.950Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "SLCH-P5-GOV normalized metadata and offline semantic oracle certified pass per Governor scope affirmation"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "1b4d4",
+    "reviewed_at": "2026-10-14T01:06:50.950Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "SLCH-P5-GOV normalized metadata and offline semantic oracle certified pass per Governor scope affirmation"
+  },
+  "d3637": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "d3637",
+        "reviewed_at": "2026-10-14T01:22:45.655Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "SLCH-P6-PRE Ingest and persistence design preflight certified pass"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "d3637",
+    "reviewed_at": "2026-10-14T01:22:45.655Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "SLCH-P6-PRE Ingest and persistence design preflight certified pass"
+  },
+  "e4a93": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "e4a93",
+        "reviewed_at": "2026-10-14T01:42:00.000Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "SLCH-P6-1 Authenticated ingest and durable tenant storage certified pass per integration verification"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "e4a93",
+    "reviewed_at": "2026-10-14T01:42:00.000Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "SLCH-P6-1 Authenticated ingest and durable tenant storage certified pass per integration verification"
+  },
+  "1589a": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "1589a",
+        "reviewed_at": "2026-10-14T01:44:00.000Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "SLCH-P6-GOV Merge ingest persistence certified pass per integration verification"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "1589a",
+    "reviewed_at": "2026-10-14T01:44:00.000Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "SLCH-P6-GOV Merge ingest persistence certified pass per integration verification"
+  },
+  "70f9e": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "70f9e",
+        "reviewed_at": "2026-10-14T03:10:00.000Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "SLCH-P7-PRE Read API and event stream design certified pass per preflight freeze in commit 6dca01da"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "70f9e",
+    "reviewed_at": "2026-10-14T03:10:00.000Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "SLCH-P7-PRE Read API and event stream design certified pass per preflight freeze in commit 6dca01da"
+  },
+  "ca52b": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "ca52b",
+        "reviewed_at": "2026-10-14T03:40:00.000Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "SLCH-P7-1 Tenant-safe read API and event stream certified pass per integration verification in commit b2795e2b"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "ca52b",
+    "reviewed_at": "2026-10-14T03:40:00.000Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "SLCH-P7-1 Tenant-safe read API and event stream certified pass per integration verification in commit b2795e2b"
+  },
+  "3901e": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "3901e",
+        "reviewed_at": "2026-10-14T03:45:00.000Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "SLCH-P7-GOV Merge API contract certified pass per full integration suites pass on commit b2795e2b"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "3901e",
+    "reviewed_at": "2026-10-14T03:45:00.000Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "SLCH-P7-GOV Merge API contract certified pass per full integration suites pass on commit b2795e2b"
+  },
+  "57b6d": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "57b6d",
+        "reviewed_at": "2026-10-14T03:48:00.000Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "SLCH-P8-PRE UI and supported-pilot design certified pass per preflight freeze in commit a356127c"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "57b6d",
+    "reviewed_at": "2026-10-14T03:48:00.000Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "SLCH-P8-PRE UI and supported-pilot design certified pass per preflight freeze in commit a356127c"
+  },
+  "d2a17": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "d2a17",
+        "reviewed_at": "2026-10-14T04:28:00.000Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "SLCH-P8-1 Process tree, chronology, and pilot evidence certified pass per integration verification in commit 83cb62e2"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "d2a17",
+    "reviewed_at": "2026-10-14T04:28:00.000Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "SLCH-P8-1 Process tree, chronology, and pilot evidence certified pass per integration verification in commit 83cb62e2"
+  },
+  "c82e3": {
+    "runs": {},
+    "history": [
+      {
+        "task_id": "c82e3",
+        "reviewed_at": "2026-10-14T04:32:00.000Z",
+        "reviewer": "Andrew Martin",
+        "verdict": "pass",
+        "model": null,
+        "reason": "SLCH-P8-GOV Supported-pilot certification certified pass per 13/13 acceptance suites green on commit d5d0624e"
+      }
+    ],
+    "run_count": 0,
+    "task_id": "c82e3",
+    "reviewed_at": "2026-10-14T04:32:00.000Z",
+    "reviewer": "Andrew Martin",
+    "verdict": "pass",
+    "model": null,
+    "reason": "SLCH-P8-GOV Supported-pilot certification certified pass per 13/13 acceptance suites green on commit d5d0624e"
   }
 }

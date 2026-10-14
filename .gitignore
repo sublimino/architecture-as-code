@@ -3,6 +3,8 @@
 
 # Build output
 vex/out/
+evidence/out/
+docs/records/ci-evidence/local-witness/
 
 # Vendored scanner binaries (installed by scripts/setup.sh, not committed)
 grype.zip
@@ -218,4 +220,3 @@ bundle/images/flux/charts/*.tgz
 
 # SLSI-P1-3: bundle distribution archives and manifests
 dist/
-

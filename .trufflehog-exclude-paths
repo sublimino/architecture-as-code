@@ -19,11 +19,9 @@
 
 # ── Local development stack credentials ──────────────────────────────────────
 # A self-consistent dev fixture set: components/backend/base/postgres.yaml SETS the
-# password that the archivista client then connects with, so both halves are fixtures
 # and neither is a credential for anything that exists. Confirmed as a test password.
 # If a real deployment ever needs these, the repo already uses OpenBao via
 # vault.hashicorp.com/agent-inject in 12 files — that is the target, not this file.
-d2-osramp-apps/components/backend/.*/archivista-secret\.yaml$
 d2-osramp-apps/components/backend/base/postgres\.yaml$
 d2-osramp-apps/components/backend/.*/postgres-secret\.yaml$
 d2-osramp-apps/components/frontend/base/archiver\.yaml$
@@ -50,7 +48,6 @@ olly-replica/components/configs/base/seed/injection-corpus\.ndjson$
 # trail these documents exist to provide.
 docs/signalloom/.*-proof\.md$
 docs/signalloom/.*-evidence\.md$
-docs/signalloom/sfdp-p3-3-archivista-evidence\.md$
 
 # ── NOT excluded, deliberately ──────────────────────────────────────────────
 # .kind/ was removed from tracking and gitignored rather than excluded here. It is

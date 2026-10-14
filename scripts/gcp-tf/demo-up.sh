@@ -2223,6 +2223,9 @@ cmd_clean_down() {
   prepare clean-down
   ensure_vm_ready || exit 2
   log "Cleaning down estate on ${INSTANCE_NAME} (resetting database, agent claims, and user state)..."
+  local staged="/tmp/prelive-clean-down.$$.sh"
+  vm_scp "${REPO_ROOT}/scripts/prelive-clean-down.sh" "${INSTANCE_NAME}:${staged}"
+  vm_ssh "sudo cp -f $(printf '%q' "$staged") $(printf '%q' "${REMOTE_WORK_DIR}/scripts/prelive-clean-down.sh") && sudo chmod +x $(printf '%q' "${REMOTE_WORK_DIR}/scripts/prelive-clean-down.sh") && rm -f $(printf '%q' "$staged")"
   local clean_cmd
   clean_cmd='cd '"${REMOTE_WORK_DIR}"' && export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}" && ./scripts/prelive-clean-down.sh --clean && make healthcheck'
   remote_run "$clean_cmd"

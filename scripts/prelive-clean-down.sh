@@ -42,9 +42,10 @@ Options:
   --check     Run read-only pre-live readiness audit (default)
   --clean     Execute clean-down reset to pristine baseline (resets onboarding & data)
   --full      Execute clean-down followed immediately by full pre-live audit
-  --remote    Execute command on remote GCP VM defined by ENV=<lane> (e.g. ENV=demo-1)
-  --tenant ID Target tenant to reset onboarding for (default: tenant-demo)
-  -h, --help  Show this help message
+  --restore-swarm Un-suspend Flux agent-swarm and scale workloads back up
+  --remote        Execute command on remote GCP VM defined by ENV=<lane> (e.g. ENV=demo-1)
+  --tenant ID     Target tenant to reset onboarding for (default: tenant-demo)
+  -h, --help      Show this help message
 EOF
 }
 
@@ -53,6 +54,7 @@ while [[ $# -gt 0 ]]; do
     --check) MODE="check"; shift ;;
     --clean) MODE="clean"; shift ;;
     --full)  MODE="full";  shift ;;
+    --restore-swarm) MODE="restore-swarm"; shift ;;
     --remote) REMOTE=1;    shift ;;
     --tenant) TARGET_TENANT="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -77,14 +79,32 @@ FAILURES=0
 do_clean_down() {
   header "EXECUTING FULL REFRESH & USER DATA RESET FOR NEW ONBOARDING"
 
-  # 1. Teardown any running SuperCred demo resources and credential material
+  # 1. Suspend Flux agent-swarm ResourceSet to prevent automatic re-spawning
+  echo "--> Suspending Flux agent-swarm ResourceSet..."
+  kubectl -n flux-system annotate resourceset agent-swarm fluxcd.controlplane.io/reconcile=disabled --overwrite 2>/dev/null || true
+  kubectl -n flux-system patch resourceset agent-swarm --type=merge -p '{"spec":{"suspend":true}}' 2>/dev/null || true
+  flux suspend kustomization -n fe-signalloom-agents --all 2>/dev/null || true
+  kubectl get kustomization -n fe-signalloom-agents -o name 2>/dev/null | xargs -r -I {} kubectl patch {} -n fe-signalloom-agents --type=merge -p '{"spec":{"suspend":true}}' 2>/dev/null || true
+  kubectl -n fe-signalloom-agents annotate kustomization --all kustomize.toolkit.fluxcd.io/reconcile=disabled --overwrite 2>/dev/null || true
+  ok "Flux agent-swarm ResourceSet and child Kustomizations suspended"
+
+  # 2. Scale down workloads and delete agent pods in fe-signalloom-agents
+  echo "--> Scaling down agent workloads in fe-signalloom-agents..."
+  kubectl scale deployment --all -n fe-signalloom-agents --replicas=0 2>/dev/null || true
+  kubectl scale statefulset --all -n fe-signalloom-agents --replicas=0 2>/dev/null || true
+  kubectl delete daemonset --all -n fe-signalloom-agents --ignore-not-found 2>/dev/null || true
+  kubectl delete pod -n fe-signalloom-agents -l signalloom.ai/agent=true --ignore-not-found --wait=false 2>/dev/null || true
+  kubectl delete pod -n fe-signalloom-agents -l app.kubernetes.io/name=cardvault-agent --ignore-not-found --wait=false 2>/dev/null || true
+  ok "Agent workloads in fe-signalloom-agents scaled down to 0 and agent pods deleted"
+
+  # 3. Teardown any running SuperCred demo resources and credential material
   echo "--> Tearing down SuperCred demo resources..."
   if [[ -x "${REPO_ROOT}/scripts/supercred-demo.sh" ]]; then
     bash "${REPO_ROOT}/scripts/supercred-demo.sh" 5 >/dev/null 2>&1 || true
     ok "SuperCred demo workloads and credential material cleaned down"
   fi
 
-  # 2. Reset PostgreSQL database user data and onboarding
+  # 4. Reset PostgreSQL database user data and onboarding
   echo "--> Resetting database user data, agent claims, and onboarding state..."
   if kubectl get deployment postgresql -n inf-signalloom >/dev/null 2>&1; then
     kubectl exec -n inf-signalloom deployment/postgresql -- psql -U signalloom -d signalloom -c "
@@ -129,14 +149,14 @@ do_clean_down() {
     warn "PostgreSQL not reachable; skipping database onboarding reset"
   fi
 
-  # 3. Flush Redis cache
+  # 5. Flush Redis cache
   echo "--> Flushing Redis cache..."
   if kubectl get deployment redis -n inf-signalloom >/dev/null 2>&1; then
     kubectl exec -n inf-signalloom deployment/redis -- redis-cli flushall >/dev/null 2>&1 || true
     ok "Redis cache flushed"
   fi
 
-  # 4. Restart fe-signalloom to purge in-memory stores and cached discovery
+  # 6. Restart fe-signalloom to purge in-memory stores and cached discovery
   echo "--> Restarting fe-signalloom to purge in-memory stores..."
   if kubectl get deployment fe-signalloom -n fe-signalloom >/dev/null 2>&1; then
     kubectl rollout restart deployment/fe-signalloom -n fe-signalloom >/dev/null 2>&1 || true
@@ -144,7 +164,7 @@ do_clean_down() {
     ok "fe-signalloom restarted with clean in-memory state"
   fi
 
-  # 5. Restart fake-integration-proxy to clear any cached proxy observations
+  # 7. Restart fake-integration-proxy to clear any cached proxy observations
   echo "--> Restarting fake-integration-proxy..."
   if kubectl get deployment fake-integration-proxy -n inf-signalloom >/dev/null 2>&1; then
     kubectl rollout restart deployment/fake-integration-proxy -n inf-signalloom >/dev/null 2>&1 || true
@@ -152,7 +172,7 @@ do_clean_down() {
     ok "fake-integration-proxy restarted"
   fi
 
-  # 6. Unfreeze any cgroups left in frozen containment state
+  # 8. Unfreeze any cgroups left in frozen containment state
   echo "--> Unfreezing any stunned/frozen cgroup workloads..."
   local frozen_count=0
   for f in $(find /sys/fs/cgroup -name "cgroup.freeze" 2>/dev/null || true); do
@@ -163,25 +183,51 @@ do_clean_down() {
   done
   ok "Cgroup freezer audited; ${frozen_count} frozen workload(s) unfrozen"
 
-  # 7. Clean host /tmp test artifacts
+  # 9. Clean host /tmp test artifacts
   echo "--> Cleaning host /tmp test artifacts..."
   rm -f /tmp/osramp-tenant-*.kubeconfig /tmp/test-tenant* /tmp/slsi-test-* /tmp/cgroup-freeze-proof.json 2>/dev/null || true
   ok "Host /tmp test artifacts cleaned"
 
-  # 8. Verify clean baseline
-  echo "--> Verifying clean baseline in PostgreSQL..."
+  # 10. Verify clean baseline
+  echo "--> Verifying clean baseline in PostgreSQL and fe-signalloom-agents..."
   if kubectl get deployment postgresql -n inf-signalloom >/dev/null 2>&1; then
-    local reg_count claim_count audit_count ob_count
+    local reg_count claim_count disc_count audit_count ob_count
     reg_count=$(kubectl exec -n inf-signalloom deployment/postgresql -- psql -U signalloom -d signalloom -t -A -c "SELECT COUNT(*) FROM public.agent_registry;" 2>/dev/null || echo "-1")
     claim_count=$(kubectl exec -n inf-signalloom deployment/postgresql -- psql -U signalloom -d signalloom -t -A -c "SELECT COUNT(*) FROM public.agent_claims;" 2>/dev/null || echo "-1")
+    disc_count=$(kubectl exec -n inf-signalloom deployment/postgresql -- psql -U signalloom -d signalloom -t -A -c "SELECT COUNT(*) FROM public.discovered_agents;" 2>/dev/null || echo "-1")
     audit_count=$(kubectl exec -n inf-signalloom deployment/postgresql -- psql -U signalloom -d signalloom -t -A -c "SELECT COUNT(*) FROM public.audit_events;" 2>/dev/null || echo "-1")
     ob_count=$(kubectl exec -n inf-signalloom deployment/postgresql -- psql -U signalloom -d signalloom -t -A -c "SELECT COUNT(*) FROM public.tenant_onboarding WHERE status IN ('completed', 'skipped');" 2>/dev/null || echo "-1")
-    if [[ "$reg_count" == "0" && "$claim_count" == "0" && "$audit_count" == "0" && "$ob_count" == "0" ]]; then
-      ok "Clean baseline verified: 0 registered agents, 0 agent claims, 0 audit events, 0 completed onboarding"
+    if [[ "$reg_count" == "0" && "$claim_count" == "0" && "$disc_count" == "0" && "$audit_count" == "0" && "$ob_count" == "0" ]]; then
+      ok "Clean baseline verified: 0 registered agents, 0 agent claims, 0 discovered agents, 0 audit events, 0 completed onboarding"
     else
-      warn "Baseline check: registry=${reg_count}, claims=${claim_count}, audit=${audit_count}, onboarding_done=${ob_count}"
+      warn "Baseline check: registry=${reg_count}, claims=${claim_count}, discovered=${disc_count}, audit=${audit_count}, onboarding_done=${ob_count}"
     fi
   fi
+  local agent_pods_count
+  agent_pods_count=$(kubectl get pods -n fe-signalloom-agents -l signalloom.ai/agent=true --no-headers 2>/dev/null | grep -v "Terminating" | wc -l | tr -d '[:space:]' || echo "0")
+  if [[ "$agent_pods_count" == "0" ]]; then
+    ok "fe-signalloom-agents pod verification: 0 agent pods running"
+  else
+    warn "fe-signalloom-agents pod verification: ${agent_pods_count} agent pod(s) still present"
+  fi
+}
+
+do_restore_swarm() {
+  header "RESTORING AGENT SWARM IN FE-SIGNALLOOM-AGENTS"
+
+  echo "--> Un-suspending Flux agent-swarm ResourceSet and child Kustomizations..."
+  kubectl -n flux-system annotate resourceset agent-swarm fluxcd.controlplane.io/reconcile- 2>/dev/null || true
+  kubectl -n flux-system annotate resourceset agent-swarm reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite 2>/dev/null || true
+  kubectl -n flux-system patch resourceset agent-swarm --type=merge -p '{"spec":{"suspend":false}}' 2>/dev/null || true
+  flux resume kustomization -n fe-signalloom-agents --all 2>/dev/null || true
+  kubectl get kustomization -n fe-signalloom-agents -o name 2>/dev/null | xargs -r -I {} kubectl patch {} -n fe-signalloom-agents --type=merge -p '{"spec":{"suspend":false}}' 2>/dev/null || true
+  kubectl -n fe-signalloom-agents annotate kustomization --all kustomize.toolkit.fluxcd.io/reconcile- 2>/dev/null || true
+  ok "Flux agent-swarm ResourceSet and child Kustomizations un-suspended"
+
+  echo "--> Scaling up workloads in fe-signalloom-agents..."
+  kubectl scale deployment --all -n fe-signalloom-agents --replicas=1 2>/dev/null || true
+  kubectl scale statefulset --all -n fe-signalloom-agents --replicas=1 2>/dev/null || true
+  ok "Agent workloads in fe-signalloom-agents scaled up to 1 replica"
 }
 
 do_prelive_check() {
@@ -234,7 +280,7 @@ do_prelive_check() {
   fi
 
   local suspended_kust=0
-  suspended_kust=$(flux get kustomizations -A --no-headers 2>/dev/null | grep -c "True.*Suspended" || true)
+  suspended_kust=$(flux get kustomizations -A 2>/dev/null | grep -v "fe-signalloom-agents" | grep -c "True.*Suspended" || true)
   if [[ "$suspended_kust" -eq 0 ]]; then
     ok "GitOps reconciliation: 0 suspended Kustomizations"
   else
@@ -328,6 +374,7 @@ main() {
     clean) do_clean_down ;;
     check) do_prelive_check ;;
     full)  do_clean_down; do_prelive_check ;;
+    restore-swarm) do_restore_swarm ;;
   esac
 }
 

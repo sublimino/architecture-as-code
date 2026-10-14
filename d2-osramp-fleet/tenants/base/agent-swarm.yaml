@@ -542,7 +542,10 @@ spec:
           signalloom.ai/agent: "true"
           signalloom.ai/agent-name: "signalloom-warden"
       spec:
-        targetNamespace: inf-signalloom-warden
+        # No targetNamespace: the tree is two-namespace by design (warden in
+        # inf-signalloom-warden, RBAC exporter in fe-signalloom-agents, where
+        # its ClusterRoleBinding subject is), and a targetNamespace would
+        # override both. Each object states its own namespace.
         dependsOn: [{name: agent-swarm-base}]
         serviceAccountName: agent-swarm-flux
         interval: 30m

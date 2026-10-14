@@ -9,8 +9,16 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: inf-signalloom-warden
-
+# No `namespace:` field, deliberately: this tree spans TWO namespaces and every
+# file states its own. The warden (DaemonSet, ConfigMap, ServiceAccount, Role,
+# RoleBinding, captures NetworkPolicy) is in inf-signalloom-warden. The RBAC
+# exporter stays in fe-signalloom-agents, because every contract it has names
+# that namespace: the signalloom-rbac-exporter ClusterRoleBinding subject in
+# the fleet ResourceSet, fe-signalloom's allow-rbac-exporter-ingress
+# NetworkPolicy, and the key Secret scripts/afm-importer-key.sh writes. A
+# namespace transformer here (or a Flux targetNamespace) would move it away
+# from all three. test/afm-rbac-exporter-manifests.bats pins both halves.
+#
 # No Namespace object here. On kind-osramp this tree is reconciled by the
 # TENANT ServiceAccount agent-swarm-flux, which cannot patch cluster-scoped
 # objects; the cluster-level ResourceSet owns inf-signalloom-warden. Overlays
@@ -27,6 +35,7 @@ resources:
 
 configMapGenerator:
   - name: signalloom-rbac-exporter-script
+    namespace: fe-signalloom-agents
     files:
       - rbac-exporter/export.py
 

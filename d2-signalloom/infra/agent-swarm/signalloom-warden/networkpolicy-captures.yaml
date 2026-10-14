@@ -17,6 +17,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: signalloom-warden-captures
+  namespace: inf-signalloom-warden
   labels:
     app.kubernetes.io/name: signalloom-warden
     app.kubernetes.io/part-of: signalloom

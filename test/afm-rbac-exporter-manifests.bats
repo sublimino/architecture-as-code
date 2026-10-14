@@ -274,7 +274,6 @@ EOF
   cat >"${alone}/kustomization.yaml" <<'KUST'
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: fe-signalloom-agents
 resources: [service-account.yaml, rbac.yaml, configmap.yaml, daemonset.yaml]
 KUST
   sel='select((.kind == "DaemonSet") or (.kind == "Role" and .metadata.name == "signalloom-warden") or (.kind == "RoleBinding" and .metadata.name == "signalloom-warden") or (.kind == "ServiceAccount" and .metadata.name == "signalloom-warden"))'
@@ -337,7 +336,21 @@ KUST
   [ "${fe_port}" = "8000" ]
 }
 
-@test "exporter manifests: every rendered object in the bundle has namespace fe-signalloom-agents" {
+# The exporter does NOT follow the warden to inf-signalloom-warden. Every
+# contract it has names fe-signalloom-agents: the ClusterRoleBinding subject in
+# the ResourceSet, fe-signalloom's ingress NetworkPolicy namespaceSelector, and
+# the namespace scripts/afm-importer-key.sh writes its key Secret to. The
+# expected namespace is read from those three sources, not restated here.
+@test "exporter manifests: every rendered object has a namespace; exporter objects in fe-signalloom-agents, warden objects in inf-signalloom-warden" {
+  local crb_ns np_ns key_ns
+  crb_ns="$(yq -r '.spec.resources[] | select(.kind == "ClusterRoleBinding" and .metadata.name == "signalloom-rbac-exporter") | .subjects[0].namespace' "${RS}")"
+  np_ns="$(yq -r 'select(.metadata.name == "allow-rbac-exporter-ingress") | .spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]' \
+    "${REPO_ROOT}/d2-signalloom/apps/fe-signalloom/base/networkpolicy.yaml")"
+  key_ns="$(sed -n 's/^CONSUMER_NS="\(.*\)"$/\1/p' "${REPO_ROOT}/scripts/afm-importer-key.sh")"
+  [ "${crb_ns}" = "fe-signalloom-agents" ]
+  [ "${np_ns}" = "${crb_ns}" ]
+  [ "${key_ns}" = "${crb_ns}" ]
+
   local missing_ns
   missing_ns="$(kubectl kustomize "${BUNDLE_DIR}" \
     | yq -o=json 'select(.kind != null) | select(.metadata.namespace == null or .metadata.namespace == "") | .kind + "/" + .metadata.name')"
@@ -345,6 +358,26 @@ KUST
 
   local bad_ns
   bad_ns="$(kubectl kustomize "${BUNDLE_DIR}" \
-    | yq -o=json 'select(.kind != null) | select(.metadata.namespace != "fe-signalloom-agents") | .kind + "/" + .metadata.name')"
-  [ -z "${bad_ns}" ]
+    | yq -r "select(.kind != null) | select((.metadata.name | test(\"rbac-exporter\")) and .metadata.namespace != \"${crb_ns}\") | .kind + \"/\" + .metadata.name")"
+  [ -z "${bad_ns}" ] || { echo "exporter objects outside ${crb_ns}: ${bad_ns}" >&2; return 1; }
+  [ "$(kubectl kustomize "${BUNDLE_DIR}" | yq -r 'select(.metadata.name | test("rbac-exporter")) | .kind' | grep -v '^---$' | LC_ALL=C sort -u | tr '\n' ' ')" = "ConfigMap CronJob NetworkPolicy ServiceAccount " ]
+
+  bad_ns="$(kubectl kustomize "${BUNDLE_DIR}" \
+    | yq -r 'select(.kind != null) | select((.metadata.name | test("rbac-exporter") | not) and .metadata.namespace != "inf-signalloom-warden") | .kind + "/" + .metadata.name')"
+  [ -z "${bad_ns}" ] || { echo "warden objects outside inf-signalloom-warden: ${bad_ns}" >&2; return 1; }
+}
+
+# What Flux actually applies on kind-osramp: the overlay render, then the
+# Kustomization's targetNamespace (if any) overrides every namespaced object.
+# A targetNamespace here would drag the exporter away from its RBAC subject.
+@test "exporter manifests: on kind-osramp, as Flux applies it, the exporter SA is the ClusterRoleBinding subject" {
+  local target crb_ns eff
+  target="$(yq -r '.spec.resources[] | select(.kind == "Kustomization" and .metadata.name == "agent-signalloom-warden") | .spec.targetNamespace // ""' "${RS}")"
+  crb_ns="$(yq -r '.spec.resources[] | select(.kind == "ClusterRoleBinding" and .metadata.name == "signalloom-rbac-exporter") | .subjects[0].namespace' "${RS}")"
+  eff="$(kubectl kustomize "${OVERLAY_OSRAMP}" | yq -r 'select(.kind == "ServiceAccount" and .metadata.name == "signalloom-rbac-exporter") | .metadata.namespace')"
+  [ -n "${eff}" ]
+  [ -n "${target}" ] && eff="${target}"
+  [ "${eff}" = "${crb_ns}" ] || { echo "exporter SA lands in ${eff}, ClusterRoleBinding names ${crb_ns}" >&2; return 1; }
+  # and the CronJob runs as that SA, with the generated script in the same namespace
+  [ "$(kubectl kustomize "${OVERLAY_OSRAMP}" | yq -r 'select(.kind == "CronJob" and .metadata.name == "signalloom-rbac-exporter") | .spec.jobTemplate.spec.template.spec.serviceAccountName')" = "signalloom-rbac-exporter" ]
 }

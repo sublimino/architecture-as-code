@@ -215,6 +215,17 @@ describe('AgentsPage — Compliance Scan & Register', () => {
     expect(heading).toBeInTheDocument()
   })
 
+  it('renders the Register Agent button in the page header and not in the filter bar', async () => {
+    renderPage()
+    const headerBtn = await screen.findByTestId('header-register-agent-btn')
+    expect(headerBtn).toBeInTheDocument()
+    expect(headerBtn).toHaveTextContent('Register Agent')
+
+    const filterGroup = screen.getByRole('group', { name: /filter agents by lifecycle state/i })
+    const filterBar = filterGroup.parentElement!
+    expect(within(filterBar).queryByRole('button', { name: /register agent/i })).toBeNull()
+  })
+
   it('calls api.agents.register on form submit', async () => {
     ;(api.agents.register as ReturnType<typeof vi.fn>).mockResolvedValue(makeAgent({ name: 'New Bot' }))
     renderPage()

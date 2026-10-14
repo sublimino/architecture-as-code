@@ -1,13 +1,13 @@
 ---
 name: sl-chaos-walk
-description: "Five-phase autonomous exploratory QA fuzzer and chaos walk orchestrator for #partner-signal-loom. Drives TypeSafe Jev System One decisions or calibrated offline simulation across UI routes and APIs to find crash boundaries, dead controls, layout spills, and HTTP 5xx errors. USE WHEN chaos walk, jev tests, fuzz ui, exploratory qa, chaos walk tests, sl-chaos-walk, /sl-chaos-walk."
+description: "Five-phase autonomous exploratory QA fuzzer and chaos walk orchestrator for #partner-signal-loom. Drives TypeSafe Jev System One decisions or offline simulations across UI routes and APIs. Finds crash boundaries, dead controls, layout spills, and HTTP 5xx errors. USE WHEN chaos walk, jev tests, fuzz ui, exploratory qa, chaos walk tests, sl-chaos-walk, /sl-chaos-walk."
 ---
 
 # sl-chaos-walk
 
 Five-phase autonomous exploratory QA fuzzer and chaos walk engine for the **Signal Loom** (`#partner-signal-loom`) platform.
 
-Constructed following the **Matt Pocock Skill Discipline** (tight feedback loops, seam design, bounded execution, defect minimization, and empirical mutation proofs), this skill drives intelligent agent traversals over web interfaces and REST APIs to surface latent crashes before production release.
+Constructed following the **Matt Pocock Skill Discipline** (tight feedback loops, seam design, bounded execution, and defect minimization). It drives intelligent agent traversals over web interfaces and REST APIs to surface latent crashes before production release.
 
 ---
 
@@ -24,6 +24,8 @@ The skill provides three tuned operational profiles:
 ---
 
 ## 5-Phase Pocock Discipline
+
+The diagram shows the five phases of the Pocock discipline:
 
 ```mermaid
 flowchart LR
@@ -76,7 +78,7 @@ flowchart LR
 2. **Empirical Mutation Proof (`tdd` discipline)**:
    - Verify the newly synthesized test fails against the unpatched code.
    - Mutate the assertion or check to ensure it is not a fake green light.
-   - Register the test in [`test/acceptance/SPEC-REGISTRY.tsv`](test/acceptance/SPEC-REGISTRY.tsv).
+   - Register the test in [`test/acceptance/SPEC-REGISTRY.tsv`](../../../test/acceptance/SPEC-REGISTRY.tsv).
 3. **Artifact Summary**:
    - Write full JSON trace and markdown diagnostic report to `reports/chaos-walk/<timestamp>_<slug>.md`.
    - Provide a concise 4-bullet executive summary to the user.
@@ -105,7 +107,7 @@ make chaos-walk-api REQUESTS=300 CONCURRENCY=8
 
 ## Non-Negotiable Invariants
 
-1. **Fail-Closed on Hard Crashes**: Any unhandled exception or React error boundary is an immediate failure; it must never be swallowed or ignored.
+1. **Fail-Closed on Hard Crashes**: Any unhandled exception or React error boundary is an immediate failure. It must never be swallowed or ignored.
 2. **Graceful Offline Degradation**: The skill must run seamlessly under `--mock` when no API keys are present. CI and offline sandboxes must never fail due to missing external credentials.
 3. **Zero Destructive Escalation**: Never trigger administrative teardowns, token revocations, or account deletions during an exploratory walk.
 4. **Context Window Protection**: Never dump thousands of raw DOM lines into chat. Persist full traces to `reports/chaos-walk/` and return only derived insights and targeted diffs.

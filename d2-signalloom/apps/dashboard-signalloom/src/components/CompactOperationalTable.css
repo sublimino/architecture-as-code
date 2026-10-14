@@ -1,7 +1,7 @@
 .compact-operational-table {
   container-type: inline-size;
   width: 100%;
-  max-width: 1080px;
+  max-width: 100%;
   min-width: 0;
   padding: 0;
   overflow-x: auto;

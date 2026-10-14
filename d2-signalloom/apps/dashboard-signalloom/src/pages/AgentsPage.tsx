@@ -957,6 +957,7 @@ function GovernedTab({
   onRetry,
   onReload,
   sessionTenant,
+  onRegister,
 }: {
   agents: AgentResponse[]
   loading: boolean
@@ -971,6 +972,7 @@ function GovernedTab({
   onRetry: () => void
   onReload: () => void
   sessionTenant?: string | null
+  onRegister?: () => void
 }) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -1027,7 +1029,6 @@ function GovernedTab({
   }
 
   const [search, setSearch] = useState(resolveInitialSearch)
-  const [showRegister, setShowRegister] = useState(false)
   const [editingAgent, setEditingAgent] = useState<AgentResponse | null>(null)
   const [selectedAgent, setSelectedAgent] = useState<AgentResponse | null>(null)
   const [sortKey, setSortKey] = useState<string>('')
@@ -1277,7 +1278,6 @@ function GovernedTab({
 
   return (
     <div style={{ width: '100%' }}>
-      {showRegister && <RegisterModal onClose={() => setShowRegister(false)} onCreated={onReload} />}
       {editingAgent && <EditAgentModal agent={editingAgent} onClose={() => setEditingAgent(null)} onSaved={onReload} />}
       {selectedAgent && (
         <AgentEvidenceDrawer
@@ -1480,9 +1480,6 @@ function GovernedTab({
             Clear
           </button>
         )}
-        <button className="btn btn-primary" style={{ marginLeft: 'auto', fontSize: 12, padding: '5px 14px' }} onClick={() => setShowRegister(true)}>
-          Register Agent
-        </button>
       </div>
 
       {filtered.length === 0 ? (
@@ -1493,7 +1490,7 @@ function GovernedTab({
               body="Agents appear here after enrollment via the registry API."
             />
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}>
-              <button className="btn btn-primary" onClick={() => setShowRegister(true)}>Register Agent</button>
+              <button className="btn btn-primary" onClick={onRegister}>Register Agent</button>
               <Link to="/settings/help/onboard-agent" className="btn btn-secondary" style={{ textDecoration: 'none' }}>
                 Help to Onboard Agent
               </Link>
@@ -1743,6 +1740,7 @@ export default function AgentsPage() {
   const [claimNotification, setClaimNotification] = useState<ClaimNotification | null>(null)
 
   const [lifecycleFilter, setLifecycleFilter] = useState('all')
+  const [showRegister, setShowRegister] = useState(false)
 
   const [scanning, setScanning] = useState(false)
   const [lastScanTimestamp, setLastScanTimestamp] = useState<string | null>(null)
@@ -1858,6 +1856,7 @@ export default function AgentsPage() {
 
   return (
     <div>
+      {showRegister && <RegisterModal onClose={() => setShowRegister(false)} onCreated={loadAgents} />}
       {claimNotification && (
         <div
           data-testid="agent-claim-toast"
@@ -1941,7 +1940,7 @@ export default function AgentsPage() {
             </HelpHint>
           </div>
           <button
-            className="btn btn-primary"
+            className="btn btn-secondary"
             style={{ fontSize: 12, padding: '6px 14px' }}
             disabled={scanning}
             onClick={handleComplianceScan}
@@ -1951,6 +1950,17 @@ export default function AgentsPage() {
           <HelpHint label="About the policy scan" testId="agents-scan-help">
             Runs a live policy scan against the governed agent list and updates posture and compliance findings.
           </HelpHint>
+          {activeMainTab === 'governed' && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              data-testid="header-register-agent-btn"
+              style={{ fontSize: 12, padding: '6px 14px' }}
+              onClick={() => setShowRegister(true)}
+            >
+              Register Agent
+            </button>
+          )}
         </div>
       </div>
 
@@ -2047,6 +2057,7 @@ export default function AgentsPage() {
             onRetry={loadAgents}
             onReload={loadAgents}
             sessionTenant={activeSessionTenant}
+            onRegister={() => setShowRegister(true)}
           />
         </>
       )}

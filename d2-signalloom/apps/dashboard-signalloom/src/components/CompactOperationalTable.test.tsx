@@ -136,7 +136,8 @@ describe('compact operational inventory primitives', () => {
   it('keeps density opt-in, fluid fixed-layout and essential columns reachable at narrow widths', () => {
     const css = readFileSync('src/components/CompactOperationalTable.css', 'utf8')
     expect(css).toContain('table-layout: fixed')
-    expect(css).toContain('max-width: 1080px')
+    expect(css).toContain('max-width: 100%')
+    expect(css).not.toContain('max-width: 1080px')
     expect(css).not.toMatch(/min-width:\s*(?:1100|1362)px/)
     expect(css).toContain('@container (max-width: 900px)')
     expect(css).toContain('.compact-agent-details { display: none; }')

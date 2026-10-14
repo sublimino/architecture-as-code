@@ -3,7 +3,7 @@
 The `d2-cpai` slice deploys the CPAI runtime into its own `cpai` namespace. The
 runtime is `cpai api`, an OpenAI-compatible API server. It forwards each request
 to a private OpenCode process, which calls Vertex AI. The slice is independent
-of Signal Loom, OSRAMP, and every other demo. It has its own namespace, its own
+of Signal Loom and every other demo. It has its own namespace, its own
 image, and its own up and down lifecycle.
 
 The container image is built from `Dockerfile.runtime` in the cpai-cli checkout.

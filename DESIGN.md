@@ -1,6 +1,6 @@
 # Platform design system
 
-This document defines the platform design system for OSRAMP and Signal Loom.
+This document defines the platform design system for Signal Loom.
 It coordinates visual styles, typography, and information architecture across all
 interfaces.
 

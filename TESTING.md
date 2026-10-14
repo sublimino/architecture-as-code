@@ -206,7 +206,7 @@ Run these suites from the repository root.
 | Audit anchor unit suite | `make audit-anchor-test` | Not needed |
 | Audit anchor tamper proof | `make audit-anchor-tamper-demo` | Needed |
 | Audit anchor key-path guard | `bats test/audit-anchor-keys-path.bats` | Not needed |
-| OSRAMP application suite | `make test` | Needed |
+| Signal Loom test suite | `make test` | Needed |
 | Signal Loom topology check | `d2-signalloom/test/validate-topology.sh` | Not needed |
 | Signal Loom topology edge rules | `bats d2-signalloom/test/topology.bats` | Not needed |
 | Fleet ResourceSet patch indexes | `bats d2-signalloom/test/fleet-patch-indexes.bats` | Not needed |

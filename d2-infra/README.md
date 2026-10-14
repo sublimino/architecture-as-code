@@ -1,6 +1,6 @@
 # d2-infra
 
-Infrastructure logical source directory for the Acme Co. OSRAMP demo. It defines the Kubernetes cluster add-ons that the applications depend on, delivered as signed OCI artifacts and reconciled by Flux as the cluster admin. It pairs with `d2-osramp-fleet` (cluster and tenant definitions) and `d2-osramp-apps` (the OSRAMP application services). These are monorepo directories, not separate Git repositories.
+Infrastructure logical source directory for the Acme Co. Signal Loom demo. It defines the Kubernetes cluster add-ons that the applications depend on, delivered as signed OCI artifacts and reconciled by Flux as the cluster admin. It pairs with `d2-osramp-fleet` (cluster and tenant definitions) and application services. These are monorepo directories, not separate Git repositories.
 
 ## Scope and access control
 

@@ -166,9 +166,12 @@ OIDC login through the gateway port-forward. Use it for HTTP checks only.
 | `/admin/users` | Admin Users | Superadmin tenant user administration |
 | `/redeem-invite` | Redeem Invite | User onboarding and invitation acceptance |
 
-`/docs` is not a React route. It is an nginx `location` in
+`/docs` and `/dev-docs` are not React routes. They are nginx locations in
 [`nginx.conf`](apps/dashboard-signalloom/nginx.conf) that proxies to the Astro
-Starlight docs site. The `Routes` block in
+Starlight docs service. `/dev-docs/` contains engineering onboarding and architecture pages.
+The old architecture page URLs redirect from `/docs/` to `/dev-docs/`.
+Both portals use the existing access model, without authentication checks.
+The `Routes` block in
 [`App.tsx`](apps/dashboard-signalloom/src/App.tsx) is the source of the route list.
 
 Utility routes: `/onboarding` (wizard) and `/redeem-invite` (user signup).
@@ -220,7 +223,6 @@ All application source code resides under `apps/`:
 | `swarm-governor` | [`apps/swarm-governor/`](apps/swarm-governor/) | Governance controller orchestrating multi-agent coordination. |
 | `triage-ci-worker` | [`apps/triage-ci-worker/`](apps/triage-ci-worker/) | Automated CI failure triage agent. |
 | `workspace-connector` | [`apps/workspace-connector/`](apps/workspace-connector/) | Enterprise workspace integration service. |
-| `zulip-chat-agent` | [`apps/zulip-chat-agent/`](apps/zulip-chat-agent/) | Chatbot agent integrating with Zulip streams. |
 
 ## Testing
 

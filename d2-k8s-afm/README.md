@@ -1,7 +1,7 @@
 # d2-k8s-afm — KubeSec-AFM D2 Integration
 
 Standalone deployment of the [KubeSec-AFM](https://github.com/controlplaneio/kubesec-afm)
-RBAC privilege-escalation analysis platform in the OSRAMP demo cluster.
+RBAC privilege-escalation analysis platform in the Signal Loom demo cluster.
 It runs in the `fe-k8s-afm` namespace. The `make` targets and the `up` steps
 are in [`AGENTS.md`](AGENTS.md#lifecycle).
 

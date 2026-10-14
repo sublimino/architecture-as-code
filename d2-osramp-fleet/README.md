@@ -4,8 +4,8 @@
 > This logical source directory is part of the reference architecture for the
 > [ControlPlane Enterprise for Flux CD](https://fluxcd.control-plane.io/).
 >
-> The `d2` reference architecture is comprised of the
-> `d2-osramp-fleet`, `d2-infra` and `d2-osramp-apps` directories of the Acme Co. OSRAMP monorepo.
+> The `d2` reference architecture consists of the
+> `d2-osramp-fleet`, `d2-infra` and application directories of the Acme Co. Signal Loom monorepo.
 > It is a set of best practices and production-ready examples for using Flux Operator
 > and OCI Artifacts. They manage the continuous delivery of Kubernetes infrastructure and
 > applications on multi-cluster multi-tenant environments.

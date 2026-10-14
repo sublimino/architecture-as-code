@@ -1,4 +1,4 @@
-# AGENTS.md — osramp-demo
+# AGENTS.md — sl-platform
 
 This is the onboarding guide for agents and engineers. Read it first. Then read
 the `AGENTS.md` file of the slice that you will change.
@@ -9,7 +9,7 @@ Run `make docs-lint` after you change a document.
 
 ## Repository purpose
 
-This monorepo holds the OSRAMP and Signal Loom demonstration platform. It holds
+This monorepo holds the Signal Loom demonstration platform. It holds
 independent D2 delivery slices. The slices share one Kind cluster, one Flux
 GitOps control plane, and one Envoy ingress gateway.
 
@@ -20,7 +20,7 @@ The diagram shows the shared foundation and the slices that it runs. The
 
 ```mermaid
 flowchart TB
-  subgraph FOUNDATION["Shared foundation (Kind cluster: osramp)"]
+  subgraph FOUNDATION["Shared foundation (Kind single-node cluster)"]
     KIND["Kind single-node cluster"]
     FLUX["Flux Operator + ResourceSets"]
     INGRESS["Envoy Gateway (TLS)"]
@@ -52,7 +52,7 @@ flowchart TB
 
 | Layer | Technology | Location |
 |-------|-----------|----------|
-| Cluster | Kind (single node, `osramp`) | `make up` / `make cluster` |
+| Cluster | Kind single-node cluster | `make up` / `make cluster` |
 | GitOps | Flux Operator + ResourceSets | [`d2-osramp-fleet/`](d2-osramp-fleet/) |
 | Ingress | Envoy Gateway (Gateway API, TLS) | [`d2-infra/components/ingress/`](d2-infra/components/ingress/) |
 | Registry | Zot (in-cluster, cache in `.cache/zot`) | [`d2-osramp-fleet/local/zot.yaml`](d2-osramp-fleet/local/zot.yaml) (`make registry`) |

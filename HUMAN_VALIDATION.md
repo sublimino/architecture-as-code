@@ -79,12 +79,18 @@ Evidence or notes:
 
 ```
 
-### Archivista API
+### Local Witness evidence
 
-- [ ] Confirm `backend/osramp-archivista` exists before marking this area passed.
-- [ ] Confirm `http://127.0.0.1:18082/` responds.
-- [ ] Confirm `POST http://127.0.0.1:18082/query` returns HTTP 200.
-- [ ] Record the GraphQL response or the exact connection failure.
+- [ ] Run `make promotion-demo`.
+- [ ] Confirm the original generic artifact passes the signed policy.
+- [ ] Confirm the modified generic artifact fails the signed policy.
+- [ ] Retain `docs/records/ci-evidence/local-witness/` with the CI run or validation record.
+- [ ] Compare both public-key fingerprints with an independently held value.
+
+The bundle contains public keys, signed policies, DSSE envelopes, artifacts,
+and rejection diagnostics. It must not contain a private key. The fingerprint
+file is not an independent trust root. Obtain the expected fingerprints through
+a separately controlled channel before you approve the evidence.
 
 Evidence or notes:
 
@@ -108,8 +114,8 @@ The trace command is in
 ## Baseline history
 
 NOTE: The 2026-07-26 V2.5 baseline predates the current suite. It is history,
-not the current state. It passed Grafana and Signal Loom (four tests). It failed
-Archivista and Olly (four tests) because those services were absent.
+not the current state. Its service-availability results do not describe the
+current local-evidence contract.
 
 ## Reviewer conclusion
 

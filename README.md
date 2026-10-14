@@ -1,8 +1,8 @@
-# OSRAMP demo for Acme Co.
+# Signal Loom demo for Acme Co.
 
-OSRAMP (Open Source Risk and Asset Management Platform) controls the risk of
-open source software in regulated organisations. This repository is a working
-demonstration of OSRAMP. The example client is Acme Co., an investment bank.
+Signal Loom controls the risk of autonomous agents and software supply chains
+in regulated organisations. This repository is a working demonstration of
+Signal Loom. The example client is Acme Co., an investment bank.
 
 The demo runs locally on a [kind](https://kind.sigs.k8s.io/) cluster with open
 source tools. It also runs on GCP in four independent lanes.
@@ -18,7 +18,7 @@ Third-party packages cross the trust boundary of the organisation. Each package
 brings the vulnerabilities of its supply chain. Security scanners report many
 CVE findings. Most of the findings cannot be exploited in context.
 
-OSRAMP gives:
+Signal Loom gives:
 
 - SBOM attestations for the images that the image workflow publishes.
 - A signed attestation for each pipeline step.
@@ -27,13 +27,13 @@ OSRAMP gives:
 
 ## The maturity model
 
-OSRAMP has four maturity levels and one agent proof of concept. It delivers
+Signal Loom has four maturity levels and one agent proof of concept. It delivers
 them in four phases:
 
 | Level | Phase | What it gives | Owner |
 | --- | --- | --- | --- |
 | L1 Triage and prioritisation uplift | 1 | SBOMs per image, VEX suppression of findings that cannot be exploited, signing keys, baseline CVE metrics | Security team (VA sub-team) and a pilot application team |
-| L2 Central traceability | 2 | Witness attestations in CI, Archivista as the system of record, reusable workflows, test evidence | Platform team and the application teams that adopt it |
+| L2 Central traceability | 2 | Witness attestations retained as CI artifacts, reusable workflows, test evidence | Platform team and the application teams that adopt it |
 | L3 Verifiable builds and releases | 3 | SLSA L3 provenance, a Witness policy for each pipeline step, detection of supply chain compromise | Security team writes the policy. Platform team enforces it. |
 | L4 Policy-driven automation | 3 | Three reconciliation loops (ingestion, SDLC, deployment) joined by policy enforcement, admission control, rollback | Security team writes the policy. Platform team enforces it. |
 | Agentic remediation PoC | 4 | A human-in-the-loop agent that analyses CVEs, proposes fixes, opens PRs, and makes Witness attestations | Security and platform teams together. Application teams review the PRs. |
@@ -90,12 +90,12 @@ flowchart TB
     FLUX --> RSA
 
     subgraph fe["frontend · ingestion pipeline"]
-      PURL["osramp-purl / osramp-multipurpose<br/>NATS → npm install → syft SBOM<br/>→ witness run → attestations"]
-      ARCH["osramp-archiver"]
+      PURL["purl-listener / multipurpose-worker<br/>NATS → npm install → syft SBOM<br/>→ witness run → attestations"]
+      ARCH["evidence-archiver"]
     end
     subgraph be["backend · evidence plane"]
       NATS["NATS JetStream"]
-      ARV["Archivista"]
+      EVIDENCE["Local and CI artifact evidence"]
       PG["PostgreSQL"]
       MINIO["MinIO blob store"]
     end
@@ -106,10 +106,9 @@ flowchart TB
   RSA --> fe
   RSA --> be
   PURL <--> NATS
-  PURL -- attestations --> ARV
+  PURL -- attestations --> EVIDENCE
   NATS --> ARCH
   ARCH -- "results + SBOMs + signatures" --> PG
-  ARV --- MINIO
 
   classDef reg fill:#f3e5f5,stroke:#6a1b9a,color:#4a148c;
   class ART,IMG reg;
@@ -185,7 +184,7 @@ flowchart TB
    A new purl adds an `npm_install` task to `tasks.input`.
 4. The multipurpose worker installs the package in an isolated directory. It runs `syft` to make an
    SPDX SBOM under `witness run`, which makes a signed in-toto attestation. The worker uploads the
-   attestation to Archivista.
+   attestation to local evidence storage. CI retains the evidence as a workflow artifact.
 5. The worker publishes the results, SBOMs, and signatures to `tasks.results`, `tasks.sbom`, and
    `tasks.signatures`.
 6. The archiver reads the results, SBOMs, and signatures from NATS. It writes them to PostgreSQL.
@@ -194,7 +193,7 @@ flowchart TB
 The later phases use this evidence:
 
 - Phase 1: Grype scans and `vexctl` triage.
-- Phase 2: Attested tests and VEX evidence.
+- Phase 2: Attested tests and locally retained signed evidence.
 - Phase 3: Witness promotion policy, CEL admission control, and trust revocation.
 - Phase 4: The agent remediation harness.
 
@@ -243,12 +242,12 @@ Local mode keeps this model without GitHub:
 | [`nono/`](nono/) | The `nono` sandbox profile for worktree agents |
 | [`terraform/`](terraform/) | The GCP estate: three Terraform roots (bootstrap, platform, environments). See [`terraform/README.md`](terraform/README.md) and [`terraform/CONTRACT.md`](terraform/CONTRACT.md). |
 | [`deploy/gcp/`](deploy/gcp/) | Project inputs and lane hand-off files. Most of its contents are gitignored. See [`deploy/gcp/README.md`](deploy/gcp/README.md). |
-| [`infra/kind/`](infra/kind/) | Kind cluster manifests: local `osramp` cluster, secondary hub cluster, and node probes |
+| [`infra/kind/`](infra/kind/) | Kind cluster manifests: local single-node cluster, secondary hub cluster, and node probes |
 | [`schemas/`](schemas/) | Core JSON schemas: EAP evidence bundle contract |
 | [`docs/`](docs/) | All other documentation, indexed by [`docs/README.md`](docs/README.md) |
 | [`docs/records/`](docs/records/README.md) | CI evidence bundles, EAP compliance reports, preflight audit proofs, and Signal Loom phase proofs (decision records) |
 | [`MEMORY/`](MEMORY/), [`Plans/`](Plans/) | Session records of earlier work (decision records) |
-| `vex/out/` | VEX demo output: SBOMs, scans, statements. Not committed. |
+| `docs/records/ci-evidence/local-witness/` | Generated local Witness DSSE envelopes, replay artifacts, signed policies, public keys, and fingerprints. CI retains this ignored directory on success or failure. |
 
 ## Getting started
 
@@ -276,7 +275,7 @@ Install these yourself. `setup.sh` does not install them:
 | Tool | Used for |
 | --- | --- |
 | Docker | Building images and running kind |
-| openssl | EAP evidence signing and SPIRE trust-anchor normalisation. The witness key now uses `ed25519-keygen` |
+| openssl | Making the witness key |
 | bun | The Playwright acceptance suite (`make acceptance-test`) and the dashboard build |
 | python3 | Test helpers and several make targets |
 | nono + claude CLI (optional, Linux) | Sandboxed coding-agent worktrees |
@@ -386,7 +385,7 @@ WARNING: A lane VM costs money until you remove it. After
 The fleet definitions also run against artifacts in GHCR:
 
 - The `push-artifacts` and `push-images` workflows publish signed artifacts under `ghcr.io/<owner>/<repo>`.
-- The fleet expects `ghcr.io/acme-co/osramp`. To publish from a different repository, change
+- The fleet expects `ghcr.io/acme-co/sl-platform`. To publish from a different repository, change
   `REGISTRY_BASE` in [`runtime-info.yaml`](d2-osramp-fleet/clusters/staging/flux-system/runtime-info.yaml)
   and the OIDC subject in [`infra.yaml`](d2-osramp-fleet/tenants/base/infra.yaml).
 - Staging clusters check the keyless OIDC identity of the publishing workflow.
@@ -411,7 +410,7 @@ The workflows are in [`.github/workflows/`](.github/workflows/).
 Available now:
 
 - A fully local, signed GitOps loop with Kind, Zot, and Flux.
-- Phase 2 evidence: attested tests and VEX retrieval.
+- Phase 2 evidence: attested tests and locally retained Witness envelopes.
 - The phase 3 governance demos: admission policy and trust revocation.
 - Signal Loom Enforcement and Response (SLER): containment on five planes (network, admission, OpenBao, SPIRE, host freeze).
 - The AgentMaxxing console: browser scenarios with a proof ledger and automated checks.

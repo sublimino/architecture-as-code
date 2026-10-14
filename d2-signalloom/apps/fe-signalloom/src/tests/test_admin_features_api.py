@@ -73,6 +73,8 @@ def test_get_presets_returns_eap_pilot_and_catalogue() -> None:
     assert eap_preset["flags"]["page_discovery"] is True
     assert eap_preset["flags"]["demos_fleet"] is False
     assert eap_preset["flags"]["page_agentmaxxing"] is False
+    assert eap_preset["flags"]["page_federated_services"] is False
+    assert eap_preset["flags"]["page_topology"] is False
 
 
 # ===========================================================================
@@ -151,6 +153,8 @@ def test_apply_eap_pilot_preset_to_tenant(fake_db_pool: FakePool) -> None:
     assert data["flags"]["supercred"] is False
     assert data["flags"]["page_agentmaxxing"] is False
     assert data["flags"]["page_network_tests"] is False
+    assert data["flags"]["page_federated_services"] is False
+    assert data["flags"]["page_topology"] is False
 
 
 def test_batch_update_granular_flags(fake_db_pool: FakePool) -> None:

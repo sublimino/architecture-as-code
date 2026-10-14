@@ -62,7 +62,7 @@ DEFAULT_SYSTEM_FLAGS: dict[str, bool] = {
 FEATURE_PRESETS: dict[str, dict[str, Any]] = {
     "eap_pilot": {
         "name": "EAP Pilot Preset",
-        "description": "Enterprise early access pilot preset. Exposes core agent governance, telemetry, compliance, and credential inventories while suppressing internal demos and experimental labs.",
+        "description": "Enterprise early access pilot preset. Exposes core agent governance, telemetry, compliance, and credential inventories while suppressing internal demos, experimental labs, federated services, and topology.",
         "flags": {
             "core_governance": True,
             "audit": True,
@@ -73,14 +73,14 @@ FEATURE_PRESETS: dict[str, dict[str, Any]] = {
             "collusion_access": False,
             "page_discovery": True,
             "page_agents": True,
-            "page_topology": True,
+            "page_topology": False,
             "page_weave": True,
             "page_signals": True,
             "page_risk": True,
             "page_policies": True,
             "page_compliance": True,
             "page_audit": True,
-            "page_federated_services": True,
+            "page_federated_services": False,
             "page_cryptography": True,
             "page_credential_inventory": True,
             "page_signal_store": False,

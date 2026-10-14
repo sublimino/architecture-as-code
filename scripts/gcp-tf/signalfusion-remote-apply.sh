@@ -68,6 +68,13 @@ make demo-signalloom-supercred-runner-image
 
 echo "--- dashboard image ---"
 make signalloom-dashboard-image
+source ./scripts/lib/source-id.sh
+DASH_SRC_ID="$(source_id_for dashboard-signalloom)"
+DASH_SHORT_TAG="src-${DASH_SRC_ID:0:16}"
+docker tag "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest" \
+  "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:${DASH_SHORT_TAG}" || true
+kind load docker-image --name "${CLUSTER_NAME:-osramp}" \
+  "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:${DASH_SHORT_TAG}" || true
 
 echo "--- reconcile Flux so the new manifests land ---"
 # The OCIRepository must be refreshed before its Kustomization, or the

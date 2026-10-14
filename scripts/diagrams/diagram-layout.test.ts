@@ -64,3 +64,19 @@ describe("warden branding", () => {
     });
   }
 });
+
+describe("sovereign kind diagram components and layout", () => {
+  const xml = readFileSync(join(DIAGRAMS, "osramp-kind-sovereign-airgap.drawio"), "utf8");
+
+  test("shows policy-engine, cert-manager, Landlock LSM, PostgreSQL, and receiver", () => {
+    expect(xml).toContain("policy-engine");
+    expect(xml).toContain("cert-manager");
+    expect(xml).toContain("Landlock LSM");
+    expect(xml).toContain("PostgreSQL");
+    expect(xml).toMatch(/Receiver/i);
+  });
+
+  test("osramp-kind-sovereign-airgap.drawio has zero icon overlaps", () => {
+    expect(iconOverlaps(xml)).toEqual([]);
+  });
+});

@@ -122,3 +122,12 @@ required_terms_missing() {
 	[ -n "$output" ]
 	[[ "$output" == *"the warden"* ]]
 }
+
+@test "osramp-kind-sovereign-airgap.drawio shows policy-engine, cert-manager, Landlock LSM, PostgreSQL, and receiver" {
+	local f="$diagram_dir/osramp-kind-sovereign-airgap.drawio"
+	grep -qi 'policy-engine' "$f"
+	grep -qi 'cert-manager' "$f"
+	grep -qi 'Landlock LSM' "$f"
+	grep -qi 'PostgreSQL' "$f"
+	grep -qi 'Receiver' "$f"
+}

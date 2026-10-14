@@ -40,6 +40,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 # shellcheck source=scripts/lib/dual-cluster.sh
 source "$SCRIPT_DIR/lib/dual-cluster.sh"
+# shellcheck source=scripts/lib/kind-data-mounts.sh
+source "$SCRIPT_DIR/lib/kind-data-mounts.sh"
 
 OSRAMP_MANIFEST="${OSRAMP_MANIFEST:-$REPO_ROOT/infra/kind/cluster-osramp.yaml}"
 HUB_MANIFEST="${HUB_MANIFEST:-$REPO_ROOT/infra/kind/cluster-signalloom-hub.yaml}"
@@ -113,19 +115,28 @@ ensure_bridge() {
 # --- 2. clusters -------------------------------------------------------------
 
 create_cluster() {
-  local name="$1" manifest="$2" attempt=1 prev_ctx
+  local name="$1" manifest="$2" attempt=1 prev_ctx rendered_config=""
   # kind create switches the kubeconfig current-context to the new cluster.
   # Restore it: other sessions on this workstation rely on it.
   prev_ctx="$("$KUBECTL_BIN" config current-context 2>/dev/null || true)"
   [ -f "$manifest" ] || sldc_die "cluster $name: manifest $manifest not found"
+  rendered_config="$(mktemp "${TMPDIR:-/tmp}/kind-config-${name}-XXXXXX")"
+  trap 'rm -f "${rendered_config:-}"' EXIT
+  kind_data_render_config "$name" "$manifest" "$rendered_config"
   while :; do
     sldc_log "cluster $name: kind create (attempt $attempt/$SLDC_CREATE_RETRIES)"
-    if "$KIND_BIN" create cluster --name "$name" --config "$manifest" --wait 0s; then
+    if "$KIND_BIN" create cluster --name "$name" --config "$rendered_config" --wait 0s; then
+      prepare_node_data_mounts "$name"
+      configure_local_path_provisioner "$name"
       [ -z "$prev_ctx" ] || "$KUBECTL_BIN" config use-context "$prev_ctx" >/dev/null
+      rm -f "$rendered_config"
+      trap - EXIT
       return 0
     fi
     "$KIND_BIN" delete cluster --name "$name" >/dev/null 2>&1 || true
     if [ "$attempt" -ge "$SLDC_CREATE_RETRIES" ]; then
+      rm -f "$rendered_config"
+      trap - EXIT
       sldc_die "cluster $name: kind create failed $attempt times (kubeadm/containerd); see the kind output above"
     fi
     attempt=$((attempt + 1))
@@ -137,12 +148,16 @@ ensure_clusters() {
   local created_osramp=0
   if sldc_cluster_exists "$SLDC_OSRAMP_CLUSTER"; then
     sldc_log "cluster $SLDC_OSRAMP_CLUSTER: exists, attaching (not recreating)"
+    prepare_node_data_mounts "$SLDC_OSRAMP_CLUSTER"
+    configure_local_path_provisioner "$SLDC_OSRAMP_CLUSTER"
   else
     create_cluster "$SLDC_OSRAMP_CLUSTER" "$OSRAMP_MANIFEST"
     created_osramp=1
   fi
   if sldc_cluster_exists "$SLDC_HUB_CLUSTER"; then
     sldc_log "cluster $SLDC_HUB_CLUSTER: exists"
+    prepare_node_data_mounts "$SLDC_HUB_CLUSTER"
+    configure_local_path_provisioner "$SLDC_HUB_CLUSTER"
   else
     create_cluster "$SLDC_HUB_CLUSTER" "$HUB_MANIFEST"
   fi

@@ -5,6 +5,7 @@ package collectors
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -182,6 +183,18 @@ func (s *columnarFakeStore) ObservationStats(context.Context, store.Query) (stor
 	// Warm never asks for stats; a zero value with initialised maps keeps the fake a valid
 	// SignalStore without inventing numbers a test might read.
 	return store.ObservationStats{ByLayer: map[string]int{}, ByFidelity: map[string]int{}}, nil
+}
+
+// QueryPage and Stats are the paged/aggregate reads GET /api/v1/observations and
+// /api/v1/store/stats use. Warm has no business with either: it must stream IDs. Failing loudly
+// rather than returning an empty page means a Warm that regressed onto the paging path breaks
+// this test instead of warming an empty dedupe set and passing.
+func (s *columnarFakeStore) QueryPage(context.Context, store.PageQuery) ([]model.Observation, error) {
+	return nil, errors.New("columnarFakeStore: QueryPage is not a warm-up read; Warm must use ScanIDs")
+}
+
+func (s *columnarFakeStore) Stats(context.Context, store.StatsQuery) (store.StoreStats, error) {
+	return store.StoreStats{}, errors.New("columnarFakeStore: Stats is not a warm-up read")
 }
 
 func (s *columnarFakeStore) DropPartition(context.Context, time.Time) error { return nil }

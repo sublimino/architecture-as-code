@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ControlPlane Security Authors
+#
+# infra/kind/local-path-config.yaml : ConfigMap configuring rancher.io/local-path
+# provisioner with stable per-PVC subdirectories.
+#
+# The default local-path provisioner names directories pvc-<uid>_<ns>_<name>,
+# which means a recreated PVC gets a new UUID and misses existing data on disk.
+# Configuring pathPattern {{ .PVC.Namespace }}/{{ .PVC.Name }} gives PVCs
+# stable, deterministic host directories under /var/local-path-provisioner,
+# allowing local data to survive cluster deletion and recreation.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: local-path-config
+  namespace: local-path-storage
+data:
+  config.json: |-
+    {
+      "nodePathMap":[
+        {
+          "node":"DEFAULT_PATH_FOR_NON_LISTED_NODES",
+          "paths":["/var/local-path-provisioner"]
+        }
+      ],
+      "pathPattern": "{{ .PVC.Namespace }}/{{ .PVC.Name }}"
+    }
+  setup: |-
+    #!/bin/sh
+    set -eu
+    absolutePath=""
+    while getopts "p:s:m:a:" opt; do
+      case ${opt} in
+        p) absolutePath=${OPTARG} ;;
+        s) sizeInBytes=${OPTARG} ;;
+        m) volMode=${OPTARG} ;;
+        a) action=${OPTARG} ;;
+        \?) echo "Invalid option: -${OPTARG}" >&2; exit 1 ;;
+      esac
+    done
+    if [ -z "${absolutePath:-}" ]; then
+      absolutePath="${VOL_DIR:-}"
+    fi
+    if [ -z "${absolutePath:-}" ]; then
+      echo "Error: no target path specified" >&2
+      exit 1
+    fi
+    mkdir -m 0777 -p "$absolutePath"
+    vol_base="$(dirname "$absolutePath")"
+    vol_name="$(basename "$absolutePath")"
+    if echo "$vol_name" | grep -q "^pvc-.*_"; then
+      pvc_suffix="${vol_name#*_}"
+      for old_dir in "$vol_base"/pvc-*_"${pvc_suffix}"; do
+        if [ -d "$old_dir" ] && [ "$old_dir" != "$absolutePath" ]; then
+          if [ -n "$(ls -A "$old_dir" 2>/dev/null)" ] && [ -z "$(ls -A "$absolutePath" 2>/dev/null)" ]; then
+            cp -a "$old_dir/." "$absolutePath/" 2>/dev/null || true
+            rm -rf "$old_dir" 2>/dev/null || true
+          fi
+        fi
+      done
+    fi
+  teardown: |-
+    #!/bin/sh
+    set -eu
+    absolutePath=""
+    while getopts "p:s:m:a:" opt; do
+      case ${opt} in
+        p) absolutePath=${OPTARG} ;;
+        s) sizeInBytes=${OPTARG} ;;
+        m) volMode=${OPTARG} ;;
+        a) action=${OPTARG} ;;
+        \?) echo "Invalid option: -${OPTARG}" >&2; exit 1 ;;
+      esac
+    done
+    if [ -z "${absolutePath:-}" ]; then
+      absolutePath="${VOL_DIR:-}"
+    fi
+    if [ -n "${absolutePath:-}" ]; then
+      rm -rf "$absolutePath"
+    fi
+  helperPod.yaml: |-
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: helper-pod
+    spec:
+      priorityClassName: system-node-critical
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+      - name: helper-pod
+        image: docker.io/library/redis:7-alpine
+        imagePullPolicy: IfNotPresent

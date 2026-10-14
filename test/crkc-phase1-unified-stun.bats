@@ -1,9 +1,9 @@
 #!/usr/bin/env bats
 # test/crkc-phase1-unified-stun.bats
 # Unified Phase 1 Governor verification suite:
-# Integrates Tier 0 (cgroup freezer, TC eBPF) + Tier 1 (Flux drift ignore, Tetragon telemetry)
+# Integrates Tier 0 (cgroup freezer, TC eBPF) + Tier 1 (Flux drift ignore, in-sentinel eBPF telemetry)
 
-DECLARED_TESTS=10
+DECLARED_TESTS=11
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_FILENAME%/*}/.." && pwd)"
@@ -39,6 +39,11 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+@test "unified-p1: stun-sentinel library packages build and test cleanly" {
+  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/stun-sentinel && env GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./pkg/ebpf/... ./pkg/correlator/... -count=1"
+  [ "$status" -eq 0 ]
+}
+
 @test "unified-p1: cgroup-v2 freeze proof artifact satisfies sub-50ms halting gate" {
   local proof="${REPO_ROOT}/docs/signalloom/evidence/cgroup-freeze-proof.json"
   [ -f "$proof" ]
@@ -59,27 +64,14 @@ setup() {
   [ "$(jq -r '.live_severance_proof.severance.post_isolate_reachable' "$proof")" = "false" ]
 }
 
-@test "unified-p1: tetragon telemetry pipeline proof satisfies zero drop and latency SLA" {
-  local proof="${REPO_ROOT}/docs/signalloom/evidence/tetragon-stream-proof.json"
-  [ -f "$proof" ]
-  [ "$(jq -r '.verdict' "$proof")" = "pass" ]
-  [ "$(jq -r '.results.events_dropped' "$proof")" -eq 0 ]
-  local lat
-  lat="$(jq -r '.results.first_event_latency_ms' "$proof")"
-  awk -v l="$lat" 'BEGIN{exit !(l < 500)}'
+@test "unified-p1: in-sentinel ebpf kernel probe and normalisation unit suite passes cleanly" {
+  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/stun-sentinel && env GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./pkg/ebpf/... -count=1"
+  [ "$status" -eq 0 ]
 }
 
-@test "unified-p1: tetragon deployment manifests contain zero forbidden blocking verbs" {
-  local manifest="${REPO_ROOT}/d2-signalloom/deploy/tetragon-agent-telemetry.yaml"
-  if [ ! -f "$manifest" ]; then
-    skip "tetragon agent deploy manifest removed in favor of in-tree ebpf probes"
-  fi
-  local body="${BATS_TEST_TMPDIR}/nocomments.yaml"
-  sed 's/[[:space:]]*#.*$//' "$manifest" > "$body"
-  for verb in Sigkill Override NotifyEnforcer matchActions; do
-    run grep -c "$verb" "$body"
-    [ "$output" -eq 0 ]
-  done
+@test "unified-p1: signalloom-warden daemon unit test suite passes cleanly" {
+  run bash -c "cd ${REPO_ROOT}/d2-signalloom/apps/signalloom-warden && env GOCACHE=\${GOCACHE:-/tmp/gocache} GOMODCACHE=\${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./... -count=1"
+  [ "$status" -eq 0 ]
 }
 
 @test "unified-p1: combined containment latency is strictly sub-second (< 1000ms)" {

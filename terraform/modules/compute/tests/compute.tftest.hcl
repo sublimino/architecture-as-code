@@ -760,6 +760,22 @@ run "the_tailscale_hostname_derives_from_the_environment_key" {
   }
 }
 
+run "the_tailscale_hostname_override_is_honoured" {
+  command = plan
+
+  variables {
+    tailscale_enabled  = true
+    environment_key    = "demo-2"
+    name_prefix        = "sl-demo-2"
+    tailscale_hostname = "sl-eap-4b53ab6b"
+  }
+
+  assert {
+    condition     = google_compute_instance.this.metadata["signalloom-tailscale-hostname"] == "sl-eap-4b53ab6b"
+    error_message = "an explicit tailscale_hostname override must take precedence over the derived sl-<key>"
+  }
+}
+
 # ---------------------------------------------------------------------------
 # Tailscale SSH: off unless asked for, on when asked for.
 #

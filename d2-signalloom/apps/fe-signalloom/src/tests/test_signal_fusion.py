@@ -287,6 +287,29 @@ class TestSeedProxy:
         assert resp.headers.get("x-tenant-id") == "tenant-prod-2"
         assert resp.headers.get("x-request-id") == "req-sig-44"
 
+    def test_observations_forwards_cursor_and_relays_paging_headers(self, client, ingest):
+        """GET /api/signals/observations forwards cursor param and relays X-Next-Cursor, Link, X-Result-Truncated."""
+        ingest["status"] = 200
+        ingest["body"] = [{"id": "obs-1", "timestamp": "2026-10-06T12:00:00Z"}]
+        ingest["headers"] = {
+            "x-next-cursor": "eyJ2IjoxLCJ0IjoiMjAyNi0xMC0wNlQxMjowMDowMFoiLCJpZCI6Im9icy0xIiwic2NvcGUiOiJhYmMifQ",
+            "link": '<http://signal-ingest:8082/api/v1/observations?cursor=eyJ2Ijox...>; rel="next"',
+            "x-result-truncated": "true",
+        }
+        resp = client.get("/api/signals/observations?limit=50&cursor=custom-cursor-123&layer=network")
+        assert resp.status_code == 200
+        assert resp.json() == [{"id": "obs-1", "timestamp": "2026-10-06T12:00:00Z"}]
+        assert len(ingest["sent"]) == 1
+        sent = ingest["sent"][0]
+        assert sent.method == "GET"
+        assert sent.url.path == "/api/v1/observations"
+        assert sent.url.params["limit"] == "50"
+        assert sent.url.params["cursor"] == "custom-cursor-123"
+        assert sent.url.params["layer"] == "network"
+        assert resp.headers.get("x-next-cursor") == ingest["headers"]["x-next-cursor"]
+        assert resp.headers.get("link") == ingest["headers"]["link"]
+        assert resp.headers.get("x-result-truncated") == "true"
+
 
 # ---------------------------------------------------------------------------
 # 3. Migration SQL structural checks

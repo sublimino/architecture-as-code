@@ -41,7 +41,7 @@ setup_file() {
     # silently curled someone else's tunnel.
     export LIVE_PORT="${KUSARI_LIVE_PORT:-}"
     # The observations route caps a page at MaxPageSize (100 by default; it
-    # answers 400 above that) and has no cursor, so one page is all a read gets.
+    # answers 400 above that) and supports cursor paging via X-Next-Cursor.
     export LIVE_LIMIT="${KUSARI_LIVE_LIMIT:-100}"
 }
 
@@ -119,153 +119,53 @@ pf_stop() {
     wait "$PF_PID" 2>/dev/null || true
 }
 
-# observations_window fetches one page of the observation list through a
-# port-forward and writes it to $1. $2/$3, if non-empty, are RFC3339
-# after/before filters appended to the query string -- there is no cursor,
-# only the after/before time filters handled by
-# d2-signalloom/apps/signal-ingest/api/handlers.go:544-560.
-observations_window() {
-    local out="$1" after="${2:-}" before="${3:-}" code url
+# observations_all pages through the store using the opaque cursor (X-Next-Cursor)
+# until X-Result-Truncated: false, writing all observations to $1.
+observations_all() {
+    local out="$1"
+    local merged="${BATS_TEST_TMPDIR}/obs-merged.json" page="${BATS_TEST_TMPDIR}/obs-page.json"
+    local hdr_out="${BATS_TEST_TMPDIR}/resp.hdr"
     local h="${BATS_TEST_TMPDIR}/reader.hdr"
     reader_hdr "$h" || return 1
     pf_start || return 1
 
-    url="${PF_URL}/api/v1/observations?limit=${LIVE_LIMIT}"
-    [ -n "$after" ] && url="${url}&after=${after}"
-    [ -n "$before" ] && url="${url}&before=${before}"
-
-    code="$(curl -s -o "$out" -w '%{http_code}' -H @"$h" "$url")"
-    pf_stop
-
-    [ "$code" = 200 ] || {
-        echo "GET /api/v1/observations returned ${code}: $(head -c 400 "$out")" >&2
-        return 1
-    }
-    # The route serialises an empty result as [] and never as null, so a
-    # non-array here is a contract break rather than an empty estate.
-    jq -e 'type == "array"' "$out" >/dev/null || {
-        echo "the observations route did not return a JSON array" >&2
-        return 1
-    }
-}
-
-# _obs_fetch_width fetches the window [max(0,hi-w), hi) into $1 and echoes its
-# row count. hi and w are epoch seconds; lo<=0 means "from the beginning" (no
-# 'after' sent) -- the server itself folds an absent 'after' down to its own
-# retention floor (FrostDBStore.QueryRange, store/frostdb.go), so this never
-# under-shoots the true start of the store.
-_obs_fetch_width() {
-    local out="$1" hi="$2" w="$3" lo lo_ts hi_ts
-    lo=$((hi - w))
-    if [ "$lo" -le 0 ]; then
-        lo_ts=""
-    else
-        lo_ts="$(date -u -d "@${lo}" +%Y-%m-%dT%H:%M:%SZ)"
-    fi
-    hi_ts="$(date -u -d "@${hi}" +%Y-%m-%dT%H:%M:%SZ)"
-    observations_window "$out" "$lo_ts" "$hi_ts" || return 1
-    jq length "$out"
-}
-
-# observations_all pages through the WHOLE store and writes the de-duplicated
-# union of every window to $1.
-#
-# Neither store implementation sorts (store/memory.go iterates Append order;
-# store/frostdb.go's QueryRange has no ORDER BY, only pushed-down filters --
-# store/frostdb.go:479-519), and FrostDB's scan order is not even STABLE:
-# two identical, back-to-back, unfiltered requests for the same 100-row page
-# returned 18 different ids each way on a live cluster. So a full page's
-# membership cannot be trusted at all -- "take the max timestamp on a full
-# page and page forward from there" can silently and non-reproducibly drop
-# rows that just happened not to make that particular full page.
-#
-# The only read that is provably complete is one whose result is SHORT: a
-# window with fewer than LIVE_LIMIT rows was never truncated (the handler
-# only slices when more than `limit` rows matched -- scopeObservations in
-# api/tenancy_grants.go), so every row in it, in any order, is present. This
-# resolves one such window at a time, working backward from "now":
-#   1. Widen w (doubling from 60s) until [hi-w, hi) comes back full, or until
-#      w has swallowed everything back to the beginning and is STILL short.
-#   2. If it went full, bisect w between the last short value and the first
-#      full value to find the maximal short width.
-#   3. Re-fetch at that resolved width (the last probe during bisection may
-#      itself have been the full one) to get a guaranteed-short page, merge
-#      it (de-duplicated by id -- abutting windows can share a boundary row),
-#      then continue the sweep with hi set to this window's lower bound.
-# A window that is still full even at a resolved width of zero seconds means
-# more than LIVE_LIMIT rows share that single second, which time-bisection
-# cannot resolve -- that fails loudly, naming it, as does a hard cap of 200
-# requests if neither stop condition is ever met.
-observations_all() {
-    local out="$1"
-    local merged="${BATS_TEST_TMPDIR}/obs-merged.json" page="${BATS_TEST_TMPDIR}/obs-page.json"
-    local now_epoch hi requests=0
     echo '[]' >"$merged"
-    now_epoch="$(date -u +%s)"
-    hi=$((now_epoch + 60)) # +60s covers rows created while this very loop runs
+    local cursor="" requests=0
 
     while :; do
-        local w=60 w_short=0 w_full=0 page_len lo
-
-        while :; do
-            requests=$((requests + 1))
-            [ "$requests" -le 200 ] || {
-                echo "observations_all: hit the hard cap of 200 requests widening the window; stopping rather than looping forever" >&2
-                return 1
-            }
-            page_len="$(_obs_fetch_width "$page" "$hi" "$w")" || return 1
-            if [ "$page_len" -lt "${LIVE_LIMIT}" ]; then
-                w_short=$w
-                [ "$((hi - w))" -le 0 ] && { w_full=0; break; }
-                w=$((w * 2))
-                continue
-            fi
-            w_full=$w
-            break
-        done
-
-        while [ "$((w_full - w_short))" -gt 1 ]; do
-            requests=$((requests + 1))
-            [ "$requests" -le 200 ] || {
-                echo "observations_all: hit the hard cap of 200 requests bisecting the window; stopping rather than looping forever" >&2
-                return 1
-            }
-            local w_mid=$(((w_short + w_full) / 2))
-            page_len="$(_obs_fetch_width "$page" "$hi" "$w_mid")" || return 1
-            if [ "$page_len" -lt "${LIVE_LIMIT}" ]; then
-                w_short=$w_mid
-            else
-                w_full=$w_mid
-            fi
-        done
-
-        if [ "$w_short" -eq 0 ] && [ "$w_full" -gt 0 ]; then
-            echo "observations_all: even a window of ~1 second ending at $(date -u -d "@${hi}" +%Y-%m-%dT%H:%M:%SZ) is full (${LIVE_LIMIT}+ rows); more than ${LIVE_LIMIT} observations share that second, so paging by time cannot resolve it" >&2
-            return 1
-        fi
-
-        # The last probe above may have been a FULL one (w_full), so re-fetch at
-        # the resolved short width to guarantee $page holds the trustworthy page.
         requests=$((requests + 1))
         [ "$requests" -le 200 ] || {
-            echo "observations_all: hit the hard cap of 200 requests re-fetching the resolved window; stopping rather than looping forever" >&2
-            return 1
-        }
-        page_len="$(_obs_fetch_width "$page" "$hi" "$w_short")" || return 1
-        [ "$page_len" -lt "${LIVE_LIMIT}" ] || {
-            echo "observations_all: the resolved window of width ${w_short}s is still full (${LIVE_LIMIT}+ rows) on re-fetch; the store is not stable enough to page this way" >&2
+            echo "observations_all: hit the hard cap of 200 requests; stopping rather than looping forever" >&2
+            pf_stop
             return 1
         }
 
-        jq -s '.[0] + .[1] | unique_by(.id)' "$merged" "$page" >"${merged}.tmp" && mv "${merged}.tmp" "$merged"
-
-        lo=$((hi - w_short))
-        if [ "$lo" -le 0 ]; then
-            break # this window reached all the way back to the beginning: done
+        local url="${PF_URL}/api/v1/observations?limit=${LIVE_LIMIT}"
+        if [ -n "$cursor" ]; then
+            url="${url}&cursor=${cursor}"
         fi
-        hi=$lo
+
+        local code
+        code="$(curl -s -D "$hdr_out" -o "$page" -w '%{http_code}' -H @"$h" "$url")"
+        if [ "$code" != "200" ]; then
+            echo "observations_all: request failed with status $code: $(cat "$page")" >&2
+            pf_stop
+            return 1
+        fi
+
+        jq -s '.[0] + .[1]' "$merged" "$page" >"${merged}.tmp" && mv "${merged}.tmp" "$merged"
+
+        local trunc next_cur
+        trunc="$(grep -i '^x-result-truncated:' "$hdr_out" | tr -d '\r' | awk '{print $2}' | tr '[:upper:]' '[:lower:]')"
+        next_cur="$(grep -i '^x-next-cursor:' "$hdr_out" | tr -d '\r' | awk '{print $2}')"
+
+        if [ "$trunc" = "false" ] || [ -z "$next_cur" ]; then
+            break
+        fi
+        cursor="$next_cur"
     done
 
+    pf_stop
     cp "$merged" "$out"
     echo "# observations_all: fetched $(jq length "$out") observation(s) over ${requests} request(s)" >&3
 }

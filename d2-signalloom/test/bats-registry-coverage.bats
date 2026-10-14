@@ -648,6 +648,9 @@ $(sed 's/#.*//' "$runner")"
 	#                               stage. Its value is the FLOOR assertion, not
 	#   docs-lint.bats, docs-index-sync.bats, docs-rewrite-guard.bats - documentation lint suites owned by `make docs-lint-test`.
 	#   dashboard-route-collisions.bats - offline route collision lint suite.
+	#   sentinel-ebpf-live.bats   - live adversarial eBPF warden verification suite;
+	#                               needs local kind-osramp and live flag.
+	#                               Owned by test-sentinel-ebpf-live / governed runner.
 	#   e2e-dual-cluster-containment.bats - SLDC five-step live suite; needs BOTH
 	#                               kind clusters and the kusari workload, which no
 	#                               pipeline stands up. Owned by
@@ -696,6 +699,7 @@ signalloom-flux-integration.bats
 signalloom-preflight.bats
 test-count-floor.bats
 dashboard-route-collisions.bats
+sentinel-ebpf-live.bats
 docs-index-sync.bats
 docs-lint.bats
 docs-rewrite-guard.bats

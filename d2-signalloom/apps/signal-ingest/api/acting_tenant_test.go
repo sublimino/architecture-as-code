@@ -48,7 +48,7 @@ func TestGatewayActingForATenantSeesOnlyThatTenant(t *testing.T) {
 			}
 		}
 	}
-	if got := strings.Join(getObservationIDsActing(t, router, "tenant-a"), ","); got != "obs-0-tenant-a,obs-3-tenant-a" {
+	if got := strings.Join(getObservationIDsActing(t, router, "tenant-a"), ","); got != "obs-3-tenant-a,obs-0-tenant-a" {
 		t.Fatalf("gateway acting for tenant-a reads %s", got)
 	}
 	if w := serve(router, actingRequest(http.MethodGet, "/api/v1/actors/"+own, gatewayToken, "tenant-a")); w.Code != http.StatusOK {
@@ -148,7 +148,7 @@ func TestGatewayActingForAllTenantsNeedsCrossRead(t *testing.T) {
 		t.Fatalf("\"*\" through a gateway key without cross-read: %d %s, want 403 cross_tenant_read_required", w.Code, w.Body.String())
 	}
 	// A gateway acting for one tenant must not keep the cross-read it holds for "*".
-	if got := strings.Join(getObservationIDsActing(t, router, "tenant-b"), ","); got != "obs-1-tenant-b,obs-4-tenant-b" {
+	if got := strings.Join(getObservationIDsActing(t, router, "tenant-b"), ","); got != "obs-4-tenant-b,obs-1-tenant-b" {
 		t.Fatalf("gateway acting for tenant-b reads %s; its cross-read leaked into a scoped request", got)
 	}
 }

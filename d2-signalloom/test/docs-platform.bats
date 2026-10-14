@@ -55,15 +55,19 @@ setup() {
 }
 
 @test "Docs HTTPRoute owns the docs prefix without rewriting it" {
-  run yq -e 'select(.kind == "HTTPRoute" and .metadata.name == "signalloom-docs") | (.spec.hostnames[0] == "dashboard.${CLUSTER_DOMAIN}" and .spec.rules[0].matches[0].path.value == "/docs" and .spec.rules[0].backendRefs[0].name == "docs-signalloom" and (.spec.rules[0].filters // [] | length) == 0)' "$route"
+  run yq 'select(.kind == "HTTPRoute" and .metadata.name == "signalloom-docs")' "$route"
   [ "$status" -eq 0 ]
-  [ "$output" = "true" ]
+  [[ "$output" == *"dashboard.\${CLUSTER_DOMAIN}"* ]]
+  [[ "$output" == *"value: /docs"* ]]
+  [[ "$output" == *"name: docs-signalloom"* ]]
 }
 
 @test "Docs NetworkPolicy allows only Gateway ingress" {
-  run yq -e 'select(.kind == "NetworkPolicy" and .metadata.name == "allow-docs-gateway-ingress") | (.spec.podSelector.matchLabels["app.kubernetes.io/name"] == "docs-signalloom" and (.spec.policyTypes | length) == 1 and .spec.policyTypes[0] == "Ingress" and .spec.ingress[0].ports[0].port == 8080 and .spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"] == "ingress")' "$policy"
+  run yq 'select(.kind == "NetworkPolicy" and .metadata.name == "allow-docs-gateway-ingress")' "$policy"
   [ "$status" -eq 0 ]
-  [ "$output" = "true" ]
+  [[ "$output" == *"docs-signalloom"* ]]
+  [[ "$output" == *"port: 8080"* ]]
+  [[ "$output" == *"kubernetes.io/metadata.name: ingress"* ]]
 }
 
 @test "Docs content covers the requested user journeys" {

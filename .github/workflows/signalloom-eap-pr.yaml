@@ -26,25 +26,7 @@
 name: signalloom-eap-pr
 
 on:
-  pull_request:
-    paths:
-      - "d2-signalloom/apps/fe-signalloom/**"
-      - "d2-signalloom/test/authz-suite-liveness.bats"
-      - "d2-signalloom/test/api-route-liveness.bats"
-      - "d2-signalloom/test/eap-netpol.bats"
-      - ".agents/skills/sl-architecture-audit/**"
-      - ".agents/skills/sl-security-audit/**"
-      - ".agents/skills/sl-drift-sweep/**"
-      - ".opencode/agents/sl-audit-reviewer.md"
-      - "scripts/test-scheduled-skills-parallel.sh"
-      - "scripts/lib/scheduled-skills-runner.py"
-      - "scripts/semgrep-gate.mjs"
-      - "test/scheduled-skills-parallel.bats"
-      - "test/sl-architecture-audit.bats"
-      - "test/sl-security-audit.bats"
-      - "test/sl-drift-sweep.bats"
-      - "Makefile"
-      - ".github/workflows/signalloom-eap-pr.yaml"
+  # PR-time trigger removed for this branch; manual workflow_dispatch only (Proposal — Signal Loom EAP CI Lane §2 / EAPCI-P1-4).
   workflow_dispatch:
 
 permissions:

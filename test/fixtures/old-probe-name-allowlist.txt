@@ -32,7 +32,6 @@ d2-signalloom/apps/fleet-manager/cmd/resume-token/main_test.go:stun-sentinel # G
 d2-signalloom/apps/fleet-manager/resume_token_cli_compat_test.go:stun-sentinel # Go import of the R3 module path apps/stun-sentinel/pkg/auth
 test/fixtures/test-isolation-allowlist.txt # SLAWS isolation audit allow-list records per-file reasons and so carries the R3 module paths apps/stun-sentinel and apps/signalloom-stun-sentinel
 scripts/vacuous-assertions.allow:stun-sentinel # vacuous-assertions allow-list records three VAC008 exceptions anchored on d2-signalloom/apps/stun-sentinel/bpf/build.sh, the R3 go-module directory
-docs/README.md:Proposal # historical proposal titles in decision records index
 d2-signalloom/AGENTS.md:stun-sentinel in-kernel eBPF endpoint telemetry # live in-kernel eBPF stream description
 policy/bundles/kusari/endpoint-runtime.yaml:stun-sentinel # live in-kernel eBPF stream source contract
 policy/bundles/kusari/network-egress.yaml:stun-sentinel # live network-egress threat bundle stream reference
@@ -47,11 +46,15 @@ test/crkc-phase1-unified-stun.bats:stun-sentinel # build test targeting retained
 docs/flux-coverage-exceptions.yaml:stun-sentinel # path exception for retained apps/stun-sentinel deploy manifest
 d2-signalloom/test/sentinel-containment.bats:signalloom-stun-sentinel # preflight fallback path for unmigrated branch
 d2-signalloom/test/sentinel-evidence.bats:signalloom-stun-sentinel # preflight fallback path for unmigrated branch
+test/swarm-demo-script.bats:verify_stun_sentinel # asserts the real verify_stun_sentinel gate function still present in scripts/swarm-fleet-demo.sh
+test/swarm-demo-script.bats:signalloom-stun-sentinel # asserts the real signalloom-stun-sentinel DaemonSet name still present in the agent roster of scripts/swarm-fleet-demo.sh
 d2-signalloom/apps/dashboard-signalloom/src/api/policyApi.ts:stun-sentinel # constant for live in-kernel eBPF stream source
 d2-signalloom/apps/dashboard-signalloom/src/components/AgentActivityTab.tsx:stun-sentinel # UI filter and badge for live in-kernel eBPF stream source
 d2-signalloom/apps/dashboard-signalloom/src/components/AgentActivityTab.test.tsx:stun-sentinel # tests for live in-kernel eBPF stream UI badge
 d2-signalloom/apps/dashboard-signalloom/src/components/agents/ClaimModal.tsx:stun-sentinel # UI telemetry description for live in-kernel eBPF stream
+d2-signalloom/apps/dashboard-signalloom/src/components/agents/ClaimModal.test.tsx:stun-sentinel # test asserting the live in-kernel eBPF stream description rendered by ClaimModal.tsx
 d2-signalloom/apps/dashboard-signalloom/src/components/onboarding/ContainmentPolicyConsentStep.tsx:stun-sentinel # UI policy step referencing live in-kernel eBPF stream
+d2-signalloom/apps/dashboard-signalloom/src/components/onboarding/ContainmentPolicyConsentStep.test.tsx:stun-sentinel # tests asserting the live in-kernel eBPF stream description rendered by ContainmentPolicyConsentStep.tsx
 d2-signalloom/apps/dashboard-signalloom/src/components/signals/ObservationFeed.tsx:stun-sentinel # observation feed component filtering live in-kernel eBPF stream
 d2-signalloom/apps/dashboard-signalloom/src/pages/FeedsExplorerPage.tsx:stun-sentinel # feeds explorer UI page filtering live in-kernel eBPF stream
 d2-signalloom/apps/dashboard-signalloom/src/pages/FeedsExplorerPage.test.tsx:stun-sentinel # tests for feeds explorer filtering live in-kernel eBPF stream
@@ -61,3 +64,6 @@ d2-signalloom/apps/docs-signalloom/src/content/docs/operate/detection-coverage.m
 d2-signalloom/apps/kusari-agent/README.md:stun-sentinel # kusari agent documentation for live in-kernel eBPF stream
 docs/osramp-component-flows.html:stun-sentinel # component flow diagram documenting live in-kernel eBPF stream
 test/acceptance/agent-claim.spec.ts:stun-sentinel # acceptance test asserting live in-kernel eBPF stream telemetry
+scripts/kind-data-backup.sh:stun-sentinel-fleet-key # EAPCI-P1-5: backs up the legacy caller-key Secret that scripts/fleet-manager-caller-keys.sh still mints during the warden cutover
+test/netebpf-adversarial.bats # netebpf adversarial test tests apps/stun-sentinel
+test/netebpf-preflight.bats # netebpf preflight test tests apps/stun-sentinel

@@ -188,6 +188,26 @@ install_tools() {
     fi
   }
 
+  have rg || {
+    echo "installing ripgrep"
+    PKG_SUDO=""; [ "$(id -u)" -eq 0 ] || PKG_SUDO="sudo"
+    if have apt-get; then ${PKG_SUDO} apt-get install -y -qq ripgrep
+    elif have brew; then brew install ripgrep
+    fi
+  }
+
+  have fd || {
+    echo "installing fd-find"
+    PKG_SUDO=""; [ "$(id -u)" -eq 0 ] || PKG_SUDO="sudo"
+    if have apt-get; then
+      ${PKG_SUDO} apt-get install -y -qq fd-find
+      if command -v fdfind >/dev/null 2>&1; then
+        ${PKG_SUDO} ln -sf "$(command -v fdfind)" "${BIN_DIR}/fd"
+      fi
+    elif have brew; then brew install fd
+    fi
+  }
+
   have yq || { echo "installing yq"; fetch_bin yq "https://github.com/mikefarah/yq/releases/download/v4.44.6/yq_${OS}_${ARCH}"; }
   have govulncheck || { echo "installing govulncheck"; go_install_bin govulncheck "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"; }
   have vexctl || { echo "installing vexctl"; go_install_bin vexctl "github.com/openvex/vexctl@${VEXCTL_VERSION}"; }

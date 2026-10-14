@@ -39,3 +39,41 @@ SLDC_LIVE_MUTATION=1 bats test/dual-cluster-networking.bats   # + live DNS-stub 
 - Cross-cluster data-plane calls from osramp target `*.signalloom.hub` → `172.19.0.20:<hub NodePort>`. Hub iptables NodePorts answer on the bridge NIC, as the live TCP test shows.
 - Hub → osramp traffic reaches only host-stack listeners on `172.19.0.10`, because Cilium BPF does not serve Services on `eth1`. Plan the SPIRE bundle endpoint and any OIDC/JWKS exposure accordingly.
 - The kubeconfig current-context is preserved across `kind create`.
+
+## Data persistence and backup
+
+The shared helper [`scripts/lib/kind-data-mounts.sh`](../../scripts/lib/kind-data-mounts.sh) renders Kind configuration files with persistent data mounts. Both [`scripts/create-kind-cluster.sh`](../../scripts/create-kind-cluster.sh) and [`scripts/dual-cluster-up.sh`](../../scripts/dual-cluster-up.sh) use this helper.
+
+### Host bind mounts
+
+Each control-plane node binds three host paths for persistent data:
+
+| Node path | Variable | Default host path | Ownership |
+| :--- | :--- | :--- | :--- |
+| `/var/local/signalloom-postgres-data` | `POSTGRES_DATA_DIR` | `.cache/postgres` | UID 70, mode 0700 |
+| `/var/local/osramp-zot-cache` | `ZOT_CACHE_DIR` | `.cache/zot` | UID 65532, mode 0750 |
+| `/var/local-path-provisioner` | `LOCAL_PATH_DATA_DIR` | `.cache/local-path` | Mode 0777 |
+
+Secondary clusters (such as `signalloom-hub`) use cluster-keyed subdirectories (for example `.cache/signalloom-hub/postgres`). This keeps host paths disjoint and prevents data corruption across clusters.
+
+Each node also mounts `/lib/modules` and `/sys/kernel/btf` as read-only host binds for eBPF programs.
+
+### Stable local-path storage
+
+The ConfigMap [`infra/kind/local-path-config.yaml`](../../infra/kind/local-path-config.yaml) configures `local-path-provisioner` with `pathPattern: "{{ .PVC.Namespace }}/{{ .PVC.Name }}"`. Recreated PersistentVolumeClaims resolve to the same host path.
+
+### Backup and restore tool
+
+[`scripts/kind-data-backup.sh`](../../scripts/kind-data-backup.sh) backs up and restores node data and identity Secrets:
+
+```bash
+# Back up persistent node data and identity Secrets
+scripts/kind-data-backup.sh backup osramp /tmp/osramp-backup
+
+# Restore persistent node data and apply identity Secrets
+scripts/kind-data-backup.sh restore osramp /tmp/osramp-backup --force
+```
+
+1. `backup` quiesces writer Deployments (`signal-ingest`, `postgresql`), copies persistent directories, strips dynamic metadata from identity Secrets into a `0700` directory, and writes SHA-256 and stat manifests.
+2. `restore` copies data directories to the node, sets container path permissions, and applies stored identity Secrets. It refuses when writer Deployments are active unless `--force` is given.
+

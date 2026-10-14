@@ -7,6 +7,7 @@ KIND_BIN="${KIND_BIN:-kind}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 ZOT_CACHE_DIR="${ZOT_CACHE_DIR:-.cache/zot}"
 POSTGRES_DATA_DIR="${POSTGRES_DATA_DIR:-.cache/postgres}"
+LOCAL_PATH_DATA_DIR="${LOCAL_PATH_DATA_DIR:-.cache/local-path}"
 
 # Pull-through registry caches for upstream base images. Started before the
 # cluster so the shared docker network exists and the kind nodes' containerd can
@@ -14,29 +15,15 @@ POSTGRES_DATA_DIR="${POSTGRES_DATA_DIR:-.cache/postgres}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/registry-cache.sh
 source "$SCRIPT_DIR/registry-cache.sh"
+# shellcheck source=scripts/lib/kind-data-mounts.sh
+source "$SCRIPT_DIR/lib/kind-data-mounts.sh"
 
-mkdir -p "$ZOT_CACHE_DIR"
-# Resolve to an absolute path via the PARENT dir, not by cd-ing into the cache
-# itself: after the first run prepare_zot_cache chowns the bind-mounted cache to
-# 65532:65532 mode 0750, which leaves the host
-# dir un-enterable by the invoking user. cd-ing into it here would fail on every
-# re-run. The parent is owned by the invoking user, so resolving via it is safe.
-ZOT_CACHE_DIR="$(cd "$(dirname "$ZOT_CACHE_DIR")" && pwd -P)/$(basename "$ZOT_CACHE_DIR")"
+kind_data_resolve_paths "$CLUSTER_NAME"
+ZOT_CACHE_DIR="$KIND_DATA_ZOT_DIR"
+POSTGRES_DATA_DIR="$KIND_DATA_POSTGRES_DIR"
+LOCAL_PATH_DATA_DIR="$KIND_DATA_LOCAL_PATH_DIR"
 
-mkdir -p "$POSTGRES_DATA_DIR"
-POSTGRES_DATA_DIR="$(cd "$(dirname "$POSTGRES_DATA_DIR")" && pwd -P)/$(basename "$POSTGRES_DATA_DIR")"
-
-# This cache is deliberately local-only. Kind makes it available inside the
-# control-plane container; prepare ownership there before Zot is deployed.
-# The pod itself remains non-root and has no privileged init container.
 prepare_zot_cache() {
-  # Correct existing cache content too: it may have been created by an earlier
-  # image UID or a previously interrupted local run.
-  # A node created from infra/kind/cluster-osramp.yaml (dual-cluster-up.sh,
-  # Cilium) carries no host bind mount for this path, so create it node-local
-  # first, as prepare_postgres_cache does; the Zot manifest declares the
-  # hostPath DirectoryOrCreate. The cache then lives inside the node until the
-  # cluster is deleted (2026-10-03 zero-state rebuild).
   "$DOCKER_BIN" exec "${CLUSTER_NAME}-control-plane" \
     mkdir -p /var/local/osramp-zot-cache
   "$DOCKER_BIN" exec "${CLUSTER_NAME}-control-plane" \
@@ -61,8 +48,10 @@ EXISTING_CLUSTERS="$("$KIND_BIN" get clusters 2>/dev/null || true)"
 if grep -qx "$CLUSTER_NAME" <<<"$EXISTING_CLUSTERS"; then
   prepare_zot_cache
   prepare_postgres_cache
+  prepare_node_data_mounts "$CLUSTER_NAME"
+  configure_local_path_provisioner "$CLUSTER_NAME"
   registry_cache_configure_node "${CLUSTER_NAME}-control-plane"
-  "$KIND_BIN" export kubeconfig --name "$CLUSTER_NAME" 2>/dev/null || true
+  "$KIND_BIN" export kubeconfig --name "$CLUSTER_NAME" ${KUBECONFIG:+--kubeconfig "$KUBECONFIG"}
   echo "Kind cluster $CLUSTER_NAME already exists; preserving Zot cache at $ZOT_CACHE_DIR and Postgres data at $POSTGRES_DATA_DIR"
   exit 0
 fi
@@ -79,6 +68,13 @@ esac
 case "$POSTGRES_DATA_DIR" in
   *$'\n'*|*:*|*'#'*|*'['*|*']'*|*'{'*|*'}'*|*'&'*|*'*'*|*'!'*|*'|'*|*'>'*|*'"'*|*"'"*)
     echo "POSTGRES_DATA_DIR contains YAML control characters: $POSTGRES_DATA_DIR" >&2
+    exit 1
+    ;;
+esac
+
+case "$LOCAL_PATH_DATA_DIR" in
+  *$'\n'*|*:*|*'#'*|*'['*|*']'*|*'{'*|*'}'*|*'&'*|*'*'*|*'!'*|*'|'*|*'>'*|*'"'*|*"'"*)
+    echo "LOCAL_PATH_DATA_DIR contains YAML control characters: $LOCAL_PATH_DATA_DIR" >&2
     exit 1
     ;;
 esac
@@ -131,16 +127,26 @@ kubeadmConfigPatches:
 nodes:
   - role: control-plane
     extraMounts:
+      - hostPath: /lib/modules
+        containerPath: /lib/modules
+        readOnly: true
+      - hostPath: /sys/kernel/btf
+        containerPath: /sys/kernel/btf
+        readOnly: true
       - hostPath: $ZOT_CACHE_DIR
         containerPath: /var/local/osramp-zot-cache
       - hostPath: $POSTGRES_DATA_DIR
         containerPath: /var/local/signalloom-postgres-data
+      - hostPath: $LOCAL_PATH_DATA_DIR
+        containerPath: /var/local-path-provisioner
 EOF
 
 echo "Creating Kind cluster $CLUSTER_NAME with Zot cache $ZOT_CACHE_DIR and Postgres data $POSTGRES_DATA_DIR"
 "$KIND_BIN" create cluster --name "$CLUSTER_NAME" --config "$kind_config"
 prepare_zot_cache
 prepare_postgres_cache
+prepare_node_data_mounts "$CLUSTER_NAME"
+configure_local_path_provisioner "$CLUSTER_NAME"
 # Point the node's containerd at the pull-through caches (hosts.toml is read
 # dynamically per pull; no containerd restart needed).
 registry_cache_configure_node "${CLUSTER_NAME}-control-plane"

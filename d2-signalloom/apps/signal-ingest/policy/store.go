@@ -120,6 +120,16 @@ func (s *Store) ObservationStats(ctx context.Context, q store.Query) (store.Obse
 	return s.inner.ObservationStats(ctx, q)
 }
 
+// QueryPage delegates.
+func (s *Store) QueryPage(ctx context.Context, q store.PageQuery) ([]model.Observation, error) {
+	return s.inner.QueryPage(ctx, q)
+}
+
+// Stats delegates.
+func (s *Store) Stats(ctx context.Context, q store.StatsQuery) (store.StoreStats, error) {
+	return s.inner.Stats(ctx, q)
+}
+
 // DropPartition delegates.
 func (s *Store) DropPartition(ctx context.Context, before time.Time) error {
 	return s.inner.DropPartition(ctx, before)

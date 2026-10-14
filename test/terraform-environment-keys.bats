@@ -166,8 +166,8 @@ setup_file() {
 
 # ─── The rule no behavioural test can isolate ────────────────────────────────
 
-@test "all sixteen validation rules are declared in source" {
-	# Fifteen of the sixteen are proven behaviourally by the native suites:
+@test "all eighteen validation rules are declared in source" {
+	# Seventeen of the eighteen are proven behaviourally by the native suites:
 	# deleting any one of rules 1, 3, 4, 5, 6, 6B, 7, 8, 9, 10, 11, 12, 13 or
 	# either PROJECT rule turns a tftest run red. Measured one rule at a time
 	# against a throwaway copy of the tree.
@@ -197,7 +197,9 @@ setup_file() {
 		ENV-RULE-08-IPV6-CIDR \
 		ENV-RULE-09-NO-ANY-IPV4 \
 		ENV-RULE-10-NO-ANY-IPV6 \
-		ENV-RULE-11-APP-PORT-RANGE; do
+		ENV-RULE-11-APP-PORT-RANGE \
+		ENV-RULE-14-TAILSCALE-HOSTNAME-FORMAT \
+		ENV-RULE-15-TAILSCALE-HOSTNAME-UNIQUE; do
 		grep -q "$tag" "${tf_src}/modules/env-contract/variables.tf" || {
 			echo "${tag} is not declared in the env-contract module" >&2
 			return 1
@@ -217,8 +219,8 @@ setup_file() {
 	# survives in a comment.
 	local n
 	n="$(grep -c '^  validation {' "${tf_src}/modules/env-contract/variables.tf")"
-	[ "$n" -eq 12 ] || {
-		echo "expected 12 validation blocks in the env-contract, found ${n}" >&2
+	[ "$n" -eq 14 ] || {
+		echo "expected 14 validation blocks in the env-contract, found ${n}" >&2
 		return 1
 	}
 }

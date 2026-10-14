@@ -580,14 +580,27 @@ if ! python3 --version >/dev/null 2>&1; then
   ${PKG_SUDO} apt-get update -qq && ${PKG_SUDO} apt-get install -y -qq python3 >/dev/null
 fi
 
+# ── ripgrep & fd-find (for guards and linters) ───────────────────────
+if ! rg --version >/dev/null 2>&1; then
+  log "installing ripgrep"
+  ${PKG_SUDO} apt-get update -qq && ${PKG_SUDO} apt-get install -y -qq ripgrep >/dev/null
+fi
+if ! fd --version >/dev/null 2>&1; then
+  log "installing fd-find"
+  ${PKG_SUDO} apt-get update -qq && ${PKG_SUDO} apt-get install -y -qq fd-find >/dev/null
+  if command -v fdfind >/dev/null 2>&1; then
+    ${PKG_SUDO} ln -sf "$(command -v fdfind)" "${BIN}/fd"
+  fi
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────
 log "all tools installed:"
-for t in go kind kubectl kustomize helm flux crane cosign syft grype vexctl ngrok bats node bun uv python3 docker; do
+for t in go kind kubectl kustomize helm flux crane cosign syft grype vexctl ngrok bats node bun uv python3 rg fd docker; do
   # head -1 must sit outside the || chain. Inside it, `head` supplies the
   # pipeline's exit status under `pipefail`, so a tool that prints a version to
   # stdout and *then* exits non-zero (kubectl version, which also tries to
   # reach a cluster) both reports its version and falls through to `echo "?"`,
   # appending a spurious "?" line for a tool that installed perfectly.
-  ver=$($t --version 2>/dev/null || $t version 2>/dev/null || echo "?")
+  ver=$($t --version </dev/null 2>/dev/null || $t version </dev/null 2>/dev/null || echo "?")
   printf "  %-12s %s\n" "$t" "$(printf '%s' "$ver" | head -1)"
 done

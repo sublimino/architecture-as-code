@@ -34,6 +34,14 @@ setup() {
   fi
   [ "$status" -eq 0 ]
 
+  cd "$REPO_ROOT/d2-signalloom/apps/stun-sentinel"
+  if [ "${CGO_ENABLED:-0}" = "1" ]; then
+    run go test -v -race ./...
+  else
+    run go test -v ./...
+  fi
+  [ "$status" -eq 0 ]
+
   cd "$REPO_ROOT/d2-signalloom/apps/signal-ingest"
   if [ "${CGO_ENABLED:-0}" = "1" ]; then
     run go test -v -race ./collectors/netebpf/... ./correlation/...
@@ -45,6 +53,6 @@ setup() {
 
 @test "netebpf adversarial: dashboard Weave tests verify telemetry badges and fail-closed gap banner" {
   cd "$REPO_ROOT/d2-signalloom/apps/dashboard-signalloom"
-  run bunx vitest run src/pages/WeavePage.test.tsx
+  run env PATH="/home/andy/.bun/bin:/home/andy/.local/bin:$PATH" bunx vitest run src/pages/WeavePage.test.tsx
   [ "$status" -eq 0 ]
 }

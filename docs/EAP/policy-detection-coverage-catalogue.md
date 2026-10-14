@@ -185,11 +185,8 @@ What is left, ordered by risk:
    - Deploy: `tetragon-agent-telemetry.yaml` and `tetragon-helm-values.yaml` in
      `d2-signalloom/deploy/` — remove or replace with the stun-sentinel
      DaemonSet once the endpoint stream is live-wired.
-   - Test harness: `test/mocks/tetragon_grpc_mock.go` + `tetragon_grpc_test.go`
-     (+ the mock module `test/mocks/go.mod`/`go.sum`), and
-     `scripts/test-tetragon-stream.sh`. Also `test/tetragon-telemetry-stream.bats`
-     and the `test-tetragon-*` Makefile targets — all exercise a gRPC server the
-     collector no longer dials.
+   - Test harness: deleted Tetragon gRPC test mocks (`tetragon_grpc_mock.go`, `tetragon_grpc_test.go`, mock `go.mod`/`go.sum`).
+     Deleted test scripts (`test-tetragon-stream.sh`, `tetragon-telemetry-stream.bats`, and `test-tetragon-*` Makefile targets).
    - Docs/dashboard wording: `docs-signalloom/.../operate/detection-coverage.mdx`
      and `.../agents/dual-agent-onboarding.mdx`. Dashboard files include
      `FeedsExplorerPage`, `SignalsPage`, `AgentActivityTab`, `ClaimModal`,

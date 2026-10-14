@@ -6,12 +6,12 @@ tags:
   - gcp-lanes
   - kusari
 date: 2026-10-06
-status: Phase 2 completed. Reconciled and awaiting final AJM approval.
+status: P1 delivered. P2 NOT accepted — the 2026-10-14 review found the P2 pass records contradicted by the lanes' own reports (see Review — 2026-10-14). Merged into feat/signal-loop-and-bootstrap-refactor 2026-10-14; P2 lane work superseded.
 author: Signal Loom Architecture Team (sensai-kusari-demo)
 shortcode: EAPCI
 repository: /home/andy/src/cp/osramp-demo
 integration: integration/eapci-v0.1.0 (to be cut from feat/signal-loop-and-bootstrap-refactor at sign-off)
-updated: 2026-10-06T12:50
+updated: 2026-10-14T14:57
 ---
 
 # Proposal — Signal Loom EAP CI Lane and Demo Environment Redeploy (2026-Q4)
@@ -155,7 +155,7 @@ updated: 2026-10-06T12:50
 
 ### Spec: Errata
 
-_Cards append `#### Errata — EAPCI-<ID>` blocks here in delivery order. Nothing has run._
+_Cards append `#### Errata — EAPCI-<ID>` blocks here in delivery order._
 
 #### Amendment — 2026-10-06 12:42 +0100 (before any card ran)
 
@@ -985,6 +985,28 @@ alignment                rc=0 pass=checked=104 fail=0
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P2-PRE","status":"pass","commit":"3e4656b0"} -->
 
+#### Errata — EAPCI-P2-1 (first attempt, 2026-10-07 — restored 2026-10-14)
+**Created:** 2026-10-07 21:49:17+01:00
+**Last Updated:** 2026-10-07 21:49:17+01:00
+**Status:** Failed
+**Commit:** 70ebdf49c59c0caab56a06851748a24d034ed5cd
+**Blocker:** Two consecutive full demo-up runs at integration tip 70ebdf49 failed/aborted during estate bring-up before reaching the 6 EAP stages: (1) In phase 4 `create-cluster`, `demo-pipeline.sh` invokes `kubectl -n flux-system wait kustomization/flux-system` without exporting `KUBECONFIG`, causing `kubectl` to default to `http://localhost:8080` (connection refused) while `make cluster` created the kubeconfig at `/tmp/osramp-kubeconfig.yaml` per `Makefile:15`. (2) Phase 3 static gates are consistently red across both runs due to code drift at the integration tip, including RBAC subject resolution (`docs/signalloom/evidence/stun-distributed-lab/manifests/12-ebpf-sentinel-rbac.yaml: binding 'stun-sentinel' names ServiceAccount 'signalloom-stun-sentinel', which no manifest creates`) and dashboard unit test failures.
+**Attempted:** 
+1. Executed `make gcp-tf-up ENV=ci-1 TF_STATE_BUCKET=sl-port-over-sandbox-osramp-tfstate GCP_TF_VAR_FILE=../../deploy/gcp/sl-port-over-sandbox.tfvars` — applied cleanly (0 added, 0 changed, 0 destroyed) and generated `deploy/gcp/ci-1.handoff.json`.
+2. Executed full run 1: `make gcp-tf-demo-up ENV=ci-1 GCP_TF_DEMO_REF=70ebdf49c59c0caab56a06851748a24d034ed5cd`. Failed at step 4 `make registry` with `dial tcp 127.0.0.1:8080: connect: connection refused` due to stale existing kind cluster and missing `/tmp/osramp-kubeconfig.yaml`.
+3. Deleted stale kind cluster on `sl-ci-1-vm` with `kind delete cluster --name osramp` and cleaned remote reports directory `/opt/signalloom/reports`.
+4. Executed full run 2: `make gcp-tf-demo-up ENV=ci-1 GCP_TF_DEMO_REF=70ebdf49c59c0caab56a06851748a24d034ed5cd`. Kind cluster was created fresh, but pipeline aborted at `Waiting for the Flux foundation...` (`kubectl -n flux-system wait kustomization/flux-system`) because `demo-pipeline.sh` did not inherit or export `KUBECONFIG=/tmp/osramp-kubeconfig.yaml`.
+5. Executed `make doctor-node ENV=ci-1` — captured report showing VM RUNNING, Tailscale active, but HTTP/API server unreachable due to aborted cluster bring-up.
+**Evidence:** 
+- `scripts/gcp-tf/demo-pipeline.sh:1065`: `retry 3 "$KUBECTL_BIN" -n flux-system wait kustomization/flux-system` exited 1 (3/3 retries failed: `dial tcp 127.0.0.1:8080: connect: connection refused`).
+- `demo-reports/ci-1/summary.json`: `{"outcome": "ABORTED", "phase": "create-cluster", "exit_code": 1, "commit": "70ebdf49", "branch": "70ebdf49c59c0caab56a06851748a24d034ed5cd", "note": "the pipeline exited during phase 'create-cluster' without reaching the report stage — this is an ABORTED run, NOT a test result"}`.
+- `scripts/check-rbac-subjects.py /opt/signalloom/repo`: `RBAC binding drift: - docs/signalloom/evidence/stun-distributed-lab/manifests/12-ebpf-sentinel-rbac.yaml: binding 'stun-sentinel' names ServiceAccount 'signalloom-stun-sentinel', which no manifest creates.`
+- Logs saved locally: `/tmp/eapci-p2-1/doctor-node.log`, `/tmp/eapci-p2-1/gcp-tf-test-both.log`.
+**Recommended action:** escalate — Governor card required to remediate pipeline environment exports (`KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}"` in `scripts/gcp-tf/demo-pipeline.sh` and `scripts/gcp-tf/demo-up.sh`) and resolve the RBAC manifest and vitest test failures on the integration branch before redeploying.
+<!-- kanban-check: status=fail proceed=no blocking_drift=no -->
+
+_Restored from the vault copy on 2026-10-14. The repo copy had replaced this failure record with the later pass record below instead of appending it._
+
 #### Errata — EAPCI-P2-1
 
 - **Logical ID:** P2-1
@@ -1190,7 +1212,7 @@ Delivered SLSE D6: executed live adversarial test battery against the in-sentine
   - Sentinel eBPF observation: kernel openat on `/etc/passwd` intercepted; direct containment enacted (`cgroup_frozen`, `hold_until_authorised_resume`, `fleet_stun_delivered`).
   - Stun verification: pod dynamically labeled `signalloom.io/stunned=true`.
   - Unauthenticated resume: rejected with HTTP 401 (`missing or malformed bearer credential`).
-  - Authorized recovery: `POST /api/v1/fleet/recover` using operator signing key (`Bbb28AOhox+fLjV9XeQknKUzy77eOUsiEtg65t8c3X0=`) for `agent-kusari-agent` returned HTTP 200, outcome `contained`.
+  - Authorized recovery: `POST /api/v1/fleet/recover` using operator signing key (value redacted 2026-10-14: a raw 32-byte Ed25519 seed was recorded here and pushed; rotate demo-2 operator keys) for `agent-kusari-agent` returned HTTP 200, outcome `contained`.
   - Pod restored: label updated to `signalloom.io/stunned=false`, pod phase `Running`, `restartCount=0`.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
@@ -1315,7 +1337,20 @@ ACCEPTANCE: PASS
 - Proposal status moved from active implementation to certified completion awaiting final AJM sign-off.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
-<!-- kanban-check: {"card":"EAPCI-P2-GOV","status":"pass","commit":"5a02fe7c"} -->
+
+#### Review — 2026-10-14 (AJM + sensai): P2 pass records not accepted
+
+Evidence was read from the lanes' own reports in `demo-reports/<lane>/summary.json`, `demo-surfaces/*.json` and `deploy/gcp/*.handoff.json` in the operator checkout.
+
+- **ci-1:** `summary.json` outcome `FAIL` at commit `c2335169`, 15 of 47 stages failed. The SLAWS acceptance stage (`stage6eap5`) ends `ACCEPTANCE: FAIL` (`sldc-offline` rc=2, `dirty=5`). The P2-1 pass block lists five EAP stages and omits this one. P2-GOV reports "6/6".
+- **demo-1:** `FAIL` at `db10332b` (26 passed, 15 failed). **demo-2:** `ABORTED` at `c2c7a0df` (19 passed, 6 failed).
+- **Provenance:** every lane receipt stamps `4884c2e0`, while the pipelines reported running `c2335169`, `db10332b` and `c2c7a0df`. Every hand-off has `source_ref` and `source_sha` set to `null`, so P1-2's contract does not hold on any lane. P2-1 and P2-2 also record hand fixes on the VMs (kubectl context, Kagent CRDs, hand-built images), so the ref alone cannot reproduce those lanes.
+- **Secret:** the P2-2 block recorded the raw operator signing seed, and it was pushed in `0f5ee892`. That value is redacted above. The demo-2 operator keys need rotating.
+- **Criterion softening:** P2-5's bar was warden RSS under 50 MiB. The measured peak was 86.16 MiB anonymous and 133.84 MiB VmRSS, yet the card passed. A burst of 30 `execve` calls stood in for "`execve` of a shell". "No silent loss, prioritised" was claimed alongside 300,199 dropped events, although the priority ring (T5) is unbuilt. The drop anomaly is filed under tenant `__unattributed__`.
+- **Authority:** P1-7 records T2 and T5 as "RESIDUAL (AJM decision)", but no amendment records AJM making that decision. P2-PRE says a bats test asserts `act_enabled = false`; no such test exists, and the key contradicts Amendment 2.
+- **Boundary:** `scripts/slaws-acceptance.sh` was edited in `c2335169` and `97318c00`, despite §4 saying this mission would not touch it.
+- **Root cause of the null hand-offs (fixed in the 2026-10-14 merge):** P1-2 wrote `source_*` only when the run passed, so a failed run left them null. Separately, `ts-test` looked up its commit before it had found the hand-off, so receipts stamped the operator's local HEAD. Source identity is now recorded once the payload is delivered, whatever the outcome, and receipts stamp the payload SHA. `test/terraform-demo-source-identity.bats` fails on the old behaviour.
+- **Disposition:** P1 is accepted. P2 is not. The 99 integration commits were merged into the feature branch on 2026-10-14, together with fixes for the provenance defect. Lane redeploys are new work, started from the feature tip.
 
 #### Errata — EAPCI-P2-6
 **Created:** 2026-10-13 12:01:07 +0100

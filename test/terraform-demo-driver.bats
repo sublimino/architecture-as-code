@@ -93,6 +93,7 @@ setup() {
 	export GCP_TF_DEMO_SSH_WAIT_ATTEMPTS=2
 	export GCP_TF_DEMO_SSH_WAIT_INTERVAL=0
 	export GCP_TF_DEMO_TIMEOUT_MINUTES=1
+	export GCP_TF_DEMO_REF="HEAD"
 
 	# The VM's filesystem, so the post-transfer size check has real bytes to
 	# read back rather than a canned answer.
@@ -1060,7 +1061,15 @@ dex_log() {
 
 @test "DEMODRIVER the up lane runs the pipeline with stage=full" {
 	make_report PASS
-	run "${driver}" up
+	# 0b9603279 taught cmd_up to auto-select stage="deploy" for any demo*/eap*
+	# ENV_KEY, falling back to "full" only for everything else. This fixture's
+	# ENV_KEY is "demo-7" (see setup, shared by the whole file), which now
+	# resolves to "deploy" by default — so this test, which exists to prove
+	# "full" propagates all the way to the gcloud command line, has to ask for
+	# it explicitly via the same DEMO_STAGE override an operator would use.
+	# Changing ENV_KEY instead would touch the handoff fixture every other
+	# test in this file shares.
+	DEMO_STAGE=full run "${driver}" up
 	[ "$status" -eq 0 ]
 	[[ "$(gcloud_log)" == *"DEMO_STAGE=full"* ]]
 	[[ "$(gcloud_log)" != *"SL_DEMO_STAGE"* ]]
@@ -2516,4 +2525,24 @@ stub_curl() { # stub_curl <status-code-to-emit>
 	[ "$status" -eq 0 ]
 	[[ "${output}" == *"AFM_REQUIRED=0"* ]]
 	[[ "${output}" == *"502"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# ts_node_hostname: prefers hand-off tailscale_hostname, falls back to sl-<key>
+# ---------------------------------------------------------------------------
+
+@test "DEMODRIVER ts_node_hostname prefers tailscale_hostname from handoff" {
+	local handoff="${BATS_TEST_TMPDIR}/handoff.json"
+	printf '{"tailscale_hostname":"sl-eap-4b53ab6b"}\n' > "${handoff}"
+	run bash -c 'eval "$(sed -n "/^ts_node_hostname() {/,/^}/p" "'"${DRIVER_SRC}"'")" && HANDOFF_FILE="'"${handoff}"'" ENV_KEY="demo-2" ts_node_hostname'
+	[ "$status" -eq 0 ]
+	[ "$output" = "sl-eap-4b53ab6b" ]
+}
+
+@test "DEMODRIVER ts_node_hostname falls back to sl-<key> when handoff lacks tailscale_hostname" {
+	local handoff="${BATS_TEST_TMPDIR}/handoff.json"
+	printf '{"hostname":""}\n' > "${handoff}"
+	run bash -c 'eval "$(sed -n "/^ts_node_hostname() {/,/^}/p" "'"${DRIVER_SRC}"'")" && HANDOFF_FILE="'"${handoff}"'" ENV_KEY="demo-2" ts_node_hostname'
+	[ "$status" -eq 0 ]
+	[ "$output" = "sl-demo-2" ]
 }

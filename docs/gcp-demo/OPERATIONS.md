@@ -68,7 +68,7 @@ The diagram shows the states of a lane and the `make` target that moves it betwe
 stateDiagram-v2
   [*] --> Absent
   Absent --> Provisioned: make gcp-tf-up ENV=&lt;lane&gt;
-  Provisioned --> Standing: make gcp-tf-demo-up ENV=&lt;lane&gt;
+  Provisioned --> Standing: make gcp-tf-demo-up ENV=&lt;lane&gt; GCP_TF_DEMO_REF=&lt;ref&gt;
   Standing --> Served: make gcp-tf-ts-up ENV=&lt;lane&gt;
   Served --> Standing: make gcp-tf-ts-logout ENV=&lt;lane&gt;
   Standing --> Absent: make gcp-tf-destroy ENV=&lt;lane&gt; CONFIRM=&lt;lane&gt;

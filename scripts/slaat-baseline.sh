@@ -38,7 +38,7 @@ SLICES=(
   "containment-stun-sentinel-go|cd d2-signalloom/apps/stun-sentinel && go test ./..."
   "containment-signalloom-stun-sentinel-go|cd d2-signalloom/apps/signalloom-stun-sentinel && go test ./..."
   "containment-nono-probe-go|cd d2-signalloom/apps/nono-containment-probe && go test ./..."
-  "containment-tetragon-bats|make test-tetragon-bats"
+  "containment-sentinel-ebpf|make test-sentinel-ebpf"
   "estate-test-all-offline|make test-all-offline"
 )
 

@@ -87,7 +87,12 @@ async def _proxy(
     headers_obj = getattr(resp, "headers", None)
     if isinstance(headers_obj, Mapping):
         resp_headers_map = {str(k).lower(): str(v) for k, v in headers_obj.items()}
-    for header_key in ("allow", "etag", "location", "x-tenant-id", "retry-after", "x-request-id"):
+    # The last three are the observations paging contract (EAPCI P1-6): without them the
+    # dashboard cannot ask for the next page or tell a full page from a truncated one.
+    for header_key in (
+        "allow", "etag", "location", "x-tenant-id", "retry-after", "x-request-id",
+        "x-next-cursor", "link", "x-result-truncated",
+    ):
         if header_key in resp_headers_map:
             forwarded_headers[header_key] = resp_headers_map[header_key]
 
@@ -120,9 +125,14 @@ async def get_observations(
     limit: int = Query(default=100, ge=1, le=1000),
     after: str | None = None,
     before: str | None = None,
+    cursor: str | None = None,
     request: Request = None,
 ) -> Response:
-    """List signal observations from the columnar store."""
+    """List signal observations from the columnar store.
+
+    ``cursor`` is the opaque, scope-bound token signal-ingest returned in ``X-Next-Cursor``
+    (EAPCI P1-6); it is forwarded verbatim and the paging headers are relayed by ``_proxy``.
+    """
     params: dict[str, Any] = {"limit": limit}
     if layer:
         params["layer"] = layer
@@ -130,6 +140,8 @@ async def get_observations(
         params["after"] = after
     if before:
         params["before"] = before
+    if cursor:
+        params["cursor"] = cursor
     return await _proxy("GET", "/api/v1/observations", principal, params=params, request=request)
 
 

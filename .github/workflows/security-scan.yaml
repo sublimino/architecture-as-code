@@ -14,14 +14,8 @@
 name: security-scan
 
 on:
-  pull_request:
-  push:
-    branches: [main, master]
+  # Automatic pull_request, push, and schedule triggers removed for this branch; manual workflow_dispatch only (Proposal — Signal Loom EAP CI Lane §2 / EAPCI-P1-4).
   workflow_dispatch:
-  schedule:
-    # Weekly full-severity sweep. The gate only enforces ERROR, so without this the
-    # 127 WARNING findings would never be looked at again.
-    - cron: "17 6 * * 1"
 
 permissions:
   contents: read

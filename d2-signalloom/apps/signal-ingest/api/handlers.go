@@ -679,10 +679,6 @@ func (h *Handlers) handleIngestObservations(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// errStopObservationScan unwinds out of a streaming scan once the page is full. It never
-// escapes the handler; it is matched by identity so a real store error still propagates.
-var errStopObservationScan = errors.New("api: observation page complete")
-
 func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Request) {
 	if r != nil && r.Body != nil {
 		defer func() {
@@ -706,11 +702,11 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	q := store.Query{}
+	pageQ := store.PageQuery{}
 
 	if layers := r.URL.Query()["layer"]; len(layers) > 0 {
 		for _, l := range layers {
-			q.Layers = append(q.Layers, model.Layer(l))
+			pageQ.Layers = append(pageQ.Layers, model.Layer(l))
 		}
 	}
 
@@ -720,7 +716,7 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusBadRequest, "invalid 'after' time: "+err.Error())
 			return
 		}
-		q.After = t
+		pageQ.After = t
 	}
 
 	if before := r.URL.Query().Get("before"); before != "" {
@@ -729,15 +725,16 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusBadRequest, "invalid 'before' time: "+err.Error())
 			return
 		}
-		q.Before = t
+		pageQ.Before = t
 	}
 
 	if actor := r.URL.Query().Get("actor_id"); actor != "" {
-		q.ActorID = actor
+		pageQ.ActorID = actor
 	}
 
-	if limit := r.URL.Query().Get("limit"); limit != "" {
-		n, err := strconv.Atoi(limit)
+	limit := 0
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		n, err := strconv.Atoi(limitStr)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "invalid 'limit': "+err.Error())
 			return
@@ -746,69 +743,75 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusBadRequest, "limit must be non-negative")
 			return
 		}
-		q.Limit = n
+		limit = n
 	}
 
-	// Tenancy and de-duplication both have to happen before the limit, or a page comes back
-	// short of what the caller asked for. That used to be paid for by reading the whole store:
-	// the limit was dropped (q.Limit = 0), every row was decoded, and the page was sliced off
-	// the end. On kind-osramp that was ~192k rows per dashboard page load and it OOM-killed
-	// the pod at a 2Gi limit.
-	//
-	// Streaming gets the same page for the cost of the page. Tenancy is pushed into the query
-	// so the engine prunes it; de-duplication and the limit are applied as rows arrive, and
-	// the scan stops as soon as the page is full.
-	//
-	// Scoping now runs BEFORE de-duplication rather than after. That is not just cheaper, it is
-	// the correct order: the two commute only for a cross-tenant read.
-	//
-	// One observation ID can carry two tenant labels. Observation.ID is a hash of the evidence
-	// reference and tenancy is not an input to it; the label is stamped separately and
-	// afterwards by collectors.BindTenant, from collector configuration (awslogs runs one
-	// instance per account). Two instances over overlapping evidence therefore mint the same ID
-	// under two tenants, and the write-side Deduper cannot stop it — it is keyed by ID alone and
-	// is per-instance.
-	//
-	// With both copies present, dedupe-first keeps whichever was stored first (DedupeByID keeps
-	// the first occurrence) and scoping then discards it for the other tenant, which loses a row
-	// it is entitled to see. Scope-first prunes the other tenant's copy in the engine and returns
-	// this caller its own. The reverse direction is safe: the pushed-down predicate admits only
-	// rows carrying the caller's tenant and the dedupe only removes, so the result is always a
-	// subset of the caller's own rows and no reordering can disclose another tenant's.
-	//
-	// Pinned by TestQueryObservations_ScopeBeforeDedupeKeepsEachTenantsOwnCopy,
-	// TestQueryObservations_ScopeBeforeDedupeReturnsNoOtherTenantsRows and
-	// TestQueryObservations_CrossTenantReadIsOrderIndependent. Doing it in this order is also
-	// what keeps `seen` bounded by the page instead of by the store.
 	tenant, all := observationReadScope(r)
-	limit := q.Limit
-	q.Limit = 0
-	if !all {
-		q.TenantID = tenant
+	pageQ.Tenant = tenant
+	pageQ.AllTenants = all
+	scopeDigest := ComputeScopeDigest(tenant, all)
+
+	cursorParam := r.URL.Query().Get("cursor")
+	if cursorParam != "" {
+		parsedCur, err := ParseCursor(cursorParam, scopeDigest)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, ErrInvalidCursorMsg)
+			return
+		}
+		pageQ.CursorTimestamp = parsedCur.Timestamp
+		pageQ.CursorID = parsedCur.ID
 	}
 
-	var obs []model.Observation
-	seen := make(map[string]struct{})
-	err := h.Store.ScanObservations(r.Context(), q, func(o *model.Observation) error {
-		if !all && tenant == "" {
-			// No tenant and no cross-tenant grant: scopeObservations admitted nothing, and
-			// the pushed-down filter cannot express "match nothing", so it is enforced here.
-			return errStopObservationScan
-		}
-		if _, dup := seen[o.ID]; dup {
-			return nil
-		}
-		seen[o.ID] = struct{}{}
-		obs = append(obs, *o)
-		if limit > 0 && len(obs) >= limit {
-			return errStopObservationScan
-		}
-		return nil
-	})
-	if err != nil && !errors.Is(err, errStopObservationScan) {
+	if limit > 0 {
+		pageQ.Limit = limit + 1
+	} else {
+		pageQ.Limit = 0
+	}
+
+	// Tenancy, de-duplication, ordering and the limit all happen inside QueryPage, in that
+	// order, and the store keeps at most Limit rows while it reads: the page costs the page,
+	// not the table (the ~192k-row read that OOM-killed the pod at 2Gi on kind-osramp).
+	// Scope runs BEFORE de-duplication because one observation ID can carry two tenant labels
+	// (Observation.ID hashes the evidence reference; the tenant is stamped afterwards by
+	// collectors.BindTenant), and dedupe-first would hand this caller's row to the other
+	// tenant's copy and then scope it away. Pinned by
+	// TestQueryObservations_ScopeBeforeDedupeKeepsEachTenantsOwnCopy,
+	// TestQueryObservations_ScopeBeforeDedupeReturnsNoOtherTenantsRows,
+	// TestQueryObservations_CrossTenantReadIsOrderIndependent and
+	// TestQueryObservations_DoesNotMaterialiseTheWholeStore.
+	obs, err := h.Store.QueryPage(r.Context(), pageQ)
+	if err != nil {
 		slog.Error("query failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
+	}
+
+	// Double-check total sort on (timestamp DESC, id DESC)
+	sort.SliceStable(obs, func(i, j int) bool {
+		if obs[i].Timestamp.Equal(obs[j].Timestamp) {
+			return obs[i].ID > obs[j].ID
+		}
+		return obs[i].Timestamp.After(obs[j].Timestamp)
+	})
+
+	hasMore := limit > 0 && len(obs) > limit
+	if hasMore {
+		obs = obs[:limit]
+		last := obs[limit-1]
+		nextCursor := EncodeCursor(last.Timestamp, last.ID, scopeDigest)
+		w.Header().Set("X-Next-Cursor", nextCursor)
+
+		// Build next Link header preserving current query params
+		queryValues := r.URL.Query()
+		queryValues.Set("cursor", nextCursor)
+		reqPath := r.URL.Path
+		if reqPath == "" {
+			reqPath = "/api/v1/observations"
+		}
+		nextURL := reqPath + "?" + queryValues.Encode()
+		w.Header().Set("Link", fmt.Sprintf("<%s>; rel=\"next\"", nextURL))
+	} else {
+		w.Header().Set("X-Result-Truncated", "false")
 	}
 
 	// encoding/json marshals a nil slice as `null`, not `[]`. A caller that

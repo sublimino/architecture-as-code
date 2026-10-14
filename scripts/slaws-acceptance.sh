@@ -8,6 +8,10 @@
 set -u
 out="${1:?outdir}"; mkdir -p "$out"
 root="$(cd "$(dirname "$0")/.." && pwd)"; cd "$root"
+export PATH="/home/linuxbrew/.linuxbrew/bin:/usr/local/go/bin:/usr/bin:/bin:${PATH:-}"
+export CGO_ENABLED="${CGO_ENABLED:-0}"
+export GOCACHE="${GOCACHE:-/tmp/gocache}"
+export GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}"
 export KUBECONFIG=/dev/null
 run() {
   local name="$1"; shift
@@ -30,7 +34,7 @@ echo "head_start=$(git rev-parse HEAD) dirty=$(git status --porcelain | wc -l | 
 echo "timeout_scale=${TEST_TIMEOUT_SCALE:-1}" >> "$out/totals.txt"
 run signal-ingest          make test-signal-ingest
 run signal-ingest-frostdb  make test-signal-ingest-frostdb
-run policy-engine          bash -c 'cd d2-signalloom/apps/policy-engine && env GOCACHE=${GOCACHE:-/tmp/gocache} GOMODCACHE=${GOMODCACHE:-/tmp/gomodcache} go test -count=1 -v ./...'
+run policy-engine          bash -c 'cd d2-signalloom/apps/policy-engine && env CGO_ENABLED=0 GOCACHE=${GOCACHE:-/tmp/gocache} GOMODCACHE=${GOMODCACHE:-/tmp/gomodcache} go test -count=1 -v ./...'
 run sldc-offline           make test-sldc-offline
 run probe-name             bash scripts/check-old-probe-name.sh
 run docs-lint              make docs-lint

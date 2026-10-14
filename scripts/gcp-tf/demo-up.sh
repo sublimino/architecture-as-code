@@ -156,6 +156,7 @@ HANDOFF_DIR="${GCP_TF_HANDOFF_DIR:-${REPO_ROOT}/deploy/gcp}"
 GCLOUD_CMD="${GCP_TF_DEMO_GCLOUD:-gcloud}"
 TAR_CMD="${GCP_TF_DEMO_TAR:-tar}"
 GIT_CMD="${GCP_TF_DEMO_GIT:-git}"
+GCP_TF_DEMO_REF="${GCP_TF_DEMO_REF:-}"
 
 # Where the delivered checkout and its reports live ON THE VM. Both are part of
 # the contract with demo-pipeline.sh (chunk C) and are stated in
@@ -237,6 +238,7 @@ REMOTE_KEYS_DIR="${GCP_TF_DEMO_REMOTE_KEYS_DIR:-/opt/signalloom/keys}"
 # recreated. Only a push fails, with a 500 that names nothing.
 REMOTE_ZOT_CACHE="${GCP_TF_DEMO_REMOTE_ZOT_CACHE:-/opt/signalloom/zot-cache}"
 REMOTE_POSTGRES_DATA="${GCP_TF_DEMO_REMOTE_POSTGRES_DATA:-/opt/signalloom/postgres-data}"
+REMOTE_LOCAL_PATH_DATA="${GCP_TF_DEMO_REMOTE_LOCAL_PATH_DATA:-/opt/signalloom/local-path-data}"
 
 # EMPTY by default, meaning "run as whoever OS Login logged us in as".
 #
@@ -703,6 +705,37 @@ APP_PORT=""
 OPERATOR_SA=""
 HANDOFF_FILE=""
 
+SOURCE_REF=""
+SOURCE_SHA=""
+REF_WORKTREE=""
+
+cleanup_ref_worktree() {
+  if [ -n "$REF_WORKTREE" ] && [ -d "$REF_WORKTREE" ]; then
+    "$GIT_CMD" -C "$REPO_ROOT" worktree remove --force "$REF_WORKTREE" >/dev/null 2>&1 || rm -rf "$REF_WORKTREE"
+    "$GIT_CMD" -C "$REPO_ROOT" worktree prune >/dev/null 2>&1 || true
+    REF_WORKTREE=""
+  fi
+}
+
+resolve_source_ref() {
+  [ -n "$SOURCE_SHA" ] && return 0
+
+  if [ -z "${GCP_TF_DEMO_REF:-}" ]; then
+    printf 'demo-up: DEMO-REF-UNSET — GCP_TF_DEMO_REF is required. Specify a ref (e.g. GCP_TF_DEMO_REF=HEAD or GCP_TF_DEMO_REF=<branch|tag|sha>).\n' >&2
+    exit 2
+  fi
+
+  local sha
+  sha="$("$GIT_CMD" -C "$REPO_ROOT" rev-parse --verify "${GCP_TF_DEMO_REF}^{commit}" 2>/dev/null || true)"
+  if [ -z "$sha" ] || [ "${#sha}" -ne 40 ]; then
+    printf 'demo-up: DEMO-REF-UNRESOLVED — cannot resolve ref '\''%s'\'' to a commit in %s.\n' "$GCP_TF_DEMO_REF" "$REPO_ROOT" >&2
+    exit 2
+  fi
+
+  SOURCE_REF="$GCP_TF_DEMO_REF"
+  SOURCE_SHA="$sha"
+}
+
 RUN_COMMIT="unknown"
 RUN_BRANCH="unknown"
 RUN_STARTED_AT=""
@@ -1103,6 +1136,8 @@ ensure_vm_ready() {
 # deliver_code snapshots a throwaway repo on the VM for that. It is a marker,
 # not history.
 require_clean_tree() {
+  [ "${SOURCE_REF:-${GCP_TF_DEMO_REF:-}}" = "HEAD" ] || return 0
+
   [ "${GCP_TF_DEMO_ALLOW_DIRTY:-0}" != "1" ] || {
     warn "GCP_TF_DEMO_ALLOW_DIRTY=1 — delivering HEAD. Your uncommitted changes are NOT in this run, and the report will be stamped with HEAD's commit regardless."
     return 0
@@ -1134,6 +1169,7 @@ build_payload() {
   local out="$1"
   [ -n "$out" ] || die "build_payload needs an output path"
 
+  resolve_source_ref
   require_clean_tree
 
   "$GIT_CMD" -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1 ||
@@ -1142,13 +1178,20 @@ build_payload() {
   # Presence before packaging. A payload that omits the pipeline produces a 127
   # on the VM twenty minutes later, by which point the obvious suspect is the VM.
   #
-  # Checked against `git ls-files`, not against the filesystem: an UNTRACKED
-  # pipeline exists on disk and will not be in the archive, and "it is right
-  # there" is the most convincing possible wrong answer.
-  "$GIT_CMD" -C "$REPO_ROOT" ls-files --error-unmatch "$PIPELINE_REL" >/dev/null 2>&1 ||
+  # Checked against the tracked pipeline at SOURCE_SHA:
+  "$GIT_CMD" -C "$REPO_ROOT" cat-file -e "${SOURCE_SHA}:${PIPELINE_REL}" >/dev/null 2>&1 ||
     die "no TRACKED pipeline at ${PIPELINE_REL}. If the file exists on disk it is untracked, and 'git archive' will not carry it. Commit it, or override with GCP_TF_DEMO_PIPELINE=<relative-path>."
 
-  "$GIT_CMD" -C "$REPO_ROOT" archive --format=tar.gz -o "$out" HEAD
+  if [ "$SOURCE_REF" = "HEAD" ]; then
+    "$GIT_CMD" -C "$REPO_ROOT" archive --format=tar.gz -o "$out" "$SOURCE_SHA"
+  else
+    REF_WORKTREE="${TMPDIR:-/tmp}/osramp-demo-ref-${ENV_KEY:-demo}-${SOURCE_SHA}"
+    cleanup_ref_worktree
+    "$GIT_CMD" -C "$REPO_ROOT" worktree add --detach "$REF_WORKTREE" "$SOURCE_SHA" >/dev/null 2>&1 ||
+      die "could not create detached worktree for ref ${SOURCE_REF} (${SOURCE_SHA}) at ${REF_WORKTREE}"
+    "$GIT_CMD" -C "$REF_WORKTREE" archive --format=tar.gz -o "$out" HEAD
+    cleanup_ref_worktree
+  fi
 
   # Verify the artefact, not the mechanism. Cheap, and it is the assertion that
   # survives someone swapping git archive back out for a tar with excludes.
@@ -1593,6 +1636,10 @@ reports the cluster is fine. Recreating the Kind cluster is the only way back."
     "the postgres database storage, bind-mounted into the Kind node" \
     "The running postgres container keeps a handle on the deleted directory, so every restart
 fails with a mount error while the host path looks healthy. Recreating the Kind cluster is the only way back."
+
+  assert_dir_is_durable GCP_TF_DEMO_REMOTE_LOCAL_PATH_DATA "$REMOTE_LOCAL_PATH_DATA" \
+    "the local-path provisioner storage, bind-mounted into the Kind node" \
+    "Recreating the Kind cluster is required if this directory is destroyed."
 }
 
 provision_remote_paths() {
@@ -1612,13 +1659,15 @@ provision_remote_paths() {
   # nothing else — no rm, no install -m, no truncation. chmod 700 because it
   # holds a cosign private key; cosign writes the key file itself 0600, but the
   # directory it lands in is created by us and would otherwise be 0755.
-  vm_ssh "sudo mkdir -p $(printf '%q' "$REMOTE_REPORT_DIR") $(printf '%q' "$log_dir") $(printf '%q' "$REMOTE_KEYS_DIR") $(printf '%q' "$REMOTE_ZOT_CACHE") $(printf '%q' "$REMOTE_POSTGRES_DATA") \
+  vm_ssh "sudo mkdir -p $(printf '%q' "$REMOTE_REPORT_DIR") $(printf '%q' "$log_dir") $(printf '%q' "$REMOTE_KEYS_DIR") $(printf '%q' "$REMOTE_ZOT_CACHE") $(printf '%q' "$REMOTE_POSTGRES_DATA") $(printf '%q' "$REMOTE_LOCAL_PATH_DATA") \
     && sudo chown -R ${owner} $(printf '%q' "$REMOTE_REPORT_DIR") \
-    && sudo chown ${owner} $(printf '%q' "$REMOTE_KEYS_DIR") $(printf '%q' "$REMOTE_ZOT_CACHE") $(printf '%q' "$REMOTE_POSTGRES_DATA") \
+    && sudo chown ${owner} $(printf '%q' "$REMOTE_KEYS_DIR") $(printf '%q' "$REMOTE_ZOT_CACHE") $(printf '%q' "$REMOTE_POSTGRES_DATA") $(printf '%q' "$REMOTE_LOCAL_PATH_DATA") \
     && sudo chmod 700 $(printf '%q' "$REMOTE_KEYS_DIR") \
+    && sudo chmod 700 $(printf '%q' "$REMOTE_POSTGRES_DATA") \
+    && sudo chmod 777 $(printf '%q' "$REMOTE_LOCAL_PATH_DATA") \
     && sudo touch $(printf '%q' "$REMOTE_LOG") \
     && sudo chown ${owner} $(printf '%q' "$REMOTE_LOG")" \
-    || die "could not provision ${REMOTE_REPORT_DIR}, ${REMOTE_KEYS_DIR}, ${REMOTE_ZOT_CACHE}, ${REMOTE_POSTGRES_DATA} and ${REMOTE_LOG} on ${INSTANCE_NAME}. The pipeline writes its verdict there and cannot start without them."
+    || die "could not provision ${REMOTE_REPORT_DIR}, ${REMOTE_KEYS_DIR}, ${REMOTE_ZOT_CACHE}, ${REMOTE_POSTGRES_DATA}, ${REMOTE_LOCAL_PATH_DATA} and ${REMOTE_LOG} on ${INSTANCE_NAME}. The pipeline writes its verdict there and cannot start without them."
 }
 
 # Kustomize uses .git/ as a security boundary for relative path traversal:
@@ -1775,6 +1824,7 @@ run_exit_trap() {
   # green stages to exactly that shape.
   reclaim_tailnet_origin_on_abort || true
 
+  cleanup_ref_worktree || true
   local outcome=""
   if [ -f "${REPORT_DIR}/${SUMMARY_NAME}" ]; then
     outcome="$(jq -r '.outcome // ""' "${REPORT_DIR}/${SUMMARY_NAME}" 2>/dev/null || echo "")"
@@ -1881,10 +1931,10 @@ run_pipeline() {
   # pipeline publishes the same dashboard Nginx service for its handover.
   # Exporting APP_PORT would couple independent lifecycle owners.
   local envs
-  printf -v envs 'DEMO_ENV=%q DEMO_STAGE=%q DEMO_WORK_DIR=%q DEMO_REPORT_DIR=%q DEMO_SUMMARY_FILE=%q DEMO_DASHBOARD_HOSTNAME=%q DEMO_PIPELINE_LOG=%q DEMO_SOURCE_COMMIT=%q DEMO_SOURCE_BRANCH=%q DEMO_KEYS_DIR=%q DEMO_ZOT_CACHE_DIR=%q DEMO_POSTGRES_DATA_DIR=%q' \
+  printf -v envs 'DEMO_ENV=%q DEMO_STAGE=%q DEMO_WORK_DIR=%q DEMO_REPORT_DIR=%q DEMO_SUMMARY_FILE=%q DEMO_DASHBOARD_HOSTNAME=%q DEMO_PIPELINE_LOG=%q DEMO_SOURCE_COMMIT=%q DEMO_SOURCE_BRANCH=%q DEMO_KEYS_DIR=%q DEMO_ZOT_CACHE_DIR=%q DEMO_POSTGRES_DATA_DIR=%q DEMO_LOCAL_PATH_DATA_DIR=%q' \
     "$ENV_KEY" "$stage" "$REMOTE_WORK_DIR" "$REMOTE_REPORT_DIR" \
     "${REMOTE_REPORT_DIR}/${SUMMARY_NAME}" "$DASHBOARD_HOST" \
-    "$REMOTE_LOG" "$RUN_COMMIT" "$RUN_BRANCH" "$REMOTE_KEYS_DIR" "$REMOTE_ZOT_CACHE" "$REMOTE_POSTGRES_DATA"
+    "$REMOTE_LOG" "$RUN_COMMIT" "$RUN_BRANCH" "$REMOTE_KEYS_DIR" "$REMOTE_ZOT_CACHE" "$REMOTE_POSTGRES_DATA" "$REMOTE_LOCAL_PATH_DATA"
 
   # `env VAR=… cmd` with no sudo when no service account is configured. v1 always
   # drops to `ci`; here that account is not guaranteed to exist, and `sudo -u`
@@ -2091,10 +2141,62 @@ prepare() {
   require_operator_sa
 }
 
+# Which commit this run is ABOUT, in order of authority:
+#
+#   1. SOURCE_SHA, set by resolve_source_ref on the commands that build and
+#      deliver a payload (up, test). That is the payload.
+#   2. The hand-off's source_sha, written by record_source_in_handoff once a
+#      payload landed. Commands that only LOOK at a lane (ts-test, acceptance)
+#      are about what is deployed there, so this beats any ref named now.
+#   3. GCP_TF_DEMO_REF, resolved now, for a lane that has never recorded one.
+#   4. Local HEAD, last, because it is the operator's checkout and not the lane.
+#
+# The hand-off is located here rather than trusted to the caller: cmd_ts_test
+# called this before it set HANDOFF_FILE, so (2) never fired and every tailnet
+# receipt stamped local HEAD (4884c2e0 against a pipeline running c2335169).
+# With (3) ahead of (2), `GCP_TF_DEMO_REF=HEAD`, which the Makefile passes
+# through, did the same thing by another route.
 capture_source_identity() {
-  RUN_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-  RUN_BRANCH="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+  local h_sha="" h_ref=""
+  local hfile="${HANDOFF_FILE:-${HANDOFF_DIR}/${ENV_KEY}.handoff.json}"
+  if [ -z "$SOURCE_SHA" ] && [ -f "$hfile" ]; then
+    h_sha="$(jq -r '.source_sha // ""' "$hfile" 2>/dev/null || true)"
+    h_ref="$(jq -r '.source_ref // ""' "$hfile" 2>/dev/null || true)"
+  fi
+  if [ -n "$SOURCE_SHA" ]; then
+    RUN_COMMIT="$("$GIT_CMD" -C "$REPO_ROOT" rev-parse --short "$SOURCE_SHA" 2>/dev/null || echo unknown)"
+    RUN_BRANCH="${SOURCE_REF:-unknown}"
+  elif [ -n "$h_sha" ]; then
+    RUN_COMMIT="$("$GIT_CMD" -C "$REPO_ROOT" rev-parse --short "$h_sha" 2>/dev/null || echo "${h_sha:0:7}")"
+    RUN_BRANCH="${h_ref:-unknown}"
+  elif [ -n "${GCP_TF_DEMO_REF:-}" ]; then
+    resolve_source_ref
+    RUN_COMMIT="$("$GIT_CMD" -C "$REPO_ROOT" rev-parse --short "$SOURCE_SHA" 2>/dev/null || echo unknown)"
+    RUN_BRANCH="${SOURCE_REF:-unknown}"
+  else
+    RUN_COMMIT="$("$GIT_CMD" -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    RUN_BRANCH="$("$GIT_CMD" -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+  fi
   RUN_STARTED_AT="$(date -Iseconds)"
+}
+
+record_source_in_handoff() {
+  [ -f "$HANDOFF_FILE" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local tmp="${HANDOFF_FILE}.$$.tmp"
+  local rec_at
+  rec_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  if jq \
+    --arg ref "$SOURCE_REF" \
+    --arg sha "$SOURCE_SHA" \
+    --arg rec "$rec_at" \
+    '. + {source_ref: $ref, source_sha: $sha, source_recorded_at: $rec}' \
+    "$HANDOFF_FILE" > "$tmp" 2>/dev/null && mv "$tmp" "$HANDOFF_FILE"; then
+    return 0
+  else
+    rm -f "$tmp"
+    return 1
+  fi
 }
 
 # stage is "full" (build the estate, then test it) or "test" (tests only).
@@ -2131,6 +2233,12 @@ run_lane() {
 
   set_run_phase "delivering-code"
   deliver_code
+  # The payload is on the VM from here, so the hand-off records it NOW, whatever
+  # the outcome. It used to run on PASS only, which left source_sha/source_ref
+  # null on every lane whose pipeline had not passed since the hand-off was
+  # generated, and those are the lanes someone most needs the deployed commit
+  # for. Not fatal: bookkeeping must not decide the verdict of a run.
+  record_source_in_handoff || warn "could not record source identity in ${HANDOFF_FILE}"
   # AFTER deliver_code, never before: deliver_code does `rm -rf $REMOTE_WORK_DIR`
   # and the archive lands inside that directory (see remote_afm_archive for why
   # it lands there). Delivering first would silently throw it away, and the
@@ -2208,6 +2316,7 @@ run_lane() {
 }
 
 cmd_up() {
+  resolve_source_ref
   prepare up
   local stage="${DEMO_STAGE:-}"
   if [ -z "$stage" ]; then
@@ -2227,12 +2336,14 @@ cmd_clean_down() {
   vm_scp "${REPO_ROOT}/scripts/prelive-clean-down.sh" "${INSTANCE_NAME}:${staged}"
   vm_ssh "sudo cp -f $(printf '%q' "$staged") $(printf '%q' "${REMOTE_WORK_DIR}/scripts/prelive-clean-down.sh") && sudo chmod +x $(printf '%q' "${REMOTE_WORK_DIR}/scripts/prelive-clean-down.sh") && rm -f $(printf '%q' "$staged")"
   local clean_cmd
+  # shellcheck disable=SC2016  # ${KUBECONFIG:-...} must expand on the VM, not here.
   clean_cmd='cd '"${REMOTE_WORK_DIR}"' && export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}" && ./scripts/prelive-clean-down.sh --clean && make healthcheck'
   remote_run "$clean_cmd"
   log "==> PASS — estate on ${INSTANCE_NAME} is cleaned down to pristine state ready for login."
 }
 
 cmd_test() {
+  resolve_source_ref
   prepare test
   run_lane test
 }
@@ -2426,6 +2537,7 @@ dex_origin() {
     return $?
   fi
   local remote
+  # shellcheck disable=SC2016  # ${KUBECONFIG:-...} must expand on the VM, not here.
   printf -v remote 'cd %q && export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}" && %q %s' "$REMOTE_WORK_DIR" \
     "${REMOTE_WORK_DIR}/${DEX_ORIGIN_REL}" "$(printf '%q ' "$@")"
   remote_run "$remote"
@@ -2763,7 +2875,7 @@ RUN_USER="\$(id -un)"
 # service, which reads as a broken cluster; and a unit that restarts always
 # turns that into an INFINITE LOOP reported as \`active\`, with the health gate
 # timing out two minutes later having named nothing at all.
-if ! "\$KUBECTL" get service -n '${DASHBOARD_NAMESPACE}' '${DASHBOARD_SERVICE}' >/dev/null 2>&1; then
+if ! "\$KUBECTL" --context "${GCP_TF_DEMO_KUBECTL_CONTEXT:-kind-osramp}" get service -n '${DASHBOARD_NAMESPACE}' '${DASHBOARD_SERVICE}' >/dev/null 2>&1; then
   echo "NO_DASHBOARD_SERVICE ${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE}" >&2
   exit 5
 fi
@@ -2781,7 +2893,7 @@ Wants=network-online.target
 Type=simple
 User=\${RUN_USER}
 Environment=KUBECONFIG=\${KUBECONFIG_PATH}
-ExecStart=\${KUBECTL} port-forward --namespace ${DASHBOARD_NAMESPACE} svc/${DASHBOARD_SERVICE} --address ${FORWARD_BIND_ADDRESS} ${port}:${DASHBOARD_SERVICE_PORT}
+ExecStart=\${KUBECTL} --context ${GCP_TF_DEMO_KUBECTL_CONTEXT:-kind-osramp} port-forward --namespace ${DASHBOARD_NAMESPACE} svc/${DASHBOARD_SERVICE} --address ${FORWARD_BIND_ADDRESS} ${port}:${DASHBOARD_SERVICE_PORT}
 # always, not on-failure: a port-forward that loses its pod exits ZERO, so
 # on-failure would leave the demo dead with the unit reported cleanly finished.
 Restart=always

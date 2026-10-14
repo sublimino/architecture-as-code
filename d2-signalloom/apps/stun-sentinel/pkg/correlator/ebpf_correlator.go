@@ -895,6 +895,8 @@ func (m *SentinelProbeManager) NormalizeObservation(raw SyscallEvent, pod *corev
 		syscallName = SyscallNameConnect
 	case SyscallTypeOpenat:
 		syscallName = SyscallNameOpenat
+	case SyscallTypeOpenat2:
+		syscallName = SyscallNameOpenat2
 	}
 
 	// Severity: a sensitive open, exec or burst is CRITICAL and freezes; a
@@ -1362,4 +1364,39 @@ func (m *SentinelProbeManager) dispatchObservation(obs TelemetryObservation) err
 	}
 
 	return nil
+}
+
+// ReportDropAnomaly enqueues an anomaly observation to signal-ingest reporting
+// kernel ring buffer drops. A drop count of 0 is a no-op.
+func (m *SentinelProbeManager) ReportDropAnomaly(drops uint64) {
+	if drops == 0 {
+		return
+	}
+	obs := TelemetryObservation{
+		Timestamp:      time.Now().UTC().Format(time.RFC3339Nano),
+		ActorID:        "signalloom-warden",
+		TenantID:       UnattributedTenantID,
+		PodName:        m.self.PodName,
+		Namespace:      m.self.Namespace,
+		Syscall:        SyscallNameRingbufDrops,
+		Target:         fmt.Sprintf("kernel_ringbuf_drops=%d", drops),
+		Severity:       SeverityCritical,
+		DirectReaction: ReactionNone,
+		Labels: map[string]string{
+			"anomaly_type": "ringbuf_drops",
+			"drop_count":   strconv.FormatUint(drops, 10),
+		},
+	}
+	if obs.PodName == "" {
+		obs.PodName = "signalloom-warden"
+	}
+	if obs.Namespace == "" {
+		obs.Namespace = "fe-signalloom-agents"
+	}
+	select {
+	case m.queue <- obs:
+		m.stats.enqueued.Add(1)
+	default:
+		m.stats.queueDropped.Add(1)
+	}
 }

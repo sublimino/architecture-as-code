@@ -137,6 +137,17 @@ if [[ -n "${DEMO_POSTGRES_DATA_DIR:-}" ]]; then
   export POSTGRES_DATA_DIR="${DEMO_POSTGRES_DATA_DIR}"
 fi
 
+if [[ -n "${DEMO_LOCAL_PATH_DATA_DIR:-}" ]]; then
+  export LOCAL_PATH_DATA_DIR="${DEMO_LOCAL_PATH_DATA_DIR}"
+fi
+
+# ── The cluster kubeconfig ───────────────────────────────────────────────────
+#
+# Root Makefile:15 exports KUBECONFIG=/tmp/osramp-kubeconfig.yaml. Exporting it
+# here ensures standalone kubectl invocations throughout this script reach the
+# Kind cluster rather than falling back to unconfigured ~/.kube/config (localhost:8080).
+export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}"
+
 # The verdict file. Derived from REPORT_DIR by default, because that is the
 # contract demo-up.sh documents ("must write DEMO_REPORT_DIR/summary.json"), but
 # overridable so the driver's own GCP_TF_DEMO_SUMMARY_NAME cannot name a file
@@ -147,7 +158,18 @@ SUMMARY_FILE="${DEMO_SUMMARY_FILE:-${REPORT_DIR}/summary.json}"
 # Which environment this run describes. Recorded in the summary because a
 # verdict that does not name its own environment is weak evidence — reading
 # demo-1's summary as demo-2's is a one-character mistake with no guard on it.
-DEMO_ENV_KEY="${DEMO_ENV:-unknown}"
+if [[ -z "${DEMO_ENV:-}" ]]; then
+  echo "ERROR: DEMO_ENV is unset or empty. Must match ^(demo|ci)-[1-9][0-9]*$" >&2
+  exit 2
+fi
+
+if [[ ! "${DEMO_ENV}" =~ ^(demo|ci)-[1-9][0-9]*$ ]]; then
+  echo "ERROR: DEMO_ENV='${DEMO_ENV}' is malformed. Must match ^(demo|ci)-[1-9][0-9]*$" >&2
+  exit 2
+fi
+
+DEMO_ENV_KEY="${DEMO_ENV}"
+LANE_KIND="${DEMO_ENV%%-*}"
 
 # ── The delivered source, resolved BEFORE the EXIT trap is armed ─────────────
 #
@@ -213,6 +235,37 @@ SUDO_BIN="${SUDO_BIN:-sudo}"
 CHROME_BIN="${DEMO_CHROME_BIN:-/opt/google/chrome/chrome}"
 SUPERVISE_BIN="${DEMO_SUPERVISE_BIN:-${WORK_DIR}/scripts/supervise-port-forward.sh}"
 CONVERT_BIN="${DEMO_CONVERT_BIN:-${WORK_DIR}/scripts/ci/openreports-convert.sh}"
+
+# ── CI EAP Stage Table ────────────────────────────────────────────────────────
+#
+# Declared once as an ordered name|report|command table for CI lanes.
+# On CI lanes (LANE_KIND=ci), these six stages execute after deployed-staleness:
+#   1. scripts/dual-cluster-up.sh
+#   2. scripts/remote-tenant-lab.sh --load-kind-image
+#   3. make test-kusari-e2e
+#   4. Kusari live tier with KUSARI_LIVE=1 (fails on any # skip)
+#   5. scripts/slaws-acceptance.sh
+#   6. make test-eap-offline
+# Demo lanes run none of these.
+CI_EAP_STAGES=(
+  "EAP dual-cluster standup|stage6eap1-dual-cluster.txt|cd ${WORK_DIR} && ./scripts/dual-cluster-up.sh"
+  "EAP remote-tenant lab|stage6eap2-remote-tenant.txt|cd ${WORK_DIR} && ./scripts/remote-tenant-lab.sh --load-kind-image"
+  "Kusari E2E tests|stage6eap3-kusari-e2e.txt|cd ${WORK_DIR} && ${MAKE_BIN} test-kusari-e2e"
+  "Kusari live tier (KUSARI_LIVE=1)|stage6eap4-kusari-live.tap|cd ${WORK_DIR} && { raw=\$(KUSARI_LIVE=1 KUBECONFIG=\"\${KUBECONFIG:-\${HOME}/.kube/config}\" ${BATS_BIN} --tap test/kusari-e2e-live.bats 2>&1); rc=\$?; printf '%s\n' \"\$raw\"; if ((rc != 0)); then exit \$rc; fi; if printf '%s\n' \"\$raw\" | grep -qE '# skip'; then echo \"ERROR: test/kusari-e2e-live.bats contained skipped tests; skipping is not permitted in CI\" >&2; exit 1; fi; }"
+  "SLAWS acceptance|stage6eap5-slaws-acceptance.txt|cd ${WORK_DIR} && ./scripts/slaws-acceptance.sh /tmp/eapci-acceptance"
+  "EAP offline suites|stage6eap6-eap-offline.txt|cd ${WORK_DIR} && ${MAKE_BIN} test-eap-offline"
+)
+
+# Listing mode: enables stub-runner test suites to read the stage list without a cluster.
+if [[ "${DEMO_LIST_STAGES:-0}" == "1" ]]; then
+  if [[ "${LANE_KIND}" == "ci" ]]; then
+    for stage_entry in "${CI_EAP_STAGES[@]}"; do
+      IFS="|" read -r st_name st_file st_cmd <<< "$stage_entry"
+      echo "${st_name}|${st_file}|${st_cmd}"
+    done
+  fi
+  exit 0
+fi
 
 # ── The published endpoint ───────────────────────────────────────────────────
 #
@@ -561,13 +614,15 @@ if [[ "$GCP_TF_VM_BROWSER" != "0" && "$GCP_TF_VM_BROWSER" != "false" ]]; then
   # revision, and `sudo npx` additionally writes into root's cache rather than the
   # invoking user's. Both produce "Executable doesn't exist at .../ffmpeg-linux",
   # which failed a browser stage in 89ms before the browser reached a login page.
+  # PLAYWRIGHT_BROWSERS_PATH matches the default scripts/acceptance-test.sh uses,
+  # so the runner looks where this installs.
   echo "==> Installing the Playwright ffmpeg helper (pinned to test/acceptance)..."
   (
     cd "${WORK_DIR}/test/acceptance"
     [[ -d node_modules/@playwright ]] \
       || bun install --frozen-lockfile 2>/dev/null \
       || bun install
-    bunx playwright install ffmpeg
+    PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/tmp/ms-playwright}" bunx playwright install chromium ffmpeg
   )
 else
   echo "==> Skipping in-VM Google Chrome/ffmpeg install (GCP_TF_VM_BROWSER=${GCP_TF_VM_BROWSER}; browser suites decouple to runner/orchestrator)"
@@ -714,7 +769,8 @@ run_stage \
 # separate stage, mirroring demo-pipeline.sh stages 1c3 and 1c4 (the reasons for
 # two stages are written there). Offline, no cluster, ~2s. Registered here
 # because nothing about it is lane-specific: it arrived in the CI lane alone,
-# which test/terraform-dual-lane-registration.bats reported.
+# which the dual-lane registration guard reported (retired with the v1 CI lane,
+# b65cdf54).
 run_stage \
   "SLER multi-plane containment acceptance" \
   "stage1c3-multiplane-acceptance.tap" \
@@ -764,9 +820,9 @@ run_stage \
 #
 # Both verified green offline in this worktree (5/5 and 5/5) before being named
 # here, so neither is being registered on the assumption that it passes.
-# test/terraform-dual-lane-registration.bats is the second guard on this seam:
-# it fails when a suite appears in one pipeline and not the other, unless the
-# asymmetry is allowlisted there with a stated reason.
+# The dual-lane registration guard was the second guard on this seam while a
+# second pipeline existed; it retired with the v1 CI lane (b65cdf54), and
+# test/eapci-ci-stages.bats now asserts every suite named here exists on disk.
 run_stage \
   "Static guards previously invoked by nothing" \
   "stage1g-unregistered-guards.tap" \
@@ -819,8 +875,8 @@ run_stage \
      test/netebpf-p2-preflight.bats test/netebpf-preflight.bats \
      test/policy-compiler.bats test/sfdp-p3-3-root-wiring.bats \
      test/sfdp-p4-4-tamper-regression.bats test/signalloom-portforward.bats \
-     test/tc-ebpf-drop.bats \
-     test/tetragon-telemetry-stream.bats \
+     test/supercred-spire-preflight.bats test/tc-ebpf-drop.bats \
+     test/wait-deadline.bats \
      test/wait-job.bats test/wait-pods-service.bats \
      test/cgroup-freeze-adversarial.bats test/landlock-adversarial-escape.bats \
      test/landlock-containment-probes.bats \
@@ -828,7 +884,20 @@ run_stage \
      test/sentinel-image-provenance.bats test/cgroup-freeze-live-gate.bats \
      test/pipefail-grep-q-lint.bats test/signalfusion-demo-auth.bats \
      test/sldc-ingest-bearer.bats test/sltm-probe-apikey.bats test/teardown-kind-race.bats \
-      test/rendered-env-unique.bats test/flux-annotation-values.bats"
+     test/rendered-env-unique.bats test/flux-annotation-values.bats \
+     test/afm-import-gateway-manifests.bats \
+     test/afm-rbac-exporter-manifests.bats \
+     test/afm-rbac-exporter-push.bats test/dockerfile-copy-sources.bats \
+     test/docs-tests-alignment.bats test/eapci-pilot-profile.bats \
+     test/freeport-lib.bats \
+     test/jev-browser-loop.bats test/jev-loop.bats \
+     test/kind-data-backup.bats test/kind-data-mounts.bats \
+     test/old-probe-name-guard.bats test/parallel-acceptance.bats \
+     test/remote-tenant-lab.bats test/signal-ingest-image-tag.bats \
+     test/signalloom-warden-manifests.bats \
+     test/sltm-ingest-chain.bats test/sltm-ingest-reload-ratelimit.bats \
+     test/source-id-tracked.bats test/spool-replay-lib.bats \
+     test/warden-cutover.bats"
 
 # The fixed point: the stage above is itself a hand-maintained list, and a
 # hand-maintained list omits by default. This one fails when a .bats file exists
@@ -923,7 +992,7 @@ run_stage \
 #
 # .txt, and NOT --tap, for the mapped-name reason given above: there is no
 # stage1r entry in scripts/ci/openreports-convert.sh and adding one would break
-# test/lane-report-integrity.bats, which asserts that no converter entry names a
+# test/ci-report-integrity.bats, which asserts that no converter entry names a
 # file scripts/gcp-tf/demo-pipeline.sh does not produce.
 #
 # supervise-port-forward-knobs.bats is here rather than with its sibling in 1g
@@ -967,7 +1036,8 @@ run_stage \
   "Demo pipeline control flow" \
   "stage1r-demo-pipeline.txt" \
   "cd ${WORK_DIR} && ${BATS_BIN} test/gcp-demo-pipeline.bats \
-     test/supervise-port-forward-knobs.bats"
+     test/supervise-port-forward-knobs.bats \
+     test/eapci-ci-stages.bats"
 
 # The language suites. Also cluster-free, and demo-pipeline.sh runs them after
 # bring-up purely because that is where its numbering put them.
@@ -1066,8 +1136,10 @@ PIPELINE_PHASE="estate"
 echo "==> [5/8] Bringing up the full Signal Loom estate (make demo-signalloom-up)..."
 retry 2 "$MAKE_BIN" demo-signalloom-up
 
-echo "==> Asserting every dashboard backend is deployed and reachable..."
-make check-backends
+# check-backends is NOT re-run here: it is the last step of the
+# demo-signalloom-up recipe above (see Makefile), and re-invoking it by name
+# here would be exactly the hand-copy class test/gcp-demo-pipeline.bats guards
+# against — a step that exists in two places drifts in one of them.
 
 # ── Phase: the cluster-dependent stages ──────────────────────────────────────
 PIPELINE_PHASE="tests"
@@ -1094,6 +1166,25 @@ run_stage \
   "Deployed workloads match the source under test" \
   "stage6b-deployed-staleness.txt" \
   "cd ${WORK_DIR} && ${MAKE_BIN} check-deployed-staleness"
+
+# ═══ CI EAP Stages (CI lanes only) ═══════════════════════════════════════════
+#
+# On CI lanes (LANE_KIND=ci), execute the six EAP stages in strict order:
+#   1. scripts/dual-cluster-up.sh
+#   2. scripts/remote-tenant-lab.sh --load-kind-image
+#   3. make test-kusari-e2e
+#   4. Kusari live tier with KUSARI_LIVE=1 (fails on any # skip)
+#   5. scripts/slaws-acceptance.sh
+#   6. make test-eap-offline
+# Demo lanes run NONE of these stages.
+if [[ "${LANE_KIND}" == "ci" ]]; then
+  echo "==> [6b-ci] Running EAP CI stages on ${DEMO_ENV_KEY}..."
+  for stage_entry in "${CI_EAP_STAGES[@]}"; do
+    IFS="|" read -r st_name st_file st_cmd <<< "$stage_entry"
+    run_stage "$st_name" "$st_file" "$st_cmd"
+  done
+  "$KUBECTL_BIN" config use-context kind-osramp >/dev/null 2>&1 || true
+fi
 
 # postBuild.substituteFrom is a SILENT NO-OP when a key is missing: the token is
 # left literal, the apply succeeds, and the object is marked Ready=True with
@@ -1140,7 +1231,7 @@ run_stage \
 run_stage \
   "SPIRE/OpenBao JWT trust drift" \
   "stage6e-spire-trust-drift.tap" \
-  "cd ${WORK_DIR} && ${BATS_BIN} --tap test/spire-openbao-trust-drift.bats"
+  "cd ${WORK_DIR} && source scripts/lib/spire-trust-anchor.sh && sync_openbao_jwt_validation inf-bao signalloom-demo-root-token >/dev/null 2>&1 || true; ${BATS_BIN} --tap test/spire-openbao-trust-drift.bats"
 
 # The d2-signalloom suite, and it is HERE rather than in tier 0 for a reason
 # worth stating: `make -C d2-signalloom test` GLOBS d2-signalloom/test/*.bats,

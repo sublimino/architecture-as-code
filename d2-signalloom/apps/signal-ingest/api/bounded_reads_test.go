@@ -91,6 +91,42 @@ func (c *countingStore) ObservationStats(ctx context.Context, q store.Query) (st
 	return out, err
 }
 
+// QueryPage counts the rows a PAGED read returned. GET /api/v1/observations reads through it
+// (P1-6 deterministic paging), so without this override the observations-list assertions would
+// see no query at all. The PageQuery is recorded in Query form — tenant scope as TenantID, the
+// page size as Limit — so unfiltered() judges it by the same rule as every other door.
+func (c *countingStore) QueryPage(ctx context.Context, q store.PageQuery) ([]model.Observation, error) {
+	out, err := c.SignalStore.QueryPage(ctx, q)
+	asQuery := store.Query{
+		Layers:    q.Layers,
+		After:     q.After,
+		Before:    q.Before,
+		ActorID:   q.ActorID,
+		SubjectID: q.SubjectID,
+		Limit:     q.Limit,
+	}
+	if !q.AllTenants {
+		asQuery.TenantID = q.Tenant
+	}
+	c.queries = append(c.queries, asQuery)
+	c.rows = append(c.rows, len(out))
+	c.totalRows += len(out)
+	return out, err
+}
+
+// Stats records ZERO rows for the same reason ObservationStats does: an aggregate hands back
+// totals, not observations.
+func (c *countingStore) Stats(ctx context.Context, q store.StatsQuery) (store.StoreStats, error) {
+	out, err := c.SignalStore.Stats(ctx, q)
+	asQuery := store.Query{}
+	if !q.AllTenants {
+		asQuery.TenantID = q.Tenant
+	}
+	c.queries = append(c.queries, asQuery)
+	c.rows = append(c.rows, 0)
+	return out, err
+}
+
 // unfiltered reports whether q asks the store for everything it holds.
 func unfiltered(q store.Query) bool {
 	return q.IDs == nil && q.After.IsZero() && q.Before.IsZero() &&

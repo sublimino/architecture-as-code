@@ -3,6 +3,7 @@ import type { AgentResponse } from '../types/api'
 import { getAgentWorkloadSecurityProfile } from './agents/ClaimModal'
 import { colors } from '../styles/tokens'
 import { useAuth0 } from '../auth/oidc'
+import { detectGitOps } from '../utils/gitops'
 
 export interface AgentOnboardingTabProps {
   agent: AgentResponse
@@ -27,6 +28,7 @@ export default function AgentOnboardingTab({ agent, claimError, onOpenClaim }: A
     'default'
 
   const hasTenantMismatch = Boolean(workloadTenant && workloadTenant !== userTenant)
+  const gitops = detectGitOps(agent, { tenant: userTenant })
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null)
 
   const handleCopy = (text: string, id: string) => {
@@ -184,6 +186,104 @@ export default function AgentOnboardingTab({ agent, claimError, onOpenClaim }: A
               </li>
             </ol>
           </div>
+        </div>
+      )}
+
+      {/* ─── GitOps Management & Remediation Card ────────────────────────────── */}
+      {gitops.isGitOps && (
+        <div
+          className="card"
+          data-testid="onboarding-gitops-notice"
+          style={{
+            padding: '16px 20px',
+            background: 'rgba(234, 179, 8, 0.08)',
+            border: '1px solid rgba(234, 179, 8, 0.35)',
+            borderRadius: 8,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 16 }}>⚡</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>
+                GitOps Reconciliation Active: Git-First Remediation Required
+              </span>
+            </div>
+            <span
+              data-testid="gitops-engine-badge"
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                padding: '3px 10px',
+                borderRadius: 4,
+                background: 'rgba(56, 189, 248, 0.15)',
+                color: colors.cyanLoom,
+                border: '1px solid rgba(56, 189, 248, 0.35)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.03em',
+              }}
+            >
+              {gitops.engine === 'flux'
+                ? 'Flux GitOps Managed'
+                : gitops.engine === 'argo'
+                ? 'ArgoCD Managed'
+                : 'GitOps Managed'}
+            </span>
+          </div>
+
+          <p
+            data-testid="gitops-recommendation"
+            style={{ margin: 0, fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}
+          >
+            {gitops.recommendation}
+          </p>
+
+          {gitops.commitSha && (
+            <div style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span>Observed Commit:</span>
+              <code style={{ color: 'var(--cyan)', background: 'var(--surface2)', padding: '2px 6px', borderRadius: 3 }}>
+                {gitops.commitSha.slice(0, 8)}
+              </code>
+            </div>
+          )}
+
+          {gitops.patchYaml && (
+            <div style={{ marginTop: 4 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
+                  Declarative Remediation Patch (Kustomization / Git Manifest):
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  data-testid="onboarding-copy-gitops-patch-btn"
+                  onClick={() => handleCopy(gitops.patchYaml!, 'gitops-patch')}
+                  style={{ fontSize: 11, padding: '3px 10px' }}
+                >
+                  {copiedCmd === 'gitops-patch' ? 'Copied! ✓' : 'Copy YAML Patch'}
+                </button>
+              </div>
+              <pre
+                data-testid="onboarding-gitops-patch"
+                style={{
+                  background: 'var(--surface2)',
+                  padding: '10px 14px',
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                  color: 'var(--cyan)',
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                  margin: 0,
+                  whiteSpace: 'pre-wrap',
+                  overflowX: 'auto',
+                }}
+              >
+                {gitops.patchYaml}
+              </pre>
+            </div>
+          )}
         </div>
       )}
 

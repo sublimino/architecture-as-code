@@ -219,5 +219,39 @@ describe('ClaimModal & getAgentWorkloadSecurityProfile', () => {
     expect(screen.getByTestId('claim-modal-tenant-mismatch-warning')).toHaveTextContent('kusari')
     expect(screen.getByTestId('claim-modal-tenant-mismatch-warning')).toHaveTextContent('kubectl -n fe-signalloom-agents label pod')
   })
+
+  it('displays GitOps warning notice in info panel when workload is managed by GitOps', () => {
+    const gitopsAgent: AgentResponse = {
+      ...createMockDiscoveredAgent(),
+      runtime: {
+        ...createMockDiscoveredAgent().runtime,
+        labels: {
+          'kustomize.toolkit.fluxcd.io/name': 'agent-flux-app',
+          'kustomize.toolkit.fluxcd.io/namespace': 'flux-system',
+        },
+      } as any,
+    }
+
+    render(<ClaimModal agent={gitopsAgent} onClose={vi.fn()} />)
+
+    const infoPanel = screen.getByTestId('claim-modal-info-panel')
+    expect(infoPanel).toBeInTheDocument()
+
+    const gitopsNotice = screen.getByTestId('claim-modal-gitops-notice')
+    expect(gitopsNotice).toBeInTheDocument()
+    expect(gitopsNotice).toHaveTextContent('GitOps Managed Workload')
+    expect(gitopsNotice).toHaveTextContent('managed by GitOps (flux)')
+    expect(gitopsNotice).toHaveTextContent('Commit the governance label change to your git repository or Kustomization manifest')
+    expect(screen.getByTestId('claim-modal-gitops-badge')).toHaveTextContent('Flux')
+    expect(screen.getByTestId('claim-modal-gitops-patch')).toHaveTextContent('signalloom.ai/tenant')
+  })
+
+  it('does not display GitOps notice in info panel when workload is unmanaged', () => {
+    const bareAgent = createMockDiscoveredAgent()
+    render(<ClaimModal agent={bareAgent} onClose={vi.fn()} />)
+
+    expect(screen.queryByTestId('claim-modal-gitops-notice')).not.toBeInTheDocument()
+  })
 })
+
 

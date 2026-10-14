@@ -20,6 +20,7 @@ function createMockAgent(overrides: Partial<AgentResponse> = {}): AgentResponse 
     tenant_id: 'kusari',
     tenant: 'kusari',
     lifecycle_state: 'discovered',
+    last_transition_at: null,
     eu_ai_act_risk_class: 'limited',
     compliance_summary: {
       total_controls: 8,
@@ -82,5 +83,55 @@ describe('AgentOnboardingTab', () => {
     const claimBtn = screen.getByTestId('onboarding-open-claim-btn')
     fireEvent.click(claimBtn)
     expect(onOpenClaim).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders GitOps notice card when workload has Flux GitOps management signals', () => {
+    const fluxAgent = createMockAgent({
+      runtime: {
+        cluster_id: 'osramp',
+        namespace: 'fe-signalloom-agents',
+        pod_name: 'agent-flux-managed-pod',
+        labels: {
+          'kustomize.toolkit.fluxcd.io/name': 'apps-fleet',
+          'kustomize.toolkit.fluxcd.io/namespace': 'flux-system',
+        },
+      } as any,
+    })
+
+    render(<AgentOnboardingTab agent={fluxAgent} />)
+
+    expect(screen.getByTestId('onboarding-gitops-notice')).toBeInTheDocument()
+    expect(screen.getByTestId('gitops-engine-badge')).toHaveTextContent('Flux GitOps Managed')
+    expect(screen.getByTestId('gitops-recommendation')).toHaveTextContent(
+      'This workload is managed by GitOps (flux). Imperative changes via kubectl will be overwritten by GitOps reconciliation. Commit the governance label change to your git repository or Kustomization manifest.'
+    )
+    expect(screen.getByTestId('onboarding-gitops-patch')).toHaveTextContent('signalloom.ai/tenant: default')
+    expect(screen.getByTestId('onboarding-copy-gitops-patch-btn')).toBeInTheDocument()
+  })
+
+  it('renders ArgoCD GitOps badge when workload is managed by ArgoCD', () => {
+    const argoAgent = createMockAgent({
+      runtime: {
+        cluster_id: 'osramp',
+        namespace: 'fe-signalloom-agents',
+        pod_name: 'agent-argo-managed-pod',
+        labels: {
+          'argocd.argoproj.io/instance': 'argo-fleet-app',
+        },
+      } as any,
+    })
+
+    render(<AgentOnboardingTab agent={argoAgent} />)
+
+    expect(screen.getByTestId('onboarding-gitops-notice')).toBeInTheDocument()
+    expect(screen.getByTestId('gitops-engine-badge')).toHaveTextContent('ArgoCD Managed')
+    expect(screen.getByTestId('gitops-recommendation')).toHaveTextContent('managed by GitOps (argo)')
+  })
+
+  it('does not render GitOps notice card for bare unmanaged workloads', () => {
+    const bareAgent = createMockAgent()
+    render(<AgentOnboardingTab agent={bareAgent} />)
+
+    expect(screen.queryByTestId('onboarding-gitops-notice')).not.toBeInTheDocument()
   })
 })

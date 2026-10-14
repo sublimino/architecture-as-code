@@ -754,7 +754,9 @@ sl-drift-sweep.bats
 sl-cluster-diagnostics.bats
 clean-test-artifacts.bats
 local-witness-evidence.bats
-worktree-hygiene.bats"
+worktree-hygiene.bats
+sl-local-deploy.bats
+prelive-clean-down.bats"
 
 	for f in "$repo_root"/test/*.bats; do
 		[ -e "$f" ] || continue

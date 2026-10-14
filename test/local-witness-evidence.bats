@@ -243,3 +243,35 @@ FAKE
 		[ "$status" -eq 0 ]
 	done
 }
+
+# The retained-evidence private-key guard, lifted out of promotion-demo.sh and
+# run under the script's own `set -euo pipefail`. A `find | grep -q .` here was
+# VAC008: grep exits on the first path, find is still writing, takes EPIPE or
+# SIGPIPE, and pipefail turns a FOUND key into "no key found", so the refusal
+# was skipped exactly when it mattered. Thousands of keys keep find writing
+# past the pipe buffer, so that race is lost every run rather than sometimes.
+run_retained_key_guard() {
+	local block
+	block="$(awk '/find "\$\{OUT_DIR\}" -type f/ { on = 1 } on { print } on && /^fi$/ { exit }' \
+		"$repo/scripts/promotion-demo.sh")"
+	[ -n "$block" ]
+	run bash -c "set -euo pipefail; OUT_DIR='$1'; $block"
+}
+
+@test "promotion demo refuses when retained evidence holds a private key" {
+	local out="$BATS_TEST_TMPDIR/evidence"
+	mkdir -p "$out/keys"
+	(cd "$out/keys" && seq -f 'leaked-private-key-%06g.pem' 1 6000 | xargs touch)
+	run_retained_key_guard "$out"
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"private key found in retained evidence"* ]]
+}
+
+@test "promotion demo accepts retained evidence holding only public keys" {
+	local out="$BATS_TEST_TMPDIR/evidence"
+	mkdir -p "$out/keys"
+	(cd "$out/keys" && seq -f 'trusted-%06g-pub.pem' 1 6000 | xargs touch)
+	run_retained_key_guard "$out"
+	[ "$status" -eq 0 ]
+	[ -z "$output" ]
+}

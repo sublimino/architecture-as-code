@@ -76,8 +76,12 @@ witness_local_verify "${DECISION_DIR}" -f "${DECISION_DIR}/promotion-decision.tx
   -p "${OUT_DIR}/decision-policy/promotion-policy.signed.json" \
   -k "${KEYS_DIR}/policy-pub.pem"
 
-if find "${OUT_DIR}" -type f \( -name '*.key' -o -name '*.pem' \) \
-    ! -name '*-pub.pem' | grep -q .; then
+# Read into a variable, never `find ... | grep -q .`: grep exits on the first
+# path while find is still writing, and pipefail turns that SIGPIPE/EPIPE into
+# "nothing found", skipping this refusal exactly when a key is present (VAC008).
+retained_private_keys="$(find "${OUT_DIR}" -type f \( -name '*.key' -o -name '*.pem' \) \
+    ! -name '*-pub.pem')"
+if [ -n "${retained_private_keys}" ]; then
   echo "private key found in retained evidence" >&2
   exit 1
 fi

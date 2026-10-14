@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "logical_id": "SLCO-P1-1",
+  "gate": "C1",
+  "status": "fail",
+  "proceed": false,
+  "blocking_drift": true,
+  "created": "2026-10-15 00:47:50+01:00",
+  "last_updated": "2026-10-15 00:47:50+01:00",
+  "attestation": {
+    "reviewer": "cpai-opencode",
+    "kind": "unsigned blocker finding, not a Gate C1 certification",
+    "independent_review": "general agent confirmed unresolved prerequisite contradiction and advised stopping; no API leak inferred"
+  },
+  "runtime": {
+    "reported_pwd": "/home/andy/.cline/worktrees/e60fd/osramp-demo",
+    "physical_worktree": "/home/andy/src/.worktrees/e60fd/osramp-demo",
+    "base_ref": "refs/heads/integration/slco-v0.1.0",
+    "evaluated_head": "758258131e9b256767fa0f6f4aa046eef4aff46b",
+    "integration_ancestry_exit": 0,
+    "initial_tracked_status": "clean",
+    "active_siblings": ["SLCO-P1-2", "SLCO-P1-3", "SLCO-P1-4"],
+    "board_snapshot": "read once; progress output obtained, command reached ten-second timeout; not a board-health certification"
+  },
+  "blocker": {
+    "type": "material_prerequisite_disposition_contradiction",
+    "decision_policy": "Stop when the approved plan contradicts material on-disk state; do not substitute a ref, file, or approach.",
+    "committed_evidence": "docs/records/ci-evidence/slco-p1-pre-preflight-audit.json",
+    "observed_fields": {"status": "fail", "proceed": false, "blocking_drift": true},
+    "operative_line": "Stop before Phase 1 implementation. Add customer-table ENABLE/FORCE RLS policies through an approved implementation card, then rerun SLCO-P1-PRE.",
+    "proposal_conflict": "PRE Result and header permit proceeding, but detailed PRE body says execution stopped and Phase 1 remains blocked.",
+    "qualification": "This finding does not demonstrate a cross-tenant API leak or an unauthenticated bypass. It does not endorse automatically adding RLS migrations.",
+    "recommended_action": "escalate: reconcile the authoritative PRE disposition and approved zero-skip execution scope, then rerun C1 under the unchanged integration contract"
+  },
+  "prompt_to_artifact_checklist": [
+    {"requirement": "Three named uv pytest suites; 226+ pass; zero failures/skips", "disposition": "not executed after prerequisite stop; no pytest log or pass count claimed"},
+    {"requirement": "Route sweep and complete authenticated endpoint inventory", "disposition": "not executed; no route coverage certification issued"},
+    {"requirement": "Named negative-access case and cross-tenant 403/404 proof", "disposition": "not executed; no HTTP response proof claimed"},
+    {"requirement": "Malformed-payload adversarial fuzzing", "disposition": "not executed; no fuzz pass claimed"},
+    {"requirement": "Sanitised error payload and error-log audit", "disposition": "not executed; no zero-leakage audit claimed"},
+    {"requirement": "Warnings, durations under 60 seconds, PIDs, memory budget", "disposition": "no test processes started; execution metrics are null rather than fabricated"},
+    {"requirement": "Signed C1 runbook ledger entry", "disposition": "not issued: blocked gate cannot receive signed success; no signing identity supplied"},
+    {"requirement": "Life OS and PAI architectural compliance matrix", "disposition": "not certified; canonical Life OS invariant definitions not supplied; static API tests cannot prove live gateway or database controls"},
+    {"requirement": "SHA256 evaluated-artifact evidence", "disposition": "checksums below bind prerequisite evidence and named test bytes at evaluated HEAD"},
+    {"requirement": "Errata and own Result with isolated commit SHA", "disposition": "external proposal failure update follows evidence commit; proposal is not staged"},
+    {"requirement": "Clean worktree and commit matching integration HEAD", "disposition": "clean isolated commit checked at handoff; delivered commit cannot equal unchanged integration HEAD before Governor reconciliation"},
+    {"requirement": "No migrations, live deployment, auth provider/key, pool, frontend, sibling, Kanban state changes", "disposition": "no implementation changes performed"},
+    {"requirement": "No merge, rebase, branch switch, push, or PR", "disposition": "Governor-only integration boundary retained"}
+  ],
+  "test_metrics": {
+    "executed": false,
+    "passed": null,
+    "failed": null,
+    "skipped": null,
+    "warnings": null,
+    "duration_seconds": null,
+    "pid": null,
+    "maximum_resident_memory_kib": null
+  },
+  "checksums_sha256": {
+    "docs/records/ci-evidence/slco-p1-pre-preflight-audit.json": "344acef783c50bb963340d98c1b3ceb647c719eb2da848c71b8ed1ced4068ca4",
+    "d2-signalloom/apps/fe-signalloom/src/tests/test_tenant_isolation.py": "76d766df3bcae147ff1235c6cd72e210cd242efe618ba6c4354f4b5583e9129d",
+    "d2-signalloom/apps/fe-signalloom/src/tests/test_kusari_tenant_isolation.py": "3daf539e9a1ed2865baed8ae46e51fad6754ee1061f6d3a427e83abd2086178a",
+    "d2-signalloom/apps/fe-signalloom/src/tests/test_eap_tenant_isolation.py": "7d49f2d07f4e7a09f7f021d1b850fc415b8e669cf990f535ca288be33fc16b61"
+  }
+}

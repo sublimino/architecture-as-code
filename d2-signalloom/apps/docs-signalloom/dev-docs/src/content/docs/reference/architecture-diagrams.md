@@ -97,6 +97,48 @@ each target.
 - Native Draw.io XML: [osramp-azure-multitenant-saas.drawio](/docs/diagrams/osramp-azure-multitenant-saas.drawio)
 - High-resolution raster PNG: [osramp-azure-multitenant-saas.png](/docs/diagrams/osramp-azure-multitenant-saas.png)
 
+#### Multi-region topology and edge routing
+
+Azure Front Door provides global routing across deployed regions.
+Azure WAF inspects inbound requests at the network edge.
+Azure DNS resolves regional service endpoints for external clients.
+Per-region Application Gateways distribute traffic to internal cluster nodes.
+
+#### Core governance platform
+
+The core governance services operate inside regional AKS clusters:
+- The Dashboard SPA serves user interfaces for fleet observability and control.
+- FastAPI Core (`api-signalloom`) coordinates telemetry processing and tenant administration.
+- Fleet Manager reconciles multi-cluster agent fleets and runtime policies.
+
+#### Runtime, identity, and isolation
+
+The platform deploys containerised agent workloads on managed AKS clusters.
+OpenBao protects cryptographic secrets with Azure Key Vault HSM auto-unseal.
+A SPIRE mTLS mesh secures intra-cluster traffic and provides workload identity.
+The warden monitors containers with eBPF probes, cgroups freeze controllers, and tc stun actions.
+KubeSec AFM runs formal RBAC analysis to detect privilege escalation risks.
+
+#### Ingestion and event sourcing
+
+Azure Event Hubs streams Azure Activity Logs and Diagnostic streams directly to `signal-ingest` collectors.
+The pipeline ingests platform security events continuously.
+The collectors normalise incoming audit events for downstream policy evaluation.
+
+#### Model governance and inference proxy
+
+The CPAI runtime proxy mediates all agent interactions with foundation models.
+The proxy controls access to Azure OpenAI Service endpoints.
+Policy filters inspect model prompts and token usage to prevent data leaks.
+
+#### Dual storage tiering
+
+The Azure deployment uses a dual storage model for compliance and telemetry:
+- Azure Database for PostgreSQL Flexible Server stores transactional audit trail data and tenant policies.
+- Azure Blob Storage and Azure Data Lake store FrostDB telemetry partitions.
+
+This separation isolates relational compliance records from analytical event streams.
+
 ### Amazon Web Services, EKS
 
 ![AWS multi-tenant SaaS architecture](/docs/diagrams/osramp-aws-multitenant-saas.svg)
@@ -105,6 +147,48 @@ each target.
 - Native Draw.io XML: [osramp-aws-multitenant-saas.drawio](/docs/diagrams/osramp-aws-multitenant-saas.drawio)
 - High-resolution raster PNG: [osramp-aws-multitenant-saas.png](/docs/diagrams/osramp-aws-multitenant-saas.png)
 
+#### Multi-region topology and edge routing
+
+The Amazon CloudFront edge CDN serves static portal assets and routes global user traffic.
+AWS WAF blocks malicious traffic at edge points of presence.
+Amazon Route 53 delivers high-availability DNS failover across regions.
+Per-region Application Load Balancers terminate client connections and forward traffic to compute nodes.
+
+#### Core governance platform
+
+The Signal Loom governance stack deploys into regional EKS clusters:
+- The Dashboard SPA visualises agent fleets, posture scores, and active alerts.
+- FastAPI Core (`api-signalloom`) handles telemetry ingestion APIs and operational controls.
+- Fleet Manager controls agent deployments across registered tenant clusters.
+
+#### Runtime, identity, and isolation
+
+EKS clusters run Bottlerocket worker nodes with AWS Nitro Enclaves for isolation.
+OpenBao secures platform credentials using AWS KMS CMK auto-unseal.
+A SPIRE mTLS mesh secures inter-service traffic and issues workload identities.
+The warden enforces workload isolation with eBPF tracing, cgroups freeze limits, and tc stun rules.
+KubeSec AFM performs formal RBAC analysis across cluster permissions.
+
+#### Ingestion and event sourcing
+
+Amazon EventBridge collects Amazon CloudTrail and Amazon GuardDuty findings.
+EventBridge delivers these streams to Amazon SQS queues for buffered ingestion.
+The `signal-ingest` collectors stream events from Amazon SQS and normalise payloads.
+
+#### Model governance and inference proxy
+
+The CPAI Gateway intercepts and governs all model invocation requests.
+The gateway enforces policy boundaries on Amazon Bedrock foundation model endpoints.
+Governance rules filter prompts, track token consumption, and mask sensitive attributes.
+
+#### Dual storage tiering
+
+The AWS deployment divides storage across relational and object tiers:
+- Amazon Aurora PostgreSQL persists relational tenant state and tamper-evident audit events.
+- Amazon S3 Standard and Amazon S3 Glacier Vault store FrostDB Lake telemetry records.
+
+Glacier Vault enforces WORM evidence retention compliance for long-term audit archives.
+
 ### Google Cloud Platform, GKE
 
 ![GCP multi-tenant SaaS architecture](/docs/diagrams/osramp-gcp-multitenant-saas.svg)
@@ -112,6 +196,48 @@ each target.
 - Editable vector SVG: [osramp-gcp-multitenant-saas.drawio.svg](/docs/diagrams/osramp-gcp-multitenant-saas.drawio.svg)
 - Native Draw.io XML: [osramp-gcp-multitenant-saas.drawio](/docs/diagrams/osramp-gcp-multitenant-saas.drawio)
 - High-resolution raster PNG: [osramp-gcp-multitenant-saas.png](/docs/diagrams/osramp-gcp-multitenant-saas.png)
+
+#### Multi-region topology and edge routing
+
+Cloud CDN caches user interface assets at points of presence worldwide.
+Cloud Armor provides DDoS mitigation and web application firewall filtering.
+Cloud DNS routes global domain queries to healthy endpoints.
+Global External HTTPS Load Balancers per region distribute traffic across regional backends.
+
+#### Core governance platform
+
+The governance plane runs as managed deployments across GKE clusters:
+- The Dashboard SPA renders live containment graphs and compliance status.
+- FastAPI Core (`api-signalloom`) exposes administrative and policy interfaces.
+- Fleet Manager synchronises agent policies across multiple tenant clusters.
+
+#### Runtime, identity, and isolation
+
+GKE clusters run Container-Optimized OS nodes with gVisor sandboxes for kernel-level agent isolation.
+OpenBao manages secrets and uses Google Cloud KMS auto-unseal for master keys.
+A SPIRE mTLS mesh authenticates services and secures intra-cluster traffic.
+The warden monitors pods with eBPF probes, cgroups freeze controllers, and tc stun netfilter rules.
+KubeSec AFM performs formal RBAC analysis to prevent privilege misconfigurations.
+
+#### Ingestion and event sourcing
+
+Google Cloud Pub/Sub receives Cloud Audit Logs and Security Command Center findings.
+Pub/Sub streams security events into `signal-ingest` collectors for normalisation.
+The collectors transform diverse platform events into unified schemas.
+
+#### Model governance and inference proxy
+
+The CPAI Gateway controls access to foundation model APIs.
+The proxy checks calls to Vertex AI endpoints against governance constraints.
+Runtime policies inspect model prompts and token usage within private networks.
+
+#### Dual storage tiering
+
+The GCP deployment separates transactional state from analytical telemetry:
+- Cloud SQL for PostgreSQL persists structured configuration, tenant profiles, and audit events.
+- A Cloud Storage Dual-Region bucket stores immutable FrostDB Lake event segments.
+
+This separation isolates relational compliance records from analytical event streams.
 
 ## Where the diagram files live
 

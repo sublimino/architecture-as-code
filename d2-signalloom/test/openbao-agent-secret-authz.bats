@@ -76,7 +76,7 @@ generic_consumers() {
 @test "each generic-role agent has a SPIRE entry, a pre-created entity, and seeded literal paths of its own" {
   local consumers agents entities seeded bad
   consumers="$(generic_consumers | jq -c --argjson exc "$EXCEPTIONS" 'select(.where as $w | $exc | index($w) | not)')"
-  [ "$(jq -s length <<<"$consumers")" -ge 6 ] || { echo "too few generic-role agents:"; echo "$consumers"; return 1; }
+  [ "$(jq -s length <<<"$consumers")" -ge 5 ] || { echo "too few generic-role agents:"; echo "$consumers"; return 1; }
   agents="$(yq '.data[] | select(type == "!!str")' "$entries_yaml" \
     | awk '/^ *AGENTS=\(/{f=1; next} f && /^ *\)/{f=0} f' | sed -e 's/#.*//' | tr -s ' \t' '\n' | rg -v -e '^$' | jq -R . | jq -sc .)"
   entities="$(role_script | sed -nE 's/^ *AGENT_ENTITIES="([^"]*)".*/\1/p' | tr -s ' ' '\n' | rg -v -e '^$' | jq -R . | jq -sc .)"

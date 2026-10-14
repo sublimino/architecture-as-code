@@ -1066,6 +1066,9 @@ PIPELINE_PHASE="estate"
 echo "==> [5/8] Bringing up the full Signal Loom estate (make demo-signalloom-up)..."
 retry 2 "$MAKE_BIN" demo-signalloom-up
 
+echo "==> Asserting every dashboard backend is deployed and reachable..."
+make check-backends
+
 # ── Phase: the cluster-dependent stages ──────────────────────────────────────
 PIPELINE_PHASE="tests"
 echo "==> [6/8] Running the cluster-dependent stages..."

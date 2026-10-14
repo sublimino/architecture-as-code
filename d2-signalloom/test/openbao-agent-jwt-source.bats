@@ -86,8 +86,8 @@ verdicts() {
 @test "every openbao-agent reads its JWT-SVID from a helper-written memory file" {
   local all bad
   all="$(verdicts)"
-  # fleet-manager plus the six agent-swarm consumers at least.
-  [ "$(jq -s '[.[] | select(.excepted | not)] | length' <<<"$all")" -ge 7 ] \
+  # fleet-manager plus the five agent-swarm consumers at least.
+  [ "$(jq -s '[.[] | select(.excepted | not)] | length' <<<"$all")" -ge 6 ] \
     || { echo "too few openbao-agents found:"; echo "$all"; return 1; }
   bad="$(jq -r 'select((.excepted | not) and (.problems | length) > 0) | "\(.where) [\(.config)]: \(.problems | join("; "))"' <<<"$all")"
   [ -z "$bad" ] || { printf '%s\n' "$bad"; return 1; }

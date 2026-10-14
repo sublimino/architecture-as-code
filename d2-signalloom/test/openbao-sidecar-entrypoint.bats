@@ -41,10 +41,10 @@ openbao_containers() {
 @test "every openbao container in the estate runs bao itself, never the image entrypoint" {
   local all bad
   all="$(openbao_containers)"
-  # The eight known `bao agent` sidecars at least: agent-cardvault,
+  # The seven known `bao agent` sidecars at least: agent-cardvault,
   # cpai-engineer, prod-deploy-gate, prompt-commit-summarizer,
-  # swarm-governor, triage-ci-worker, cpai-engineer, fleet-manager.
-  [ "$(jq -s '[.[] | select((.command + .args) | index("agent"))] | length' <<<"$all")" -ge 8 ] \
+  # swarm-governor, triage-ci-worker, fleet-manager.
+  [ "$(jq -s '[.[] | select((.command + .args) | index("agent"))] | length' <<<"$all")" -ge 7 ] \
     || { echo "too few bao agent sidecars found:"; echo "$all"; return 1; }
   # Any own command bypasses the entrypoint (the inf-bao bootstrap Jobs run a
   # `sh -ec` script); a `bao agent` must be bao itself.

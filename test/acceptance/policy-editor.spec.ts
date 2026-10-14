@@ -101,7 +101,7 @@ test.describe("Surfaces 7 & 8: Policy-as-Code Editor & Compliance Posture (Deskt
       const drawer = page.getByTestId("compliance-drawer");
       if (await drawer.isVisible()) {
         await expect(drawer).toBeVisible({ timeout: 10_000 });
-        await expect(drawer.getByText(/Regulatory Framework|Controls|Evaluation Summary/i)).toBeVisible();
+        await expect(drawer.getByText(/Regulatory Framework|Controls|Evaluation Summary/i).first()).toBeVisible();
 
         // Close drawer
         const closeBtn = drawer.getByRole("button", { name: /Close|×/i }).first();
@@ -187,6 +187,9 @@ test.describe("Surfaces 7 & 8: Policy-as-Code Editor & Compliance Posture (Deskt
 
     const copyBtn = page.getByTestId("copy-shareable-link-btn");
     await expect(copyBtn).toBeVisible();
+    await copyBtn.click();
+    await page.waitForTimeout(500);
+    await expect(copyBtn).toBeVisible();
   });
 
   test("formats CEL expressions on demand using the Prettify CEL button", async ({ page }) => {
@@ -235,6 +238,13 @@ test.describe("Surfaces 7 & 8: Policy-as-Code Editor & Compliance Posture (Deskt
 
     const euCard = page.getByTestId("framework-card-eu-ai-act");
     await expect(euCard).toBeVisible({ timeout: 15_000 });
+
+    const cisCard = page.getByTestId("framework-card-k8s-cis-benchmark");
+    await expect(cisCard).toBeVisible({ timeout: 15_000 });
+    const cisToggle = cisCard.getByRole("switch").first();
+    await expect(cisToggle).toBeVisible();
+    const cisEditLink = cisCard.locator('a[href*="/policies?framework=k8s-cis-benchmark"]');
+    await expect(cisEditLink).toBeVisible();
 
     const euChildren = page.getByTestId("framework-children-eu-ai-act");
     await expect(euChildren).toBeVisible();

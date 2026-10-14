@@ -302,7 +302,7 @@ export default function PolicyEditor({
     const origin = typeof window !== 'undefined' ? window.location.origin : ''
     const url = `${origin}/policies?framework=${effectiveBundle.framework_id}&rule=${encodeURIComponent(currentRule.id)}`
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(url)
+      navigator.clipboard.writeText(url).catch(() => {})
       setCopiedLink(true)
       setTimeout(() => setCopiedLink(false), 2000)
     }

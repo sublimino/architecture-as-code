@@ -664,6 +664,24 @@ const frameworks: FrameworkResponse[] = [
       { id: 'AIR-SEC-024', name: 'Agent action authorization', description: 'SPIFFE cryptographic peer verification.', control_order: 2 },
     ],
   },
+  {
+    id: 'k8s-cis-benchmark',
+    name: 'CIS Kubernetes Benchmark',
+    version: 'v1.8.0',
+    regulatory_body: 'Center for Internet Security (CIS)',
+    compliance_deadline: '2026-12-31',
+    control_count: 8,
+    controls: [
+      { id: 'cis-5.2.6', name: 'Minimize admission of root containers', description: 'Containers must run as non-root user.', control_order: 1 },
+      { id: 'cis-5.2.5', name: 'Minimize containers with allowPrivilegeEscalation', description: 'Prohibits container privilege escalation.', control_order: 2 },
+      { id: 'cis-5.7.4', name: 'Ensure default seccomp profile is RuntimeDefault', description: 'Enforces system call filtering via seccomp profile.', control_order: 3 },
+      { id: 'cis-5.7.1', name: 'Minimize service account token auto-mount', description: 'Disables automatic API credential mounting in pods.', control_order: 4 },
+      { id: 'cis-5.2.2', name: 'Minimize host PID, IPC, and Network sharing', description: 'Containers must not share host namespaces.', control_order: 5 },
+      { id: 'cis-5.2.4', name: 'Ensure root filesystem is mounted read-only', description: 'Container root filesystems must be mounted read-only.', control_order: 6 },
+      { id: 'cis-5.3.1', name: 'Ensure NetworkPolicies are defined', description: 'Enforces default-deny network microsegmentation.', control_order: 7 },
+      { id: 'cis-5.4.1', name: 'Ensure ResourceQuotas are defined', description: 'Agent namespaces must enforce compute and memory quotas.', control_order: 8 },
+    ],
+  },
 ]
 
 const complianceExport = { format: 'json', generated_at: NOW, url: 'blob://demo/compliance-report.json' }
@@ -1421,7 +1439,7 @@ function getDiscoveredAccount(path: string): NHIAccountDetail | undefined {
 const COOKIE_PREFS = { strictly_necessary: true, analytics: false }
 let demoOrgName = 'Acme Co. (demo)'
 
-function tenantSettings(selected: string[] = ['eu-ai-act']): TenantSettingsResponse {
+function tenantSettings(selected: string[] = ['eu-ai-act', 'k8s-cis-benchmark']): TenantSettingsResponse {
   return {
     tenant_id: TENANT,
     org_name: demoOrgName,
@@ -1778,7 +1796,7 @@ const ROUTES: Match[] = [
   { method: 'GET', test: re(/^\/tenant\/users$/), data: () => platformUsers },
   { method: 'GET', test: re(/^\/tenant\/settings$/), data: () => tenantSettings() },
   { method: 'PATCH', test: re(/^\/tenant\/settings\/frameworks$/), data: (_p, body) =>
-      tenantSettings((body as { selected_frameworks?: string[] })?.selected_frameworks ?? ['eu-ai-act']) },
+      tenantSettings((body as { selected_frameworks?: string[] })?.selected_frameworks ?? ['eu-ai-act', 'k8s-cis-benchmark']) },
   // The onboarding wizard's scan-preferences step saves through this route;
   // without a fixture the wizard stays on step 3 under the demo toggle.
   { method: 'PATCH', test: re(/^\/tenant\/settings\/preferences$/), data: (_p, body) => {

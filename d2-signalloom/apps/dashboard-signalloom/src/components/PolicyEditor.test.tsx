@@ -315,4 +315,32 @@ describe('PolicyEditor Component', () => {
     expect(screen.getByTestId('framework-selector')).toBeInTheDocument()
     expect(screen.getByTestId('initialize-template-btn')).toBeInTheDocument()
   })
+
+  it('handles clipboard writeText safely when pre-granted or rejected', async () => {
+    const user = userEvent.setup()
+
+    // Test rejection: writeText rejects (e.g. clipboard permissions not pre-granted)
+    const writeTextMock = vi.fn().mockRejectedValue(new Error('NotAllowedError: Clipboard permission denied'))
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: writeTextMock },
+      configurable: true,
+    })
+
+    render(<PolicyEditor bundle={mockBundle} versionHistory={mockHistory} />)
+    const shareBtn = screen.getByText(/Share Link/i)
+    expect(shareBtn).toBeInTheDocument()
+
+    // Clicking share link when clipboard rejects must not throw unhandled rejection
+    await user.click(shareBtn)
+    expect(writeTextMock).toHaveBeenCalledWith(
+      expect.stringContaining('/policies?framework=eu-ai-act&rule=container-run-as-non-root')
+    )
+    expect(screen.getByText('✓ Copied')).toBeInTheDocument()
+
+    // Test resolution: writeText succeeds
+    writeTextMock.mockResolvedValue(undefined)
+    await user.click(shareBtn)
+    expect(screen.getByText('✓ Copied')).toBeInTheDocument()
+  })
 })
+

@@ -62,6 +62,14 @@ KNOWN_FRAMEWORKS: dict[str, dict[str, Any]] = {
         "description": "Pod-level workload security checks (policy/frameworks/cis-kubernetes).",
         "controls_count": 17,
     },
+    "k8s-cis-benchmark": {
+        "id": "k8s-cis-benchmark",
+        "name": "CIS Kubernetes Benchmark",
+        "version": "v1.8.0",
+        "regulatory_body": "Center for Internet Security",
+        "description": "Pod-level workload security checks (policy/frameworks/cis-kubernetes).",
+        "controls_count": 17,
+    },
     "finos-aigf": {
         "id": "finos-aigf",
         "name": "FINOS AI Governance Framework (AIGF)",
@@ -82,6 +90,11 @@ KNOWN_FRAMEWORKS: dict[str, dict[str, Any]] = {
     },
 }
 
+FRAMEWORK_ALIASES: dict[str, str] = {
+    "k8s-cis-benchmark": "cis-kubernetes",
+    "cis-kubernetes": "k8s-cis-benchmark",
+}
+
 
 @router.get("/api/v1/compliance/frameworks/{framework_id}")
 @router.get("/v1/compliance/frameworks/{framework_id}")
@@ -92,6 +105,8 @@ async def get_framework_by_id(
 ) -> Response:
     """Retrieve details for a specific regulatory framework, or 404 with structured error envelope."""
     clean_id = framework_id.strip().lower()
+    if clean_id not in KNOWN_FRAMEWORKS and clean_id in FRAMEWORK_ALIASES:
+        clean_id = FRAMEWORK_ALIASES[clean_id]
     if clean_id not in KNOWN_FRAMEWORKS:
         logger.warning("Compliance framework query not found: %r", framework_id)
         return JSONResponse(

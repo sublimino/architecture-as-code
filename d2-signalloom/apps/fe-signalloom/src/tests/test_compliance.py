@@ -141,6 +141,18 @@ async def test_regulatory_framework_query_existing_returns_200():
         assert data["name"] == "EU AI Act"
         assert "controls_count" in data
 
+        # Query cis-kubernetes and alias k8s-cis-benchmark
+        for fw_id in ("cis-kubernetes", "k8s-cis-benchmark"):
+            resp = await client.get(
+                f"/api/v1/compliance/frameworks/{fw_id}",
+                headers=eap_bearer(EAP_ALICE),
+            )
+            assert resp.status_code == 200, f"Query for {fw_id} failed with {resp.status_code}"
+            fw_data = resp.json()
+            assert fw_data["name"] == "CIS Kubernetes Benchmark"
+            assert fw_data["controls_count"] == 17
+
+
 
 @pytest.mark.asyncio
 async def test_api_compliance_posture_calculate_endpoint():

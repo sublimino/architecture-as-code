@@ -652,5 +652,36 @@ describe('Settings: Governance Frameworks & Child Policies Expansion', () => {
 
     expect(await screen.findByTestId('settings-org-error-indicator')).toHaveTextContent('Organization name already taken')
   })
+
+  it('renders k8s-cis-benchmark framework card with active toggle and Edit in Editor link', async () => {
+    vi.mocked(api.settings).mockResolvedValue(
+      makeSettings({ selected_frameworks: ['eu-ai-act', 'k8s-cis-benchmark'] }),
+    )
+    vi.mocked(api.compliance.frameworks).mockResolvedValue([
+      {
+        id: 'k8s-cis-benchmark',
+        name: 'CIS Kubernetes Benchmark',
+        version: '1.8.0',
+        regulatory_body: 'Center for Internet Security (CIS)',
+        compliance_deadline: '2026-12-31',
+        control_count: 8,
+        controls: [
+          { id: 'cis-5.2.6', name: 'Minimize admission of root containers', description: 'Containers must run as non-root user.', control_order: 1 },
+        ],
+      },
+    ])
+
+    renderSettings(['/settings?tab=governance'])
+
+    const card = await screen.findByTestId('framework-card-k8s-cis-benchmark')
+    expect(card).toBeInTheDocument()
+    expect(card).toHaveTextContent('CIS Kubernetes Benchmark')
+    expect(card).toHaveTextContent('Active')
+    expect(card).toHaveTextContent('Edit in Editor ↗')
+
+    const editLink = card.querySelector('a[href="/policies?framework=k8s-cis-benchmark"]')
+    expect(editLink).toBeInTheDocument()
+  })
 })
+
 

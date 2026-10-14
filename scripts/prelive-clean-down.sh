@@ -20,10 +20,12 @@ REMOTE=0
 
 # Ensure KUBECONFIG is set if not already present
 if [[ -z "${KUBECONFIG:-}" ]]; then
-  if [[ -f "${HOME}/.kube/config" ]]; then
+  if [[ -f "/tmp/osramp-kubeconfig.yaml" ]]; then
+    export KUBECONFIG="/tmp/osramp-kubeconfig.yaml"
+  elif [[ -f "${HOME}/.kube/config" ]]; then
     export KUBECONFIG="${HOME}/.kube/config"
   else
-    for cfg in /home/*/.kube/config /etc/kubernetes/admin.conf; do
+    for cfg in /tmp/osramp-kubeconfig.yaml /home/*/.kube/config /etc/kubernetes/admin.conf; do
       if [[ -f "$cfg" ]]; then
         export KUBECONFIG="$cfg"
         break
@@ -150,6 +152,28 @@ do_clean_down() {
     warn "PostgreSQL not reachable; skipping database onboarding reset"
   fi
 
+  # 4b. Seed database with canonical CEL compliance frameworks, controls, and default tenant settings
+  echo "--> Seeding database with canonical CEL compliance frameworks, controls, and active policies..."
+  if kubectl get deployment postgresql -n inf-signalloom >/dev/null 2>&1; then
+    local seed_file="${REPO_ROOT}/d2-signalloom/apps/fe-signalloom/src/db/seed-governance-frameworks.sql"
+    if [[ -f "${seed_file}" ]]; then
+      kubectl exec -i -n inf-signalloom deployment/postgresql -- psql -U signalloom -d signalloom -v ON_ERROR_STOP=1 < "${seed_file}" >/dev/null 2>&1 || true
+    fi
+    # Ensure both default and target tenant have CEL policy frameworks enabled in tenant_settings
+    kubectl exec -n inf-signalloom deployment/postgresql -- psql -U signalloom -d signalloom -c "
+      INSERT INTO public.tenant_settings (
+        tenant_id, org_name, plan_tier, status, selected_frameworks, api_key_status, cookie_preferences
+      ) VALUES
+        ('default', 'Default Organization', 'enterprise', 'active', '[\"eu-ai-act\", \"k8s-cis-benchmark\", \"cis-kubernetes\", \"finos-ai-governance-framework\", \"finos-aigf\", \"soc2\"]'::jsonb, 'active', '{\"strictly_necessary\": true, \"analytics\": true}'::jsonb),
+        ('${TARGET_TENANT}', '${TARGET_TENANT} Org', 'enterprise', 'active', '[\"eu-ai-act\", \"k8s-cis-benchmark\", \"cis-kubernetes\", \"finos-ai-governance-framework\", \"finos-aigf\", \"soc2\"]'::jsonb, 'active', '{\"strictly_necessary\": true, \"analytics\": true}'::jsonb)
+      ON CONFLICT (tenant_id) DO UPDATE SET
+        selected_frameworks = EXCLUDED.selected_frameworks,
+        plan_tier = EXCLUDED.plan_tier,
+        status = EXCLUDED.status;
+    " >/dev/null 2>&1 || true
+    ok "PostgreSQL database seeded: default CEL compliance frameworks and controls active"
+  fi
+
   # 5. Flush Redis cache
   echo "--> Flushing Redis cache..."
   if kubectl get deployment redis -n inf-signalloom >/dev/null 2>&1; then
@@ -202,6 +226,15 @@ do_clean_down() {
       ok "Clean baseline verified: 0 registered agents, 0 agent claims, 0 discovered agents, 0 audit events, 0 completed onboarding"
     else
       warn "Baseline check: registry=${reg_count}, claims=${claim_count}, discovered=${disc_count}, audit=${audit_count}, onboarding_done=${ob_count}"
+    fi
+
+    local fw_count ctrl_count
+    fw_count=$(kubectl exec -n inf-signalloom deployment/postgresql -- psql -U signalloom -d signalloom -t -A -c "SELECT COUNT(*) FROM public.governance_frameworks WHERE tenant_id = '${TARGET_TENANT}';" 2>/dev/null || echo "-1")
+    ctrl_count=$(kubectl exec -n inf-signalloom deployment/postgresql -- psql -U signalloom -d signalloom -t -A -c "SELECT COUNT(*) FROM public.governance_controls WHERE tenant_id = '${TARGET_TENANT}';" 2>/dev/null || echo "-1")
+    if [[ "$fw_count" -ge 4 && "$ctrl_count" -ge 39 ]]; then
+      ok "Seeded governance verified: ${fw_count} frameworks, ${ctrl_count} controls active for '${TARGET_TENANT}'"
+    else
+      warn "Seeded governance check: frameworks=${fw_count} (expected >=4), controls=${ctrl_count} (expected >=39)"
     fi
   fi
   local agent_pods_count

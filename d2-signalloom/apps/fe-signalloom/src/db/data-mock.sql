@@ -71,7 +71,10 @@ INSERT INTO public.platform_users (
 ('a0000000-0000-0000-0000-000000000009', 'tenant-demo',
  'ops@acme.co', 'Olivia Parsons', 'viewer', 'active',
  'Infrastructure', 'Operations Analyst',
- '2026-07-20 09:00:00+00', '2026-07-05 09:00:00+00');
+ '2026-07-20 09:00:00+00', '2026-07-05 09:00:00+00')
+ON CONFLICT (id) DO UPDATE SET
+    display_name = EXCLUDED.display_name,
+    email = EXCLUDED.email;
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- User Roles (tenant-scoped assignments)
@@ -89,7 +92,8 @@ INSERT INTO public.user_roles (
 ('a0000000-0000-0000-0000-000000000003', 'tenant-demo', 'editor', 'team', 'Platform Engineering',
  'a0000000-0000-0000-0000-000000000001', '2026-06-20 09:00:00+00'),
 ('a0000000-0000-0000-0000-000000000006', 'tenant-demo', 'editor', 'team', 'Platform Engineering',
- 'a0000000-0000-0000-0000-000000000001', '2026-06-25 09:00:00+00');
+ 'a0000000-0000-0000-0000-000000000001', '2026-06-25 09:00:00+00')
+ON CONFLICT DO NOTHING;
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- Agents (5)
@@ -214,7 +218,7 @@ INSERT INTO public.governance_frameworks (
     'f0000000-0000-0000-0000-000000000001', 'tenant-demo',
     'EU AI Act', '2024/1689', 'European Parliament', '2026-08-02',
     3, 'admin@acme.co'
-) ON CONFLICT DO NOTHING;
+) ON CONFLICT (tenant_id, name) DO UPDATE SET control_count = EXCLUDED.control_count;
 
 -- SOC 2 Type II
 INSERT INTO public.governance_frameworks (
@@ -224,7 +228,7 @@ INSERT INTO public.governance_frameworks (
     'f0000000-0000-0000-0000-000000000002', 'tenant-demo',
     'SOC 2 Type II', 'TSC 2017', 'AICPA',
     3, 'admin@acme.co'
-) ON CONFLICT DO NOTHING;
+) ON CONFLICT (tenant_id, name) DO UPDATE SET control_count = EXCLUDED.control_count;
 
 -- EU AI Act controls
 INSERT INTO public.governance_controls (id, tenant_id, framework_id, name, description, control_order) VALUES
@@ -274,7 +278,7 @@ INSERT INTO public.governance_frameworks (
     'f0000000-0000-0000-0000-000000000003', 'tenant-demo',
     'CIS Kubernetes Benchmark', 'v1.8.0', 'Center for Internet Security',
     17, 'admin@acme.co'
-) ON CONFLICT (id) DO UPDATE SET control_count = EXCLUDED.control_count;
+) ON CONFLICT (tenant_id, name) DO UPDATE SET control_count = EXCLUDED.control_count;
 
 -- CIS Kubernetes Benchmark controls (17, one per cis-kubernetes check)
 INSERT INTO public.governance_controls (
@@ -366,7 +370,7 @@ INSERT INTO public.governance_frameworks (
     'f0000000-0000-0000-0000-000000000004', 'tenant-demo',
     'FINOS AI Governance Framework', 'v1.0.0', 'FINOS',
     16, 'admin@acme.co'
-) ON CONFLICT (id) DO UPDATE SET control_count = EXCLUDED.control_count;
+) ON CONFLICT (tenant_id, name) DO UPDATE SET control_count = EXCLUDED.control_count;
 
 INSERT INTO public.governance_controls (
     id, tenant_id, framework_id, name, description, control_order,
@@ -614,7 +618,7 @@ INSERT INTO public.tenant_settings (
     consent_accepted_at, consent_document_versions, cookie_preferences
 ) VALUES (
     'tenant-demo', 'Acme Corporation', 'enterprise', 'active',
-    '["eu-ai-act", "soc2"]'::jsonb, 'active',
+    '["eu-ai-act", "k8s-cis-benchmark", "cis-kubernetes", "finos-ai-governance-framework", "finos-aigf", "soc2"]'::jsonb, 'active',
     '2026-07-01 08:00:00+00',
     '{"terms": "1.2", "eula": "1.2", "privacy": "1.2"}'::jsonb,
     '{"strictly_necessary": true, "analytics": true}'::jsonb

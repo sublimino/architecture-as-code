@@ -144,6 +144,8 @@ describe('routeLoadingLabel', () => {
     expect(routeLoadingLabel('/agents/agt-42')).toBe('Loading Agent')
     expect(routeLoadingLabel('/discovery/accounts/acc-7')).toBe('Loading Account')
     expect(routeLoadingLabel('/help/connectors/github')).toBe('Loading Connector Help')
+    expect(routeLoadingLabel('/settings/help/deploy-sensor')).toBe('Loading Deploy Sensor Help')
+    expect(routeLoadingLabel('/settings/help/onboard-agent')).toBe('Loading Onboard Agent Help')
     expect(routeLoadingLabel('/onboarding')).toBe('Loading Setup')
     expect(routeLoadingLabel('/redeem-invite')).toBe('Loading Invite')
   })

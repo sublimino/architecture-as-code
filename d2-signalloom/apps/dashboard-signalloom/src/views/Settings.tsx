@@ -16,10 +16,18 @@ import { useAppContext } from '../App'
 import { getBundleForFramework, normalizeFrameworkId } from '../data/regulatoryFrameworks'
 import type { PolicyRule } from '../types/policies'
 import GovernancePolicyTable from '../components/GovernancePolicyTable'
+import DeploySensorHelpPage from '../pages/DeploySensorHelpPage'
+import OnboardAgentHelpPage from '../pages/OnboardAgentHelpPage'
 
 const POLL_MS = 15 * 60 * 1000
 
-export type SettingsTabId = 'general' | 'access' | 'connectors' | 'governance'
+export type SettingsTabId =
+  | 'general'
+  | 'access'
+  | 'connectors'
+  | 'governance'
+  | 'deploy-sensor'
+  | 'onboard-agent'
 
 export interface SettingsTab {
   id: SettingsTabId
@@ -31,6 +39,8 @@ export const SETTINGS_TABS: SettingsTab[] = [
   { id: 'access', label: 'API & Access' },
   { id: 'connectors', label: 'Connectors & Discovery' },
   { id: 'governance', label: 'Governance & Policy' },
+  { id: 'deploy-sensor', label: 'Deploy Sensor' },
+  { id: 'onboard-agent', label: 'Onboard Agent' },
 ]
 
 function Field({ label, value, mono }: { label: string; value: string | number | null | undefined; mono?: boolean }) {
@@ -578,6 +588,96 @@ export default function Settings() {
               </div>
             </div>
           </SectionCard>
+
+          {/* Deployment & Onboarding Guides */}
+          <SectionCard title="Deployment & Onboarding Guides">
+            <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
+              Reference setup guides, architecture breakdowns, and copyable manifests for instrumenting clusters, developer hosts, and AI agent workloads.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+              <div
+                data-testid="settings-guide-card-deploy-sensor"
+                style={{
+                  padding: '16px 18px',
+                  background: 'var(--surface2)',
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>Deploy Sensor</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--cyan)', textTransform: 'uppercase' }}>eBPF & Host</span>
+                  </div>
+                  <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: 0, lineHeight: 1.45 }}>
+                    Deploy Kernel Sensors (eBPF DaemonSet) and Host Sensors (AgentMaxxing) for real-time telemetry and Tier-0 runtime containment.
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => handleSelectTab('deploy-sensor')}
+                    style={{ fontSize: 12, padding: '5px 12px' }}
+                  >
+                    View in Settings
+                  </button>
+                  <Link
+                    to="/settings/help/deploy-sensor"
+                    className="btn btn-secondary"
+                    style={{ fontSize: 12, padding: '5px 12px', textDecoration: 'none' }}
+                  >
+                    Dedicated Page ↗
+                  </Link>
+                </div>
+              </div>
+
+              <div
+                data-testid="settings-guide-card-onboard-agent"
+                style={{
+                  padding: '16px 18px',
+                  background: 'var(--surface2)',
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>Onboard Agent</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--teal)', textTransform: 'uppercase' }}>SPIFFE & OpenBao</span>
+                  </div>
+                  <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: 0, lineHeight: 1.45 }}>
+                    Step-by-step walkthrough covering workload manifest labels, cryptographic SPIRE registration, OpenBao JWT roles, and tenant claims.
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => handleSelectTab('onboard-agent')}
+                    style={{ fontSize: 12, padding: '5px 12px' }}
+                  >
+                    View in Settings
+                  </button>
+                  <Link
+                    to="/settings/help/onboard-agent"
+                    className="btn btn-secondary"
+                    style={{ fontSize: 12, padding: '5px 12px', textDecoration: 'none' }}
+                  >
+                    Dedicated Page ↗
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </SectionCard>
         </div>
       )}
 
@@ -1098,6 +1198,30 @@ export default function Settings() {
               </div>
             </div>
           </SectionCard>
+        </div>
+      )}
+
+      {/* Tab 5: Deploy Sensor */}
+      {activeTab === 'deploy-sensor' && (
+        <div
+          role="tabpanel"
+          id="settings-tabpanel-deploy-sensor"
+          aria-labelledby="settings-tab-deploy-sensor"
+          data-testid="settings-tabpanel-deploy-sensor"
+        >
+          <DeploySensorHelpPage />
+        </div>
+      )}
+
+      {/* Tab 6: Onboard Agent */}
+      {activeTab === 'onboard-agent' && (
+        <div
+          role="tabpanel"
+          id="settings-tabpanel-onboard-agent"
+          aria-labelledby="settings-tab-onboard-agent"
+          data-testid="settings-tabpanel-onboard-agent"
+        >
+          <OnboardAgentHelpPage />
         </div>
       )}
 

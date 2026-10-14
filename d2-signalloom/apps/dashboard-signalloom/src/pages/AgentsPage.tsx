@@ -1359,7 +1359,15 @@ function GovernedTab({
               kicker="No governed agents"
               body="Agents appear here after enrollment via the registry API."
             />
-            <button className="btn btn-primary" onClick={() => setShowRegister(true)}>Register Agent</button>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}>
+              <button className="btn btn-primary" onClick={() => setShowRegister(true)}>Register Agent</button>
+              <Link to="/settings/help/onboard-agent" className="btn btn-secondary" style={{ textDecoration: 'none' }}>
+                Help to Onboard Agent
+              </Link>
+              <Link to="/settings/help/deploy-sensor" className="btn btn-secondary" style={{ textDecoration: 'none' }}>
+                Help to Deploy Sensor
+              </Link>
+            </div>
           </div>
         ) : (
           <EmptyState kicker="No agents match your filter" body="Try clearing the search or changing the state filter." />

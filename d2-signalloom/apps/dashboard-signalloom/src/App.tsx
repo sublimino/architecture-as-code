@@ -77,6 +77,8 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const RedeemInvitePage = lazy(() => import('./pages/RedeemInvite'))
 const OnboardingWizardPage = lazy(() => import('./pages/OnboardingWizard'))
 const ConnectorHelpPage = lazy(() => import('./pages/ConnectorHelpPage'))
+const DeploySensorHelpPage = lazy(() => import('./pages/DeploySensorHelpPage'))
+const OnboardAgentHelpPage = lazy(() => import('./pages/OnboardAgentHelpPage'))
 const SuperCredPage = lazy(() => import('./pages/SuperCredPage'))
 const CompliancePolicyPage = lazy(() => import('./pages/CompliancePolicyPage'))
 const AgentPosturePage = lazy(() => import('./pages/AgentPosturePage'))
@@ -198,6 +200,10 @@ const EXTRA_ROUTE_LABELS: Record<string, string> = {
   '/demos/fleet/audience': 'Fleet Demo Audience',
   '/onboarding': 'Setup',
   '/help/connectors/:provider': 'Connector Help',
+  '/settings/help/deploy-sensor': 'Deploy Sensor Help',
+  '/settings/help/onboard-agent': 'Onboard Agent Help',
+  '/settings/deploy-sensor': 'Deploy Sensor Help',
+  '/settings/onboard-agent': 'Onboard Agent Help',
   '/redeem-invite': 'Invite',
   '/login': 'Login',
   '/callback': 'Sign In',
@@ -362,7 +368,11 @@ export default function App() {
   if (isLoading) return <AppLoader label="Signing in" minHeight="100vh" testId="auth-loading" />
 
   const onboardingGateExempt =
-    location.pathname === '/onboarding' || location.pathname.startsWith('/help/connectors')
+    location.pathname === '/onboarding' ||
+    location.pathname.startsWith('/help/connectors') ||
+    location.pathname.startsWith('/settings/help') ||
+    location.pathname === '/settings/deploy-sensor' ||
+    location.pathname === '/settings/onboard-agent'
 
   return (
     <AppContext.Provider value={{
@@ -488,6 +498,10 @@ export default function App() {
                 <Route path="/signal-store" element={<ProtectedRoute><FeatureGate flag="page_signal_store" fallback={<NotFoundPage />}><SignalStorePage /></FeatureGate></ProtectedRoute>} />
                 <Route path="/feeds" element={<ProtectedRoute><FeatureGate flag="page_feeds" fallback={<NotFoundPage />}><FeedsExplorerPage /></FeatureGate></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+                <Route path="/settings/help/deploy-sensor" element={<ProtectedRoute exemptFromOnboardingGate><DeploySensorHelpPage /></ProtectedRoute>} />
+                <Route path="/settings/help/onboard-agent" element={<ProtectedRoute exemptFromOnboardingGate><OnboardAgentHelpPage /></ProtectedRoute>} />
+                <Route path="/settings/deploy-sensor" element={<Navigate to="/settings/help/deploy-sensor" replace />} />
+                <Route path="/settings/onboard-agent" element={<Navigate to="/settings/help/onboard-agent" replace />} />
                 <Route path="/onboarding" element={<ProtectedRoute exemptFromOnboardingGate><OnboardingWizardPage /></ProtectedRoute>} />
                 <Route path="/help/connectors/:provider" element={<ProtectedRoute exemptFromOnboardingGate><ConnectorHelpPage /></ProtectedRoute>} />
                 <Route path="/network-tests" element={<ProtectedRoute><FeatureGate flag="page_network_tests" fallback={<NotFoundPage />}><NetworkTestsPage /></FeatureGate></ProtectedRoute>} />

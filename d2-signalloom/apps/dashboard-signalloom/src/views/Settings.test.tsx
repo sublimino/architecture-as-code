@@ -172,13 +172,15 @@ describe('Settings: Tabs Navigation & Section Distribution', () => {
     expect(tablist).toBeInTheDocument()
 
     const tabs = screen.getAllByRole('tab')
-    expect(tabs).toHaveLength(4)
+    expect(tabs).toHaveLength(6)
 
     const expectedTabs = [
       { id: 'general', label: 'General' },
       { id: 'access', label: 'API & Access' },
       { id: 'connectors', label: 'Connectors & Discovery' },
       { id: 'governance', label: 'Governance & Policy' },
+      { id: 'deploy-sensor', label: 'Deploy Sensor' },
+      { id: 'onboard-agent', label: 'Onboard Agent' },
     ]
 
     expectedTabs.forEach((tab, index) => {
@@ -192,6 +194,8 @@ describe('Settings: Tabs Navigation & Section Distribution', () => {
     expect(tabs[1]).toHaveAttribute('aria-selected', 'false')
     expect(tabs[2]).toHaveAttribute('aria-selected', 'false')
     expect(tabs[3]).toHaveAttribute('aria-selected', 'false')
+    expect(tabs[4]).toHaveAttribute('aria-selected', 'false')
+    expect(tabs[5]).toHaveAttribute('aria-selected', 'false')
 
     const panel = screen.getByRole('tabpanel')
     expect(panel).toHaveAttribute('id', 'settings-tabpanel-general')
@@ -269,12 +273,24 @@ describe('Settings: Tabs Navigation & Section Distribution', () => {
     expect(screen.getByText('Policy-as-Code & CEL Rules')).toBeInTheDocument()
     expect(screen.queryByText('Service Connectors')).not.toBeInTheDocument()
 
-    // 4. Switch back to 'General'
+    // 4. Switch to 'Deploy Sensor'
+    await userEvent.click(screen.getByRole('tab', { name: 'Deploy Sensor' }))
+    expect(await screen.findByRole('heading', { name: /Help to Deploy Sensor/i })).toBeInTheDocument()
+    expect(screen.getByTestId('architecture-section')).toBeInTheDocument()
+
+    // 5. Switch to 'Onboard Agent'
+    await userEvent.click(screen.getByRole('tab', { name: 'Onboard Agent' }))
+    expect(await screen.findByRole('heading', { name: /Help to Onboard an Agent/i })).toBeInTheDocument()
+    expect(screen.getByTestId('step-1-section')).toBeInTheDocument()
+
+    // 6. Switch back to 'General'
     await userEvent.click(screen.getByRole('tab', { name: 'General' }))
     expect(await screen.findByText('Organization')).toBeInTheDocument()
     expect(screen.getByText('Account')).toBeInTheDocument()
     expect(screen.getByText('Currency')).toBeInTheDocument()
     expect(screen.getByText('Display')).toBeInTheDocument()
+    expect(screen.getByTestId('settings-guide-card-deploy-sensor')).toBeInTheDocument()
+    expect(screen.getByTestId('settings-guide-card-onboard-agent')).toBeInTheDocument()
     expect(screen.queryByText('Compliance Frameworks')).not.toBeInTheDocument()
   })
 })

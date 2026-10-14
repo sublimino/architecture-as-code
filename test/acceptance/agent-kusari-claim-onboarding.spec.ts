@@ -16,15 +16,16 @@ test.describe("Kusari Agent Onboarding Guide & Claim Modal Pre-Flight Checks", (
 
   test("Overview tab shows unclaimed banner with onboarding and pre-flight claim links", async ({ page }) => {
     await page.goto(`${BASE}/agents/${KUSARI_AGENT_ID}?tab=overview`, { waitUntil: "domcontentloaded" });
-    
-    // Check that the page loads
+    await page.waitForLoadState("networkidle").catch(() => {});
+
+    // Check that the agent dossier loads
     await expect(page.locator("h1")).toContainText(/kusari/i, { timeout: 15_000 });
 
     // Look for the unclaimed banner
     const unclaimedBanner = page.getByTestId("overview-unclaimed-banner");
     await expect(unclaimedBanner).toBeVisible({ timeout: 10_000 });
 
-    // Verify both action links exist
+    // Verify action links exist
     const viewGuideBtn = page.getByTestId("overview-view-onboarding-btn");
     const openClaimBtn = page.getByTestId("overview-open-claim-modal-btn");
     await expect(viewGuideBtn).toBeVisible();
@@ -37,31 +38,33 @@ test.describe("Kusari Agent Onboarding Guide & Claim Modal Pre-Flight Checks", (
 
   test("Onboarding tab displays pre-flight diagnostic matrix, tenant objection, and remediation runbook", async ({ page }) => {
     await page.goto(`${BASE}/agents/${KUSARI_AGENT_ID}?tab=onboarding`, { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle").catch(() => {});
 
-    // Tab content is visible
+    // Tab container is visible
     const guideTab = page.getByTestId("agent-onboarding-tab");
     await expect(guideTab).toBeVisible({ timeout: 15_000 });
 
-    // Pre-flight matrix
-    await expect(page.getByTestId("onboarding-preflight-matrix")).toBeVisible();
-    await expect(page.getByTestId("preflight-check-tenant-boundary")).toBeVisible();
-    await expect(page.getByTestId("preflight-check-spiffe-identity")).toBeVisible();
-    await expect(page.getByTestId("preflight-check-ebpf-sentinel")).toBeVisible();
-    await expect(page.getByTestId("preflight-check-cel-admission")).toBeVisible();
+    // Pre-flight matrix heading and diagnostic cards
+    await expect(page.getByRole("heading", { name: /Pre-Flight Verification Matrix/i })).toBeVisible();
+    await expect(page.getByTestId("onboarding-diag-tenant")).toBeVisible();
+    await expect(page.getByTestId("onboarding-diag-spiffe")).toBeVisible();
+    await expect(page.getByTestId("onboarding-diag-sentinel")).toBeVisible();
+    await expect(page.getByTestId("onboarding-diag-policy")).toBeVisible();
 
-    // Remediation runbook
-    await expect(page.getByTestId("onboarding-remediation-runbook")).toBeVisible();
-    await expect(page.getByTestId("onboarding-runbook-step-1")).toBeVisible();
-    await expect(page.getByTestId("onboarding-runbook-step-2")).toBeVisible();
-    await expect(page.getByTestId("onboarding-runbook-step-3")).toBeVisible();
+    // 3-step remediation procedure
+    await expect(page.getByRole("heading", { name: /3-Step Workload Claim & Onboarding Procedure/i })).toBeVisible();
+    await expect(page.getByText(/Verify Tenant and Workload Identification/i)).toBeVisible();
+    await expect(page.getByText(/Configure Model & Token Budget Allocation/i)).toBeVisible();
+    await expect(page.getByText(/Continuous Governance & Telemetry Attestation/i)).toBeVisible();
 
     // Verify copyable kubectl command contains tenant label fix
-    await expect(page.locator("pre").filter({ hasText: "signalloom.ai/tenant=" })).toBeVisible();
+    await expect(page.locator("code").filter({ hasText: "signalloom.ai/tenant=" }).first()).toBeVisible();
   });
 
   test("Claim Agent Workload modal displays 2-column layout with right-hand pre-flight diagnostics", async ({ page }) => {
     await page.goto(`${BASE}/agents/${KUSARI_AGENT_ID}?tab=overview`, { waitUntil: "domcontentloaded" });
-    
+    await page.waitForLoadState("networkidle").catch(() => {});
+
     // Open claim modal
     const openClaimBtn = page.getByTestId("overview-open-claim-modal-btn");
     await expect(openClaimBtn).toBeVisible({ timeout: 10_000 });

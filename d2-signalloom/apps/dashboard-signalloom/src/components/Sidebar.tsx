@@ -15,7 +15,7 @@ import HelpModal from './HelpModal'
 import ApiKeyRevealModal from './ApiKeyRevealModal'
 import NotificationBell from './NotificationBell'
 
-export type NavSection = 'View' | 'Control' | 'Design' | 'Demos' | 'Development'
+export type NavSection = 'View' | 'Control' | 'Config' | 'Demos' | 'Development'
 
 export interface NavItem {
   to: string
@@ -121,9 +121,9 @@ export const NAV: NavItem[] = [
   { to: '/users', label: 'Users & Permissions', section: 'Control', icon: 'approvals' },
   { to: '/audit', label: 'Audit Trail', section: 'Control', icon: 'audit', flag: 'page_audit' },
 
-  // ─── Design Group ───────────────────────────────────────
-  { to: '/federated-services', label: 'Federated Services', section: 'Design', icon: 'federation', flag: 'page_federated_services' },
-  { to: '/settings', label: 'Settings', section: 'Design', icon: 'settings' },
+  // ─── Config Group ───────────────────────────────────────
+  { to: '/federated-services', label: 'Federated Services', section: 'Config', icon: 'federation', flag: 'page_federated_services' },
+  { to: '/settings', label: 'Settings', section: 'Config', icon: 'settings' },
 
   // ─── Superadmin Specialized Modules ─────────────────────
   { to: '/admin/features', label: 'Feature Flags', section: 'Control', icon: 'features', superadminOnly: true },
@@ -299,7 +299,7 @@ export default function Sidebar() {
 
   useEffect(() => {
     let canceled = false
-    ;(async () => {
+    const fetchTenant = async () => {
       try {
         const token = await getAccessTokenSilently()
         const result = await api.settings(token)
@@ -307,8 +307,25 @@ export default function Sidebar() {
       } catch {
         // Fail open: a broken tenant-card fetch must not block the nav.
       }
-    })()
-    return () => { canceled = true }
+    }
+    fetchTenant()
+
+    const handleTenantUpdated = (event: Event) => {
+      const customEvent = event as CustomEvent<TenantSettingsResponse | { org_name: string }>
+      if (customEvent.detail) {
+        setTenant((prev) => {
+          if (!prev) return customEvent.detail as TenantSettingsResponse
+          return { ...prev, ...customEvent.detail }
+        })
+      } else {
+        void fetchTenant()
+      }
+    }
+    window.addEventListener('signalloom:tenant-updated', handleTenantUpdated)
+    return () => {
+      canceled = true
+      window.removeEventListener('signalloom:tenant-updated', handleTenantUpdated)
+    }
   }, [getAccessTokenSilently])
 
   useEffect(() => {

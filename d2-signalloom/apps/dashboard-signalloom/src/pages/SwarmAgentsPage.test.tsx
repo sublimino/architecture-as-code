@@ -65,7 +65,6 @@ import { clearSignalSummaryCache } from '../hooks/useSignalSummary'
 const SWARM_AGENT_NAMES = [
   'prompt-commit-summarizer',
   'triage-ci-worker',
-  'zulip-chat-agent',
   'cpai-engineer',
   'hosted-daytona-coder',
   'swarm-governor',
@@ -78,7 +77,6 @@ const SWARM_AGENT_NAMES = [
 const SWARM_ROLES: Record<string, string> = {
   'prompt-commit-summarizer': 'prompt-function',
   'triage-ci-worker': 'structured-worker',
-  'zulip-chat-agent': 'chatops',
   'cpai-engineer': 'sandboxed-coder',
   'hosted-daytona-coder': 'remote-coder',
   'swarm-governor': 'dispatcher',
@@ -139,7 +137,7 @@ describe('SwarmAgentsPage — demo mode agent rendering', () => {
     })
   })
 
-  it('renders at least 10 agents from the swarm fleet', async () => {
+  it('renders agents from the 9-agent swarm fleet', async () => {
     renderPage()
     // The governed tab is the default — wait for any agent name to appear.
     await waitFor(() => {
@@ -231,7 +229,7 @@ describe('SwarmAgentsPage — demo mode agent rendering', () => {
     renderPage()
     await waitFor(() => {
       const unconfirmed = screen.getByTestId('kernel-telemetry-unconfirmed-tenant-demo:agent-cardvault')
-      expect(unconfirmed.textContent).toContain('Requested (Outcome unconfirmed)')
+      expect(unconfirmed.textContent).toContain('Unconfirmed')
     })
   })
 

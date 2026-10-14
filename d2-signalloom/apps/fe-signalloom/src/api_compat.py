@@ -1732,6 +1732,20 @@ class FrameworksPatchRequest(BaseModel):
     selected_frameworks: list[str]
 
 
+class OrganizationPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    org_name: str = Field(min_length=1, max_length=255)
+
+    @field_validator("org_name")
+    @classmethod
+    def _validate_org_name(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("Organization name cannot be blank")
+        return trimmed
+
+
 class PreferencesPatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -3631,6 +3645,7 @@ _VIOLATIONS: dict[str, dict[str, dict[str, Any]]] = {}
 _NHI_ACCOUNTS: dict[str, dict[str, dict[str, Any]]] = {}
 _TENANT_FRAMEWORKS: dict[str, list[str]] = {}
 _TENANT_PREFERENCES: dict[str, dict[str, Any]] = {}
+_TENANT_ORG_NAMES: dict[str, str] = {}
 #: The declared organisational risk profile, in-memory path.  ABSENT means
 #: undeclared; there is deliberately no default entry, so a tenant nobody has
 #: asked reads back all-NULL exactly as it does from Postgres.
@@ -3736,7 +3751,7 @@ def reset_tenant_state(tenant_id: str) -> None:
     with _STORE_LOCK:
         for store in (
             _AGENTS, _AGENT_CREDENTIALS, _VIOLATIONS, _NHI_ACCOUNTS,
-            _TENANT_FRAMEWORKS, _TENANT_PREFERENCES, _TENANT_CONNECTORS, _COOKIE_PREFS,
+            _TENANT_FRAMEWORKS, _TENANT_PREFERENCES, _TENANT_ORG_NAMES, _TENANT_CONNECTORS, _COOKIE_PREFS,
             _CONSENT, _CLAIMS, _AUDIT_EVENTS, _USER_PREFERENCES,
             _TENANT_RISK_PROFILE,
         ):
@@ -4180,10 +4195,11 @@ def _tenant_settings_response(tenant_id: str) -> TenantSettingsResponse:
         f"tenant {tenant_id} (in-memory fixture store)",
     )
     risk_profile = _risk_profile_from(_TENANT_RISK_PROFILE.get(tenant_id, {}))
+    org_name = _TENANT_ORG_NAMES.get(tenant_id, f"{tenant_id} Org")
     return TenantSettingsResponse(
         **risk_profile,
         tenant_id=tenant_id,
-        org_name=f"{tenant_id} Org",
+        org_name=org_name,
         plan_tier="enterprise",
         agent_count=len(_AGENTS.get(tenant_id, [])),
         billing_tier="annual",
@@ -9283,6 +9299,33 @@ async def patch_tenant_preferences(
         )
     # Re-fetch via the GET handler, OUTSIDE the transaction: it acquires its own
     # connection and so must run after the commit to observe the new values.
+    return await tenant_settings(tenant_id)
+
+
+@router.patch("/tenant/settings/organization", response_model=TenantSettingsResponse, responses=ERROR_RESPONSES)
+@router.patch("/tenant/settings/org-name", response_model=TenantSettingsResponse, responses=ERROR_RESPONSES)
+async def patch_tenant_organization(
+    body: OrganizationPatchRequest,
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+) -> TenantSettingsResponse:
+    tenant_id = principal.tenant
+    pool = await _require_pool("Changing organization name")
+    if pool is None:
+        _ensure_seeded(tenant_id)
+        with _STORE_LOCK:
+            _TENANT_ORG_NAMES[tenant_id] = body.org_name
+            return _tenant_settings_response(tenant_id)
+
+    async with _write(pool) as conn:
+        await _ensure_tenant_settings(conn, tenant_id)
+        await conn.execute(
+            "UPDATE tenant_settings SET org_name = $1 WHERE tenant_id = $2",
+            body.org_name, tenant_id,
+        )
+        await _audit_log(
+            conn, tenant_id, "tenant.preferences_updated", None, None, principal.actor,
+            {"org_name": body.org_name},
+        )
     return await tenant_settings(tenant_id)
 
 

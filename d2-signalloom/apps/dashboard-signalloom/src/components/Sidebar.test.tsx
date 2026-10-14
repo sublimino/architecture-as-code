@@ -207,14 +207,14 @@ describe('Sidebar active-link precision', () => {
 })
 
 describe('Sidebar 3-Tier Navigation Hierarchy & Ordering (SP-2)', () => {
-  it('renders all 3 category headings: View, Control, Design', async () => {
+  it('renders all 3 category headings: View, Control, Config', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     renderSidebar()
 
     await screen.findByRole('link', { name: /Agents/ })
     expect(screen.getByText('View')).toBeInTheDocument()
     expect(screen.getByText('Control')).toBeInTheDocument()
-    expect(screen.getByText('Design')).toBeInTheDocument()
+    expect(screen.getByText('Config')).toBeInTheDocument()
   })
 
   it('organizes items in the exact SP-2 3-tier sequence', async () => {
@@ -237,7 +237,7 @@ describe('Sidebar 3-Tier Navigation Hierarchy & Ordering (SP-2)', () => {
     expect(screen.getByRole('link', { name: /^Users & Permissions$/ })).toHaveAttribute('href', '/users')
     expect(screen.getByRole('link', { name: /^Audit Trail$/ })).toHaveAttribute('href', '/audit')
 
-    // Design group
+    // Config group
     expect(screen.getByRole('link', { name: /^Federated Services$/ })).toHaveAttribute('href', '/federated-services')
     expect(screen.getByRole('link', { name: /^Settings$/ })).toHaveAttribute('href', '/settings')
     expect(screen.queryByRole('link', { name: /Fleet/ })).not.toBeInTheDocument()
@@ -247,7 +247,7 @@ describe('Sidebar 3-Tier Navigation Hierarchy & Ordering (SP-2)', () => {
     expect(screen.getByRole('button', { name: /Help & (Support|Docs)/ })).toBeInTheDocument()
   })
 
-  it('renders View items before Control items, and Control items before Design items', async () => {
+  it('renders View items before Control items, and Control items before Config items', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     renderSidebar()
 
@@ -502,7 +502,7 @@ describe('Sidebar collapse', () => {
     // Section headings, workspace copy and the search box all go away…
     expect(screen.queryByText('View')).not.toBeInTheDocument()
     expect(screen.queryByText('Control')).not.toBeInTheDocument()
-    expect(screen.queryByText('Design')).not.toBeInTheDocument()
+    expect(screen.queryByText('Config')).not.toBeInTheDocument()
     expect(screen.queryByText('Agent governance workspace')).not.toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: 'Quick search navigation' })).not.toBeInTheDocument()
 
@@ -718,7 +718,7 @@ describe('Sidebar quick-search clearing', () => {
 })
 
 describe('Sidebar filtered section headings', () => {
-  const ALL_HEADINGS = ['View', 'Control', 'Design', 'Superadmin', 'Demos', 'Development']
+  const ALL_HEADINGS = ['View', 'Control', 'Config', 'Superadmin', 'Demos', 'Development']
 
   function navRegion(): HTMLElement {
     return document.getElementById('sl-sidebar-nav')!
@@ -764,13 +764,13 @@ describe('Sidebar filtered section headings', () => {
     expect(visibleHeadings()).toEqual(['View'])
   })
 
-  it('renders only Design when the match is a Design item', async () => {
+  it('renders only Config when the match is a Config item', async () => {
     renderSidebar({ superadmin: true })
     const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
 
     fireEvent.change(search, { target: { value: 'settings' } })
 
-    expect(visibleHeadings()).toEqual(['Design'])
+    expect(visibleHeadings()).toEqual(['Config'])
   })
 
   it('renders Superadmin and Demos when the match is a Demos item', async () => {

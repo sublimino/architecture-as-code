@@ -17,7 +17,9 @@ import { FeatureFlagProvider } from '../../../d2-signalloom/apps/dashboard-signa
 import FeatureGate from '../../../d2-signalloom/apps/dashboard-signalloom/src/components/common/FeatureGate'
 import Sidebar from '../../../d2-signalloom/apps/dashboard-signalloom/src/components/Sidebar'
 import UsersPage from '../../../d2-signalloom/apps/dashboard-signalloom/src/pages/admin/UsersPage'
+import FeaturesPage from '../../../d2-signalloom/apps/dashboard-signalloom/src/pages/admin/FeaturesPage'
 import NotFoundPage from '../../../d2-signalloom/apps/dashboard-signalloom/src/pages/NotFoundPage'
+import Settings from '../../../d2-signalloom/apps/dashboard-signalloom/src/views/Settings'
 import { currentTenantFromUrl, isSuperadminFromUrl } from './user-admin-flags-auth-stub'
 
 const queryClient = new QueryClient({
@@ -80,8 +82,9 @@ function HarnessApp(): React.JSX.Element {
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <main style={{ flex: 1, padding: '24px 32px', overflowY: 'auto' }}>
               <Routes>
-                {/* User Administration Route */}
+                {/* User Administration & Features Route */}
                 <Route path="/admin/users" element={<UsersPage />} />
+                <Route path="/admin/features" element={<FeaturesPage />} />
 
                 {/* Core Governance & Control Routes */}
                 <Route path="/agents" element={<div data-testid="page-agents" style={{ padding: 24 }}><h1>Agents</h1></div>} />
@@ -89,7 +92,7 @@ function HarnessApp(): React.JSX.Element {
                 <Route path="/compliance" element={<div data-testid="page-compliance" style={{ padding: 24 }}><h1>Compliance</h1></div>} />
                 <Route path="/policies" element={<div data-testid="page-policies" style={{ padding: 24 }}><h1>Policies</h1></div>} />
                 <Route path="/audit" element={<div data-testid="page-audit" style={{ padding: 24 }}><h1>Audit Trail</h1></div>} />
-                <Route path="/settings" element={<div data-testid="page-settings" style={{ padding: 24 }}><h1>Settings</h1></div>} />
+                <Route path="/settings" element={<Settings />} />
                 <Route path="/federated-services" element={<div data-testid="page-federated" style={{ padding: 24 }}><h1>Federated Services</h1></div>} />
 
                 {/* Feature-Gated Experimental & Demo Routes */}

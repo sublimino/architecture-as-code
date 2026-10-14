@@ -312,11 +312,11 @@ describe('CompliancePolicyPage', () => {
 
     expect(await screen.findByTestId('policy-editor-container')).toBeInTheDocument()
     const selector = screen.getByTestId('framework-selector')
-    await user.selectOptions(selector, 'nist-800-53')
+    await user.selectOptions(selector, 'nist-sp-800-53')
 
     await waitFor(() => {
       const updatedSelector = screen.getByTestId('framework-selector') as HTMLSelectElement
-      expect(updatedSelector.value).toBe('nist-800-53')
+      expect(updatedSelector.value).toBe('nist-sp-800-53')
     })
   })
 })

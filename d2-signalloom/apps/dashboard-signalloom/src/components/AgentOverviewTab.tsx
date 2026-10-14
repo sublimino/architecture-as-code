@@ -76,10 +76,10 @@ export function lookupPolicyForControl(
     const euBundle = DEMO_BUNDLES['eu-ai-act']
     if (euBundle) {
       let rule = euBundle.rules[0]
-      if (controlName.includes('9')) rule = euBundle.rules.find(r => r.id === 'audit-trail-logging') || rule
-      else if (controlName.includes('10')) rule = euBundle.rules.find(r => r.id === 'training-data-governance') || rule
-      else if (controlName.includes('13')) rule = euBundle.rules.find(r => r.id === 'transparency-system-prompt') || rule
-      else if (controlName.includes('14')) rule = euBundle.rules.find(r => r.id === 'human-oversight-approval-svid') || rule
+      if (controlName.includes('9')) rule = euBundle.rules.find(r => r.id === 'audit-trail-logging' || r.id === 'no-privilege-escalation') || rule
+      else if (controlName.includes('10')) rule = euBundle.rules.find(r => r.id === 'training-data-governance' || r.id === 'training-data-provenance') || rule
+      else if (controlName.includes('13')) rule = euBundle.rules.find(r => r.id === 'transparency-system-prompt' || r.id === 'transparency-model-card-declared') || rule
+      else if (controlName.includes('14')) rule = euBundle.rules.find(r => r.id === 'human-oversight-approval-svid' || r.id === 'block-unauthorized-host-exec') || rule
       return {
         ruleId: rule.id,
         ruleName: rule.name,
@@ -274,6 +274,31 @@ export default function AgentOverviewTab({
       name: 'CIS Kubernetes Benchmark',
       bundleId: 'k8s-cis-benchmark',
       officialDocsUrl: 'https://www.cisecurity.org/benchmark/kubernetes',
+    },
+    'nist-800-53': {
+      name: 'NIST SP 800-53 Rev. 5',
+      bundleId: 'nist-800-53',
+      officialDocsUrl: 'https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final',
+    },
+    'cra': {
+      name: 'EU Cyber Resilience Act',
+      bundleId: 'cra',
+      officialDocsUrl: 'https://digital-strategy.ec.europa.eu/en/policies/cyber-resilience-act',
+    },
+    'finos-aigf': {
+      name: 'FINOS AI Governance Framework',
+      bundleId: 'finos-aigf',
+      officialDocsUrl: 'https://air.finos.org/',
+    },
+    'dora': {
+      name: 'Digital Operational Resilience Act',
+      bundleId: 'dora',
+      officialDocsUrl: 'https://www.eiopa.europa.eu/digital-operational-resilience-act-dora_en',
+    },
+    'nis2': {
+      name: 'NIS2 Directive',
+      bundleId: 'nis2',
+      officialDocsUrl: 'https://digital-strategy.ec.europa.eu/en/policies/nis2-directive',
     },
   }
 

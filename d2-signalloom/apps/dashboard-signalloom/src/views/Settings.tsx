@@ -15,6 +15,7 @@ import CurrencySetting from '../components/CurrencySetting'
 import { useAppContext } from '../App'
 import { getBundleForFramework, normalizeFrameworkId } from '../data/regulatoryFrameworks'
 import type { PolicyRule } from '../types/policies'
+import GovernancePolicyTable from '../components/GovernancePolicyTable'
 
 const POLL_MS = 15 * 60 * 1000
 
@@ -43,7 +44,7 @@ function Field({ label, value, mono }: { label: string; value: string | number |
   )
 }
 
-function FrameworkToggle({ active, onToggle }: { active: boolean; onToggle: () => void }) {
+export function FrameworkToggle({ active, onToggle }: { active: boolean; onToggle: () => void }) {
   return (
     <button
       role="switch"
@@ -129,6 +130,10 @@ export default function Settings() {
   const [preferencesSaved, setPreferencesSaved] = useState(false)
   const [preferencesError, setPreferencesError] = useState<string | null>(null)
   const [teamMembers, setTeamMembers] = useState<PlatformUser[]>([])
+  const [orgName, setOrgName] = useState('')
+  const [orgSaving, setOrgSaving] = useState(false)
+  const [orgSaved, setOrgSaved] = useState(false)
+  const [orgError, setOrgError] = useState<string | null>(null)
   const [disabledPolicies, setDisabledPolicies] = useState<string[]>(() => {
     try {
       const raw = typeof window !== 'undefined' ? localStorage.getItem('signalloom_disabled_policies') : null
@@ -137,6 +142,32 @@ export default function Settings() {
       return []
     }
   })
+
+  const handleSaveOrgName = useCallback(
+    async (e?: React.FormEvent) => {
+      if (e) e.preventDefault()
+      const trimmed = orgName.trim()
+      if (!trimmed) return
+      setOrgSaving(true)
+      setOrgError(null)
+      setOrgSaved(false)
+      try {
+        const token = await getAccessTokenSilently()
+        const updated = await api.patchOrganization(token, trimmed)
+        setSettings(updated)
+        setOrgName(updated.org_name)
+        setOrgSaved(true)
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('signalloom:tenant-updated', { detail: updated }))
+        }
+      } catch (err: any) {
+        setOrgError(err?.message || 'Failed to update organization name')
+      } finally {
+        setOrgSaving(false)
+      }
+    },
+    [orgName, getAccessTokenSilently],
+  )
 
   const handleTogglePolicy = useCallback((policyId: string) => {
     setDisabledPolicies((prev) => {
@@ -190,6 +221,7 @@ export default function Settings() {
       ])
       if (settingsRes.status === 'fulfilled') {
         setSettings(settingsRes.value)
+        setOrgName(settingsRes.value.org_name ?? '')
         setSelectedFrameworks(settingsRes.value.selected_frameworks ?? [])
         setCadenceHours(settingsRes.value.preferred_scan_cadence_hours)
         setAlertEmail(settingsRes.value.alert_email ?? '')
@@ -366,7 +398,67 @@ export default function Settings() {
           {/* Organization */}
           <SectionCard title="Organization">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-              <Field label="Organization Name" value={settings?.org_name || 'Unnamed'} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label
+                  htmlFor="settings-org-name-input"
+                  style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}
+                >
+                  Organization Name
+                </label>
+                <form
+                  onSubmit={handleSaveOrgName}
+                  style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 2 }}
+                >
+                  <input
+                    id="settings-org-name-input"
+                    data-testid="settings-org-name-input"
+                    type="text"
+                    value={orgName}
+                    onChange={(e) => {
+                      setOrgName(e.target.value)
+                      setOrgSaved(false)
+                      setOrgError(null)
+                    }}
+                    disabled={orgSaving}
+                    style={{
+                      padding: '6px 10px',
+                      fontSize: 13,
+                      background: 'var(--surface2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius)',
+                      color: 'var(--text)',
+                      flex: 1,
+                      maxWidth: 280,
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    className="btn btn-secondary"
+                    data-testid="settings-save-org-name-btn"
+                    onClick={handleSaveOrgName}
+                    disabled={orgSaving || !orgName.trim() || orgName.trim() === settings?.org_name}
+                    style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600 }}
+                  >
+                    {orgSaving ? 'Saving...' : 'Save'}
+                  </button>
+                </form>
+                {orgSaved && (
+                  <span
+                    data-testid="settings-org-saved-indicator"
+                    style={{ fontSize: 12, color: 'var(--teal)', fontWeight: 500, marginTop: 4 }}
+                  >
+                    Saved
+                  </span>
+                )}
+                {orgError && (
+                  <span
+                    data-testid="settings-org-error-indicator"
+                    style={{ fontSize: 12, color: 'var(--error)', fontWeight: 500, marginTop: 4 }}
+                  >
+                    {orgError}
+                  </span>
+                )}
+              </div>
               <Field label="Tenant ID" value={settings?.tenant_id} mono />
               <Field label="Plan Tier" value={settings?.plan_tier} />
               <Field label="Billing Tier" value={settings?.billing_tier} />
@@ -848,9 +940,11 @@ export default function Settings() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 {frameworks.map((fw) => {
-                  const canonicalId = normalizeFrameworkId(fw.id)
-                  const active = selectedFrameworks.includes(fw.id) || selectedFrameworks.includes(canonicalId)
-                  const bundle = getBundleForFramework(fw.id)
+                  const canonicalId = normalizeFrameworkId(fw.id, fw.name)
+                  const active = selectedFrameworks.some(
+                    (id) => id === fw.id || id === canonicalId || normalizeFrameworkId(id) === canonicalId
+                  )
+                  const bundle = getBundleForFramework(canonicalId) || getBundleForFramework(fw.id)
                   const childRules: PolicyRule[] = bundle?.rules && bundle.rules.length > 0
                     ? bundle.rules
                     : (fw.controls || []).map((c) => ({
@@ -929,8 +1023,8 @@ export default function Settings() {
                           onToggle={async () => {
                             const prev = selectedFrameworks
                             const next = active
-                              ? prev.filter((id) => id !== fw.id && id !== canonicalId)
-                              : [...prev, fw.id]
+                              ? prev.filter((id) => id !== fw.id && id !== canonicalId && normalizeFrameworkId(id) !== canonicalId)
+                              : Array.from(new Set([...prev.filter((id) => id !== fw.id && id !== canonicalId && normalizeFrameworkId(id) !== canonicalId), canonicalId, fw.id]))
                             setSelectedFrameworks(next)
                             setToastError(null)
                             try {
@@ -947,7 +1041,6 @@ export default function Settings() {
 
                       {/* Auto-Expanded Child Policies List */}
                       <div
-                        data-testid={`framework-children-${fw.id}`}
                         style={{
                           display: 'flex',
                           flexDirection: 'column',
@@ -960,100 +1053,21 @@ export default function Settings() {
                           Child Policies & Controls ({childRules.length})
                         </div>
 
-                        {childRules.map((rule) => {
-                          const isRuleActive = active && !disabledPolicies.includes(rule.id)
-                          const isManual = Boolean(rule.manual_attestation || rule.attestation_type === 'manual' || rule.attestation_type === 'cluster')
-
-                          return (
-                            <div
-                              key={rule.id}
-                              data-testid={`policy-row-${rule.id}`}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '8px 10px',
-                                background: 'var(--surface)',
-                                borderRadius: 6,
-                                border: '1px solid var(--border)',
-                                gap: 10,
-                              }}
-                            >
-                              <div
-                                style={{ flex: 1, cursor: 'pointer' }}
-                                onClick={() => navigate(`/policies?framework=${canonicalId}&rule=${encodeURIComponent(rule.id)}`)}
-                                title="Click to view and edit this policy in the Policy Editor"
-                              >
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
-                                    {rule.name}
-                                  </span>
-                                  <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--muted)' }}>
-                                    ({rule.id})
-                                  </span>
-                                  {isManual && (
-                                    <span
-                                      data-testid={`manual-sign-${rule.id}`}
-                                      style={{
-                                        fontSize: 9,
-                                        fontWeight: 700,
-                                        textTransform: 'uppercase',
-                                        padding: '1px 5px',
-                                        borderRadius: 3,
-                                        background: 'rgba(139, 92, 246, 0.15)',
-                                        color: 'var(--violet, #a78bfa)',
-                                        border: '1px solid rgba(139, 92, 246, 0.25)',
-                                      }}
-                                      title={rule.manual_attestation_note || 'Manual Attestation / Non-CEL control'}
-                                    >
-                                      📋 Manual Attestation
-                                    </span>
-                                  )}
-                                  <span
-                                    style={{
-                                      fontSize: 9,
-                                      fontWeight: 700,
-                                      textTransform: 'uppercase',
-                                      padding: '1px 4px',
-                                      borderRadius: 3,
-                                      background: rule.severity === 'critical' ? 'rgba(220,38,38,0.15)' : 'rgba(217,119,6,0.15)',
-                                      color: rule.severity === 'critical' ? 'var(--error)' : 'var(--amber)',
-                                    }}
-                                  >
-                                    {rule.severity || 'high'}
-                                  </span>
-                                </div>
-                                {rule.description && (
-                                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 600 }}>
-                                    {rule.description}
-                                  </div>
-                                )}
-                              </div>
-
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                                <button
-                                  type="button"
-                                  onClick={() => navigate(`/policies?framework=${canonicalId}&rule=${encodeURIComponent(rule.id)}`)}
-                                  style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    color: 'var(--cyan)',
-                                    fontSize: 11,
-                                    cursor: 'pointer',
-                                    padding: '2px 4px',
-                                  }}
-                                  title="Open rule in CEL editor"
-                                >
-                                  Edit ↗
-                                </button>
-                                <FrameworkToggle
-                                  active={isRuleActive}
-                                  onToggle={() => handleTogglePolicy(rule.id)}
-                                />
-                              </div>
-                            </div>
-                          )
-                        })}
+                        <GovernancePolicyTable
+                          rules={childRules}
+                          frameworkId={canonicalId}
+                          testId={`framework-children-${fw.id}`}
+                          frameworkActive={active}
+                          disabledPolicyIds={disabledPolicies}
+                          onTogglePolicy={handleTogglePolicy}
+                          onEditPolicy={(_fwId, ruleId) => navigate(`/policies?framework=${encodeURIComponent(canonicalId)}&rule=${encodeURIComponent(ruleId)}`)}
+                          renderToggle={(rule, isRuleActive) => (
+                            <FrameworkToggle
+                              active={isRuleActive}
+                              onToggle={() => handleTogglePolicy(rule.id)}
+                            />
+                          )}
+                        />
                       </div>
                     </div>
                   )

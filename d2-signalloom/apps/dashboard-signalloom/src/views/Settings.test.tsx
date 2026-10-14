@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import Settings, { SETTINGS_TABS } from './Settings'
@@ -36,6 +36,7 @@ vi.mock('../api/client', () => ({
     nhi: { scans: vi.fn().mockResolvedValue({ scans: [] }) },
     patchFrameworks: vi.fn(),
     patchPreferences: vi.fn(),
+    patchOrganization: vi.fn(),
     apiKeys: { revealInitial: vi.fn(), rotate: vi.fn() },
     users: vi.fn().mockResolvedValue({ users: [], total: 0 }),
   },
@@ -596,6 +597,60 @@ describe('Settings: Governance Frameworks & Child Policies Expansion', () => {
 
     await userEvent.click(switchBtn!)
     expect(switchBtn).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('renders editable organization name input initialized with settings.org_name', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings({ org_name: 'Stark Industries' }))
+    renderSettings()
+
+    const input = (await screen.findByTestId('settings-org-name-input')) as HTMLInputElement
+    expect(input).toBeInTheDocument()
+    expect(input.value).toBe('Stark Industries')
+  })
+
+  it('allows editing and saving organization name, updating settings and dispatching tenant-updated event', async () => {
+    const initialSettings = makeSettings({ org_name: 'Acme Corp' })
+    const updatedSettings = makeSettings({ org_name: 'Acme International' })
+    vi.mocked(api.settings).mockResolvedValue(initialSettings)
+    vi.mocked(api.patchOrganization).mockResolvedValue(updatedSettings)
+
+    const eventSpy = vi.fn()
+    window.addEventListener('signalloom:tenant-updated', eventSpy)
+
+    renderSettings()
+
+    const input = await screen.findByTestId('settings-org-name-input')
+    const saveBtn = screen.getByTestId('settings-save-org-name-btn')
+
+    expect(saveBtn).toBeDisabled()
+
+    fireEvent.change(input, { target: { value: 'Acme International' } })
+
+    expect(saveBtn).toBeEnabled()
+    fireEvent.click(saveBtn)
+
+    await waitFor(() => {
+      expect(api.patchOrganization).toHaveBeenCalledWith('test-token', 'Acme International')
+    })
+    expect(await screen.findByTestId('settings-org-saved-indicator')).toHaveTextContent('Saved')
+    expect(eventSpy).toHaveBeenCalled()
+
+    window.removeEventListener('signalloom:tenant-updated', eventSpy)
+  })
+
+  it('displays error indicator when organization name patch fails', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings({ org_name: 'Acme Corp' }))
+    vi.mocked(api.patchOrganization).mockRejectedValue(new Error('Organization name already taken'))
+
+    renderSettings()
+
+    const input = await screen.findByTestId('settings-org-name-input')
+    const saveBtn = screen.getByTestId('settings-save-org-name-btn')
+
+    fireEvent.change(input, { target: { value: 'Taken Org' } })
+    fireEvent.click(saveBtn)
+
+    expect(await screen.findByTestId('settings-org-error-indicator')).toHaveTextContent('Organization name already taken')
   })
 })
 

@@ -247,6 +247,7 @@ ENDPOINT_TABLE: list[tuple[str, str, dict[str, Any] | None, type[BaseModel] | No
     ("GET", "/api/tenant/settings", None, TenantSettingsResponse, "tenant settings"),
     ("PATCH", "/api/tenant/settings/frameworks", {"selected_frameworks": ["eu-ai-act", "nist-ai-rmf"]}, TenantSettingsResponse, "patch tenant frameworks"),
     ("PATCH", "/api/tenant/settings/preferences", {"preferred_scan_cadence_hours": 12, "alert_email": "ops@signalloom.local", "alert_threshold": 3}, TenantSettingsResponse, "patch tenant preferences"),
+    ("PATCH", "/api/tenant/settings/organization", {"org_name": "Acme Global"}, TenantSettingsResponse, "patch organization name"),
     ("POST", "/api/support", {"subject": "Test", "urgency": "normal", "message": "Help"}, SupportRequestResponse, "create support request"),
     ("POST", "/api/tenants/tenant-a/api-keys/initial", None, InitialApiKeyResponse, "create initial API key"),
     ("POST", "/api/tenants/tenant-a/api-keys/rotate", None, RotateApiKeyResponse, "rotate API key"),
@@ -431,8 +432,8 @@ def test_nhi_report_json_response_shape(client: TestClient) -> None:
 # Coverage assertion: ensure the fixture-compatible table stays exact
 # ---------------------------------------------------------------------------
 
-def test_endpoint_table_covers_all_30_fixture_compatible_routes() -> None:
-    """Sanity check: the fixture-compatible table has exactly 30 entries."""
-    assert len(ENDPOINT_TABLE) == 30, (
-        f"expected 30 endpoints in the table, got {len(ENDPOINT_TABLE)}"
+def test_endpoint_table_covers_all_31_fixture_compatible_routes() -> None:
+    """Sanity check: the fixture-compatible table has exactly 31 entries."""
+    assert len(ENDPOINT_TABLE) == 31, (
+        f"expected 31 endpoints in the table, got {len(ENDPOINT_TABLE)}"
     )

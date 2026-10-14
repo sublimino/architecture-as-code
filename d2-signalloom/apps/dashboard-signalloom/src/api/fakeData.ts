@@ -1419,11 +1419,12 @@ function getDiscoveredAccount(path: string): NHIAccountDetail | undefined {
 // ─── Tenant / settings ─────────────────────────────────────────────────────────
 
 const COOKIE_PREFS = { strictly_necessary: true, analytics: false }
+let demoOrgName = 'Acme Co. (demo)'
 
 function tenantSettings(selected: string[] = ['eu-ai-act']): TenantSettingsResponse {
   return {
     tenant_id: TENANT,
-    org_name: 'Acme Co. (demo)',
+    org_name: demoOrgName,
     plan_tier: 'enterprise',
     agent_count: demoAgents.length,
     billing_tier: 'enterprise',
@@ -1784,6 +1785,11 @@ const ROUTES: Match[] = [
       const base = tenantSettings() as unknown as Record<string, unknown>
       const patch = (body ?? {}) as Record<string, unknown>
       return { ...base, ...patch }
+    } },
+  { method: 'PATCH', test: re(/^\/tenant\/settings\/(?:organization|org-name)$/), data: (_p, body) => {
+      const name = (body as { org_name?: string })?.org_name
+      if (name) demoOrgName = name
+      return tenantSettings()
     } },
   { method: 'POST', test: re(/^\/support$/), data: () => support },
   // api keys

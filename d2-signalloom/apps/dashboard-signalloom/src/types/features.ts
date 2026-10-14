@@ -129,6 +129,13 @@ export const FEATURE_CATEGORIES: FeatureCategoryGroup[] = [
       { key: 'page_policies', label: 'Governance Policies', description: 'Active guardrail rules and policy definitions', route: '/policies' },
       { key: 'page_credential_inventory', label: 'Credential Inventory', description: 'OpenBao and SPIRE cryptographic token allocations', route: '/credential-inventory' },
       { key: 'page_cryptography', label: 'Cryptography & Keys', description: 'Platform signing keys, attestation roots, and HSM status', route: '/cryptography' },
+    ],
+  },
+  {
+    id: 'config',
+    title: 'Config & Services',
+    description: 'Configuration, external integrations, model providers, and federated service endpoints.',
+    flags: [
       { key: 'page_federated_services', label: 'Federated Services', description: 'Third-party model providers and downstream proxy endpoints', route: '/federated-services' },
     ],
   },

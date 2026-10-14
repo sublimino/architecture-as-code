@@ -785,6 +785,12 @@ export const api = {
       data: body,
     }),
 
+  patchOrganization: (token: string, orgName: string) =>
+    req<TenantSettingsResponse>('/tenant/settings/organization', token, {
+      method: 'PATCH',
+      data: { org_name: orgName },
+    }),
+
   support: (token: string, body: SupportRequestCreate) =>
     req<SupportRequestResponse>('/support', token, { method: 'POST', data: body }),
 

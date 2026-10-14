@@ -35,6 +35,7 @@ const EXPECTED_NAMES = [
   'RoleViewSelector',
   'FleetBadge',
   'ConfirmDialog',
+  'GovernancePolicyTable',
 ] as const
 
 afterEach(() => vi.restoreAllMocks())

@@ -438,6 +438,11 @@ describe('AgentOverviewTab — Compliance Posture & CEL Policy Drill-Down', () =
     expect(screen.getByTestId('framework-card-eu-ai-act')).toBeInTheDocument()
     expect(screen.getByTestId('framework-card-soc-2-type-ii')).toBeInTheDocument()
     expect(screen.getByTestId('framework-card-cis-kubernetes-benchmark')).toBeInTheDocument()
+    expect(screen.getByTestId('framework-card-nist-800-53')).toBeInTheDocument()
+    expect(screen.getByTestId('framework-card-cra')).toBeInTheDocument()
+    expect(screen.getByTestId('framework-card-finos-aigf')).toBeInTheDocument()
+    expect(screen.getByTestId('framework-card-dora')).toBeInTheDocument()
+    expect(screen.getByTestId('framework-card-nis2')).toBeInTheDocument()
   })
 
   it('renders detailed CEL policy inspection and drill-down links for non-compliant controls', () => {

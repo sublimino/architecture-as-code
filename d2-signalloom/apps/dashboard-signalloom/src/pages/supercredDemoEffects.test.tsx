@@ -19,6 +19,7 @@ import { requirePriced } from '../money/money'
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { ReactNode } from 'react'
 
@@ -143,6 +144,11 @@ function renderPage(ui: ReactNode) {
   return render(<MemoryRouter>{ui}</MemoryRouter>)
 }
 
+async function inventoryRow(name: string): Promise<HTMLElement> {
+  const inventory = await screen.findByRole('region', { name: 'Governed agents table' })
+  return (await within(inventory).findByText(name)).closest('tr') as HTMLElement
+}
+
 /** The £ figure rendered by the stat card with this label. */
 function statCardValue(label: string): number {
   const labelEl = screen.getByText(label)
@@ -220,8 +226,7 @@ beforeEach(() => {
 
 describe('/agents reflects each demo step', () => {
   async function agentRow() {
-    const cell = await screen.findByText(AGENT_NAME)
-    return cell.closest('tr') as HTMLElement
+    return inventoryRow(AGENT_NAME)
   }
 
   it('step 0: the demo agent is absent before the demo starts', async () => {
@@ -237,11 +242,13 @@ describe('/agents reflects each demo step', () => {
     expect(within(await agentRow()).getByText('enrolled')).toBeInTheDocument()
   })
 
-  it('step 1 deploy: it raises the "enrolled agents not activated" alert', async () => {
+  it('step 1 deploy: enrolled-inactive remains in inventory without inventing a review incident', async () => {
     wireApiFor('deployed')
     renderPage(<AgentsPage />)
-    await screen.findByText(AGENT_NAME)
-    expect(screen.getByText(/enrolled agents not activated/)).toBeInTheDocument()
+    expect(within(await agentRow()).getByText('enrolled')).toBeInTheDocument()
+    const queue = screen.getByRole('region', { name: 'Review queue' })
+    expect(within(queue).queryByText(AGENT_NAME)).not.toBeInTheDocument()
+    expect(screen.queryByText(/enrolled agents not activated/)).not.toBeInTheDocument()
   })
 
   it('step 2 credential chain: the agent goes active and its identity controls pass', async () => {
@@ -256,9 +263,11 @@ describe('/agents reflects each demo step', () => {
   it('step 3 scan: the agent gains a violation marker and drops into critical posture', async () => {
     wireApiFor('non-compliant')
     renderPage(<AgentsPage />)
-    await agentRow()
-    expect(screen.getByText(/agents with new violations/)).toBeInTheDocument()
-    expect(screen.getByText(/agents with critical posture/)).toBeInTheDocument()
+    const row = await agentRow()
+    expect(within(row).getByTitle('Unacknowledged violation')).toBeInTheDocument()
+    const queue = within(screen.getByRole('region', { name: 'Review queue' }))
+    expect(queue.getByRole('link', { name: `Review agent ${AGENT_NAME}: Failing controls` })).toHaveAttribute('href', '/agents/supercred%3Aagent-cardvault?tab=assessments')
+    expect(queue.getByRole('link', { name: `Review agent ${AGENT_NAME}: Critical posture` })).toHaveAttribute('href', '/agents/supercred%3Aagent-cardvault?tab=assessments')
   })
 
   it('step 3 scan: posture is worse than it was at step 2', async () => {
@@ -274,11 +283,14 @@ describe('/agents reflects each demo step', () => {
     expect(Number(after!.replace('%', ''))).toBeLessThan(Number(before!.replace('%', '')))
   })
 
-  it('step 4 stun: the agent is suspended and raises the suspended alert', async () => {
+  it('step 4 stun: the suspended agent exposes unresolved containment for review', async () => {
     wireApiFor('stunned')
     renderPage(<AgentsPage />)
     expect(within(await agentRow()).getByText('suspended')).toBeInTheDocument()
-    expect(screen.getByText(/suspended agents/)).toBeInTheDocument()
+    const queue = within(screen.getByRole('region', { name: 'Review queue' }))
+    const viewAll = queue.queryByRole('button', { name: /View all/ })
+    if (viewAll) await userEvent.click(viewAll)
+    expect(queue.getByRole('link', { name: `Review agent ${AGENT_NAME}: Containment unconfirmed` })).toHaveAttribute('href', '/agents/supercred%3Aagent-cardvault?tab=access')
   })
 
   it('step 5 teardown: the agent is gone and the other agents are untouched', async () => {
@@ -561,7 +573,7 @@ describe('the pages stay demo-agnostic', () => {
     vi.mocked(api.compliancePolicy.scan).mockResolvedValue({ checks: [], summary: null } as never)
 
     renderPage(<AgentsPage />)
-    expect(await screen.findByText('Totally Different Agent')).toBeInTheDocument()
+    expect(within(await inventoryRow('Totally Different Agent')).getByText('Totally Different Agent')).toBeInTheDocument()
   })
 
   it('shows the baseline unchanged when the demo is not running', async () => {
@@ -570,7 +582,7 @@ describe('the pages stay demo-agnostic', () => {
     await screen.findByText('Inventory Agent')
     // Every baseline agent still present, none renamed or reordered.
     for (const name of ['Inventory Agent', 'Triage Agent', 'Sandbox Agent', 'Remediation Agent', 'Vulnerability Scanner', 'Compliance Reporter']) {
-      expect(screen.getByText(name)).toBeInTheDocument()
+      expect(within(await inventoryRow(name)).getByText(name)).toBeInTheDocument()
     }
   })
 })

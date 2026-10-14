@@ -1,14 +1,14 @@
 /**
  * Tests for SFAGENTS-P1-6: Operational Inventory Table & StatCards.
  * Covers:
- * - 7-column operational table headers & cells
+ * - 8-column compact operational table headers & cells
  * - 4 StatCards (Needs Attention, Identity Coverage, Observed Workloads, Evidence Coverage)
  * - Truthful UI language: 'Not assessed', 'Unassigned', 'Registry not linked', 'Source unavailable'
  * - Truthful kernel containment telemetry: cgroup FROZEN / TC DROP, Requested (Outcome unconfirmed)
  * - Compliance scan, agent registration, filtering, search, and signal summary
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, within, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import axe from 'axe-core'
@@ -318,7 +318,7 @@ describe('AgentsPage — 4 StatCards (SFAGENTS-P1-6)', () => {
   })
 })
 
-describe('AgentsPage — 7-Column Operational Inventory Table (SFAGENTS-P1-6)', () => {
+describe('AgentsPage — Compact Operational Inventory Table (SFAGENTS-P1-6)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     clearSignalSummaryCache()
@@ -326,7 +326,7 @@ describe('AgentsPage — 7-Column Operational Inventory Table (SFAGENTS-P1-6)', 
     mockWeaveApi.getActors.mockResolvedValue([])
   })
 
-  it('renders exactly the 7 column headers matching design spec', async () => {
+  it('renders eight column headers with separate Observed and Actions', async () => {
     ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
       agents: [makeAgent()],
       total: 1,
@@ -335,17 +335,19 @@ describe('AgentsPage — 7-Column Operational Inventory Table (SFAGENTS-P1-6)', 
 
     await screen.findByText('Invoice Bot')
     const ths = screen.getAllByRole('columnheader')
-    expect(ths).toHaveLength(7)
+    expect(ths).toHaveLength(8)
     expect(ths[0]).toHaveTextContent('Agent')
     expect(ths[1]).toHaveTextContent('Runtime')
     expect(ths[2]).toHaveTextContent('Responsibility')
     expect(ths[3]).toHaveTextContent('Operational State')
     expect(ths[4]).toHaveTextContent('Attention')
     expect(ths[5]).toHaveTextContent('Identity & Evidence')
-    expect(ths[6]).toHaveTextContent('Last Observed')
+    expect(ths[6]).toHaveTextContent('Seen')
+    expect(ths[6]).toHaveAttribute('aria-label', 'Observed')
+    expect(ths[7]).toHaveTextContent('Actions')
   })
 
-  it('renders exactly 7 table cells (td) per row with rich operational metadata', async () => {
+  it('renders eight table cells per row retaining rich operational metadata', async () => {
     ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
       agents: [makeAgent()],
       total: 1,
@@ -355,7 +357,7 @@ describe('AgentsPage — 7-Column Operational Inventory Table (SFAGENTS-P1-6)', 
     const name = await screen.findByText('Invoice Bot')
     const row = name.closest('tr')!
     const tds = row.querySelectorAll('td')
-    expect(tds).toHaveLength(7)
+    expect(tds).toHaveLength(8)
 
     // Column 1 (Agent): Name + Registered badge
     expect(tds[0]).toHaveTextContent('Invoice Bot')
@@ -561,8 +563,11 @@ describe('AgentsPage — Kernel Containment Telemetry (SFAGENTS-P1-6)', () => {
     renderPage()
 
     await screen.findByText('Stunned Workload')
-    expect(screen.getByTestId('kernel-telemetry-unconfirmed-agent-unconfirmed-1')).toHaveTextContent('Requested (Outcome unconfirmed)')
+    expect(screen.getByTestId('kernel-telemetry-unconfirmed-agent-unconfirmed-1')).toHaveTextContent(/^Unconfirmed$/)
     expect(screen.queryByTestId('kernel-telemetry-cgroup-agent-unconfirmed-1')).not.toBeInTheDocument()
+    fireEvent.focus(screen.getByRole('button', { name: /Containment outcome details/ }))
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Requested (Outcome unconfirmed)')
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Containment requested but kernel telemetry observation is unconfirmed')
   })
 
   it('renders "cgroup: THAWED" and "TC: PASS" when normal active telemetry is observed', async () => {
@@ -686,7 +691,7 @@ describe('AgentsPage — Quick Evidence Side Drawer (SFAGENTS-P1-7)', () => {
 
     renderPage()
 
-    await screen.findByText('Drawer Test Workload')
+    await screen.findByTestId('agent-row-agent-drawer-test-1')
     expect(screen.queryByTestId('agent-evidence-drawer')).not.toBeInTheDocument()
 
     // Click on the agent row
@@ -1188,7 +1193,7 @@ describe('AgentsPage: Sortability and Timestamps (SLMS-P3-1)', () => {
     mockWeaveApi.getActors.mockResolvedValue([])
   })
 
-  it('renders full timestamps in the Last Observed cell', async () => {
+  it('renders relative observation with full timestamp and timezone accessible on focus', async () => {
     vi.mocked(api.agents.list).mockResolvedValue({
       agents: [
         makeAgent({
@@ -1204,8 +1209,15 @@ describe('AgentsPage: Sortability and Timestamps (SLMS-P3-1)', () => {
     renderPage()
 
     const tsCell = await screen.findByTestId('agent-full-timestamp-agent-ts-1')
-    expect(tsCell).toHaveTextContent(/29 Sept? 2026/)
-    expect(tsCell).toHaveTextContent(/14:30:00|15:30:00/)
+    expect(tsCell).toHaveTextContent(/\d+[mhd] ago|just now|In future/)
+    fireEvent.focus(tsCell)
+    const tooltip = screen.getByRole('tooltip')
+    expect(tooltip).toHaveTextContent(/29 Sept? 2026/)
+    expect(tooltip).toHaveTextContent(/14:30:00|15:30:00/)
+    expect(tooltip).toHaveTextContent('2026-09-29T14:30:00Z')
+    expect(tooltip).toHaveTextContent('UTC')
+    fireEvent.keyDown(tsCell, { key: 'Escape' })
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 
   it('sorts agents ascending and descending when clicking Operational State header', async () => {
@@ -1260,7 +1272,7 @@ describe('AgentsPage: Sortability and Timestamps (SLMS-P3-1)', () => {
     expect(rows[1]).toHaveTextContent('Older Agent')
   })
 
-  it('filters agents when Attention Required button is clicked', async () => {
+  it('filters agents when Needs review button is clicked', async () => {
     vi.mocked(api.agents.list).mockResolvedValue({
       agents: [
         makeAgent({ id: 'agent-healthy', name: 'Healthy Agent', lifecycle_state: 'Governed', compliance_summary: { total_controls: 5, passing: 5, failing: 0, pending: 0, posture_score: 1.0 } }),
@@ -1271,15 +1283,15 @@ describe('AgentsPage: Sortability and Timestamps (SLMS-P3-1)', () => {
     renderPage()
 
     await screen.findByText('Healthy Agent')
-    expect(screen.getByText('Failing Agent')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-row-agent-failing')).toBeInTheDocument()
 
     const attentionBtn = screen.getByTestId('agent-attention-filter-btn')
     await userEvent.click(attentionBtn)
     expect(screen.getByText('Healthy Agent').closest('tbody')).toHaveAttribute('aria-hidden', 'true')
-    expect(screen.getByText('Failing Agent').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+    expect(screen.getByTestId('agent-row-agent-failing').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
   })
 
-  it('renders tenant badge in agent row and preserves 7-column layout', async () => {
+  it('retains tenant evidence in the eight-column compact layout', async () => {
     vi.mocked(api.agents.list).mockResolvedValue({
       agents: [
         makeAgent({ id: 'agent-tenant-test', name: 'Tenant Bot', tenant: 'tenant-demo', tenant_id: 'tenant-demo' }),
@@ -1291,7 +1303,7 @@ describe('AgentsPage: Sortability and Timestamps (SLMS-P3-1)', () => {
     await screen.findByText('Tenant Bot')
     expect(screen.getByTestId('agent-tenant-badge-agent-tenant-test')).toHaveTextContent('tenant-demo')
     const row = screen.getByTestId('agent-row-agent-tenant-test')
-    expect(row.querySelectorAll('td')).toHaveLength(7)
+    expect(row.querySelectorAll('td')).toHaveLength(8)
   })
 
   it('renders Undeclared tenant badge and responsibility text when agent declares no tenant', async () => {
@@ -1305,5 +1317,90 @@ describe('AgentsPage: Sortability and Timestamps (SLMS-P3-1)', () => {
 
     await screen.findByText('Undeclared Bot')
     expect(screen.getByTestId('agent-tenant-badge-agent-undeclared-test')).toHaveTextContent('Undeclared')
+  })
+})
+
+describe('AgentsPage — review queue integration', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    clearSignalSummaryCache()
+    mockWeaveApi.getObservations.mockResolvedValue([])
+    mockWeaveApi.getActors.mockResolvedValue([])
+  })
+
+  it.each([false, true])('keeps loaded poll UI and row identities stable during deferred refresh (empty=%s)', async empty => {
+    const response: AgentListResponse = { agents: empty ? [] : [makeAgent({ lifecycle_state: 'suspended' })], total: empty ? 0 : 1 }
+    let resolveRefresh!: (value: AgentListResponse) => void
+    const intervals = vi.spyOn(window, 'setInterval')
+    vi.mocked(api.agents.list).mockResolvedValueOnce(response).mockImplementationOnce(() => new Promise(resolve => { resolveRefresh = resolve }))
+    const { unmount } = renderPage()
+    expect(screen.getByTestId('agents-poll-state-loader')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('agents-poll-state')).toHaveAttribute('data-status', 'success'))
+    const queue = screen.getByRole('region', { name: 'Review queue' })
+    const rows = within(queue).queryAllByRole('listitem')
+    const count = within(queue).getByText(/issues? · .* affected/)
+    const stamp = queue.querySelector('time')!.dateTime
+    const inventory = empty ? null : screen.getByTestId('agent-row-agent-abc-123')
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(Date.parse(stamp) + 60_000)
+      const poll = intervals.mock.calls.find(([, delay]) => delay === 2500)![0] as () => void
+      await act(async () => { poll() })
+      expect(api.agents.list).toHaveBeenCalledTimes(2)
+      expect(screen.getByTestId('agents-poll-state')).toHaveAttribute('data-status', 'success')
+      expect(screen.queryByTestId('agents-poll-state-loader')).not.toBeInTheDocument()
+      expect(screen.getByTestId('agents-poll-state-message')).toHaveTextContent('Refreshed 1m ago')
+      expect(within(screen.getByTestId('agents-poll-state')).getByTestId('loading-indicator')).toHaveAttribute('data-motion', 'static')
+      expect(within(queue).queryByText(/Refreshing review evidence/)).not.toBeInTheDocument()
+      expect(within(queue).getByText(/issues? · .* affected/)).toBe(count)
+      expect(queue.querySelector('time')!.dateTime).toBe(stamp)
+      if (empty) expect(within(queue).getByText('No agents need review')).toBeInTheDocument()
+      else expect(screen.getByTestId('agent-row-agent-abc-123')).toBe(inventory)
+      within(queue).queryAllByRole('listitem').forEach((row, index) => expect(row).toBe(rows[index]))
+      await act(async () => { resolveRefresh(response) })
+      expect(screen.getByTestId('agents-poll-state')).toHaveAttribute('data-status', 'success')
+      expect(queue.querySelector('time')!.dateTime).not.toBe(stamp)
+      expect(screen.getByTestId('agents-poll-state-message')).toHaveTextContent('Refreshed just now')
+      within(queue).queryAllByRole('listitem').forEach((row, index) => expect(row).toBe(rows[index]))
+    } finally {
+      unmount()
+      intervals.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('shares exact affected population between queue, card and Needs review filter', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: [
+      makeAgent({ id: 'overlap', name: 'Overlap', compliance_summary: { total_controls: 5, passing: 1, failing: 4, pending: 0, posture_score: 20 } }),
+      makeAgent({ id: 'stopped', name: 'Stopped', operational_state: { runtime_status: 'Stopped', containment: { process_freeze: 'inactive', network_isolation: 'inactive', credential_revocation: 'inactive' } } }),
+      makeAgent({ id: 'clean', name: 'Clean suspended', lifecycle_state: 'Suspended' }),
+      makeAgent({ id: 'confirmed', name: 'Confirmed', lifecycle_state: 'stunned', kernel_state: 'frozen' }),
+      makeAgent({ id: 'credential', name: 'Revoked credentials', credential_state: { status: 'revoked' } as AgentResponse['credential_state'] }),
+    ], total: 5 })
+    renderPage()
+    const region = await screen.findByRole('region', { name: 'Review queue' })
+    await waitFor(() => expect(within(region).getByText('4 issues · 3 affected agents')).toBeInTheDocument())
+    expect(within(screen.getByTestId('statcard-attention')).getByText('3')).toBeInTheDocument()
+    const filter = screen.getByRole('button', { name: /Needs review/ })
+    expect(filter).toHaveTextContent('3')
+    await userEvent.click(filter)
+    for (const id of ['overlap', 'stopped', 'credential']) expect(screen.getByTestId(`agent-row-${id}`).closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+    for (const id of ['clean', 'confirmed']) expect(screen.getByTestId(`agent-row-${id}`).closest('tbody')).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  it('retains queue and inventory evidence after a failed refresh and recovers on retry', async () => {
+    const agents = [makeAgent({ id: 'evidence', lifecycle_state: 'stunned' })]
+    vi.mocked(api.agents.list).mockResolvedValueOnce({ agents, total: 1 }).mockRejectedValueOnce(new Error('refresh offline')).mockResolvedValue({ agents: [], total: 0 })
+    vi.mocked(api.compliancePolicy.scan).mockResolvedValue({ summary: { scanTimestamp: '2026-10-13T10:00:00Z' } } as Awaited<ReturnType<typeof api.compliancePolicy.scan>>)
+    renderPage()
+    await screen.findByTestId('agent-row-evidence')
+    const queue = screen.getByRole('region', { name: 'Review queue' })
+    await userEvent.click(screen.getByRole('button', { name: /scan compliance/i }))
+    await waitFor(() => expect(within(queue).getByRole('alert')).toHaveTextContent('Refresh failed; showing stale review evidence: refresh offline'))
+    expect(within(queue).getByRole('link', { name: /Review agent Invoice Bot: Containment unconfirmed/ })).toHaveAttribute('href', '/agents/evidence?tab=access')
+    expect(screen.getByTestId('agent-row-evidence')).toBeInTheDocument()
+    expect(within(queue).queryByText('No agents need review')).not.toBeInTheDocument()
+    await userEvent.click(within(queue).getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(within(queue).getByText('No agents need review')).toBeInTheDocument())
   })
 })

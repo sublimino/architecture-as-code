@@ -246,14 +246,14 @@ export function isFrozenWithoutStun(view: KernelView): boolean {
  * Kernel freezer state badge. Renders nothing when the kernel state is
  * unknown or unobserved: absence of an observation is not evidence either way.
  */
-export function KernelStateBadge({ view, testId }: { view: KernelView; testId?: string }) {
+export function KernelStateBadge({ view, testId, compact = false }: { view: KernelView; testId?: string; compact?: boolean }) {
   const observed = view.kernel_observed_at ? `, observed ${view.kernel_observed_at}` : ''
   if (isFrozenWithoutStun(view)) {
     return (
       <StatusBadge
         status="kernel_frozen_no_stun"
         variant="kernel"
-        label="FROZEN (no stun record)"
+        label={compact ? 'Frozen · no stun' : 'FROZEN (no stun record)'}
         title={`Kernel cgroup is frozen${observed}, but no stun record exists. The lifecycle label is stale.`}
         testId={testId}
       />
@@ -264,7 +264,7 @@ export function KernelStateBadge({ view, testId }: { view: KernelView; testId?: 
       <StatusBadge
         status="kernel_running_stunned"
         variant="kernel"
-        label="NOT FROZEN (stun record only)"
+        label={compact ? 'Not frozen' : 'NOT FROZEN (stun record only)'}
         title={`A stun record exists but the kernel cgroup is not frozen${observed}.`}
         testId={testId}
       />

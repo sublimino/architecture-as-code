@@ -61,7 +61,7 @@ const MOCK_RESULTS: AgentComplianceResultResponse[] = [
     framework_name: 'EU AI Act',
     status: 'pass',
     assessed_at: '2026-07-20T10:00:00Z',
-    evidence_ref: 'opa://assessments/agent/art-9',
+    evidence_ref: 'cel://assessments/agent/art-9',
   },
   {
     agent_id: 'agent-1234-5678',
@@ -70,7 +70,7 @@ const MOCK_RESULTS: AgentComplianceResultResponse[] = [
     framework_name: 'EU AI Act',
     status: 'pass',
     assessed_at: '2026-07-20T10:00:00Z',
-    evidence_ref: 'opa://assessments/agent/art-12',
+    evidence_ref: 'cel://assessments/agent/art-12',
   },
   {
     agent_id: 'agent-1234-5678',
@@ -79,7 +79,7 @@ const MOCK_RESULTS: AgentComplianceResultResponse[] = [
     framework_name: 'EU AI Act',
     status: 'pass',
     assessed_at: '2026-07-20T10:00:00Z',
-    evidence_ref: 'opa://assessments/agent/art-14',
+    evidence_ref: 'cel://assessments/agent/art-14',
   },
   {
     agent_id: 'agent-1234-5678',
@@ -88,7 +88,7 @@ const MOCK_RESULTS: AgentComplianceResultResponse[] = [
     framework_name: 'SOC 2',
     status: 'pass',
     assessed_at: '2026-07-20T10:00:00Z',
-    evidence_ref: 'opa://assessments/agent/cc6.1',
+    evidence_ref: 'cel://assessments/agent/cc6.1',
   },
   {
     agent_id: 'agent-1234-5678',
@@ -97,7 +97,7 @@ const MOCK_RESULTS: AgentComplianceResultResponse[] = [
     framework_name: 'SOC 2',
     status: 'pass',
     assessed_at: '2026-07-20T10:00:00Z',
-    evidence_ref: 'opa://assessments/agent/cc6.2',
+    evidence_ref: 'cel://assessments/agent/cc6.2',
   },
   {
     agent_id: 'agent-1234-5678',
@@ -106,7 +106,7 @@ const MOCK_RESULTS: AgentComplianceResultResponse[] = [
     framework_name: 'SOC 2',
     status: 'fail',
     assessed_at: '2026-07-20T10:00:00Z',
-    evidence_ref: 'opa://assessments/agent/cc7.2',
+    evidence_ref: 'cel://assessments/agent/cc7.2',
   },
 ]
 
@@ -237,7 +237,7 @@ describe('AgentAssessmentsTab — Tab 4 (Assessments & Control Ratios)', () => {
     // Control rows
     expect(screen.getByTestId('control-row-eu-ai-act:art-9')).toBeInTheDocument()
     expect(screen.getByTestId('control-row-soc2:cc7.2')).toBeInTheDocument()
-    expect(screen.getByText('Evidence: opa://assessments/agent/art-9')).toBeInTheDocument()
+    expect(screen.getByText('Evidence: cel://assessments/agent/art-9')).toBeInTheDocument()
   })
 
   it('filters controls by status (failing, passing)', async () => {

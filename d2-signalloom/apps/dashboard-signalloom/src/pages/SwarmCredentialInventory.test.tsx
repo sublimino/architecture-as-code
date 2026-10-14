@@ -37,7 +37,6 @@ const TRUST_DOMAIN = 'signalloom.demo'
 const SWARM_AGENTS = [
   { id: 'prompt-commit-summarizer', role: 'prompt-function', credentialed: true },
   { id: 'triage-ci-worker', role: 'structured-worker', credentialed: true },
-  { id: 'zulip-chat-agent', role: 'chatops', credentialed: true },
   { id: 'cpai-engineer', role: 'sandboxed-coder', credentialed: true },
   { id: 'hosted-daytona-coder', role: 'remote-coder', credentialed: true },
   { id: 'swarm-governor', role: 'dispatcher', credentialed: true },
@@ -122,13 +121,13 @@ describe('SwarmCredentialInventory — SPIFFE registration entries', () => {
     vi.unstubAllGlobals()
   })
 
-  it('all 10 swarm agents have SPIFFE IDs using trust domain signalloom.demo', () => {
+  it('all 9 swarm agents have SPIFFE IDs using trust domain signalloom.demo', () => {
     // Contract test: verify the fixture shape without rendering.
     for (const fixture of allFixtures) {
       expect(fixture.spiffe_id).toBeDefined()
       expect(fixture.spiffe_id).toContain(`spiffe://${TRUST_DOMAIN}/`)
     }
-    expect(allFixtures).toHaveLength(10)
+    expect(allFixtures).toHaveLength(9)
   })
 
   it('all swarm SPIFFE IDs use namespace fe-signalloom-agents', () => {
@@ -143,10 +142,10 @@ describe('SwarmCredentialInventory — SPIFFE registration entries', () => {
     }
   })
 
-  it('credentialed agents (6 of 10) carry the agent-generic OpenBao role', () => {
+  it('credentialed agents (5 of 9) carry the agent-generic OpenBao role', () => {
     const credentialed = allFixtures.filter(f => f.openbao_role === 'agent-generic')
-    expect(credentialed).toHaveLength(6)
-    // Verify the specific 6 are the ones expected.
+    expect(credentialed).toHaveLength(5)
+    // Verify the specific five are the ones expected.
     const credNames = credentialed.map(f => f.id).sort()
     expect(credNames).toEqual([
       'cpai-engineer',
@@ -154,7 +153,6 @@ describe('SwarmCredentialInventory — SPIFFE registration entries', () => {
       'prompt-commit-summarizer',
       'swarm-governor',
       'triage-ci-worker',
-      'zulip-chat-agent',
     ])
   })
 

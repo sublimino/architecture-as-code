@@ -1,6 +1,24 @@
 import { describe, it, expect } from 'vitest'
 import { render } from '@testing-library/react'
-import StatusBadge, { getStatusColor } from './StatusBadge'
+import StatusBadge, { getStatusColor, KernelStateBadge } from './StatusBadge'
+
+describe('KernelStateBadge opt-in compact labels', () => {
+  it.each([
+    ['running', ['stun record without kernel freeze'], 'Not frozen', 'NOT FROZEN (stun record only)'],
+    ['frozen', ['kernel frozen without stun record'], 'Frozen · no stun', 'FROZEN (no stun record)'],
+  ])('preserves the authoritative title and default label for %s', (kernel_state, split_brain, compactLabel, fullLabel) => {
+    const view = { kernel_state: kernel_state as string, split_brain: split_brain as string[] }
+    const { container, rerender } = render(<KernelStateBadge view={view} compact testId="compact-kernel" />)
+    const badge = container.querySelector('[data-testid="compact-kernel"]')!
+    expect(badge).toHaveTextContent(compactLabel as string)
+    const title = badge.getAttribute('title')
+    const style = badge.getAttribute('style')
+    rerender(<KernelStateBadge view={view} testId="compact-kernel" />)
+    expect(badge).toHaveTextContent(fullLabel as string)
+    expect(badge).toHaveAttribute('title', title)
+    expect(badge).toHaveAttribute('style', style)
+  })
+})
 
 describe('StatusBadge', () => {
   it('resolves lifecycle "active" to the teal token, not a hardcoded hex', () => {

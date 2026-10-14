@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { PieChart, Pie, Cell } from 'recharts'
 import { api } from '../api/client'
@@ -97,8 +97,111 @@ function lastAssessed(agent: AgentPosture): string | null {
   return dates.length ? dates[dates.length - 1] : null
 }
 
+export function buildFrameworkDrawerItem(fw: FrameworkResponse, agents: AgentPosture[]): ComplianceDrawerItem {
+  const allResults = agents.flatMap(a => a.results.filter(r => r.framework_name === fw.name))
+  const passing = allResults.filter(r => r.status === 'pass').length
+  const failing = allResults.filter(r => r.status === 'fail').length
+  const pending = allResults.filter(r => r.status === 'pending' || r.status === 'reassessment_requested').length
+  const total = allResults.length || fw.control_count
+  const score = total > 0 ? passing / total : null
+
+  return {
+    frameworkId: fw.id,
+    frameworkName: fw.name,
+    frameworkVersion: fw.version,
+    regulatoryBody: fw.regulatory_body,
+    description: `Governance controls and automated assessments for ${fw.name}.`,
+    totalChecks: total,
+    passedChecks: passing,
+    failedChecks: failing,
+    pendingChecks: pending,
+    postureScore: score,
+    status: failing > 0 ? 'fail' : (passing > 0 ? 'pass' : 'pending'),
+    checks: fw.controls.map(c => {
+      const matchingResults = allResults.filter(r => r.control_id === c.id || r.control_name === c.name)
+      const isPass = matchingResults.length > 0 && matchingResults.every(r => r.status === 'pass')
+      const isFail = matchingResults.some(r => r.status === 'fail')
+      return {
+        controlId: c.id,
+        controlName: c.name,
+        check: c.name,
+        passed: isPass || (!isFail && matchingResults.length > 0),
+        remediation: isFail ? `Review configuration for ${c.name} and re-evaluate compliance policy.` : undefined,
+        payload: { controlId: c.id, controlOrder: c.control_order, description: c.description },
+      }
+    }),
+  }
+}
+
+export function buildAgentPostureDrawerItem(a: AgentPosture, agentMap: Map<string, AgentResponse>): ComplianceDrawerItem {
+  const agent = agentMap.get(a.agent_id)
+  const passing = a.results.filter(r => r.status === 'pass').length
+  const failing = a.results.filter(r => r.status === 'fail').length
+  const pending = a.results.filter(r => r.status !== 'pass' && r.status !== 'fail').length
+  const total = a.results.length || (agent?.compliance_summary.total_controls ?? 0)
+
+  return {
+    agentId: a.agent_id,
+    agentName: a.agent_name,
+    frameworkName: a.results[0]?.framework_name || 'Agent Compliance Posture',
+    status: failing > 0 ? 'fail' : (passing > 0 ? 'pass' : 'pending'),
+    totalChecks: total,
+    passedChecks: passing,
+    failedChecks: failing,
+    pendingChecks: pending,
+    postureScore: a.posture_score,
+    description: `Evaluated compliance checks and backing evidence for ${a.agent_name}.`,
+    remediation: failing > 0 ? `${failing} check(s) failing compliance policies for ${a.agent_name}. Inspect failed checks and remediate policy violations.` : null,
+    checks: a.results.map(r => ({
+      controlId: r.control_id,
+      controlName: r.control_name,
+      check: `${r.framework_name}: ${r.control_name}`,
+      passed: r.status === 'pass',
+      evidenceHash: r.evidence_ref || undefined,
+      remediation: r.status === 'fail' ? `Remediate ${r.control_name} on agent ${a.agent_name}.` : undefined,
+      payload: { agentId: r.agent_id, controlId: r.control_id, status: r.status, assessedAt: r.assessed_at, evidenceRef: r.evidence_ref },
+    })),
+  }
+}
+
+export function buildControlDrawerItem(a: AgentPosture, fw: FrameworkResponse): ComplianceDrawerItem {
+  const matchingResults = a.results.filter(r => r.framework_name === fw.name)
+  const passing = matchingResults.filter(r => r.status === 'pass').length
+  const failing = matchingResults.filter(r => r.status === 'fail').length
+  const pending = matchingResults.filter(r => r.status !== 'pass' && r.status !== 'fail').length
+  const total = matchingResults.length || fw.control_count
+  const score = total > 0 ? passing / total : null
+  const st = agentFrameworkStatus(a, fw.name) || 'pending'
+
+  return {
+    frameworkId: fw.id,
+    frameworkName: fw.name,
+    frameworkVersion: fw.version,
+    agentId: a.agent_id,
+    agentName: a.agent_name,
+    status: st,
+    totalChecks: total,
+    passedChecks: passing,
+    failedChecks: failing,
+    pendingChecks: pending,
+    postureScore: score,
+    description: `Evaluation of ${fw.name} controls for ${a.agent_name}.`,
+    remediation: failing > 0 ? `One or more controls in ${fw.name} failed for ${a.agent_name}. Remediate failing policies.` : null,
+    checks: matchingResults.map(r => ({
+      controlId: r.control_id,
+      controlName: r.control_name,
+      check: r.control_name,
+      passed: r.status === 'pass',
+      evidenceHash: r.evidence_ref || undefined,
+      remediation: r.status === 'fail' ? `Remediate ${r.control_name} on agent ${a.agent_name}.` : undefined,
+      payload: { agentId: r.agent_id, controlId: r.control_id, status: r.status, assessedAt: r.assessed_at, evidenceRef: r.evidence_ref },
+    })),
+  }
+}
+
 export default function Compliance() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { getAccessTokenSilently } = useAuth0()
   const { setFailingControls } = useAppContext()
 
@@ -107,11 +210,40 @@ export default function Compliance() {
   const [agentMap, setAgentMap] = useState<Map<string, AgentResponse>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filterSegment, setFilterSegment] = useState<PostureCategory | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportNote, setExportNote] = useState<string | null>(null)
   const [selectedDrawerItem, setSelectedDrawerItem] = useState<ComplianceDrawerItem | null>(null)
+
+  // Derive filterSegment from URL search parameters for deep-linking
+  const segmentParam = searchParams.get('segment') as PostureCategory | null
+  const filterSegment = useMemo(() => {
+    return (['good', 'warning', 'critical', 'pending'].includes(segmentParam || '')
+      ? segmentParam
+      : null) as PostureCategory | null
+  }, [segmentParam])
+
+  const setFilterSegment = useCallback(
+    (catOrUpdater: PostureCategory | null | ((prev: PostureCategory | null) => PostureCategory | null)) => {
+      setSearchParams(
+        prev => {
+          const next = new URLSearchParams(prev)
+          const current = (['good', 'warning', 'critical', 'pending'].includes(prev.get('segment') || '')
+            ? prev.get('segment')
+            : null) as PostureCategory | null
+          const nextVal = typeof catOrUpdater === 'function' ? catOrUpdater(current) : catOrUpdater
+          if (!nextVal) {
+            next.delete('segment')
+          } else {
+            next.set('segment', nextVal)
+          }
+          return next
+        },
+        { replace: true }
+      )
+    },
+    [setSearchParams]
+  )
 
   const load = useCallback(async () => {
     try {
@@ -125,10 +257,10 @@ export default function Compliance() {
       ])
       setPosture(postureRes)
       const rawSel = settingsRes?.selected_frameworks ?? []
-      const selNormalized = rawSel.map(normalizeFrameworkId)
+      const selNormalized = rawSel.map((id) => normalizeFrameworkId(id))
       setFrameworks(
         selNormalized.length > 0
-          ? frameworksRes.filter(fw => selNormalized.includes(normalizeFrameworkId(fw.id)))
+          ? frameworksRes.filter((fw) => selNormalized.includes(normalizeFrameworkId(fw.id, fw.name)))
           : frameworksRes
       )
       setFailingControls(summaryRes.controls_failing)
@@ -178,106 +310,93 @@ export default function Compliance() {
   const agents = posture?.agents ?? []
 
   function handleOpenFrameworkDrawer(fw: FrameworkResponse) {
-    const allResults = agents.flatMap(a => a.results.filter(r => r.framework_name === fw.name))
-    const passing = allResults.filter(r => r.status === 'pass').length
-    const failing = allResults.filter(r => r.status === 'fail').length
-    const pending = allResults.filter(r => r.status === 'pending' || r.status === 'reassessment_requested').length
-    const total = allResults.length || fw.control_count
-    const score = total > 0 ? passing / total : null
-
-    setSelectedDrawerItem({
-      frameworkId: fw.id,
-      frameworkName: fw.name,
-      frameworkVersion: fw.version,
-      regulatoryBody: fw.regulatory_body,
-      description: `Governance controls and automated assessments for ${fw.name}.`,
-      totalChecks: total,
-      passedChecks: passing,
-      failedChecks: failing,
-      pendingChecks: pending,
-      postureScore: score,
-      status: failing > 0 ? 'fail' : (passing > 0 ? 'pass' : 'pending'),
-      checks: fw.controls.map(c => {
-        const matchingResults = allResults.filter(r => r.control_id === c.id || r.control_name === c.name)
-        const isPass = matchingResults.length > 0 && matchingResults.every(r => r.status === 'pass')
-        const isFail = matchingResults.some(r => r.status === 'fail')
-        return {
-          controlId: c.id,
-          controlName: c.name,
-          check: c.name,
-          passed: isPass || (!isFail && matchingResults.length > 0),
-          remediation: isFail ? `Review configuration for ${c.name} and re-evaluate compliance policy.` : undefined,
-          payload: { controlId: c.id, controlOrder: c.control_order, description: c.description },
-        }
-      }),
+    const item = buildFrameworkDrawerItem(fw, agents)
+    setSelectedDrawerItem(item)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.set('drawer', 'framework')
+      next.set('framework', fw.id)
+      next.delete('agent')
+      return next
     })
   }
 
   function handleOpenAgentPostureDrawer(a: AgentPosture) {
-    const agent = agentMap.get(a.agent_id)
-    const passing = a.results.filter(r => r.status === 'pass').length
-    const failing = a.results.filter(r => r.status === 'fail').length
-    const pending = a.results.filter(r => r.status !== 'pass' && r.status !== 'fail').length
-    const total = a.results.length || (agent?.compliance_summary.total_controls ?? 0)
-
-    setSelectedDrawerItem({
-      agentId: a.agent_id,
-      agentName: a.agent_name,
-      frameworkName: a.results[0]?.framework_name || 'Agent Compliance Posture',
-      status: failing > 0 ? 'fail' : (passing > 0 ? 'pass' : 'pending'),
-      totalChecks: total,
-      passedChecks: passing,
-      failedChecks: failing,
-      pendingChecks: pending,
-      postureScore: a.posture_score,
-      description: `Evaluated compliance checks and backing evidence for ${a.agent_name}.`,
-      remediation: failing > 0 ? `${failing} check(s) failing compliance policies for ${a.agent_name}. Inspect failed checks and remediate policy violations.` : null,
-      checks: a.results.map(r => ({
-        controlId: r.control_id,
-        controlName: r.control_name,
-        check: `${r.framework_name}: ${r.control_name}`,
-        passed: r.status === 'pass',
-        evidenceHash: r.evidence_ref || undefined,
-        remediation: r.status === 'fail' ? `Remediate ${r.control_name} on agent ${a.agent_name}.` : undefined,
-        payload: { agentId: r.agent_id, controlId: r.control_id, status: r.status, assessedAt: r.assessed_at, evidenceRef: r.evidence_ref },
-      })),
+    const item = buildAgentPostureDrawerItem(a, agentMap)
+    setSelectedDrawerItem(item)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.set('drawer', 'agent')
+      next.set('agent', a.agent_id)
+      next.delete('framework')
+      return next
     })
   }
 
   function handleOpenControlDrawer(a: AgentPosture, fw: FrameworkResponse) {
-    const matchingResults = a.results.filter(r => r.framework_name === fw.name)
-    const passing = matchingResults.filter(r => r.status === 'pass').length
-    const failing = matchingResults.filter(r => r.status === 'fail').length
-    const pending = matchingResults.filter(r => r.status !== 'pass' && r.status !== 'fail').length
-    const total = matchingResults.length || fw.control_count
-    const score = total > 0 ? passing / total : null
-    const st = agentFrameworkStatus(a, fw.name) || 'pending'
-
-    setSelectedDrawerItem({
-      frameworkId: fw.id,
-      frameworkName: fw.name,
-      frameworkVersion: fw.version,
-      agentId: a.agent_id,
-      agentName: a.agent_name,
-      status: st,
-      totalChecks: total,
-      passedChecks: passing,
-      failedChecks: failing,
-      pendingChecks: pending,
-      postureScore: score,
-      description: `Evaluation of ${fw.name} controls for ${a.agent_name}.`,
-      remediation: failing > 0 ? `One or more controls in ${fw.name} failed for ${a.agent_name}. Remediate failing policies.` : null,
-      checks: matchingResults.map(r => ({
-        controlId: r.control_id,
-        controlName: r.control_name,
-        check: r.control_name,
-        passed: r.status === 'pass',
-        evidenceHash: r.evidence_ref || undefined,
-        remediation: r.status === 'fail' ? `Remediate ${r.control_name} on agent ${a.agent_name}.` : undefined,
-        payload: { agentId: r.agent_id, controlId: r.control_id, status: r.status, assessedAt: r.assessed_at, evidenceRef: r.evidence_ref },
-      })),
+    const item = buildControlDrawerItem(a, fw)
+    setSelectedDrawerItem(item)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.set('drawer', 'control')
+      next.set('agent', a.agent_id)
+      next.set('framework', fw.id)
+      return next
     })
   }
+
+  const handleCloseDrawer = useCallback(() => {
+    setSelectedDrawerItem(null)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.delete('drawer')
+      next.delete('framework')
+      next.delete('agent')
+      return next
+    })
+  }, [setSearchParams])
+
+  // Synchronize drawer state with URL search params (e.g. on direct landing or back/forward)
+  useEffect(() => {
+    if (loading || !posture) return
+    const drawerParam = searchParams.get('drawer')
+    const fwParam = searchParams.get('framework')
+    const agentParam = searchParams.get('agent')
+
+    if (drawerParam === 'framework' && fwParam) {
+      const fw = frameworks.find(
+        f =>
+          f.id === fwParam ||
+          normalizeFrameworkId(f.id) === normalizeFrameworkId(fwParam) ||
+          f.name.toLowerCase() === fwParam.toLowerCase()
+      )
+      if (fw) {
+        setSelectedDrawerItem(buildFrameworkDrawerItem(fw, agents))
+      }
+    } else if (drawerParam === 'agent' && agentParam) {
+      const a = agents.find(
+        ag => ag.agent_id === agentParam || ag.agent_name.toLowerCase() === agentParam.toLowerCase()
+      )
+      if (a) {
+        setSelectedDrawerItem(buildAgentPostureDrawerItem(a, agentMap))
+      }
+    } else if (drawerParam === 'control' && agentParam && fwParam) {
+      const a = agents.find(
+        ag => ag.agent_id === agentParam || ag.agent_name.toLowerCase() === agentParam.toLowerCase()
+      )
+      const fw = frameworks.find(
+        f =>
+          f.id === fwParam ||
+          normalizeFrameworkId(f.id) === normalizeFrameworkId(fwParam) ||
+          f.name.toLowerCase() === fwParam.toLowerCase()
+      )
+      if (a && fw) {
+        setSelectedDrawerItem(buildControlDrawerItem(a, fw))
+      }
+    } else if (!drawerParam) {
+      setSelectedDrawerItem(null)
+    }
+  }, [loading, posture, frameworks, agentMap, searchParams, agents])
 
   if (loading) return <LoadingState variant="block" status="loading" label="compliance data" testId="compliance-load-state" />
   if (error) return <LoadingState variant="block" status="error" label="compliance data" error={error} onRetry={load} testId="compliance-load-state" />
@@ -608,7 +727,7 @@ export default function Compliance() {
       <ComplianceDrawer
         open={Boolean(selectedDrawerItem)}
         item={selectedDrawerItem}
-        onClose={() => setSelectedDrawerItem(null)}
+        onClose={handleCloseDrawer}
       />
     </div>
   )

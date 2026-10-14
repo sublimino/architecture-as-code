@@ -73,4 +73,69 @@ describe('featuresApi', () => {
     expect(result.flags.core_governance).toBe(true)
     expect(result.flags.demos_fleet).toBe(false)
   })
+
+  it('fetches admin features for a specific tenant', async () => {
+    const mockAdminData = {
+      tenant_id: 'tenant-kusari',
+      flags: { page_discovery: true, demos_fleet: false },
+      details: {},
+    }
+    vi.mocked(axios.get).mockResolvedValueOnce({ data: mockAdminData })
+
+    const { fetchAdminFeatures } = await import('./featuresApi')
+    const result = await fetchAdminFeatures('mock-superadmin-token', 'tenant-kusari')
+
+    expect(axios.get).toHaveBeenCalledWith(
+      '/api/v1/admin/features?tenant_id=tenant-kusari',
+      expect.objectContaining({
+        headers: { Authorization: 'Bearer mock-superadmin-token' },
+      }),
+    )
+    expect(result).toEqual(mockAdminData)
+  })
+
+  it('fetches feature presets catalogue', async () => {
+    const mockPresets = {
+      presets: [
+        { id: 'eap_pilot', name: 'EAP Pilot', description: 'desc', flags: {} },
+      ],
+    }
+    vi.mocked(axios.get).mockResolvedValueOnce({ data: mockPresets })
+
+    const { fetchFeaturePresets } = await import('./featuresApi')
+    const result = await fetchFeaturePresets('mock-token')
+
+    expect(axios.get).toHaveBeenCalledWith(
+      '/api/v1/admin/features/presets',
+      expect.objectContaining({
+        headers: { Authorization: 'Bearer mock-token' },
+      }),
+    )
+    expect(result).toEqual(mockPresets)
+  })
+
+  it('updates tenant features with batch payload', async () => {
+    const mockUpdated = {
+      tenant_id: 'tenant-kusari',
+      flags: { page_agentmaxxing: true },
+      details: {},
+    }
+    vi.mocked(axios.put).mockResolvedValueOnce({ data: mockUpdated })
+
+    const { updateTenantFeatures } = await import('./featuresApi')
+    const result = await updateTenantFeatures(
+      { tenant_id: 'tenant-kusari', preset: 'eap_pilot' },
+      'mock-superadmin-token',
+    )
+
+    expect(axios.put).toHaveBeenCalledWith(
+      '/api/v1/admin/features',
+      { tenant_id: 'tenant-kusari', preset: 'eap_pilot' },
+      expect.objectContaining({
+        headers: { Authorization: 'Bearer mock-superadmin-token' },
+      }),
+    )
+    expect(result).toEqual(mockUpdated)
+  })
 })
+

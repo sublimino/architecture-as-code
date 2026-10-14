@@ -11,7 +11,6 @@ const SWARM_NS = 'fe-signalloom-agents'
 const ALL_SWARM_AGENTS = [
   'prompt-commit-summarizer',
   'triage-ci-worker',
-  'zulip-chat-agent',
   'cpai-engineer',
   'hosted-daytona-coder',
   'swarm-governor',
@@ -24,7 +23,6 @@ const ALL_SWARM_AGENTS = [
 const CREDENTIALED_AGENTS = [
   'prompt-commit-summarizer',
   'triage-ci-worker',
-  'zulip-chat-agent',
   'cpai-engineer',
   'swarm-governor',
   'prod-deploy-gate',
@@ -38,7 +36,7 @@ describe('credentialInventory — swarm registration entries', () => {
     (e) => e.namespace === SWARM_NS && e.selectors.includes('k8s:pod-label:signalloom.ai/agent:true'),
   )
 
-  it('has registration entries for all 10 swarm agents', () => {
+  it('has registration entries for the swarm agents', () => {
     const sas = swarmEntries.map((e) => e.serviceAccount).sort()
     for (const agent of ALL_SWARM_AGENTS) {
       expect(sas, `missing registration entry for ${agent}`).toContain(agent)
@@ -77,7 +75,7 @@ describe('credentialInventory — swarm registration entries', () => {
 })
 
 describe('credentialInventory — swarm credential records', () => {
-  it('has CredentialRecords for the 7 credentialed agents', () => {
+  it('has CredentialRecords for the credentialed agents', () => {
     const creds = FAKE_SWARM_CREDENTIALS.map((c) => c.workload).sort()
     for (const agent of CREDENTIALED_AGENTS) {
       expect(creds, `missing credential for ${agent}`).toContain(agent)

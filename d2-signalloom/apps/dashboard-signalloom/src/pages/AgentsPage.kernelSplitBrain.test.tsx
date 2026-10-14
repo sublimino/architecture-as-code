@@ -6,7 +6,7 @@
  * split brain, and the idle wording must not survive next to it.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import AgentsPage from './AgentsPage'
@@ -170,9 +170,12 @@ describe('AgentsPage kernel freeze state', () => {
     renderAgents()
     const row = await screen.findByTestId(`agent-row-${lancelot.id}`)
     const badge = within(row).getByTestId(`kernel-state-badge-${lancelot.id}`)
-    expect(badge).toHaveTextContent('FROZEN (no stun record)')
+    expect(badge).toHaveTextContent('Frozen · no stun')
     expect(within(row).queryByText(/\bidle\b/i)).not.toBeInTheDocument()
     expect(within(row).queryByText(/THAWED/)).not.toBeInTheDocument()
+    fireEvent.focus(within(row).getByRole('button', { name: /Kernel observation details/ }))
+    expect(screen.getByRole('tooltip')).toHaveTextContent('FROZEN (no stun record)')
+    expect(screen.getByRole('tooltip')).toHaveTextContent('The lifecycle label is stale')
   })
 
   it('(a) the drawer shows the split-brain badge and not idle', async () => {

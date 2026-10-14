@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useLocation, matchPath } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useAuth0 } from './auth/oidc'
 import { useSuperadmin, isSuperadminEligible, useServerSuperadmin } from './auth/superadmin'
 import Sidebar, { NAV } from './components/Sidebar'
@@ -15,6 +16,15 @@ import { onboardingApi } from './api/onboardingClient'
 import FeatureGate from './components/common/FeatureGate'
 import NotFoundPage from './pages/NotFoundPage'
 import type { CookiePreferences } from './types/api'
+
+const appQueryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+})
 
 // The server decides, with the client-side name match as the pre-flight answer
 // for the first render only (useServerSuperadmin). A non-eligible user is still
@@ -89,6 +99,7 @@ const LoginPage = lazy(() => import('./pages/LoginPage'))
 const CallbackPage = lazy(() => import('./pages/CallbackPage'))
 const AdminUsersPage = lazy(() => import('./pages/admin/UsersPage'))
 const AdminFeaturesPage = lazy(() => import('./pages/admin/FeaturesPage'))
+const PolicyEvaluationPage = lazy(() => import('./pages/PolicyEvaluationPage'))
 
 export interface ApiKeyRevealData {
   key: string
@@ -193,6 +204,8 @@ const EXTRA_ROUTE_LABELS: Record<string, string> = {
   '/admin/users': 'User Administration',
   '/admin/features': 'Feature Flags',
   '/design-system/css': 'CSS Lab',
+  '/evaluations': 'Policy Evaluation',
+  '/compliance/evaluation': 'Policy Evaluation',
 }
 
 /**
@@ -361,6 +374,7 @@ export default function App() {
       connectedProviderCount, totalProviderCount,
       needsOnboarding, refreshOnboardingState,
     }}>
+      <QueryClientProvider client={appQueryClient}>
       {/* Wraps the whole tree, not just the risk pages. Every surface that
           shows money must resolve the same user preference: a figure in one
           currency beside a figure in another, both unlabelled, is worse than
@@ -455,6 +469,9 @@ export default function App() {
                 <Route path="/compliance" element={<ProtectedRoute><FeatureGate flag="page_compliance" fallback={<NotFoundPage />}><CompliancePage /></FeatureGate></ProtectedRoute>} />
                 <Route path="/compliance/posture" element={<ProtectedRoute><FeatureGate flag="page_compliance" fallback={<NotFoundPage />}><AgentPosturePage /></FeatureGate></ProtectedRoute>} />
                 <Route path="/compliance/:frameworkId" element={<ProtectedRoute><FeatureGate flag="page_compliance" fallback={<NotFoundPage />}><FrameworkDetailPage /></FeatureGate></ProtectedRoute>} />
+                <Route path="/evaluations" element={<ProtectedRoute><FeatureGate flag="page_compliance" fallback={<NotFoundPage />}><PolicyEvaluationPage /></FeatureGate></ProtectedRoute>} />
+                <Route path="/compliance/evaluation" element={<ProtectedRoute><FeatureGate flag="page_compliance" fallback={<NotFoundPage />}><PolicyEvaluationPage /></FeatureGate></ProtectedRoute>} />
+                <Route path="/eval" element={<Navigate to="/evaluations" replace />} />
                 <Route path="/approvals" element={<Navigate to="/collusion-access" replace />} />
                 <Route path="/collusion-access" element={<ProtectedRoute><FeatureGate flag="collusion_access" fallback={<NotFoundPage />}><CollusionAccessPage /></FeatureGate></ProtectedRoute>} />
                 <Route path="/users" element={<ProtectedRoute><UsersPage /></ProtectedRoute>} />
@@ -493,6 +510,7 @@ export default function App() {
         </main>
       </div>
       </CurrencyProvider>
+      </QueryClientProvider>
     </AppContext.Provider>
   )
 }

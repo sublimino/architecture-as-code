@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { createPortal } from 'react-dom'
 import ComplianceDrawer, {
   calculateEffectivePostureScore,
+  sanitizeControlId,
   type ComplianceDrawerItem,
 } from './ComplianceDrawer'
 
@@ -183,6 +185,44 @@ describe('ComplianceDrawer', () => {
     fireEvent.keyDown(window, { key: 'Tab', shiftKey: true })
     expect(document.activeElement).toBe(footerClose)
   })
+
+  it('keeps Escape and focus lifecycle inside the iframe owner document', () => {
+    const parentEditor = document.createElement('textarea')
+    document.body.appendChild(parentEditor)
+    parentEditor.focus()
+    const frame = document.createElement('iframe')
+    document.body.appendChild(frame)
+    const frameDocument = frame.contentDocument!
+    const trigger = frameDocument.createElement('button')
+    frameDocument.body.appendChild(trigger)
+    trigger.focus()
+    const mount = frameDocument.createElement('div')
+    frameDocument.body.appendChild(mount)
+
+    const { unmount } = render(createPortal(
+      <ComplianceDrawer open={true} item={sampleItem} onClose={mockOnClose} />,
+      mount,
+    ))
+    const close = frameDocument.querySelector<HTMLElement>('[data-testid="compliance-drawer-close"]')!
+    const footer = frameDocument.querySelector<HTMLElement>('[data-testid="compliance-drawer-footer-close"]')!
+    expect(frameDocument.activeElement).toBe(close)
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(mockOnClose).not.toHaveBeenCalled()
+
+    footer.focus()
+    fireEvent.keyDown(frame.contentWindow!, { key: 'Tab' })
+    expect(frameDocument.activeElement).toBe(close)
+
+    fireEvent.keyDown(frame.contentWindow!, { key: 'Escape' })
+    expect(mockOnClose).toHaveBeenCalledOnce()
+
+    unmount()
+    expect(frameDocument.activeElement).toBe(trigger)
+    expect(document.activeElement).not.toBe(parentEditor)
+    frame.remove()
+    parentEditor.remove()
+  })
 })
 
 describe('calculateEffectivePostureScore', () => {
@@ -228,3 +268,79 @@ describe('calculateEffectivePostureScore', () => {
   })
 })
 
+describe('ComplianceDrawer remediation deep links and standardized formats', () => {
+  const mockOnClose = vi.fn()
+
+  const failingItem: ComplianceDrawerItem = {
+    frameworkId: 'eu-ai-act',
+    frameworkName: 'EU AI Act',
+    agentId: 'a0000000-0000-0000-0000-000000000001',
+    agentName: 'Sentinel Alpha',
+    totalChecks: 3,
+    passedChecks: 1,
+    failedChecks: 2,
+    checks: [
+      {
+        controlId: 'c0000000-0000-0000-0000-000000000002',
+        controlName: 'Art. 14: Human Oversight',
+        check: 'Human oversight override trail',
+        passed: false,
+        remediation: 'Configure approval webhook.',
+      },
+      {
+        controlId: 'c0000000-0000-0000-0000-000000000003',
+        controlName: 'Art. 9: Workload container execution as non-root',
+        check: 'Container root check',
+        passed: false,
+        remediation: 'Set runAsNonRoot: true.',
+      },
+    ],
+  }
+
+  it('renders failing checks as links to the /evaluations page with query parameters', () => {
+    render(<ComplianceDrawer open={true} item={failingItem} onClose={mockOnClose} />)
+
+    const link = screen.getByTestId('compliance-remediation-link-0')
+    expect(link).toBeInTheDocument()
+    expect(link).toHaveAttribute('href', expect.stringContaining('/evaluations?agent='))
+    expect(link.getAttribute('href')).toContain('framework=eu-ai-act')
+    expect(link.getAttribute('href')).toContain('control=EU-AI-ACT-ART-14')
+    expect(link.getAttribute('href')).toContain('violation=Human%20oversight%20override%20trail')
+  })
+
+  it('allows switching between in-toto statement, summary, and DSSE envelope formats', async () => {
+    const user = userEvent.setup()
+    render(<ComplianceDrawer open={true} item={failingItem} onClose={mockOnClose} />)
+
+    const jsonViewer = screen.getByTestId('compliance-evidence-json')
+    // Default format: in-toto statement v1
+    expect(jsonViewer.textContent).toContain('https://in-toto.io/Statement/v1')
+    expect(jsonViewer.textContent).toContain('https://signalloom.dev/attestation/compliance/v1')
+
+    // Switch to summary format
+    const summaryBtn = screen.getByTestId('compliance-format-summary')
+    await user.click(summaryBtn)
+    expect(jsonViewer.textContent).toContain('EU AI Act')
+    expect(jsonViewer.textContent).toContain('EU-AI-ACT-ART-14')
+
+    // Switch to DSSE envelope format
+    const dsseBtn = screen.getByTestId('compliance-format-dsse')
+    await user.click(dsseBtn)
+    expect(jsonViewer.textContent).toContain('application/vnd.in-toto+json')
+    expect(jsonViewer.textContent).toContain('cosign-signalloom-root-2026')
+  })
+})
+
+describe('sanitizeControlId', () => {
+  it('maps synthetic database UUIDs and control names to standard citations', () => {
+    expect(sanitizeControlId('c0000000-0000-0000-0000-000000000002', 'Art. 14: Human Oversight', 'EU AI Act')).toBe('EU-AI-ACT-ART-14')
+    expect(sanitizeControlId('c0000000-0000-0000-0000-000000000001', 'Art. 9: Risk Management', 'EU AI Act')).toBe('EU-AI-ACT-ART-9')
+    expect(sanitizeControlId('c0000000-0000-0000-0000-000000000004', 'Workload non-root execution', 'CIS Benchmark')).toBe('CIS-5.2.6')
+    expect(sanitizeControlId('c0000000-0000-0000-0000-000000000005', 'Access Control CC-1', 'SOC 2')).toBe('SOC2-CC6.1')
+  })
+
+  it('preserves already-standard control citations', () => {
+    expect(sanitizeControlId('CIS-5.2.6', 'Minimize root containers')).toBe('CIS-5.2.6')
+    expect(sanitizeControlId('SOC2-CC6.1', 'Access Control')).toBe('SOC2-CC6.1')
+  })
+})

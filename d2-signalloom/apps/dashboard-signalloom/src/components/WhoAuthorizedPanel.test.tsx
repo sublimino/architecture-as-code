@@ -23,7 +23,7 @@ const mockCompleteChain: AuthorizationChain = {
   evidenceRefs: [
     'obs-id-001',
     'obs-net-001',
-    'opa://decisions/2026-08-15/id-001',
+    'cel://decisions/2026-08-15/id-001',
     'k8s-audit://default/secrets/vault-token',
   ],
   attestationGitoid: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',

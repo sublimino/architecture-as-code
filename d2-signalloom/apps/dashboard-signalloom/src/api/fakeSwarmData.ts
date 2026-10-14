@@ -2,7 +2,7 @@
  * Demo data fixtures for the swarm agent lifecycle.
  *
  * Used when `isDemoMode()` returns true so the dashboard renders a realistic
- * swarm without a live cluster. All 10 agents, their credential records,
+ * swarm without a live cluster. All nine agents, their credential records,
  * and a representative audit trail covering the full lifecycle.
  */
 
@@ -65,27 +65,6 @@ export const FAKE_SWARM_AGENTS: AgentDiscoveryRecord[] = [
       containment_latency_ms: null,
     },
     created_at: ago(115),
-    provenance: 'demo',
-  },
-  {
-    pod_name: 'zulip-chat-agent-5e9c3',
-    namespace: NS,
-    service_account: 'zulip-chat-agent',
-    spiffe_id: spiffeId(NS, 'zulip-chat-agent'),
-    tenant: 'acme-corp',
-    project: 'osramp-core',
-    role: 'chat-agent',
-    framework: 'claude-code',
-    harness: 'claude-code',
-    model: 'claude-sonnet-4',
-    state: 'active',
-    kernel_telemetry: {
-      cgroup_frozen: false,
-      cgroup_state: 'thawed',
-      tc_drop_active: false,
-      containment_latency_ms: null,
-    },
-    created_at: ago(110),
     provenance: 'demo',
   },
   {
@@ -237,7 +216,7 @@ export const FAKE_SWARM_AGENTS: AgentDiscoveryRecord[] = [
   },
 ]
 
-// ─── Credential records for 6 credentialed agents ──────────────────────────
+// ─── Credential records for credentialed agents ────────────────────────────
 
 function makeCredential(
   sa: string,
@@ -265,7 +244,6 @@ function makeCredential(
 export const FAKE_SWARM_CREDENTIALS: CredentialRecord[] = [
   makeCredential('prompt-commit-summarizer', 'LLM API (Gemini 2.5 Flash)', 118),
   makeCredential('triage-ci-worker', 'GitHub API (read-only CI logs)', 113),
-  makeCredential('zulip-chat-agent', 'Zulip API (stream messaging)', 108),
   makeCredential('cpai-engineer', 'Anthropic API (Claude Sonnet 4)', 103),
   makeCredential('swarm-governor', 'Anthropic API (Claude Sonnet 4)', 128),
   makeCredential('prod-deploy-gate', 'HMAC signing key', 93),

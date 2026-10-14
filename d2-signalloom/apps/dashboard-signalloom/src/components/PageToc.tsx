@@ -273,9 +273,12 @@ export default function PageTocLayout({
         }
         const winner = ids.find((id) => intersecting.has(id))
         // No winner means the band is empty, mid-way through a section taller
-        // than the strip's distance from the top. Holding the last answer beats
-        // blanking the nav, which would flicker on every long section.
-        if (winner) setActiveId(winner)
+        // than the strip's distance from the top, or above the first section.
+        if (winner) {
+          setActiveId(winner)
+        } else if (targets[0] && typeof targets[0].getBoundingClientRect === 'function' && targets[0].getBoundingClientRect().top > 0) {
+          setActiveId(ids[0] ?? null)
+        }
       },
       { rootMargin: TOC_SCAN_LINE, threshold: 0 },
     )

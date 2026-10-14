@@ -65,6 +65,7 @@ import SafeLink from '../components/SafeLink'
 import AgentDeepLink from '../components/AgentDeepLink'
 import PageTocLayout, { type TocEntry } from '../components/PageToc'
 import { CoreSpecimens } from './design-system/CoreSpecimens'
+import { CompactInventorySpecimen } from './design-system/CompactInventorySpecimen'
 import { ExtraSpecimens } from './design-system/ExtraSpecimens'
 import { WorkflowSpecimens } from './design-system/WorkflowSpecimens'
 import { ContextSpecimens } from './design-system/ContextSpecimens'
@@ -584,6 +585,7 @@ export const DESIGN_SYSTEM_SECTIONS: readonly TocEntry[] = [
   { id: 'agent-deep-link', title: 'AgentDeepLink' },
   { id: 'dash-kit', title: 'DashKit' },
   { id: 'core-examples', title: 'Core component examples' },
+  { id: 'compact-inventory', title: 'Compact operational inventory' },
   { id: 'extra-examples', title: 'Additional component examples' },
   { id: 'workflow-examples', title: 'Workflow component examples' },
   { id: 'context-examples', title: 'Context-safe component examples' },
@@ -1891,6 +1893,10 @@ export default function DesignSystemPage() {
         when="Deterministic fixtures for safe standalone components, including fleet selectors, header primitives, status treatments, policy editing and read-only telemetry. These are real components with local data, not catalogue placeholders."
       >
         <CoreSpecimens />
+      </Group>
+
+      <Group id="compact-inventory" title="Compact operational inventory" when="The actual governed-agents inventory row at compact density, including unknown observation, unconfirmed containment and kernel/control-plane disagreement. No backend mutations.">
+        <CompactInventorySpecimen />
       </Group>
 
       <Group

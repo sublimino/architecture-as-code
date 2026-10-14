@@ -848,7 +848,7 @@ describe('AgentDetailPage — Tab 4 (Assessments & Control Ratios)', () => {
               framework_name: 'EU AI Act',
               status: 'pass',
               assessed_at: '2026-07-20T10:00:00Z',
-              evidence_ref: 'opa://assessments/test/art-9',
+              evidence_ref: 'cel://assessments/test/art-9',
             },
             {
               agent_id: 'agent-abc-123',
@@ -857,7 +857,7 @@ describe('AgentDetailPage — Tab 4 (Assessments & Control Ratios)', () => {
               framework_name: 'SOC 2',
               status: 'fail',
               assessed_at: '2026-07-20T10:00:00Z',
-              evidence_ref: 'opa://assessments/test/cc7.2',
+              evidence_ref: 'cel://assessments/test/cc7.2',
             },
           ],
         },

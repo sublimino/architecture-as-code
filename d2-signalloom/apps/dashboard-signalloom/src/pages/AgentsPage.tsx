@@ -7,7 +7,9 @@ import { api } from '../api/client'
 import { LIVE_POLL_MS } from '../api/pollInterval'
 import { claimDiscoveredAgent, type AgentClaimRequest } from '../api/agentClaim'
 import type { AgentResponse, AgentListMeta, SourceHealthMap, AgentLifecycleState } from '../types/api'
-import StatusBadge, { KernelStateBadge, hasKernelSplitBrain, isFrozenWithoutStun } from '../components/StatusBadge'
+import StatusBadge, { KernelStateBadge, isFrozenWithoutStun, STUN_WITHOUT_KERNEL_FREEZE } from '../components/StatusBadge'
+import AgentReviewQueue from '../components/AgentReviewQueue'
+import { deriveAgentReview, needsAgentReview } from '../data/agentReview'
 import SignalBadge from '../components/SignalBadge'
 import CredentialStateNotice from '../components/CredentialStateNotice'
 import EmptyState from '../components/EmptyState'
@@ -18,7 +20,7 @@ import { useSignalSummary } from '../hooks/useSignalSummary'
 import { parseAgentSelectorQuery, matchAgentByQuery } from '../data/agentQuerySelectors'
 import { getAgentWorkloadSecurityProfile } from '../components/agents/ClaimModal'
 import { CodingAgentsTab } from '../components/CodingAgentsTab'
-import { formatFullTimestamp } from '../components/AgentSuperFilterTable'
+import { CompactOperationalTable, CompactDisclosure, CompactEmail, CompactObservedTime } from '../components/CompactOperationalTable'
 import { colors } from '../styles/tokens'
 
 // Watched by the demo audience in a second window: see api/pollInterval.ts.
@@ -309,61 +311,7 @@ export const DONUT_COLORS = {
 
 // ─── 4 StatCards (Matching Spec Section 3) ──────────────────────────────────
 
-export function isAgentAttentionRequired(a: AgentResponse): boolean {
-  // 0. Kernel split-brain: the control plane and the kernel disagree on freeze state
-  if (hasKernelSplitBrain(a)) {
-    return true
-  }
-  // 1. Security findings / warnings
-  if (a.compliance_summary && (a.compliance_summary.failing > 0 || ((a.compliance_summary as any).findings ?? 0) > 0)) {
-    return true
-  }
-  if (a.attention?.level === 'critical' || a.attention?.level === 'warning') {
-    return true
-  }
-
-  // 2. Missing SBOM
-  if ((a as any).has_sbom === false || (a as any).sbom === null || (a as any).sbom_status === 'missing' || (a as any).sbom_verified === false) {
-    return true
-  }
-  const issue = (a.attention?.highest_issue || '').toLowerCase()
-  if (issue.includes('sbom') || issue.includes('bill of materials')) {
-    return true
-  }
-
-  // 3. Expired SVID
-  if ((a as any).svid_expired === true || (a.credential_state?.status as string) === 'expired') {
-    return true
-  }
-  if (a.identity?.cert_valid_until) {
-    const expiryTime = Date.parse(a.identity.cert_valid_until)
-    if (!isNaN(expiryTime) && expiryTime <= Date.now()) {
-      return true
-    }
-  }
-
-  // 4. Suspended / stunned / revoked states
-  const state = (a.lifecycle_state || '').toLowerCase()
-  if (
-    state === 'suspended' ||
-    state === 'stunned' ||
-    state === 'revoked' ||
-    state === 'decommissioned' ||
-    a.credential_state?.status === 'revoked'
-  ) {
-    return true
-  }
-
-  // 5. Posture score threshold
-  if (a.compliance_summary?.posture_score !== null && a.compliance_summary?.posture_score !== undefined) {
-    const score = a.compliance_summary.posture_score
-    if (score <= 1.0 ? score < 0.5 : score < 50) {
-      return true
-    }
-  }
-
-  return false
-}
+export const isAgentAttentionRequired = needsAgentReview
 
 function AgentStatCards({
   agents,
@@ -380,11 +328,9 @@ function AgentStatCards({
 
   // 1. Needs Attention
   const failingControlsCount = agents.reduce((sum, a) => sum + a.compliance_summary.failing, 0)
-  const unconfirmedCount = agents.filter(a =>
-    (a.lifecycle_state === 'suspended' || a.lifecycle_state === 'stunned' || a.credential_state?.status === 'revoked') &&
-    !(a.kernel_telemetry?.cgroup_state === 'frozen' || a.kernel_telemetry?.traffic_control_state === 'drop')
-  ).length
-  const attentionCount = agents.filter(isAgentAttentionRequired).length
+  const review = deriveAgentReview(agents)
+  const unconfirmedCount = review.issues.filter(issue => issue.category === 'containment-unconfirmed').length
+  const attentionCount = review.affectedAgentCount
 
   // 2. Identity Coverage
   const registeredCount = meta?.registered_count ?? agents.filter(a => a.record_class === 'registered' || (!a.record_class && a.is_registry_linked !== false)).length
@@ -501,69 +447,6 @@ function AgentStatCards({
   )
 }
 
-// ─── Attention Required Panel ────────────────────────────────────────────────
-
-interface AlertItem {
-  id: string
-  label: string
-  count: number
-  severity: 'warning' | 'critical'
-  filterKey?: string
-}
-
-function AttentionPanel({ alerts, onAlert }: {
-  alerts: AlertItem[]
-  onAlert: (filterKey?: string) => void
-}) {
-  if (alerts.length === 0) return null
-  return (
-    <div style={{
-      background: 'rgba(220,38,38,0.07)',
-      border: '1px solid rgba(220,38,38,0.25)',
-      borderRadius: 8,
-      padding: '14px 18px',
-      marginBottom: 20,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 10,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--error)' }}>Attention Required</span>
-        <span style={{
-          background: 'var(--error)', color: 'var(--on-accent)', borderRadius: 99,
-          fontSize: 10, fontWeight: 700, padding: '1px 7px',
-        }}>{alerts.length}</span>
-      </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {alerts.map((a) => (
-          <button
-            key={a.id}
-            onClick={() => onAlert(a.filterKey)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              background: a.severity === 'critical'
-                ? 'rgba(220,38,38,0.12)'
-                : 'rgba(215,119,6,0.12)',
-              border: `1px solid ${a.severity === 'critical' ? 'rgba(220,38,38,0.3)' : 'rgba(215,119,6,0.3)'}`,
-              borderRadius: 6, padding: '5px 12px',
-              color: a.severity === 'critical' ? 'var(--error)' : 'var(--amber)',
-              fontSize: 12, fontWeight: 500, cursor: 'pointer',
-              fontFamily: 'inherit', transition: 'opacity 0.15s',
-            }}
-          >
-            <span style={{
-              background: a.severity === 'critical' ? 'var(--error)' : 'var(--amber)',
-              color: 'var(--on-accent)', borderRadius: 99, fontSize: 10,
-              fontWeight: 700, padding: '0px 6px', minWidth: 20, textAlign: 'center',
-            }}>{a.count}</span>
-            {a.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 // ─── 7-Column Operational Inventory Table Row ────────────────────────────────
 
 export const LIFECYCLE_OPTIONS: readonly ('all' | AgentLifecycleState)[] = ['all', 'Governed', 'Suspended', 'Revoked'] as const
@@ -591,7 +474,7 @@ export const LIFECYCLE_TOOLTIP: Record<string, string> = {
   revoked: 'Permanently revoked: terminal state, credentials refused.',
 }
 
-function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
+export function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
   agent: AgentResponse
   shown: boolean
   claiming: boolean
@@ -633,7 +516,11 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
   const isSpiffeLinked = agent.identity?.spiffe_status === 'linked' || (!!agent.identity?.spiffe_id && agent.record_class !== 'discovered' && agent.is_registry_linked !== false)
 
   // 7. Last Observed column
-  const observedTime = agent.timestamps?.last_observed_at || agent.last_transition_at || agent.created_at
+  const observedTime = agent.timestamps?.last_observed_at
+  const credentialCritical = agent.credential_state?.status === 'unknown' || agent.credential_state?.status === 'revoked'
+  const posture = agent.compliance_summary.posture_score
+  const posturePercent = posture === null ? null : Math.round(posture <= 1 ? posture * 100 : posture)
+  const attentionTone = isNotAssessed ? 'var(--muted)' : hasViolations ? 'var(--error)' : 'var(--teal)'
 
   return (
     <tbody
@@ -642,13 +529,14 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
       style={{ opacity: shown ? 1 : 0, visibility: shown ? 'visible' : 'collapse' }}
     >
       <tr
-        data-testid={`agent-row-${agent.id}`}
+         data-testid={`agent-row-${agent.id}`}
+         className={canClaim ? 'compact-claimable' : undefined}
         tabIndex={0}
         role="button"
         aria-label={`View evidence for ${agentName}`}
         onClick={() => onSelect(agent)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
+          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
             e.preventDefault()
             onSelect(agent)
           }
@@ -670,13 +558,14 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
                 fontSize: 13,
                 color: 'var(--text)',
                 textDecoration: 'none',
-                display: 'inline-flex',
+                 display: 'flex',
+                 minWidth: 0,
                 alignItems: 'center',
                 gap: 4,
               }}
-              className="hover:underline"
+               className="compact-agent-name"
             >
-              <span>{agentName}</span>
+               <span className="compact-agent-name">{agentName}</span>
               <span style={{ fontSize: 11, color: 'var(--muted)', opacity: 0.7 }} aria-hidden="true">&rarr;</span>
             </Link>
             {hasViolations && (
@@ -689,7 +578,7 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
               />
             )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
+          <div className="compact-agent-meta">
             <span
               className="tag"
               style={{
@@ -713,6 +602,9 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
             >
               {recordClassLabel}
             </span>
+            <CompactDisclosure className="compact-agent-details" label={`Agent details for ${agentName}`} summary={<span className="compact-secondary">Details</span>}>
+            <div>Name: {agentName}</div>
+            <div>Agent ID: {agent.id}</div>
             <span
               data-testid={`agent-security-profile-badge-${agent.id}`}
               className="tag"
@@ -783,54 +675,89 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
             >
               {agentExecutionMode}
             </span>
+            <div>{secProfile.description}</div>
+            </CompactDisclosure>
+            <CompactDisclosure className="compact-row-details" retainContent={false} label={`Inventory details for ${agentName}`} summary={<span className="compact-secondary">More</span>}>
+              <div>Name: {agentName}</div>
+              <div>Agent ID: {agent.id}</div>
+              <div>Security profile: {secProfile.label} · {secProfile.description}</div>
+              <div>Execution: {agentExecutionMode}</div>
+              <div>Runtime: {namespace} / {framework}</div>
+              <div>Model: {model || 'Unknown'}</div>
+              <div>Owner: {ownerName ? <CompactEmail value={ownerName} /> : (canClaim ? 'Registry not linked' : 'Unassigned')}</div>
+              <div>Team: {team || 'Undeclared'}</div>
+              <div>Tenant: {agent.tenant || agent.tenant_id || 'Undeclared'}</div>
+              <div>Identity: {isSpiffeLinked ? 'SPIFFE linked' : recordClass === 'discovered' ? 'Observed workload' : 'Identity unlinked'}</div>
+              <div>SPIFFE ID: {agent.identity?.spiffe_id || 'Unknown'}</div>
+              <CredentialStateNotice credentialState={agent.credential_state} agentName={agent.name} variant="inline" />
+            </CompactDisclosure>
           </div>
         </td>
 
         {/* 2. Runtime */}
         <td style={{ padding: '11px 16px', fontSize: 12 }}>
+          <CompactDisclosure label={`Runtime details for ${agentName}`} summary={<span>{framework}</span>}>
+          <div>Framework: {framework}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontWeight: 500, color: 'var(--text)' }}>{namespace}</span>
             <span style={{ color: 'var(--muted)' }}>/</span>
-            <span style={{ color: 'var(--muted)' }}>{framework}</span>
           </div>
           {model && (
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
               {model}
             </div>
           )}
+          </CompactDisclosure>
         </td>
 
         {/* 3. Responsibility */}
         <td style={{ padding: '11px 16px', fontSize: 12 }}>
           {ownerName ? (
             <div>
-              <span style={{ color: 'var(--text)', fontWeight: 500 }}>{ownerName}</span>
+              <CompactDisclosure label={`Responsibility details for ${agentName}`} summary={<CompactEmail value={ownerName} />}>
+              <div>Owner: <CompactEmail value={ownerName} /></div>
               {team && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{team}</div>}
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                 Tenant: <span style={{ color: 'var(--text)' }}>{agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared' ? agent.tenant_id : 'Undeclared')}</span>
               </div>
+              </CompactDisclosure>
             </div>
           ) : (
             <div>
               <span style={{ color: 'var(--muted)' }}>
                 {recordClass === 'discovered' || agent.is_registry_linked === false ? 'Registry not linked' : 'Unassigned'}
               </span>
+              <CompactDisclosure label={`Responsibility details for ${agentName}`} summary={<span className="compact-secondary">Details</span>}>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                 Tenant: <span style={{ color: 'var(--text)' }}>{agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared' ? agent.tenant_id : 'Undeclared')}</span>
               </div>
+              </CompactDisclosure>
             </div>
           )}
         </td>
 
         {/* 4. Operational State */}
         <td style={{ padding: '11px 16px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div className="compact-state">
+            <div className="compact-state-primary">
             {!splitBrainFrozen && (
-              <span title={LIFECYCLE_TOOLTIP[agent.lifecycle_state] ?? undefined}>
-                <StatusBadge status={agent.lifecycle_state} variant="lifecycle" isFrozen={isTelemetryFrozenOrDrop} />
-              </span>
+              <CompactDisclosure label={`Operational state details for ${agentName}`} summary={<StatusBadge status={agent.lifecycle_state} variant="lifecycle" isFrozen={isTelemetryFrozenOrDrop} />}>
+                <div>Lifecycle: {agent.lifecycle_state}</div>
+                <div>{LIFECYCLE_TOOLTIP[agent.lifecycle_state] || agent.lifecycle_state}</div>
+                <div>cgroup: {agent.kernel_telemetry?.cgroup_state || 'Unknown'} · TC: {agent.kernel_telemetry?.traffic_control_state || 'Unknown'}</div>
+                {isContainmentRequested && !isTelemetryFrozenOrDrop && <div>Containment requested but kernel telemetry observation is unconfirmed.</div>}
+              </CompactDisclosure>
             )}
-            <KernelStateBadge view={agent} testId={`kernel-state-badge-${agent.id}`} />
+            {(agent.kernel_state === 'frozen' || (agent.kernel_state === 'running' && (agent.split_brain ?? []).includes(STUN_WITHOUT_KERNEL_FREEZE))) && (
+              <CompactDisclosure label={`Kernel observation details for ${agentName}`} summary={<KernelStateBadge view={agent} compact testId={`kernel-state-badge-${agent.id}`} />}>
+                <KernelStateBadge view={agent} />
+                <div>{splitBrainFrozen ? 'Kernel cgroup is frozen, but no stun record exists. The lifecycle label is stale.' : agent.kernel_state === 'running' ? 'A stun record exists but the kernel cgroup is not frozen.' : 'Kernel cgroup freeze confirmed by the signalloom-warden.'}</div>
+                <div>Kernel state: {agent.kernel_state}</div>
+                <div>Observed: {agent.kernel_observed_at || 'Unknown'}</div>
+                <div>{agent.split_brain?.join('; ')}</div>
+              </CompactDisclosure>
+            )}
+            </div>
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
               {splitBrainFrozen ? null : isTelemetryFrozenOrDrop ? (
                 <>
@@ -839,7 +766,7 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
                       data-testid={`kernel-telemetry-cgroup-${agent.id}`}
                       className="tag"
                       title="cgroup.freeze: 1 (FROZEN): Processes atomically suspended by Sentinel"
-                      style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
+                       style={{ fontSize: 10, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
                     >
                       cgroup: FROZEN
                     </span>
@@ -849,21 +776,26 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
                       data-testid={`kernel-telemetry-tc-${agent.id}`}
                       className="tag"
                       title="TC matchall drop active: Network isolated by Sentinel"
-                      style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
+                       style={{ fontSize: 10, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
                     >
                       TC: DROP
                     </span>
                   )}
                 </>
               ) : isContainmentRequested ? (
+                <CompactDisclosure label={`Containment outcome details for ${agentName}`} summary={
                 <span
                   data-testid={`kernel-telemetry-unconfirmed-${agent.id}`}
-                  className="tag"
-                  title="Containment requested but kernel telemetry observation is unconfirmed"
-                  style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--amber) 15%, transparent)', color: 'var(--amber)', borderColor: 'color-mix(in srgb, var(--amber) 30%, transparent)' }}
+                       className="tag compact-warning"
+                       title="Containment requested but kernel telemetry observation is unconfirmed"
+                   style={{ fontSize: 10, padding: '1px 5px', background: 'color-mix(in srgb, var(--amber) 15%, transparent)', color: 'var(--amber)', borderColor: 'color-mix(in srgb, var(--amber) 30%, transparent)' }}
                 >
-                  Requested (Outcome unconfirmed)
+                   Unconfirmed
                 </span>
+                }>
+                  <div>Requested (Outcome unconfirmed)</div>
+                  <div>Containment requested but kernel telemetry observation is unconfirmed.</div>
+                </CompactDisclosure>
               ) : (
                 <>
                   {agent.kernel_telemetry?.cgroup_state === 'thawed' && (
@@ -871,7 +803,7 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
                       data-testid={`kernel-telemetry-cgroup-${agent.id}`}
                       className="tag"
                       title="cgroup.freeze: 0 (THAWED)"
-                      style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
+                       style={{ fontSize: 10, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
                     >
                       cgroup: THAWED
                     </span>
@@ -881,7 +813,7 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
                       data-testid={`kernel-telemetry-tc-${agent.id}`}
                       className="tag"
                       title="TC drop: INACTIVE"
-                      style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
+                       style={{ fontSize: 10, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
                     >
                       TC: PASS
                     </span>
@@ -889,80 +821,57 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
                 </>
               )}
             </div>
+            {credentialCritical && agent.credential_state && <CompactDisclosure label={`Credential evidence for ${agentName}`} summary={<StatusBadge status={agent.credential_state.status} variant="credential" label={agent.credential_state.status === 'unknown' ? 'Credentials unknown' : 'Credentials revoked'} testId={`compact-credential-state-${agent.id}`} />}>
+              <CredentialStateNotice credentialState={agent.credential_state} agentName={agent.name} variant="inline" />
+              {agent.credential_state.status === 'unknown' && <div>No stun audit record shows the bao and spire credential planes contained.</div>}
+            </CompactDisclosure>}
           </div>
         </td>
 
         {/* 5. Attention */}
         <td style={{ padding: '11px 16px', fontSize: 12 }}>
-          {isNotAssessed ? (
-            <span className="tag" style={{ background: 'rgba(156, 163, 175, 0.15)', color: 'var(--muted)', fontSize: 11 }}>
-              Not assessed
+          <CompactDisclosure label={`Assessment details for ${agentName}`} summary={<span className="compact-attention">
+            <span className="tag" style={{ color: attentionTone, background: `color-mix(in srgb, ${attentionTone} 15%, transparent)` }}>
+              {isNotAssessed ? 'Unassessed' : hasViolations ? `${agent.compliance_summary.failing} failing` : `${agent.compliance_summary.passing}/${agent.compliance_summary.total_controls}`}
             </span>
-          ) : agent.compliance_summary.failing > 0 ? (
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="tag" style={{ background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', fontSize: 11 }}>
-                  {agent.compliance_summary.failing} failing
-                </span>
-                {agent.compliance_summary.posture_score !== null && (
-                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--error)' }}>
-                    {Math.round(agent.compliance_summary.posture_score <= 1.0 ? agent.compliance_summary.posture_score * 100 : agent.compliance_summary.posture_score)}%
-                  </span>
-                )}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                {agent.compliance_summary.passing}/{agent.compliance_summary.total_controls} passed
-              </div>
-            </div>
-          ) : (
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="tag" style={{ background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', fontSize: 11 }}>
-                  {agent.compliance_summary.passing}/{agent.compliance_summary.total_controls} passing
-                </span>
-                {agent.compliance_summary.posture_score !== null && (
-                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--teal)' }}>
-                    {Math.round(agent.compliance_summary.posture_score <= 1.0 ? agent.compliance_summary.posture_score * 100 : agent.compliance_summary.posture_score)}%
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
+            {!isNotAssessed && posturePercent !== null && <span className="compact-attention-score" style={{ color: attentionTone }}>{posturePercent}%</span>}
+          </span>}>
+            {isNotAssessed ? <div>Not assessed</div> : <>
+              <div>{agent.compliance_summary.passing}/{agent.compliance_summary.total_controls} {hasViolations ? 'passed' : 'passing'}</div>
+              <div>Failing controls: {agent.compliance_summary.failing} · Pending: {agent.compliance_summary.pending}</div>
+              <div>Posture: {posturePercent === null ? 'Unknown' : `${posturePercent}%`}.</div>
+            </>}
+          </CompactDisclosure>
         </td>
 
         {/* 6. Identity & Evidence */}
         <td style={{ padding: '11px 16px', fontSize: 12 }}>
-          <div>
-            {isSpiffeLinked ? (
+          <CompactDisclosure label={`Identity evidence for ${agentName}`} summary={isSpiffeLinked ? (
               <span style={{ color: 'var(--teal)', fontWeight: 500 }}>SPIFFE linked</span>
             ) : recordClass === 'discovered' ? (
               <span style={{ color: 'var(--cyan)' }}>Observed workload</span>
             ) : (
               <span style={{ color: 'var(--muted)' }}>Identity unlinked</span>
-            )}
-          </div>
+            )}>
+              <div>Identity: {isSpiffeLinked ? 'SPIFFE linked' : recordClass === 'discovered' ? 'Observed workload' : 'Identity unlinked'}</div>
+              <div>SPIFFE ID: {agent.identity?.spiffe_id || 'Unknown'}</div>
+          </CompactDisclosure>
           <div style={{ marginTop: 2 }}>
-            <CredentialStateNotice
-              credentialState={agent.credential_state}
-              agentName={agent.name}
-              variant="inline"
-            />
+            {agent.credential_state && !credentialCritical && <CompactDisclosure label={`Credential evidence for ${agentName}`} summary={<CredentialStateNotice credentialState={agent.credential_state} agentName={agent.name} variant="inline" />}>
+              {agent.credential_state.status === 'revoked' ? <CredentialStateNotice credentialState={agent.credential_state} agentName={agent.name} variant="inline" /> : <div>Credential state: {agent.credential_state.status}{agent.credential_state.status === 'unknown' ? '. No stun audit record shows the bao and spire credential planes contained.' : ''}</div>}
+            </CompactDisclosure>}
           </div>
         </td>
 
         {/* 7. Last Observed */}
-        <td style={{ padding: '11px 16px', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <div>
-              <div style={{ color: 'var(--text)', fontSize: 12 }} data-testid={`agent-full-timestamp-${agent.id}`} title={formatFullTimestamp(observedTime)}>
-                {formatFullTimestamp(observedTime)}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
-                {fmtRelative(observedTime)} ({agent.timestamps?.last_observed_at ? 'Observed' : (agent.last_transition_at ? 'Transitioned' : 'Created')})
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              {canClaim && (
+         <td style={{ padding: '11px 16px', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+           <span className="compact-mobile-label" aria-hidden="true">Seen</span>
+           <CompactObservedTime value={observedTime} testId={`agent-full-timestamp-${agent.id}`} />
+         </td>
+         <td>
+             <div className="compact-actions">
+               {canClaim && (
+                 <div className="compact-claim" style={{ order: 1 }}>
                 <button
                   type="button"
                   className="btn btn-secondary"
@@ -977,7 +886,6 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
                     onClaim(agent)
                   }}
                   onKeyDown={(e) => e.stopPropagation()}
-                  style={{ fontSize: 11, padding: '3px 8px', minWidth: 88 }}
                 >
                   {claiming && (
                     <svg
@@ -986,7 +894,7 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
                       width="11"
                       height="11"
                       viewBox="0 0 12 12"
-                      style={{ marginRight: 5, verticalAlign: '-1px' }}
+                       style={{ verticalAlign: '-1px', flexShrink: 0 }}
                     >
                       <circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" strokeOpacity="0.3" />
                       <path d="M6 1.5a4.5 4.5 0 0 1 4.5 4.5" fill="none" stroke="currentColor" strokeLinecap="round">
@@ -995,7 +903,8 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
                     </svg>
                   )}
                   {claiming ? 'Claiming…' : 'Claim'}
-                </button>
+                 </button>
+                 </div>
               )}
               <Link
                 to={`/agents/${agent.id}?tab=overview`}
@@ -1003,9 +912,7 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
                 className="btn btn-secondary"
                 data-testid={`agent-dossier-btn-${agent.id}`}
                 style={{
-                  fontSize: 11,
-                  padding: '3px 8px',
-                  opacity: 0.85,
+                   opacity: 0.85,
                   textDecoration: 'none',
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -1017,16 +924,16 @@ function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClaim }: {
                 <span style={{ fontSize: 10 }}>&rarr;</span>
               </Link>
               <button
-                className="btn btn-secondary"
-                style={{ fontSize: 11, padding: '3px 8px', opacity: 0.8 }}
-                onClick={(e) => { e.stopPropagation(); onEdit(agent) }}
+                 className="btn btn-secondary"
+                 style={{ opacity: 0.8 }}
+                 onClick={(e) => { e.stopPropagation(); onEdit(agent) }}
+                 onKeyDown={e => e.stopPropagation()}
                 title="Edit agent settings"
               >
                 Edit
               </button>
             </div>
-          </div>
-        </td>
+         </td>
       </tr>
     </tbody>
   )
@@ -1251,8 +1158,8 @@ function GovernedTab({
         return (a.lifecycle_state || '').localeCompare(b.lifecycle_state || '', undefined, { sensitivity: 'base' }) * dir
       }
       if (sortKey === 'last_assessed' || sortKey === 'last_observed') {
-        const aTime = Date.parse(a.timestamps?.last_observed_at || a.last_transition_at || a.created_at || '')
-        const bTime = Date.parse(b.timestamps?.last_observed_at || b.last_transition_at || b.created_at || '')
+        const aTime = Date.parse(a.timestamps?.last_observed_at || '')
+        const bTime = Date.parse(b.timestamps?.last_observed_at || '')
         const aValid = !Number.isNaN(aTime)
         const bValid = !Number.isNaN(bTime)
         if (!aValid && !bValid) return 0
@@ -1300,8 +1207,8 @@ function GovernedTab({
     })
   ), [governedAgents])
 
-  const phase = loadPhase({ loading, error, loaded })
-  if (phase === 'loading' || phase === 'idle' || phase === 'error') {
+  const phase = error ? 'error' : loadPhase({ loading: loading && !loaded, loaded })
+  if (!loaded && (phase === 'loading' || phase === 'idle' || phase === 'error')) {
     return <LoadingState variant="block" status={phase} label="agents" error={error} onRetry={onRetry} testId="agents-load-state" />
   }
 
@@ -1427,9 +1334,9 @@ function GovernedTab({
               textAlign: 'center',
             }}
           >
-            {governedAgents.filter((a) => (a.compliance_summary?.failing ?? 0) > 0 || a.lifecycle_state === 'Suspended' || a.lifecycle_state === 'Revoked').length}
+            {deriveAgentReview(governedAgents).affectedAgentCount}
           </span>
-          Attention Required
+          Needs review
         </button>
         {(search || lifecycleFilter !== 'all' || attentionFilter || sortKey) && (
           <button
@@ -1458,8 +1365,7 @@ function GovernedTab({
           <EmptyState kicker="No agents match your filter" body="Try clearing the search or changing the state filter." />
         )
       ) : (
-        <div className="card" role="region" aria-label="Governed agents table" tabIndex={0} style={{ padding: 0, overflowX: 'auto', width: '100%' }}>
-          <table style={{ width: '100%', minWidth: 1100, borderCollapse: 'collapse', fontSize: 13 }}>
+        <CompactOperationalTable label="Governed agents table">
             <thead>
               <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
                 <th
@@ -1526,15 +1432,17 @@ function GovernedTab({
                 <th
                   style={{ ...TH_STYLE, cursor: 'pointer', userSelect: 'none' }}
                   onClick={() => handleSort('last_assessed')}
+                  aria-label="Observed"
                   data-testid="sort-header-last-assessed"
                 >
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <span>Last Observed</span>
+                    <span>Seen</span>
                     <span style={{ color: sortKey === 'last_assessed' ? 'var(--cyan)' : 'var(--border)', fontSize: 10 }}>
                       {sortKey === 'last_assessed' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
                     </span>
                   </div>
                 </th>
+                <th style={TH_STYLE}>Actions</th>
               </tr>
             </thead>
             {displayAgents.map((a) => {
@@ -1551,8 +1459,7 @@ function GovernedTab({
                 />
               )
             })}
-          </table>
-        </div>
+        </CompactOperationalTable>
       )}
 
       {filtered.length > 0 && (
@@ -1668,6 +1575,7 @@ export default function AgentsPage() {
 
   const loadAgents = useCallback(async () => {
     const revisionAtStart = mutationRevisionRef.current
+    setAgentsLoading(true)
     try {
       const token = await getAccessTokenSilently()
       const data = await api.agents.list(token)
@@ -1770,37 +1678,7 @@ export default function AgentsPage() {
     return () => clearInterval(t)
   }, [loadAgents])
 
-  const alerts: AlertItem[] = useMemo(() => {
-    const items: AlertItem[] = []
-
-    const withViolations = agents.filter(a => a.compliance_summary.failing > 0)
-    if (withViolations.length > 0)
-      items.push({ id: 'violations', label: 'agents with new violations', count: withViolations.length, severity: 'critical' })
-
-    const unconfirmed = agents.filter(a =>
-      (a.lifecycle_state === 'suspended' || a.lifecycle_state === 'stunned' || a.credential_state?.status === 'revoked') &&
-      !(a.kernel_telemetry?.cgroup_state === 'frozen' || a.kernel_telemetry?.traffic_control_state === 'drop')
-    )
-    if (unconfirmed.length > 0)
-      items.push({ id: 'unconfirmed', label: 'containment unconfirmed', count: unconfirmed.length, severity: 'warning', filterKey: 'suspended' })
-
-    const enrolledInactive = agents.filter(a => a.lifecycle_state === 'enrolled')
-    if (enrolledInactive.length > 0)
-      items.push({ id: 'enrolled', label: 'enrolled agents not activated', count: enrolledInactive.length, severity: 'warning', filterKey: 'enrolled' })
-
-    const suspended = agents.filter(a => a.lifecycle_state === 'suspended')
-    if (suspended.length > 0)
-      items.push({ id: 'suspended', label: 'suspended agents', count: suspended.length, severity: 'warning', filterKey: 'suspended' })
-
-    const critical = agents.filter(a =>
-      a.compliance_summary.posture_score !== null &&
-      (a.compliance_summary.posture_score <= 1.0 ? a.compliance_summary.posture_score < 0.5 : a.compliance_summary.posture_score < 50)
-    )
-    if (critical.length > 0)
-      items.push({ id: 'critical', label: 'agents with critical posture', count: critical.length, severity: 'critical' })
-
-    return items
-  }, [agents])
+  const review = useMemo(() => deriveAgentReview(agents), [agents])
 
   const totalAssessed = agents.filter(a => a.compliance_summary.total_controls > 0).length
 
@@ -1868,7 +1746,8 @@ export default function AgentsPage() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <LoadingState
-            status={loadPhase({ loading: agentsLoading, error: agentsError, loaded: agentsLoaded })}
+            status={agentsError ? 'error' : loadPhase({ loading: agentsLoading && !agentsLoaded, loaded: agentsLoaded })}
+            timestamp={!agentsError && lastRefresh ? Date.parse(lastRefresh) : undefined}
             label="agents"
             error={agentsError}
             onRetry={loadAgents}
@@ -1976,7 +1855,7 @@ export default function AgentsPage() {
             />
           )}
 
-          <AttentionPanel alerts={alerts} onAlert={(key) => key && setLifecycleFilter(key)} />
+          <AgentReviewQueue review={review} loading={agentsLoading} loaded={agentsLoaded} error={agentsError} sourceHealth={sourceHealth} lastRefresh={lastRefresh} onRetry={loadAgents} />
 
           <SignalSummaryPanel />
 
@@ -1999,4 +1878,3 @@ export default function AgentsPage() {
     </div>
   )
 }
-

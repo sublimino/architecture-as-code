@@ -72,9 +72,9 @@ function setup() {
   vi.mocked(api.agents.list).mockResolvedValue(EMPTY_AGENTS as never)
 }
 
-function renderCompliance() {
+function renderCompliance(initialEntries = ['/compliance']) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <Compliance />
     </MemoryRouter>
   )
@@ -329,5 +329,83 @@ describe('ComplianceDrawer interactive drill-down and score formatting', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('compliance-drawer')).not.toBeInTheDocument()
     })
+  })
+})
+
+describe('Compliance deep-linking via URL search parameters', () => {
+  beforeEach(() => {
+    setup()
+    vi.mocked(api.settings).mockResolvedValue({ ...BASE_SETTINGS, selected_frameworks: [] } as never)
+    vi.mocked(api.compliance.posture).mockResolvedValue({
+      agents: [
+        {
+          agent_id: 'a1',
+          agent_name: 'Sentinel Alpha',
+          posture_score: 0.85,
+          results: [
+            {
+              agent_id: 'a1',
+              control_id: 'art-9',
+              control_name: 'Risk Management',
+              framework_name: 'EU AI Act',
+              status: 'pass',
+              assessed_at: '2026-09-29T05:00:00Z',
+              evidence_ref: 'sha256:abc1234567890',
+            },
+          ],
+        },
+        {
+          agent_id: 'a2',
+          agent_name: 'Cardvault Beta',
+          posture_score: 0.45,
+          results: [],
+        },
+      ],
+    } as never)
+    vi.mocked(api.agents.list).mockResolvedValue({
+      agents: [
+        {
+          id: 'a1',
+          name: 'Sentinel Alpha',
+          tenant_id: 'tid',
+          lifecycle_state: 'Governed',
+          last_transition_at: null,
+          compliance_summary: { total_controls: 1, passing: 1, failing: 0, pending: 0, posture_score: 0.85 },
+        },
+        {
+          id: 'a2',
+          name: 'Cardvault Beta',
+          tenant_id: 'tid',
+          lifecycle_state: 'Governed',
+          last_transition_at: null,
+          compliance_summary: { total_controls: 1, passing: 0, failing: 1, pending: 0, posture_score: 0.45 },
+        },
+      ],
+    } as never)
+  })
+
+  it('filters agent table when initial URL has ?segment=critical', async () => {
+    renderCompliance(['/compliance?segment=critical'])
+
+    await waitFor(() => {
+      expect(screen.getByText('Cardvault Beta')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Sentinel Alpha')).not.toBeInTheDocument()
+  })
+
+  it('auto-opens framework drawer on direct landing with ?drawer=framework&framework=fw-euai', async () => {
+    renderCompliance(['/compliance?drawer=framework&framework=fw-euai'])
+
+    const drawer = await screen.findByTestId('compliance-drawer')
+    expect(drawer).toBeInTheDocument()
+    expect(screen.getByTestId('compliance-drawer-title')).toHaveTextContent('EU AI Act')
+  })
+
+  it('auto-opens agent posture drawer on direct landing with ?drawer=agent&agent=a1', async () => {
+    renderCompliance(['/compliance?drawer=agent&agent=a1'])
+
+    const drawer = await screen.findByTestId('compliance-drawer')
+    expect(drawer).toBeInTheDocument()
+    expect(screen.getByText(/Agent: Sentinel Alpha/i)).toBeInTheDocument()
   })
 })

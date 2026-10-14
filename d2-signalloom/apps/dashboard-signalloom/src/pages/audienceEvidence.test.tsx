@@ -161,21 +161,24 @@ describe('/agents shows the credential state to a normal user', () => {
   it('shows credentials as active before the stun', async () => {
     wireApiFor('credentialed')
     renderPage(<AgentsPage />)
-    const row = (await screen.findByText(AGENT_NAME)).closest('tr') as HTMLElement
+    const inventory = await screen.findByRole('region', { name: 'Governed agents table' })
+    const row = (await within(inventory).findByText(AGENT_NAME)).closest('tr') as HTMLElement
     expect(within(row).getByText('Credentials active')).toBeInTheDocument()
   })
 
   it('raises a distinct STUNNED state after the stun', async () => {
     wireApiFor('stunned')
     renderPage(<AgentsPage />)
-    const row = (await screen.findByText(AGENT_NAME)).closest('tr') as HTMLElement
+    const inventory = await screen.findByRole('region', { name: 'Governed agents table' })
+    const row = (await within(inventory).findByText(AGENT_NAME)).closest('tr') as HTMLElement
     expect(within(row).getByText(/STUNNED: CREDENTIALS REVOKED/)).toBeInTheDocument()
   })
 
   it('names WHY the credentials went away, not just that they did', async () => {
     wireApiFor('stunned')
     renderPage(<AgentsPage />)
-    const row = (await screen.findByText(AGENT_NAME)).closest('tr') as HTMLElement
+    const inventory = await screen.findByRole('region', { name: 'Governed agents table' })
+    const row = (await within(inventory).findByText(AGENT_NAME)).closest('tr') as HTMLElement
     expect(within(row).getByText(new RegExp(STUN_REASON))).toBeInTheDocument()
   })
 

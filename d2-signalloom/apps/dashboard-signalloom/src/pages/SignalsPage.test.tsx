@@ -650,15 +650,19 @@ describe('SignalsPage', () => {
     // Initially both observations shown
     expect(screen.getAllByTestId('observation-item')).toHaveLength(2)
 
-    // Toggle exclude sentinel noise (obs-1 has source 'sentinel.ebpf.socket_trace')
+    // Toggle exclude sentinel noise (both obs-1 socket_trace and obs-2 stun-sentinel are filtered out)
     const sentinelToggle = screen.getByTestId('feed-exclude-sentinel-toggle')
     await user.click(sentinelToggle)
 
-    // Only obs-2 (stun-sentinel) survives
+    // Both sentinel events (including stun-sentinel) are filtered out of the feed
     await waitFor(() => {
-      const items = screen.getAllByTestId('observation-item')
-      expect(items).toHaveLength(1)
-      expect(within(items[0]).getByTestId('observation-source')).toHaveTextContent('stun-sentinel')
+      expect(screen.queryAllByTestId('observation-item')).toHaveLength(0)
+    })
+
+    // Toggle off to restore observations
+    await user.click(sentinelToggle)
+    await waitFor(() => {
+      expect(screen.getAllByTestId('observation-item')).toHaveLength(2)
     })
 
     // Search input

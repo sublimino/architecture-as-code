@@ -147,7 +147,7 @@ export const CONFIG_REGISTRATION_ENTRIES: RegistrationEntry[] = [
   // ── Swarm agent registration entries ───────────────────────────────────
   //
   // Each agent pod carries `signalloom.ai/agent: "true"` and binds to the
-  // generic agent role so SPIRE can issue SVIDs for all 10 without per-agent
+  // generic agent role so SPIRE can issue SVIDs without per-agent
   // registration entries in the server config.
 
   {
@@ -168,18 +168,6 @@ export const CONFIG_REGISTRATION_ENTRIES: RegistrationEntry[] = [
     serviceAccount: 'triage-ci-worker',
     workload: 'Triage CI Worker',
     selectors: ['k8s:ns:fe-signalloom-agents', 'k8s:sa:triage-ci-worker', 'k8s:pod-label:signalloom.ai/agent:true'],
-    audience: 'openbao-supercredential',
-    baoRole: 'signalloom-agent-generic',
-    provenance: 'config',
-    state: 'active',
-    registered: true,
-  },
-  {
-    spiffeId: spiffeId('fe-signalloom-agents', 'zulip-chat-agent'),
-    namespace: 'fe-signalloom-agents',
-    serviceAccount: 'zulip-chat-agent',
-    workload: 'Zulip Chat Agent',
-    selectors: ['k8s:ns:fe-signalloom-agents', 'k8s:sa:zulip-chat-agent', 'k8s:pod-label:signalloom.ai/agent:true'],
     audience: 'openbao-supercredential',
     baoRole: 'signalloom-agent-generic',
     provenance: 'config',

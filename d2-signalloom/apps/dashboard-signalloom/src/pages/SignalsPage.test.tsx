@@ -18,6 +18,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { SignalObservation } from '../api/weaveApi'
 import type { PolicyDecision, PolicyFinding, IngestRateBucket } from '../api/policyApi'
+import ObservationFeed from '../components/signals/ObservationFeed'
 
 const { getAccessTokenSilently, mockPolicyApi, mockWeaveApi, mockIsDemoMode, streamHandles } =
   vi.hoisted(() => ({
@@ -650,13 +651,17 @@ describe('SignalsPage', () => {
     // Initially both observations shown
     expect(screen.getAllByTestId('observation-item')).toHaveLength(2)
 
-    // Toggle exclude sentinel noise (both obs-1 socket_trace and obs-2 stun-sentinel are filtered out)
+    // Toggle exclude sentinel noise: obs-1 is the high-frequency socket_trace
+    // flow stream (noise, hidden) but obs-2 is a stun-sentinel endpoint_host
+    // detection (not noise) and must survive the toggle.
     const sentinelToggle = screen.getByTestId('feed-exclude-sentinel-toggle')
     await user.click(sentinelToggle)
 
-    // Both sentinel events (including stun-sentinel) are filtered out of the feed
     await waitFor(() => {
-      expect(screen.queryAllByTestId('observation-item')).toHaveLength(0)
+      expect(screen.queryAllByTestId('observation-item')).toHaveLength(1)
+      expect(within(screen.getByTestId('observation-item')).getByTestId('observation-source')).toHaveTextContent(
+        'stun-sentinel',
+      )
     })
 
     // Toggle off to restore observations
@@ -691,5 +696,64 @@ describe('SignalsPage', () => {
     expect(screen.getByTestId('selected-layer-indicator')).toBeInTheDocument()
     expect(screen.getByTestId('selected-layer-indicator')).toHaveTextContent('Endpoint/Host')
     expect(screen.getByTestId('feed-exclude-sentinel-toggle')).toHaveAttribute('aria-pressed', 'true')
+  })
+})
+
+// ── ObservationFeed: sentinel-noise toggle predicate ───────────────────────
+//
+// The "Filter Out Sentinel Events" toggle exists to hide the sentinel's own
+// HIGH-FREQUENCY housekeeping telemetry (the per-connection socket-trace flow
+// and its gap detector), not to hide detections. A broad "sentinel"/"stun"
+// substring match catches real endpoint_host findings too — source
+// "sentinel.ebpf.syscall_trace" (the live endpoint detection stream) and
+// "stun-sentinel" both contain "sentinel" — which must survive the toggle.
+describe('ObservationFeed sentinel-noise toggle predicate', () => {
+  const endpointDetection: SignalObservation = {
+    id: 'obs-detection-1',
+    timestamp: '2026-10-05T09:04:00Z',
+    layer: 'endpoint_host',
+    fidelity: 'strong',
+    source: 'sentinel.ebpf.syscall_trace',
+    confidence: 0.82,
+    actor_hint: 'actor-7f3a',
+    raw_evidence_ref: 'blob://evidence/obs-detection-1',
+    description: 'Process executed a disallowed binary',
+    labels: {},
+  }
+
+  const housekeepingEvent: SignalObservation = {
+    id: 'obs-housekeeping-1',
+    timestamp: '2026-10-05T09:05:00Z',
+    layer: 'network_egress',
+    fidelity: 'suggestive',
+    source: 'sentinel.ebpf.gap_detector',
+    confidence: 0.4,
+    raw_evidence_ref: 'blob://evidence/obs-housekeeping-1',
+    description: 'Telemetry gap detected in flow coverage',
+    labels: {},
+  }
+
+  it('keeps an endpoint_host syscall_trace detection visible and hides a gap_detector housekeeping event', async () => {
+    const user = userEvent.setup()
+    render(<ObservationFeed observations={[endpointDetection, housekeepingEvent]} />)
+
+    // Toggle off: both observations are shown.
+    expect(screen.getAllByTestId('observation-item')).toHaveLength(2)
+
+    const sentinelToggle = screen.getByTestId('feed-exclude-sentinel-toggle')
+    await user.click(sentinelToggle)
+
+    // Toggle on: the real endpoint detection survives, the housekeeping event
+    // does not. A predicate that hides nothing (returns false always) must
+    // fail the first assertion below; one that hides everything (the pre-fix
+    // broad substring match) must fail the second.
+    await waitFor(() => {
+      const items = screen.getAllByTestId('observation-item')
+      expect(items).toHaveLength(1)
+      expect(within(items[0]).getByTestId('observation-source')).toHaveTextContent(
+        'sentinel.ebpf.syscall_trace',
+      )
+    })
+    expect(screen.queryByText('Telemetry gap detected in flow coverage')).not.toBeInTheDocument()
   })
 })

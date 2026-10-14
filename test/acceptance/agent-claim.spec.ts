@@ -22,18 +22,22 @@ test.describe("Operator Dual-Agent Claim & Comparative Telemetry (SLON-P2-3)", (
     await page.goto(`${BASE}/agents`);
     await expect(page.locator("h1, h2").filter({ hasText: "Agents" }).first()).toBeVisible({ timeout: 10_000 });
 
-    // Verify security profile badges are present in the inventory table
+    // getAgentWorkloadSecurityProfile() (ClaimModal.tsx) always returns a
+    // label -- "Nono Sandboxed" or "Standard Container" -- so this badge is
+    // unconditionally mounted for every row. It is only *visually* hidden
+    // behind the row's hover/focus-triggered "Details" CompactDisclosure
+    // (CompactOperationalTable.tsx renders it inside `<span hidden>` until
+    // opened), so presence (attached), not visibility, is the correct check:
+    // asserting toBeVisible() here would depend on simulating that hover
+    // timing, and silently skipping on isVisible()===false defeated the
+    // assertion entirely.
     const nonoBadge = page.locator('text=Nono Sandboxed').first();
     const standardBadge = page.locator('text=Standard Container').first();
 
     // Either discovered/linked rows or live cluster agents
     await expect(page.locator("table, .sl-filter-table-row").first()).toBeVisible();
-    if (await nonoBadge.isVisible()) {
-      await expect(nonoBadge).toBeVisible();
-    }
-    if (await standardBadge.isVisible()) {
-      await expect(standardBadge).toBeVisible();
-    }
+    await expect(nonoBadge).toBeAttached();
+    await expect(standardBadge).toBeAttached();
   });
 
   test("inspects comparative telemetry for Nono Sandboxed agent", async ({ page }) => {
@@ -41,12 +45,13 @@ test.describe("Operator Dual-Agent Claim & Comparative Telemetry (SLON-P2-3)", (
     await page.goto(`${BASE}/agents/agent-nono-evidenced?tab=activity`);
     await expect(page.locator('[data-testid="dossier-panel-activity"], [role="tabpanel"]').first()).toBeVisible({ timeout: 10_000 });
 
-    // Verify comparative telemetry banner or Nono audit verification indicators
+    // The comparative telemetry banner (AgentActivityTab.tsx) is rendered
+    // unconditionally as soon as the activity panel renders -- there is no
+    // gate around it -- so its absence is a real regression, not an
+    // optional state.
     const nonoBanner = page.locator('[data-testid="security-profile-telemetry-banner"], [data-testid="nono-verification-badge"]').first();
-    if (await nonoBanner.isVisible()) {
-      await expect(nonoBanner).toBeVisible();
-      await expect(page.locator('[data-testid="nono-verification-badge"]').or(page.locator(':text("Nono Sandboxed")')).first()).toBeVisible();
-    }
+    await expect(nonoBanner).toBeVisible();
+    await expect(page.locator('[data-testid="nono-verification-badge"]').or(page.locator(':text("Nono Sandboxed")')).first()).toBeVisible();
   });
 
   test("inspects comparative telemetry for Standard Container baseline agent", async ({ page }) => {
@@ -54,11 +59,9 @@ test.describe("Operator Dual-Agent Claim & Comparative Telemetry (SLON-P2-3)", (
     await page.goto(`${BASE}/agents/agent-standard-baseline?tab=activity`);
     await expect(page.locator('[data-testid="dossier-panel-activity"], [role="tabpanel"]').first()).toBeVisible({ timeout: 10_000 });
 
-    // Verify comparative telemetry banner or stun-sentinel flow stream indicators
+    // Same unconditional-render reasoning as the Nono case above.
     const standardBanner = page.locator('[data-testid="security-profile-telemetry-banner"], [data-testid="sentinel-flow-badge"]').first();
-    if (await standardBanner.isVisible()) {
-      await expect(standardBanner).toBeVisible();
-      await expect(page.locator('[data-testid="sentinel-flow-badge"]').or(page.locator(':text("Standard Container")')).first()).toBeVisible();
-    }
+    await expect(standardBanner).toBeVisible();
+    await expect(page.locator('[data-testid="sentinel-flow-badge"]').or(page.locator(':text("Standard Container")')).first()).toBeVisible();
   });
 });

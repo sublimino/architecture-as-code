@@ -67,7 +67,8 @@ satisfies:
     evidence: agent/
     note: >-
       Analysis and remediation each execute under `witness run` (steps agent-analysis and
-      agent-remediation), signed and uploaded to Archivista.
+      agent-remediation), signed and retained as local or CI artifacts. This custody model has no
+      independent transparency log or external timestamp.
 
   - control: AGT-007
     met: false

@@ -131,12 +131,12 @@ controls:
     scenario: SCN-SUPPLY-TAMPER
     action: deny
     rationale: >-
-      Analysis and remediation each execute under `witness run`, signed and uploaded to Archivista.
+      Analysis and remediation each execute under `witness run`, signed and retained as CI artifacts.
       Without this there is no provable answer to "which actor changed what, when, from which
       evidence" — the question that makes an AI-enabled business auditable at all.
     evidence:
       artifact: agent/
-      assertion: steps `agent-analysis` and `agent-remediation` run under witness, uploaded to Archivista
+      assertion: steps `agent-analysis` and `agent-remediation` run under witness; CI retains each DSSE envelope
     lef_audit:    { min: 0.30, mode: 1.00, max: 3.00 }
     lef_enforced: { min: 0.02, mode: 0.08, max: 0.30 }
     annual_cost: 6000

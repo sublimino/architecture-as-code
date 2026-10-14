@@ -229,10 +229,10 @@
         "Title": "Every agent step is Witness-attested",
         "Scenario": "SCN-SUPPLY-TAMPER",
         "Action": "deny",
-        "Rationale": "Analysis and remediation each execute under `witness run`, signed and uploaded to Archivista. Without this there is no provable answer to \"which actor changed what, when, from which evidence\" — the question that makes an AI-enabled business auditable at all.",
+        "Rationale": "Analysis and remediation each execute under `witness run`, signed and retained as CI artifacts. Without this there is no provable answer to \"which actor changed what, when, from which evidence\" — the question that makes an AI-enabled business auditable at all.",
         "Evidence": {
           "Artifact": "agent/",
-          "Assertion": "steps `agent-analysis` and `agent-remediation` run under witness, uploaded to Archivista"
+          "Assertion": "steps `agent-analysis` and `agent-remediation` run under witness; CI retains each DSSE envelope"
         },
         "CEL": "",
         "LEFAudit": {

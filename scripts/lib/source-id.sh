@@ -92,6 +92,7 @@ source_id_context() {
 	dashboard-signalloom) printf 'd2-signalloom/apps/dashboard-signalloom' ;;
 	docs-signalloom) printf 'd2-signalloom/apps/docs-signalloom' ;;
 	fe-signalloom) printf 'd2-signalloom/apps/fe-signalloom' ;;
+	fleet-manager) printf 'd2-signalloom/apps' ;;
 	policy-engine) printf 'd2-signalloom' ;;
 	signal-ingest) printf 'd2-signalloom/apps/signal-ingest' ;;
 	supercred-demo-runner) printf '.' ;;
@@ -409,7 +410,7 @@ source_id_for() {
 		local paths=()
 		while IFS= read -r p; do
 			[ -n "$p" ] || continue
-			[ -e "${root}/${p}" ] || {
+			[ -e "${root}/${context}/${p}" ] || [ -e "${root}/${p}" ] || {
 				# A COPY naming a path that does not exist means the image cannot
 				# build at all. Say so here rather than emitting a fingerprint over
 				# a partial set, which would compare equal to nothing and read as

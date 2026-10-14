@@ -3550,7 +3550,7 @@ scan-secrets: ## Scan the committed tree for secrets. Fails on any finding.
 	@echo "==> trufflehog: committed tree at HEAD"
 	@git archive HEAD | tar -x -C "$(SCAN_TMP)"
 	@cd "$(SCAN_TMP)" && trufflehog filesystem --no-update --fail \
-		--exclude-detectors=Lob \
+		--exclude-detectors=Lob,MaxMindLicense \
 		--exclude-paths="$(TRUFFLEHOG_EXCLUDE)" . ; \
 	  rc=$$?; rm -rf "$(SCAN_TMP)"; \
 	  if [ $$rc -ne 0 ]; then \
@@ -3565,7 +3565,7 @@ scan-secrets: ## Scan the committed tree for secrets. Fails on any finding.
 
 scan-secrets-worktree: ## Scan the working tree too, including untracked files. Advisory, does not gate.
 	@git archive HEAD >/dev/null 2>&1 || true
-	@trufflehog filesystem --no-update --exclude-detectors=Lob \
+	@trufflehog filesystem --no-update --exclude-detectors=Lob,MaxMindLicense \
 		--exclude-paths="$(TRUFFLEHOG_EXCLUDE)" . || true
 
 scan-sast: ## Static analysis. Fails only on NEW ERROR-severity findings above the declared baseline.

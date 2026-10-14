@@ -12,10 +12,15 @@
 # container images, lane-reports-2*/ archives, __pycache__/*.pyc and AI session caches
 # — none of which are tracked, and all of which are already gitignored.
 #
-# Detector note: the Lob detector must be excluded via --exclude-detectors, not here.
-# It matches any `test_`-prefixed alphanumeric run, so it fires on every Python test
-# function name in the repo (`test_cgroup_bridge_resolves_this_process` and 74 more).
-# Excluding by path would also hide real findings in those same test files.
+# Detector note: the Lob and MaxMindLicense detectors must be excluded via
+# --exclude-detectors, not here.
+# - Lob matches any `test_`-prefixed alphanumeric run, so it fires on every Python test
+#   function name in the repo (`test_cgroup_bridge_resolves_this_process` and 74 more).
+# - MaxMindLicense matches any 16-hex hash adjacent to 'geoip', which fires on standard
+#   SPDX IDs and file references in Syft-generated SBOMs for open-source GeoIP packages
+#   (e.g. SPDXRef-Package-apk-geoip-51986b5c9c505ae0, SPDXRef-Package-apk-nginx-module-geoip-d90ec97f6a4f3f93).
+#   The repository does not use MaxMind commercial licenses.
+# Excluding by path would also hide real findings in those same files.
 
 # ── Local development stack credentials ──────────────────────────────────────
 # A self-consistent dev fixture set: components/backend/base/postgres.yaml SETS the
@@ -42,12 +47,16 @@ olly-replica/apps/sentinel/tests/.*\.py$
 d2-signalloom/apps/signal-ingest/identity/.*_test\.go$
 olly-replica/components/configs/base/seed/injection-corpus\.ndjson$
 
-# ── Evidence documents ──────────────────────────────────────────────────────
+# ── Evidence documents and compliance records ────────────────────────────────
 # Card proofs quote command output verbatim, including connection strings from the
 # fixtures above. The quoting is the evidence; redacting it would break the audit
-# trail these documents exist to provide.
+# trail these documents exist to provide. Machine-generated SPDX SBOMs under
+# docs/records/ contain package verification codes and element hashes.
 docs/signalloom/.*-proof\.md$
 docs/signalloom/.*-evidence\.md$
+docs/records/.*-proof\.md$
+docs/records/.*-evidence\.md$
+docs/records/.*\.sbom\.spdx\.json$
 
 # ── NOT excluded, deliberately ──────────────────────────────────────────────
 # .kind/ was removed from tracking and gitignored rather than excluded here. It is

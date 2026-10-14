@@ -157,7 +157,7 @@ else
 					cd "$tree" || exit 2
 					run_isolated "$secret_out" "$raw_dir/trufflehog.err" \
 						"$trufflehog" filesystem --no-update --no-verification --json --fail \
-						--exclude-detectors=Lob --exclude-paths="$repo_root/.trufflehog-exclude-paths" .
+						--exclude-detectors=Lob,MaxMindLicense --exclude-paths="$repo_root/.trufflehog-exclude-paths" .
 				)
 				rc=$?
 				captured_bytes="$(stat -c %s "$secret_out" 2>/dev/null || printf 0)"

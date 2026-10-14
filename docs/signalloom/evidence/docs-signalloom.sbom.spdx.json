@@ -3,7 +3,7 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "sbom",
-  "documentNamespace": "https://anchore.com/syft/dir/sbom-6f700bc3-e5b9-409e-bf83-c04d4db638d3",
+  "documentNamespace": "https://anchore.com/syft/dir/sbom-5ea90ee5-90ba-4ed6-8f47-5319f078dc9d",
   "creationInfo": {
     "licenseListVersion": "3.28",
     "creators": [
@@ -11,7 +11,7 @@
       "Tool: syft-v1.51.0",
       "Tool: buildkit-v0.32.2"
     ],
-    "created": "2026-10-11T16:17:07Z"
+    "created": "2026-10-14T10:21:58Z"
   },
   "packages": [
     {
@@ -4956,7 +4956,7 @@
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "88336cc78cf369c7c782ac2ec4c303b344f5653b1753606d94260cf49ab56f03"
+          "checksumValue": "8b87e388fab4130114a21daa218f8f1f6fae05c5e8860f6f3893e08ae4640fe1"
         }
       ],
       "licenseConcluded": "NOASSERTION",
@@ -4964,7 +4964,7 @@
         "NOASSERTION"
       ],
       "copyrightText": "NOASSERTION",
-      "comment": "layerID: sha256:ef328a65914cb65e8391121c43fa145b6bebd56ee1705fba3ab9b3a524d732bd"
+      "comment": "layerID: sha256:d379a10a92184b8ae55ad4ea491c6c519f9ce0e1847ad08acd1d2b1af833b40f"
     },
     {
       "fileName": "etc/nginx/nginx.conf.default",
@@ -5364,7 +5364,7 @@
         "NOASSERTION"
       ],
       "copyrightText": "NOASSERTION",
-      "comment": "layerID: sha256:87b38d6747607884bf36b5c26054844eab203f95ae08e5c26f6886bb267988ea"
+      "comment": "layerID: sha256:cfe12813e6da5abf91258c9631334585dff15afc4dbca4e52c2729313442791c"
     },
     {
       "fileName": "usr/bin/cat",
@@ -5384,7 +5384,7 @@
         "NOASSERTION"
       ],
       "copyrightText": "NOASSERTION",
-      "comment": "layerID: sha256:852f191719c2a86584d0ffbe9a4c5ff38c0a6f7aaeb66b1cc2acf84a3592d440"
+      "comment": "layerID: sha256:889791115ab885f2dd4c467c82ba8dc42328da2b7cfae728d369e416a474326f"
     },
     {
       "fileName": "usr/bin/ldconfig",
@@ -5444,7 +5444,7 @@
         "NOASSERTION"
       ],
       "copyrightText": "NOASSERTION",
-      "comment": "layerID: sha256:594f52bd810f131ed5ad41df8f13683c1c1686e779050c3ae4e691ae83a08815"
+      "comment": "layerID: sha256:51519f7b6053e73b78353f4e50fa01f8ddaeabc936efbb459ce54c296a2d4f0c"
     },
     {
       "fileName": "usr/lib/apk/db/installed",

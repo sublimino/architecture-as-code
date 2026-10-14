@@ -127,7 +127,7 @@ Technology Readiness Level Focus: **3 (Beta)** transitioning to **4 (Production)
 
 | Asset | Location | Notes |
 | :---- | :---- | :---- |
-| Signal Loom Monorepo | `github.com/controlplaneio-in-toto/osramp-demo` | Active work on `feat/signal-loop-and-bootstrap-refactor` |
+| Signal Loom Monorepo | `github.com/controlplaneio-in-toto/sl-platform` | Active work on `feat/signal-loop-and-bootstrap-refactor` |
 | Dashboard SPA | `d2-signalloom/apps/dashboard-signalloom` | Primary UI target for navigation reconciliation |
 | Integration Branch | `integration/slon-v0.1.0` | Source of `SLON-P1-2` onboarding navigation work |
 

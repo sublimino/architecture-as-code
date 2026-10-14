@@ -39,10 +39,10 @@ aliases:
 
 > **Product & company name: Signal Loom.** Both the platform and the company building it are called
 > **Signal Loom**; **AJM is CTO and technical owner of the build**. Signal Loom is a ControlPlane
-> venture — ControlPlane is the incubating origin and supplies the OSRAMP supply-chain, GitOps, and
+> venture — ControlPlane is the incubating origin and supplies the supply-chain, GitOps, and
 > signed-attestation spine the platform is built on. The system unifies four capabilities that already
-> exist in the `osramp-demo` estate — **Signal Loom** (agent governance), **Olly/Sentinel** (agentic
-> runtime security + identity), **Eye-in-the-Sky** (estate observability), and **OSRAMP** (software/
+> exist in the `sl-platform` estate — **Signal Loom** (agent governance), **Olly/Sentinel** (agentic
+> runtime security + identity), **Eye-in-the-Sky** (estate observability), and **Software Supply Chain** (software/
 > model supply chain) — into a single control plane for the AI-agent lifecycle. Assumptions are flagged
 > inline as **[ASSUMPTION]**.
 
@@ -68,7 +68,7 @@ off at the service mesh, and blocking readmission at admission control — while
 cryptographically-attested forensic trail of exactly who authorized what.
 
 It is not a wrapper. It is built on the supply-chain integrity, GitOps, and signed-attestation
-machinery ControlPlane already ships in OSRAMP, extended into the agent domain. This is the product
+machinery ControlPlane already ships, extended into the agent domain. This is the product
 expression of ControlPlane's thesis: **Regulatory Immunity + Feature Velocity** — the security
 platform that lets a bank deploy agents *faster* because governance, evidence, and the kill switch
 are built in, not bolted on.
@@ -102,7 +102,7 @@ ARC client, with the platform generalised from that engagement.
 regulatory deadlines (EU AI Act GPAI obligations, DORA). Subcomponents already in flight in this repo:
 the Signal Loom Cryptography (PQC/SPIFFE), Collusion & Access (KubeSec-AFM, KTP with King's College
 London), and Federated Services (Cofide/SPIFFE) pages; the Olly A2A/identity-chain runtime; and the
-OSRAMP supply-chain spine.
+supply-chain spine.
 
 ## Scope Summary
 
@@ -119,7 +119,7 @@ as nice-to-haves and enhancement proposals.
 | :---- | :---- | :---- | :---- |
 | Agent discovery + inventory (MVP spine) | Discover agents across k8s API, Flux, and Argo, plus one cloud runtime (Azure AI Foundry **[ASSUMPTION]**), and populate the Signal Loom Agent Registry with identity + A2A card. | Specific: enumerate agents from ≥3 k8s-native sources + 1 cloud API into one inventory.<br/>Measurable: ≥95% of seeded agents discovered with identity + card; false-negative list produced.<br/>Attainable: extends the existing Agent Registry + NHI discovery.<br/>Realistic: read-only APIs, no agent runtime changes.<br/>Time-Bound: MVP milestone M2. | Contract tests + a seeded-estate discovery run with a known agent set. |
 | Agentic killswitch + quarantine | Five composable response modes driven from the UI and API — **stun** (cgroup freeze), **eBPF network killswitch** (kernel L3–L7 deny, TTL-independent), **credential revocation** (SPIFFE SVID + x509 + all OpenBao-issued creds), **forensic mode** (mesh-sandboxed with mocked dependencies), and **kill/decommission** (compose + admission block). | Specific: invoke any of the five modes on an agent from the UI and API.<br/>Measurable: post-action, the agent cannot make MCP/A2A/tool calls (proven denied) within a bounded SLA (**[ASSUMPTION]** ≤30 s); eBPF network denial is sub-second and holds even while the agent's token/SVID is still within TTL.<br/>Attainable: composes lifecycle-suspend + SPIFFE/OpenBao revocation + eBPF/Cilium deny + cgroup freezer + mesh AuthorizationPolicy + kyverno.<br/>Realistic: mesh + admission + eBPF data plane already in-estate.<br/>Time-Bound: MVP milestone M4. | Red-team validation: attempt agent action pre/post each mode; assert denial (per-plane) + attested evidence. |
-| Attested forensic trail | Every governance/kill/authorization event is bound to an `authz_ctx_id` and a signed attestation, answerable as a single audit query. | Specific: "who authorized this action?" returns identity + policy + evidence in one lookup.<br/>Measurable: 100% of privileged actions carry an attested, tamper-evident record.<br/>Attainable: extends Jarvis (OTel→Splunk) + Witness/Archivista.<br/>Realistic: attestation spine exists in OSRAMP.<br/>Time-Bound: MVP milestone M5. | Tamper test (mutate a record → detected) + single-query audit demo. |
+| Attested forensic trail | Every governance/kill/authorization event is bound to an `authz_ctx_id` and a signed attestation, answerable as a single audit query. | Specific: "who authorized this action?" returns identity + policy + evidence in one lookup.<br/>Measurable: 100% of privileged actions carry an attested, tamper-evident record.<br/>Attainable: extends Jarvis (OTel→Splunk) + Witness/Archivista.<br/>Realistic: attestation spine exists in the platform.<br/>Time-Bound: MVP milestone M5. | Tamper test (mutate a record → detected) + single-query audit demo. |
 | Governance + compliance mapping | Agent lifecycle + risk classification mapped to EU AI Act, NIST AI RMF, OWASP LLM Top 10, MITRE ATLAS, with exportable evidence. | Specific: each agent carries a risk class + control mapping + exportable evidence pack.<br/>Measurable: evidence export passes a mock regulator checklist.<br/>Attainable: extends Signal Loom compliance/frameworks.<br/>Realistic: frameworks modelled.<br/>Time-Bound: MVP milestone M3. | GRC review against a framework checklist; export contract test. |
 
 ### Out of Scope
@@ -167,7 +167,7 @@ as nice-to-haves and enhancement proposals.
 | eBPF / Cilium (kernel network enforcement) | Node-level L3–L7 network killswitch: TTL-independent packet deny, cuts in-flight connections | New enforcement surface (k8s data plane) |
 | cgroup-v2 freezer / `SIGSTOP` | Reversible **stun** — halt agent process/pod in place, preserve memory for live forensics | Node/runtime primitive |
 | Service mesh (Istio/Linkerd/Cilium) **[ASSUMPTION]** | Quarantine/isolation enforcement point (mTLS AuthorizationPolicy); forensic-mode deception namespace | New integration surface |
-| Witness + Archivista + cosign + SLSA | Attestation, system-of-record, signing, provenance for agent/model artifacts | Core OSRAMP |
+| Witness + Archivista + cosign + SLSA | Attestation, system-of-record, signing, provenance for agent/model artifacts | Core platform |
 | LLM Guard (Lakera-adjacent) | Prompt-injection/PII/jailbreak defence, data/instruction separation | Exists in Olly `llm-guard`; Checkpoint/Lakera partnership |
 | OTel → Splunk (Jarvis) + Grafana | Audit, telemetry, Eye-in-the-Sky estate observability | Exists |
 | React/Vite dashboard (Signal Loom) + FastAPI + Dex OIDC | Operator UI + API + auth | Exists (this repo) |
@@ -177,7 +177,7 @@ as nice-to-haves and enhancement proposals.
 
 | Asset | Location | Notes |
 | :---- | :---- | :---- |
-| Monorepo estate | `osramp-demo` (github.com/controlplaneio-in-toto/osramp-demo) | Signal Loom, Olly, OSRAMP, infra |
+| Monorepo estate | `sl-platform` (github.com/controlplaneio-in-toto/sl-platform) | Signal Loom, Olly, and infra |
 | Feature branch | `feat/signal-loop-and-bootstrap-refactor` | The migrated UI + Dex login + bootstrap work this builds on |
 | In-cluster registry | Zot (signed OCI, SLSA/cosign) | Local trust root; CI path is keyless-OIDC |
 | Agent runtime abstraction | `olly-replica` ("ARC" model) | Google ADK agents, A2A cards, identity chain |
@@ -209,7 +209,7 @@ as nice-to-haves and enhancement proposals.
 | Opportunities | Threats |
 | :---- | :---- |
 | First-mover on an "agent security control plane" category | Hyperscalers/CNAPP vendors bundle agent security into existing suites |
-| Land via ARC client, expand to Tier-1 banks; OSRAMP/FINOS pull-through | Standards churn (A2A/MCP) forces rework |
+| Land via ARC client, expand to Tier-1 banks; FINOS pull-through | Standards churn (A2A/MCP) forces rework |
 | Partnerships (Lakera, Google, Cofide, King's College) de-risk depth | "Killswitch that fails" is a reputational single point of failure |
 
 ## Feature Architecture — 20 Capability Areas
@@ -306,7 +306,7 @@ Areas 1–5 form the MVP spine (discover → identify → govern → guard → k
    migration posture; emit a **crypto-BOM**. *Controls:* algorithm inventory, agility scoring,
    deprecation flags. *Standards:* NIST PQC (Kyber/Dilithium), CNSA 2.0, crypto-BOM (CycloneDX).
 
-9. **Agent Forensics & Incident Response** — *Olly + OSRAMP.* Reconstruct an agent incident from the
+9. **Agent Forensics & Incident Response** — *Olly + supply chain.* Reconstruct an agent incident from the
    `authz_ctx_id`-anchored trail, RCA enrichment, and Witness/Archivista attestations; replay the event
    sequence. *Controls:* tamper-evident evidence, chain-of-custody, single-query "who authorized",
    attested exports. *Standards:* NIST SP 800-86, MITRE ATLAS.
@@ -316,7 +316,7 @@ Areas 1–5 form the MVP spine (discover → identify → govern → guard → k
     what entered the window. *Controls:* source provenance, poisoning eval, retention/erasure policy,
     PII minimisation. *Standards:* OWASP LLM04/LLM08, GDPR minimisation.
 
-11. **Supply Chain Security for Agents & Models** — *OSRAMP.* SBOM + **model-BOM** for every agent
+11. **Supply Chain Security for Agents & Models** — *Supply chain.* SBOM + **model-BOM** for every agent
     image, model, prompt-pack, and MCP server; SLSA L3 provenance; cosign signatures; VEX triage;
     policy-gated promotion. *Controls:* signed artifacts, admission verify, provenance gates.
     *Standards:* SLSA, in-toto/Witness, CycloneDX ML-BOM, SSDF.
@@ -418,7 +418,7 @@ Areas 1–5 form the MVP spine (discover → identify → govern → guard → k
 | 2026-07-28 | AJM | MVP spine = discover→identify→govern→guard→kill (areas 1–5) rather than breadth-first across 20 | Prove the killswitch + attestation value before widening | Focuses M1–M6; areas 6–20 sequenced as enhancements |
 | 2026-07-28 | AJM | Build on existing four pillars; do not greenfield | Speed + credibility + reuse of signed-attestation spine | Lower risk, faster Beta |
 | 2026-07-28 | AJM (CTO, Signal Loom) | Killswitch is **five composable, individually-provable enforcement modes**: stun (cgroup freeze), eBPF network kill, credential revocation (SVID+x509+OpenBao), forensic-mode deception sandbox, kill/decommission — governed by a per-plane denial matrix | Kernel-level eBPF deny is independent of token/SVID TTL and closes appendix finding #4's residual; forensic mode adds analysis without blast radius; cloud runtimes covered by credential-revocation + provider quarantine API | Strengthens area 4 from cooperative discipline to enforced control; directly answers the weakest-claim critique |
-| 2026-07-28 | AJM | Product **and** company are both Signal Loom; AJM is CTO/technical owner; ControlPlane is the incubating origin and supplies the OSRAMP/GitOps/attestation spine | Reflects the venture framing | Intro, press release, RACI updated; ControlPlane heritage retained |
+| 2026-07-28 | AJM | Product **and** company are both Signal Loom; AJM is CTO/technical owner; ControlPlane is the incubating origin and supplies the GitOps and attestation spine | Reflects the venture framing | Intro, press release, RACI updated; ControlPlane heritage retained |
 
 ## Appendix
 
@@ -429,7 +429,7 @@ Areas 1–5 form the MVP spine (discover → identify → govern → guard → k
 * `docs/signalloom/demo-to-hosted-threat-model.md` — Signal Loom threat model + promotion gates.
 * `olly-replica/agentic-sre-design-doc.md` — Olly/ARC model, A2A, MCP, identity chain, Eye-in-the-Sky.
 * `olly-replica/contracts/agent-card.*.v1.json` — A2A agent card contracts.
-* `README.md` — OSRAMP supply-chain spine (SBOM/VEX/Witness/Archivista/SLSA).
+* `README.md` — Supply-chain spine (SBOM/VEX/Witness/Archivista/SLSA).
 
 ### B. Adversarial Critique & Open-Question Appendices
 

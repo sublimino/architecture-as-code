@@ -1,12 +1,12 @@
-# OSRAMP & Signal Loom — AWS & Amazon EKS Architecture Specification
+# Signal Loom — AWS & Amazon EKS Architecture Specification
 
-This document defines the AWS architecture for OSRAMP and Signal Loom. It deploys the platform on Amazon Elastic Kubernetes Service (Amazon EKS).
+This document defines the AWS architecture for Signal Loom. It deploys the platform on Amazon Elastic Kubernetes Service (Amazon EKS).
 
 ---
 
 ## 1. Executive Architecture Overview & Design Principles
 
-The AWS deployment architecture realizes a secure, multi-tenant deployment of OSRAMP and Signal Loom. It satisfies high-assurance regulatory requirements while maintaining cloud cost efficiency and operational agility.
+The AWS deployment architecture realizes a secure, multi-tenant deployment of Signal Loom. It satisfies high-assurance regulatory requirements while maintaining cloud cost efficiency and operational agility.
 
 The diagram shows the five core architecture tiers of the platform.
 
@@ -14,7 +14,7 @@ The diagram shows the five core architecture tiers of the platform.
 flowchart LR
   PERIMETER["1. AWS Perimeter & Edge<br/>(Route 53, WAF v2, ALB/NLB)"]
   GATEWAY["2. Envoy Gateway Data Plane<br/>(Gateway API Routing & TLS)"]
-  SERVICES["3. Core Platform Services<br/>(Signal Loom, OSRAMP, AFM, Agents)"]
+  SERVICES["3. Core Platform Services<br/>(Signal Loom, AFM, Agents)"]
   STORAGE["4. Storage & Persistence<br/>(EBS gp3, S3 Standard, S3 Glacier)"]
   SECURITY["5. Identity & Security Mesh<br/>(IRSA, SPIRE mTLS, OpenBao, Landlock)"]
 
@@ -151,8 +151,8 @@ flowchart TB
   - Dynamic IOPS (3,000 - 16,000) and throughput (125 - 1,000 MB/s) configured independent of storage size.
   - Backs OpenBao Raft consensus logs (`/vault/data`), FrostDB active WAL (`/data/frostdb`), Prometheus TSDB (`/prometheus`), and PostgreSQL data volumes.
 - **Active Object Storage Tier (Amazon S3 Standard)**:
-  - Primary bucket: `s3://osramp-evidence-platform-<account>-<region>/`.
-  - Stores active FrostDB Parquet segment spills, OSRAMP immutable evidence batches, Cosign signatures, and Witness attestations.
+  - Primary bucket: `s3://signalloom-evidence-platform-<account>-<region>/`.
+  - Stores active FrostDB Parquet segment spills, Signal Loom immutable evidence batches, Cosign signatures, and Witness attestations.
   - Configured with Server-Side Encryption (`aws:kms`), bucket versioning, and default encryption.
 - **Compliance Cold Archive Tier (Amazon S3 Glacier)**:
   - S3 Lifecycle policies transition Parquet segments and evidence records:
@@ -298,7 +298,7 @@ flowchart TD
     NS3["flux-system<br/>(Flux Operator, Source/Kustomize Controllers, Cosign Verifier)"]
     NS4["inf-bao<br/>(OpenBao HA Raft, AWS KMS Auto-Unseal, SPIRE Server & Agents)"]
     NS5["fe-signalloom<br/>(Dashboard SPA, FastAPI Backend, Dex OIDC, Fleet Mgr, signal-ingest, FrostDB)"]
-    NS6["d2-osramp-apps<br/>(OSRAMP Listener, Processor, Archiver with S3 Spill)"]
+    NS6["fe-signalloom-ingest<br/>(Ingestion Listener, Processor, Archiver with S3 Spill)"]
     NS7["agent-trust-platform & kagent<br/>(Kagent CNCF D5 Agents, CPAI Proxy, Olly SRE, Landlock/eBPF)"]
     NS8["kubesec-afm<br/>(KubeSec-AFM Formal RBAC Analysis & Z3 SMT Solver)"]
     NS9["monitoring<br/>(Prometheus Operator, Alertmanager, Grafana, AMP Remote Write)"]
@@ -330,10 +330,10 @@ flowchart TD
    - **Fleet Manager**: Multi-cluster governance coordinator.
    - **`signal-ingest`**: Ingestion engine hosting multi-account `awslogs` collector workers.
    - **FrostDB**: Columnar dynamic-schema Parquet storage engine with in-memory write buffer, EBS `gp3` WAL, and asynchronous S3 Standard segment spilling.
-6. `d2-osramp-apps`:
-   - **OSRAMP Listener**: High-throughput HTTP webhook and API receiver.
-   - **OSRAMP Processor**: Event normalization, validation, and enrichment pipeline.
-   - **OSRAMP Archiver**: Cryptographic batching, signing, and spilling of immutable audit evidence to Amazon S3 Standard and Glacier.
+6. `fe-signalloom-ingest`:
+   - **Ingestion Listener**: High-throughput HTTP webhook and API receiver.
+   - **Ingestion Processor**: Event normalization, validation, and enrichment pipeline.
+   - **Evidence Archiver**: Cryptographic batching, signing, and spilling of immutable audit evidence to Amazon S3 Standard and Glacier.
 7. `agent-trust-platform` & `kagent`:
    - **Kagent**: CNCF D5 milestone declarative AI agent framework and Custom Resource Definitions (CRDs).
    - **CPAI Runtime Proxy**: Secure OpenAI-compatible translation proxy connecting agent pods to external LLMs (AWS Bedrock, Vertex AI, Anthropic).
@@ -366,11 +366,11 @@ flowchart TD
 
 | Workload Component | Kubernetes Namespace | SPIFFE ID Format | Auth Mechanism | Downstream Services |
 | :--- | :--- | :--- | :--- | :--- |
-| `signal-ingest` | `fe-signalloom` | `spiffe://osramp.controlplane.io/ns/fe-signalloom/sa/signal-ingest` | X.509 SVID (mTLS) | FrostDB, OpenBao |
-| `fastapi-backend` | `fe-signalloom` | `spiffe://osramp.controlplane.io/ns/fe-signalloom/sa/backend-sa` | X.509 SVID (mTLS) | FrostDB, AFM Platform, OpenBao |
-| `afm-platform` | `kubesec-afm` | `spiffe://osramp.controlplane.io/ns/kubesec-afm/sa/afm-sa` | X.509 SVID (mTLS) | FastAPI Backend |
-| `kagent` Agents | `kagent` | `spiffe://osramp.controlplane.io/ns/kagent/sa/agent-worker` | X.509 SVID (mTLS) | CPAI Proxy, FastAPI Backend |
-| `osramp-proc` | `d2-osramp-apps` | `spiffe://osramp.controlplane.io/ns/d2-osramp-apps/sa/processor-sa` | X.509 SVID (mTLS) | OSRAMP Archiver, OpenBao |
+| `signal-ingest` | `fe-signalloom` | `spiffe://signalloom.controlplane.io/ns/fe-signalloom/sa/signal-ingest` | X.509 SVID (mTLS) | FrostDB, OpenBao |
+| `fastapi-backend` | `fe-signalloom` | `spiffe://signalloom.controlplane.io/ns/fe-signalloom/sa/backend-sa` | X.509 SVID (mTLS) | FrostDB, AFM Platform, OpenBao |
+| `afm-platform` | `kubesec-afm` | `spiffe://signalloom.controlplane.io/ns/kubesec-afm/sa/afm-sa` | X.509 SVID (mTLS) | FastAPI Backend |
+| `kagent` Agents | `kagent` | `spiffe://signalloom.controlplane.io/ns/kagent/sa/agent-worker` | X.509 SVID (mTLS) | CPAI Proxy, FastAPI Backend |
+| `ingest-proc` | `fe-signalloom-ingest` | `spiffe://signalloom.controlplane.io/ns/fe-signalloom-ingest/sa/processor-sa` | X.509 SVID (mTLS) | Evidence Archiver, OpenBao |
 
 ---
 
@@ -427,7 +427,7 @@ flowchart TB
     EBS_FROST["EBS gp3 PVC<br/>(FrostDB WAL & Cache)"]
     EBS_PROM["EBS gp3 PVC<br/>(Prometheus TSDB)"]
 
-    S3_ACTIVE["Amazon S3 Standard (Platform Bucket)<br/>- Active FrostDB Parquet Segments<br/>- OSRAMP Evidence & Attestations<br/>- Cosign Supply Chain Signatures"]
+    S3_ACTIVE["Amazon S3 Standard (Platform Bucket)<br/>- Active FrostDB Parquet Segments<br/>- Evidence & Attestations<br/>- Cosign Supply Chain Signatures"]
     S3_COLD["Amazon S3 Glacier (Flexible / Deep Archive)<br/>- S3 Lifecycle Rule (90d / 365d Transition)<br/>- Object Lock WORM (Regulatory Compliance)"]
 
     EBS_CSI --> EBS_BAO
@@ -443,7 +443,7 @@ flowchart TB
     ROLE_COLLECTOR["IAM Role: SignalLoomCollectorRole<br/>Trust: awslogs-collector-sa<br/>Perm: sts:AssumeRole on Customer Roles"]
     ROLE_UNSEAL["IAM Role: OpenBaoKmsRole<br/>Trust: openbao-sa<br/>Perm: kms:Encrypt, kms:Decrypt on CMK"]
     ROLE_FLUX["IAM Role: FluxEcrKmsRole<br/>Trust: flux-sa<br/>Perm: ecr:Get*, kms:Decrypt"]
-    ROLE_ARCH["IAM Role: OsrampS3Role<br/>Trust: osramp-archiver-sa<br/>Perm: s3:PutObject on Platform S3"]
+    ROLE_ARCH["IAM Role: SignalLoomArchiverRole<br/>Trust: archiver-sa<br/>Perm: s3:PutObject on Platform S3"]
 
     IRSA_OIDC --> ROLE_COLLECTOR
     IRSA_OIDC --> ROLE_UNSEAL
@@ -495,13 +495,13 @@ flowchart TB
       SIG_INGEST -->|"Evaluates CEL & Appends"| FROSTDB
     end
 
-    subgraph NS_OSRAMP ["Namespace: d2-osramp-apps"]
-      OS_LISTENER["OSRAMP Listener<br/>(High-Throughput Ingestion)"]
-      OS_PROC["OSRAMP Processor<br/>(Validation & Transformation)"]
-      OS_ARCH["OSRAMP Archiver<br/>(Batching & Attestation)"]
+    subgraph NS_INGEST ["Namespace: fe-signalloom-ingest"]
+      INGEST_LISTENER["Ingestion Listener<br/>(High-Throughput Ingestion)"]
+      INGEST_PROC["Ingestion Processor<br/>(Validation & Transformation)"]
+      INGEST_ARCH["Evidence Archiver<br/>(Batching & Attestation)"]
 
-      OS_LISTENER -->|"Raw Events"| OS_PROC
-      OS_PROC -->|"Validated Batches"| OS_ARCH
+      INGEST_LISTENER -->|"Raw Events"| INGEST_PROC
+      INGEST_PROC -->|"Validated Batches"| INGEST_ARCH
     end
 
     subgraph NS_AGENT ["Namespaces: agent-trust-platform & kagent"]
@@ -548,7 +548,7 @@ flowchart TB
   OPENBAO -->|"Mounts WAL & Raft State"| EBS_BAO
   FROSTDB -->|"Mounts Active WAL"| EBS_FROST
   FROSTDB -->|"Spills Parquet Segments"| S3_ACTIVE
-  OS_ARCH -->|"Spills Evidence Records"| S3_ACTIVE
+  INGEST_ARCH -->|"Spills Evidence Records"| S3_ACTIVE
   PROM -->|"Mounts TSDB"| EBS_PROM
 
   %% Security, Unseal & Attestation

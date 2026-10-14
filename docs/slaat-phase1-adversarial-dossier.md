@@ -1,7 +1,7 @@
 # SLAAT Phase 1: Whole-System Adversarial Vulnerability Dossier
 
 Mission: SLAAT (Signal Loom Autonomous Adversarial Testing). Phase 1 probed
-five attack surfaces across the OSRAMP and Signal Loom platform. They are
+five attack surfaces across the Signal Loom platform. They are
 ingress gateway routing, backend API token boundaries, SPIFFE workload
 identity, OpenBao secrets access, and kernel agent sandboxing. This dossier
 is the authoritative Governor-reconciled record of every finding raised by

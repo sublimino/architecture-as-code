@@ -88,7 +88,7 @@ The two anchoring paths and their current state:
 | Path | State | Evidence |
 |---|---|---|
 | **Rekor** | Refuses outright. `require_rekor_if_configured` verifies connectivity and then raises regardless: `raise AnchorError("Rekor anchoring is not implemented; no checkpoint was published to Rekor")` | `d2-signalloom/apps/fe-signalloom/src/audit_anchor/anchor.py:407` |
-| **Archivista** | Optional. `SegmentAttestor` publishes only when `ArchivistaURL != ""`, and `RequireArchivista` defaults false; an unreachable Archivista falls back to a local `FileAnchorStore` | `store/segment_attestor.go`; `audit_anchor/anchor.py` |
+| **Local signed evidence** | Active workflow evidence is customer-custodied. Local DSSE files provide integrity relative to retained keys, not an independently witnessed time. | `scripts/lib/witness-local.sh`; `scripts/attested-test.sh` |
 
 The consequence, stated plainly: a holder of `SIGNAL_TOMBSTONE_KEY` can mint a tombstone for an
 erasure that never occurred, or backdate one to any `erased_day`, and every verification path in
@@ -103,8 +103,8 @@ made to a customer's DPO is the claim the code supports.
 
 1. Implement Rekor publication *and inclusion-proof verification* — connectivity is not anchoring,
    which is exactly why `anchor.py:407` refuses rather than pretending.
-2. Or make Archivista mandatory (`RequireArchivista: true`) with a monitored, independently
-   operated instance, and verify inclusion on read.
+2. Or use a monitored, independently operated transparency service and verify
+   inclusion proofs on read.
 
 Either one converts "custody of the key" into "custody of the key at a witnessed time", which is
 what makes backdating detectable.

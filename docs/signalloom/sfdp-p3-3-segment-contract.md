@@ -15,12 +15,11 @@ those bytes during the successful upload, then offers the object identity,
 digest, and length to a bounded background worker. An explicit `Flush` waits for
 the Parquet upload, not for that worker.
 
-For a successfully processed object, the worker writes one segment DSSE, writes
-and optionally publishes one rolling checkpoint, appends one UTF-8 JSON object
-plus `\n` to `segments.jsonl`, then atomically advances protected high-water
-state. When `ARCHIVISTA_URL` is configured, both the segment DSSE and its
-checkpoint DSSE must receive matching content-addressed GitOID receipts before
-the `state=ok` journal record is appended. The journal is never rewritten.
+For a successfully processed object, the worker writes one segment DSSE and one
+rolling checkpoint. It appends one UTF-8 JSON object plus `\n` to
+`segments.jsonl`, then atomically advances protected high-water state. The active
+workflow keeps these files in customer-custodied local evidence. The journal is
+never rewritten.
 
 `segment_id` is the complete slash-separated bucket object name. The verifier
 resolves it beneath a configured segment root and rejects absolute paths, `..`,
@@ -92,8 +91,7 @@ The worker creates one checkpoint for each segment upload it processes
 successfully, including uploads induced by explicit `Flush`. This is processing
 cadence, not a hard wall-clock SLA: `Flush` does not wait for attestation, queue
 drain can lag ingestion, and local filesystem calls have no independent
-deadline. Each Archivista HTTP publication has a ten-second context deadline,
-but a wedged filesystem can still prevent bounded completion.
+deadline. A wedged filesystem can therefore prevent bounded completion.
 
 ## Bounded queues and failure semantics
 
@@ -143,23 +141,21 @@ segment-tip changes, regressed attestation or checkpoint inventories, persisted
 byte changes for journaled segments, complete-inventory differences, and
 recorded error loss. Signatures alone do not establish freshness.
 
-## Transparency services and outcomes
+## Local evidence outcomes
 
-`--require-archivista` or `AUDIT_ANCHOR_REQUIRE_LOG=1` requires a healthy
-configured Archivista and forbids file fallback. Archivista health uses its real
-GraphQL `/query` endpoint. Upload receipts are accepted as JSON or plain text and
-must equal the Git blob GitOID of the exact uploaded envelope bytes. A configured
-unavailable Rekor remains an explicit could-not-run error, never an ignored
-warning.
+The supported active path is local-only. It retains DSSE envelopes, policies,
+public keys, fingerprints, and negative-test diagnostics without contacting a
+remote evidence service. This establishes integrity relative to retained trust
+material, not independently witnessed time or transparency-log inclusion.
 
 Successful verification requires exit 0, `status=intact`,
 `proves_anything=true`, `checkpoints_checked>0`, and
 `unanchored_row_count=0` for each selected source. Proven divergence exits 2;
 inability to verify exits 1.
 
-Real Archivista and PostgreSQL proofs have passed with disposable loopback-only
-local services. That evidence does not establish a Kubernetes, shared-cluster,
-or production deployment.
+Historical external-service proofs remain dated records. They are not active
+workflow dependencies and do not establish a Kubernetes, shared-cluster, or
+production deployment.
 
 ## Explicitly unresolved or deferred
 

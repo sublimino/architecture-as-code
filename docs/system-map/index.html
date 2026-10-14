@@ -89,7 +89,7 @@
 
 <div id="title">
   <h1><span>Signal</span>Loom D2 — System Map</h1>
-  <div class="sub">OSRAMP DEMO &middot; feat/signal-loop-and-bootstrap-refactor &middot; 1,940 commits &middot; 302K lines</div>
+  <div class="sub">SIGNAL LOOM &middot; feat/signal-loop-and-bootstrap-refactor &middot; 1,940 commits &middot; 302K lines</div>
 </div>
 
 <div id="legend"></div>
@@ -456,7 +456,7 @@ const ZONES = {
   infra:      { color: '#D97706', label: 'Infrastructure' },
   data:       { color: '#3B82F6', label: 'Data & Storage' },
   monitoring: { color: '#EC4899', label: 'Observability' },
-  osramp:     { color: '#F97316', label: 'OSRamp Pipeline' },
+  pipeline:   { color: '#F97316', label: 'Telemetry Pipeline' },
   olly:       { color: '#A855F7', label: 'LLM / Inference' },
   fleet:      { color: '#14B8A6', label: 'Fleet Management' },
   external:   { color: '#64748B', label: 'External / Mock' },
@@ -529,7 +529,7 @@ const BUILDINGS = [
     file: 'd2-infra/components/cert-manager/' },
   { id: 'kind', col: 5, row: 14, w: 2, d: 2, h: 1.5, shape: 'platform', zone: 'infra',
     name: 'Kind Cluster', port: '-', ns: '-',
-    role: 'Local Kubernetes cluster "osramp". Created by create-kind-cluster.sh. Foundation for all workloads.',
+    role: 'Local Kubernetes cluster. Created by create-kind-cluster.sh. Foundation for all workloads.',
     file: 'scripts/create-kind-cluster.sh' },
 
   // ── DATA (bottom-center, silos) ──
@@ -552,19 +552,19 @@ const BUILDINGS = [
     role: 'Image vulnerability scanning with ServiceMonitor integration. Feeds into compliance posture.',
     file: 'd2-infra/components/trivy-system/' },
 
-  // ── OSRAMP PIPELINE (far right, factory chain) ──
-  { id: 'listener', col: 19, row: 2, w: 2, d: 1.5, h: 2.5, shape: 'warehouse', zone: 'osramp',
-    name: 'Listener', port: '-', ns: 'osramp',
-    role: 'Event ingestion. First stage of the OSRamp pipeline. Output goes to Processor.',
-    file: 'd2-osramp-apps/apps/listener/' },
-  { id: 'processor', col: 19, row: 5, w: 2, d: 1.5, h: 2.8, shape: 'warehouse', zone: 'osramp',
-    name: 'Processor', port: '-', ns: 'osramp',
+  // ── TELEMETRY PIPELINE (far right, factory chain) ──
+  { id: 'listener', col: 19, row: 2, w: 2, d: 1.5, h: 2.5, shape: 'warehouse', zone: 'pipeline',
+    name: 'Listener', port: '-', ns: 'pipeline',
+    role: 'Event ingestion. First stage of the telemetry pipeline. Output goes to Processor.',
+    file: 'd2-signalloom/apps/listener/' },
+  { id: 'processor', col: 19, row: 5, w: 2, d: 1.5, h: 2.8, shape: 'warehouse', zone: 'pipeline',
+    name: 'Processor', port: '-', ns: 'pipeline',
     role: 'Event transformation. Enriches and normalises events from Listener.',
-    file: 'd2-osramp-apps/apps/processor/' },
-  { id: 'archiver', col: 19, row: 8, w: 2, d: 1.5, h: 2.2, shape: 'warehouse', zone: 'osramp',
-    name: 'Archiver', port: '-', ns: 'osramp',
+    file: 'd2-signalloom/apps/processor/' },
+  { id: 'archiver', col: 19, row: 8, w: 2, d: 1.5, h: 2.2, shape: 'warehouse', zone: 'pipeline',
+    name: 'Archiver', port: '-', ns: 'pipeline',
     role: 'Event persistence. Terminal stage of the ingest pipeline.',
-    file: 'd2-osramp-apps/apps/archiver/' },
+    file: 'd2-signalloom/apps/archiver/' },
 
   // ── LLM / INFERENCE (upper right, domes) ──
   { id: 'cpai', col: 17, row: 2, w: 1.5, d: 1.5, h: 2.0, shape: 'dome', zone: 'olly',
@@ -642,7 +642,7 @@ const ZONE_PLATES = [
   { c: -2, r: 13, w: 10, d: 4, color: '#D97706', label: 'INFRASTRUCTURE' },
   { c: 6, r: 11, w: 5, d: 5, color: '#3B82F6', label: 'DATA STORES' },
   { c: 16, r: 9, w: 3, d: 6, color: '#EC4899', label: 'OBSERVABILITY' },
-  { c: 18, r: 1, w: 4, d: 10, color: '#F97316', label: 'OSRAMP PIPELINE' },
+  { c: 18, r: 1, w: 4, d: 10, color: '#F97316', label: 'TELEMETRY PIPELINE' },
   { c: 16, r: 1, w: 3, d: 9, color: '#A855F7', label: 'LLM / AI' },
   { c: 12, r: 1, w: 5, d: 4, color: '#14B8A6', label: 'FLEET' },
 ];

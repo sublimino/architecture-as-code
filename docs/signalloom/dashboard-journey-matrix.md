@@ -9,7 +9,7 @@ through `Estate95.open(id)`.
 | Journey | Window ID | Source |
 | --- | --- | --- |
 | Dashboard root | `/` / Read Me | `ui/index.html`, `ui/windows/readme.js` |
-| OSRAMP Console | `osramp-console` | `ui/windows/osramp-console.js` |
+| Signal Loom Console | `osramp-console` | `ui/windows/osramp-console.js` |
 | Control Plane | `control-panel` | `ui/windows/control-panel.js` |
 | Agent Registry | `agent-cards` | `ui/windows/agent-cards.js` |
 | Orbit approvals | `orbit` | `ui/windows/orbit.js` |
@@ -28,7 +28,7 @@ through `Estate95.open(id)`.
 | API | Consumer journey | Failure state |
 | --- | --- | --- |
 | `GET /api/health` | broker health | broker unavailable |
-| `GET /api/steps` | OSRAMP Console / Control Plane | missing lane or fetch failure |
+| `GET /api/steps` | Signal Loom Console / Control Plane | missing lane or fetch failure |
 | `POST /api/runs` | action start | rejected action |
 | `GET /api/runs/{id}/events` | action stream | exit failure or stream error |
 | `GET /api/cluster/overview` | Cluster State | cluster not ready (`503`) |

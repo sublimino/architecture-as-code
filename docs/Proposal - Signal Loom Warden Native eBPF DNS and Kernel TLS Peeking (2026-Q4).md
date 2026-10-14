@@ -64,7 +64,7 @@ By capturing RFC 1035 DNS requests and responses at the network boundary, Warden
 **Key Customers (if relevant):**
 
 - Financial institutions, defense contractors, and enterprise AI engineering platforms deploying autonomous coding agents (e.g. Daytona, Kagent, Claude Code, Cline) under stringent zero-trust egress and DORA/SOC2 compliance mandates.
-- Existing Signal Loom and OSRAMP enterprise clients requiring deterministic network forensic chains without deploying heavyweight service meshes or third-party daemonsets.
+- Existing Signal Loom enterprise clients requiring deterministic network forensic chains without deploying heavyweight service meshes or third-party daemonsets.
 
 |  |  |
 | :---- | :---- |

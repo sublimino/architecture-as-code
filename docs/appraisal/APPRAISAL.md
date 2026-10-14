@@ -1,4 +1,4 @@
-# OSRAMP Dashboard — API Surface Appraisal & Walking-Demo Plan
+# Signal Loom Dashboard — API Surface Appraisal & Walking-Demo Plan
 
 > Author: sensai (for Andy) · 2026-07-27 · Effort E4 · Read-only appraisal.
 > Sub-reports: `api-contract-gap.md`, `mocks-proxy-fidelity.md`, `auth-gateway-runbook.md` (this dir).

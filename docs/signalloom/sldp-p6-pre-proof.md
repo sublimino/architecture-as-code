@@ -60,7 +60,7 @@ The table below reconciles the storage-copy inventory from the P0 baseline again
 | **20** | Workstation Sensor Objection Registry | Sensor Edge | **Active in sensor (Added P5-3)** | In-memory `_objections` map in host sensor matching `actor_id`, `username`, `email` to suppress process sampling (Article 21) | `agentmaxxing-host-sensor/filter.py:144-194`, `sensor.py:80-120` |
 | **21** | Quarantine State Cache | Containment | **Active when correlation runs** | Process-local cache of quarantined actor identities, pods, and IP addresses | `correlation/quarantine.go:23-55,265-335`, `correlation/stun_client.go:341-388` |
 | **22** | SPIREA Tracker Cache | Collectors | **Active when Spirea collector runs** | Process-local map of active SPIFFE ID to IP mappings with `EvictExpired` | `collectors/spirea/tracker.go:161-180` |
-| **23** | Archivista (External OCI/MinIO) | External Store | **Optional target** | DSSE attestation envelopes persisted to Archivista OCI artifact registry | `audit_anchor/anchor.py:269-336`, `store/segment_attestor.go:704-708` |
+| **23** | Signed local evidence *(historical inventory label replaced)* | Local evidence | **Active workflow artifact** | DSSE envelopes and public verification material retained by the workflow | `scripts/lib/witness-local.sh`, `scripts/attested-test.sh` |
 
 ---
 

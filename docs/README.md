@@ -8,7 +8,7 @@ Three files at the repository root start the path:
 
 | File | Reader | Read it for |
 | :--- | :--- | :--- |
-| [`../README.md`](../README.md) | A person new to OSRAMP | Platform overview, demos, and the local quickstart |
+| [`../README.md`](../README.md) | A person new to Signal Loom | Platform overview, demos, and the local quickstart |
 | [`../AGENTS.md`](../AGENTS.md) | An agent or an engineer who needs commands | Slices, lifecycle targets, and shared pitfalls |
 | [`../DESIGN.md`](../DESIGN.md) | A developer or UI engineer | Platform design system, colour palette, and interface principles |
 
@@ -86,7 +86,7 @@ flowchart TB
 | Document | What it covers |
 | :--- | :--- |
 | [`system-map/`](system-map/) | Interactive map of the core services and their communication paths |
-| [`osramp-component-flows.html`](osramp-component-flows.html) | Interactive flow map of the OSRAMP components, derived from the code in 2026-09. It loads its libraries from the internet. |
+| [`osramp-component-flows.html`](osramp-component-flows.html) | Interactive flow map of platform components, derived from the code in 2026-09. It loads its libraries from the internet. |
 | [`flux-coverage.md`](flux-coverage.md) | Which workloads Flux manages and which it does not, the declared exceptions, and the open gaps. Enforced by `make flux-coverage-test`. |
 
 ## 2 · Run the platform

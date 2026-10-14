@@ -33,7 +33,7 @@ redirect URI set to `https://<dashboard-host>/dex/callback`.
 ### Microsoft Entra ID
 
 1. Azure Portal → App registrations → New registration
-2. Redirect URI: `https://dashboard.osramp.acme.local:30754/dex/callback`
+2. Redirect URI: `https://dashboard.signalloom.acme.local:30754/dex/callback`
 3. Certificates & secrets → New client secret
 4. API permissions: `openid`, `profile`, `email`
 5. Copy Application (client) ID, Directory (tenant) ID, and client secret value
@@ -42,20 +42,20 @@ redirect URI set to `https://<dashboard-host>/dex/callback`.
 
 1. GCP Console → APIs & Services → Credentials → Create OAuth client ID
 2. Application type: Web application
-3. Authorised redirect URI: `https://dashboard.osramp.acme.local:30754/dex/callback`
+3. Authorised redirect URI: `https://dashboard.signalloom.acme.local:30754/dex/callback`
 4. Copy client ID and client secret
 
 ### GitHub
 
 1. GitHub → Settings → Developer settings → OAuth Apps → New OAuth App
-2. Authorization callback URL: `https://dashboard.osramp.acme.local:30754/dex/callback`
+2. Authorization callback URL: `https://dashboard.signalloom.acme.local:30754/dex/callback`
 3. Copy Client ID and Client Secret
 4. Optionally restrict to specific orgs/teams in the connector config
 
 ### Generic OIDC
 
 1. Register an OAuth2/OIDC application in your provider
-2. Set the redirect URI to `https://dashboard.osramp.acme.local:30754/dex/callback`
+2. Set the redirect URI to `https://dashboard.signalloom.acme.local:30754/dex/callback`
 3. Note the issuer URL, client ID, and client secret
 4. Verify that `/.well-known/openid-configuration` is reachable from the cluster
 

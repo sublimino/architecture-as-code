@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>osramp-demo · Component & Package Flow Map</title>
+<title>Signal Loom · Component & Package Flow Map</title>
 <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/layout-base@2.0.1/layout-base.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/cose-base@2.2.0/cose-base.js"></script>
@@ -62,7 +62,7 @@
 <body>
 <div id="app">
   <div id="left" class="col">
-    <h1>osramp-demo — Flow Map</h1>
+    <h1>Signal Loom — Flow Map</h1>
     <div class="sub">Click a workflow to highlight how data moves between packages &amp; components. Every arrow is annotated with what's actually passed. Derived from the code, 2026-09.</div>
     <input id="search" placeholder="filter components…" />
     <div class="toolbar">
@@ -142,7 +142,6 @@
     {"id":"elk-search-mcp","label":"elk-search-mcp · MCP tool","group":"agentic"},
     {"id":"tenant-app","label":"tenant-app","group":"agentic"},
     {"id":"orbit","label":"Orbit · A2A remediation","group":"agentic"},
-    {"id":"zulip-chat-agent","label":"zulip-chat-agent","group":"agentic","muted":true},
     {"id":"eval-harness","label":"eval-harness · (not built)","group":"agentic","muted":true},
     {"id":"security-sandbox","label":"security-sandbox","group":"agentic","muted":true},
 
@@ -157,7 +156,6 @@
     {"id":"flux","label":"Flux · GitOps","group":"supplychain"},
     {"id":"zot","label":"Zot · OCI registry","group":"supplychain"},
     {"id":"witness-cosign","label":"Witness + cosign","group":"supplychain"},
-    {"id":"archivista","label":"Archivista","group":"supplychain"},
     {"id":"rekor","label":"Rekor · (optional)","group":"supplychain","muted":true},
     {"id":"crane","label":"crane · OCI push","group":"supplychain"},
     {"id":"github-actions","label":"GitHub Actions","group":"supplychain"},
@@ -170,7 +168,7 @@
     {"id":"cilium","label":"Cilium / Hubble","group":"infra"},
     {"id":"postgres","label":"Postgres","group":"infra"},
     {"id":"agents-ns","label":"fe-signalloom-agents ns","group":"infra"},
-    {"id":"zulip-slack","label":"Slack / Zulip","group":"ui"}
+    {"id":"approval-webhook","label":"Approval webhook","group":"ui"}
   ],
   "flows": [
     {"id":"k8saudit-who-authorized","cat":"Signal ingestion","label":"K8s audit → who-authorized query",
@@ -348,18 +346,17 @@
      "caveats":["make up builds ONLY the foundation and starts NO demo — demos are explicitly opt-in via demo-signalloom-up / demo-olly-up / demo-bao-up / demo-cpai-up."]},
 
     {"id":"ci-supply-chain-lane","cat":"Supply chain & CI","label":"CI / supply-chain lane",
-     "summary":"Source builds an OCI image pushed to Zot, cosign-signs it, wraps build steps in witness run producing DSSE uploaded to Archivista; Flux reconciles the signed artifacts.",
+     "summary":"Source builds an OCI image pushed to Zot, cosign-signs it, wraps build steps in witness run, and retains DSSE as a CI artifact. Flux reconciles the signed artifacts.",
      "steps":[
       {"from":"github-actions","to":"zot","verb":"build + push image","passes":"OCI image pushed via crane (localhost:5001)"},
       {"from":"crane","to":"zot","verb":"resolve digest","passes":"OCI image digest (crane digest --insecure)"},
       {"from":"witness-cosign","to":"zot","verb":"cosign sign","passes":"cosign signature over image digest (key-only, no tlog upload)"},
       {"from":"github-actions","to":"witness-cosign","verb":"witness run step","passes":"DSSE in-toto attestation signed with ed25519 witness.pem (reusable-witness-step.yaml)"},
-      {"from":"witness-cosign","to":"archivista","verb":"upload evidence","passes":"DSSE envelope with gitoid subject (--enable-archivista)"},
-      {"from":"archivista","to":"rekor","verb":"anchor (optional)","passes":"transparency log entry / attestation store record"},
+      {"from":"witness-cosign","to":"github-actions","verb":"retain evidence","passes":"DSSE envelope uploaded as a CI workflow artifact"},
       {"from":"prod-deploy-gate","to":"zot","verb":"verify before deploy","passes":"cosign signature + Kyverno signature-verification admission (e2e admission demo)"},
       {"from":"flux","to":"kind-cluster","verb":"deploy verified","passes":"reconciled HelmRelease/Kustomization from signed OCIRepository"}
      ],
-     "caveats":["Local/demo path signs key-only (Rekor/Fulcio disabled in signing-config) — Rekor is optional/out-of-band.","Pre-deploy signature verification is Kyverno + cosign admission, not prod-deploy-gate (which is a HITL HMAC approval gate)."]},
+     "caveats":["Local and CI custody is not an independent transparency log or trusted timestamp.","Pre-deploy signature verification is Kyverno + cosign admission, not prod-deploy-gate (which is a HITL HMAC approval gate)."]},
 
     {"id":"ai-software-factory","cat":"Software factory","label":"AI-governed software factory",
      "summary":"A commit diff is summarized by an LLM, appraised+validated, CI failures triaged deterministically, and coding tasks run in a sandboxed coder.",
@@ -373,7 +370,7 @@
       {"from":"triage-ci-worker","to":"cpai-engineer","verb":"dispatch coding task","passes":"TaskRequest {repo, branch, instruction, token_budget} → POST /tasks"},
       {"from":"cpai-engineer","to":"cpai-engineer","verb":"code in nono sandbox","passes":"TaskResponse {task_id, status, commits[], tokens_used} (Landlock-confined)"},
       {"from":"cpai-engineer","to":"prod-deploy-gate","verb":"request approval","passes":"GateRequest → 30m HMAC-signed approval token"},
-      {"from":"prod-deploy-gate","to":"zulip-slack","verb":"dispatch approval card","passes":"interactive HITL card; resumes only on valid HMAC (/gate/approve)"}
+      {"from":"prod-deploy-gate","to":"approval-webhook","verb":"dispatch approval card","passes":"interactive HITL card; resumes only on valid HMAC (/gate/approve)"}
      ],
      "caveats":["triage-ci-worker is deterministic (no LLM); its dispatch to cpai-engineer/hosted-daytona-coder is orchestrated at the factory level, not a hardcoded HTTP call."]},
 

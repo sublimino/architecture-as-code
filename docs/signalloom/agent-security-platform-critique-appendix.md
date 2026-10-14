@@ -122,10 +122,10 @@ do not own — with the rest honestly tiered as observe-only, roadmap, or integr
 - **De-risk:** pick one concrete memory/RAG substrate for the design partner, instrument inline, and prove exactly one end-to-end thread (poisoned source enters context → detected/blocked) with numbers.
 
 #### B.11 — Supply Chain Security for Agents & Models *(high)*
-- **Riskiest assumption:** OSRAMP's container-image machinery (SBOM/SLSA/cosign) transfers to models/agents unchanged; but weights, prompt-packs, RAG indices, and MCP servers are new artefact classes.
+- **Riskiest assumption:** The platform's container-image machinery (SBOM/SLSA/cosign) transfers to models/agents unchanged; but weights, prompt-packs, RAG indices, and MCP servers are new artefact classes.
 - **Open Qs:** What does a "model-BOM" actually assert (ML-BOM lists metadata, not weight integrity or training-data provenance)? How do you get SLSA L3 for a model you did not train (HuggingFace/Bedrock/Vertex/OpenAI)? Pickle/serialization exploit scanning?
 - **Kill-shot:** purpose-built AI/ML supply-chain vendors (HiddenLayer, Protect AI/Guardian, Robust Intelligence, HuggingFace + Sigstore model-signing) already own model-artefact scanning and signing.
-- **De-risk:** split into (a) what OSRAMP genuinely covers today (agent/MCP-server images, SBOM, SLSA for artefacts you build, cosign at admission) and (b) model-artefact assurance via integration with the AI-ML supply-chain incumbents.
+- **De-risk:** split into (a) what Signal Loom genuinely covers today (agent/MCP-server images, SBOM, SLSA for artefacts you build, cosign at admission) and (b) model-artefact assurance via integration with the AI-ML supply-chain incumbents.
 
 #### B.12 — Observability & Estate Pane-of-Glass *(high)*
 - **Riskiest assumption:** a read-only pane is a low-risk enhancement; in fact it is the primary trust surface, it drives the kill action, and it renders attacker-controlled agent data.

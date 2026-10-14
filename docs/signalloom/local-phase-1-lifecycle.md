@@ -16,7 +16,7 @@ then publishes the three Signalloom OCI artifacts and reconciles in this fixed o
 Run `make signalloom-check` first for the static delivery-contract gate.
 
 The command waits for both Signalloom ResourceSets before accessing their tenant
-namespaces. It starts only the requested Signalloom slice; OSRAMP and olly remain
+namespaces. It starts only the requested Signalloom slice; other workloads remain
 inactive.
 
 Use `make demo-signalloom-test` for Flux-only readiness checks and

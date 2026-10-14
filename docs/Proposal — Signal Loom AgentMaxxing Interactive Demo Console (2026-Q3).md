@@ -25,7 +25,6 @@ tags:
   - enhancement-proposals
   - proposal-2026-q3-signal-loom-agentmaxxing-interactive-demo-console
   - partner-signal-loom
-  - osramp
 aliases:
   - "#proposal-2026-q3-signal-loom-agentmaxxing-interactive-demo-console"
 updated: 2026-09-13T22:00

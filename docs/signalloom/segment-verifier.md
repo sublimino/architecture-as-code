@@ -89,12 +89,10 @@ independent proof that observations happened or that the signer was honest.
 
 - `fe-signalloom/src/audit_anchor/anchor.py:407` explicitly refuses Rekor
   publication: `Rekor anchoring is not implemented; no checkpoint was published to Rekor`.
-- Archivista publication is optional in `SegmentAttestorConfig`; the writer
-  rejects missing URLs only when `RequireArchivista` is set. The Python anchor
-  store also supports non-strict local-file fallback.
 - Thus there is **no mandatory external anchor today**. This offline command
-  does not query or certify Archivista receipts, Rekor inclusion, trusted time,
-  revocation policy, tenant authorization, or legal erasure.
+  verifies customer-custodied local evidence only. It does not query or certify
+  transparency-log inclusion, trusted time, revocation policy, tenant
+  authorization, or legal erasure.
 - Replacing keys, corpus and high-water together defeats local verification.
   Supplying the high-water file from the same untrusted snapshot does not prove
   rollback resistance. Retain an independently protected copy outside the

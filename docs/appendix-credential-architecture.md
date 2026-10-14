@@ -1,7 +1,7 @@
 # Appendix: Signal Loom Agent Swarm Credential Architecture
 
 > Architectural analysis of the SPIFFE/OpenBao credential pipeline for the
-> 10-agent Signal Loom swarm. Covers the complete flow from pod boot through
+> nine-agent Signal Loom swarm. Covers the complete flow from pod boot through
 > secret injection, the sidecar pattern, SPIFFE identity chain, credential
 > lifecycle, nono sandbox integration, and production hardening gaps.
 >
@@ -61,7 +61,6 @@ Stage 5: (Optional) Nono Sandbox Credential Forwarding
 | | /vault/secrets| |     Shared emptyDir (tmpfs, 1Mi)
 | | ANTHROPIC_... | |     Main container reads these files
 | | GITHUB_TOKEN  | |     as environment variable values
-| | ZULIP_API_KEY | |
 | +---------------+ |
 |         |         |
 |         v         |
@@ -170,7 +169,6 @@ differ:
 |-------|--------------|-----------------|
 | prompt-commit-summarizer | `llm/api-key` | `/vault/secrets/LLM_API_KEY` |
 | triage-ci-worker | `github/token` | `/vault/secrets/GITHUB_TOKEN` |
-| zulip-chat-agent | `zulip/api-key` | `/vault/secrets/ZULIP_API_KEY` |
 | cpai-engineer | `anthropic/api-key` | `/vault/secrets/ANTHROPIC_API_KEY` |
 | prod-deploy-gate | `gate/hmac-secret` | `/vault/secrets/GATE_HMAC_SECRET` |
 | swarm-governor | `anthropic/api-key` | `/vault/secrets/ANTHROPIC_API_KEY` |
@@ -311,7 +309,6 @@ All ten agents are registered by a single Job
 
 ```
 prompt-commit-summarizer    triage-ci-worker
-zulip-chat-agent            cpai-engineer
 hosted-daytona-coder        swarm-governor
 prod-deploy-gate            agent-cardvault
 nono-containment-probe      signalloom-stun-sentinel
@@ -547,7 +544,7 @@ OpenBao client logic, while keeping the resource overhead minimal (10m CPU
 | Component | Location | Purpose |
 |-----------|----------|---------|
 | `openbao-agent-generic-role.yaml` | `inf-bao/controllers/base/` | Glob-bound JWT role + templated policy |
-| `spire-agent-swarm-entries.yaml` | `inf-bao/controllers/base/` | SPIRE registration entries for all 10 agents |
+| `spire-agent-swarm-entries.yaml` | `inf-bao/controllers/base/` | SPIRE registration entries for swarm workloads |
 | `openbao-spire.yaml` | `inf-bao/controllers/base/` | SPIRE/OpenBao trust anchor integration |
 | `spire-trust-anchor.sh` | `scripts/lib/` | Key sync + drift assertion functions |
 | `swarm-seed-secrets.sh` | `scripts/` | Demo secret seeding |
@@ -566,7 +563,6 @@ OpenBao client logic, while keeping the resource overhead minimal (10m CPU
 |-------|------|-------------|---------|--------------|
 | prompt-commit-summarizer | Knative Service | Yes | `LLM_API_KEY` | Yes |
 | triage-ci-worker | Knative Service | Yes | `GITHUB_TOKEN` | Yes |
-| zulip-chat-agent | Deployment | Yes | `ZULIP_API_KEY` | Yes |
 | cpai-engineer | StatefulSet | Yes | `ANTHROPIC_API_KEY` | Yes |
 | swarm-governor | Deployment | Yes | `ANTHROPIC_API_KEY` | Yes |
 | prod-deploy-gate | Deployment | Yes | `GATE_HMAC_SECRET` | Yes |

@@ -254,13 +254,13 @@ This is qualified static and fake-boundary evidence only. It does not claim a
 live Kind reconciliation, a live SPIRE identity denial, a live OpenBao read,
 Flux application readiness, or any Gate C/D/E runtime result. No board state
 was edited and no remote push was performed.
-## OSRAMP backend configuration validation errata
+## Signal Loom backend configuration validation errata
 
-<!-- machine-tag: OSRAMP-BACKEND-VALIDATION-2026-07-26T17:00:47+01:00 -->
+<!-- machine-tag: SIGNALLOOM-BACKEND-VALIDATION-2026-07-26T17:00:47+01:00 -->
 <!-- integration-ref: integration/signalloom-d2-v2.0.0 -->
 <!-- scope: repository-local-source-test-and-disposable-container-only -->
 
-This bounded record validates the checked-in OSRAMP PostgreSQL, Redis, and
+This bounded record validates the checked-in Signal Loom PostgreSQL, Redis, and
 MinIO configuration plus the Discovery Portal bootstrap drift contract. It
 does not modify `board.json`, an Obsidian proposal, a Kubernetes cluster, or
 any external system; no push is authorised or claimed.

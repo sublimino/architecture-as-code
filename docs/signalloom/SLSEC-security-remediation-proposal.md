@@ -91,7 +91,7 @@ Every EAP route rejects anonymous callers; tenant is derived from the verified p
 - Full source audit beyond the pentest findings and the bare-mounted-router class.
 - The adjacent Express messaging bridge on `:3000` (personal tooling, not the platform).
 - `NOT_AUDIT_WORTHY` / `AUDIT_DECISION_OWED` audit-emission debt (EAPR-P2-2's ledger, tracked separately).
-- Production/GCP edge hardening beyond parity (tracked under the OSRAMP GCP terraform projects).
+- Production/GCP edge hardening beyond parity (tracked under the Signal Loom GCP terraform projects).
 
 ### KPIs
 

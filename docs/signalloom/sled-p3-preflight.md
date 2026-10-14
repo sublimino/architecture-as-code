@@ -108,7 +108,7 @@ flowchart TD
 - **Why Second**: The Tailscale node provides direct mesh access and MagicDNS resolution (`sl-eap-6f82ad81.tailscale`). Evicting the Tailscale node before destroying backend workloads ensures that no external VPN traffic reaches the cluster during subsequent identity and namespace teardown. It also prevents orphan node accumulation and MagicDNS collision in the shared enterprise tailnet.
 
 #### Stage 3: Cryptographic Key Shredding & SPIRE Workload Purge
-- **Action**: Revoke and delete the tenant's dedicated OpenBao transit key (`DELETE /v1/transit/keys/eap-<customer_hash>`) and purge SPIRE workload registration entries (`spiffe://osramp.local/ns/eap-<customer_hash>/sa/tenant-app`).
+- **Action**: Revoke and delete the tenant's dedicated OpenBao transit key (`DELETE /v1/transit/keys/eap-<customer_hash>`) and purge SPIRE workload registration entries (`spiffe://signalloom.local/ns/eap-<customer_hash>/sa/tenant-app`).
 - **Why Third (Before Storage Release)**: In Kubernetes multi-tenant clusters, releasing PersistentVolumeClaims (PVCs) returns underlying storage blocks to the cloud or local storage pool. If storage blocks are reallocated to another tenant before cryptographic keys are destroyed, residual un-overwritten data on raw blocks could theoretically be recovered if keys remain accessible in OpenBao. Deleting the transit key (crypto-shredding) guarantees that all persistent disk blocks, database snapshots, and encrypted payload logs become mathematically unrecoverable prior to physical volume reclamation. Purging SPIRE entries immediately halts workload attestation and SVID renewal.
 
 #### Stage 4: Workload & Kubernetes Namespace Deletion
@@ -211,7 +211,7 @@ Therefore, the SLED teardown pipeline adheres to a **Fail-Forward Execution Cont
   - `async def execute_full_teardown_pipeline(record: LifecycleRecord) -> LifecycleRecord`
 - **Execution Rules**:
   - OpenBao transit key deletion calls OpenBao HTTP API (`DELETE /v1/transit/keys/eap-<hash>`).
-  - SPIRE entry deletion targets SPIFFE ID `spiffe://osramp.local/ns/eap-<hash>/sa/tenant-app`.
+  - SPIRE entry deletion targets SPIFFE ID `spiffe://signalloom.local/ns/eap-<hash>/sa/tenant-app`.
   - Kubernetes namespace deletion targets `eap-<hash>` with 30s timeout and finalizer verification.
   - Full execution updates `teardown_stages_completed` and transitions state to `TERMINATED`.
 

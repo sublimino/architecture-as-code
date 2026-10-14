@@ -109,8 +109,8 @@ Columnar Evidence Store
 (Append-Only, Pruned)")]
     ATTEST["Write-Time Attestation Engine
 (go-witness + Merkle Tree)"]
-    ARCH[("Archivista / Local Rekor
-Attestation Store")]
+    ARCH[("Customer-Custodied DSSE
+Evidence Store")]
   end
 
   subgraph Surfaces["4. Consumption & Enforcement"]
@@ -384,7 +384,7 @@ Tombstone:       [ Attested Tombstone logged: "Subject ID erased under Art 17 at
 
 - **Default Deployment Topology**: Self-hosted inside the customer's own VPC or Kubernetes cluster (Kind, GKE, EKS, OpenShift). **Zero data leaves the customer's boundary**.
 - **No Third-Party Sub-Processors**: Signal Loom requires no external third-party SaaS APIs. OpenBao, PostgreSQL, FrostDB, Tetragon, and Witness run entirely in-boundary.
-- **Transparency Log Isolation**: Public Rekor transparency logs are **strictly prohibited** from receiving customer data. Attestations are stored in a private, customer-managed instance of Archivista or written to customer-owned object storage buckets (S3 / GCS).
+- **Evidence Custody Isolation**: Public transparency logs are **strictly prohibited** from receiving customer data. Signed DSSE envelopes remain in local workflow evidence and customer-owned storage. There is no mandatory external transparency anchor.
 
 ---
 

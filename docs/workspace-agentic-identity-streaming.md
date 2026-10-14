@@ -1,6 +1,6 @@
 # Google Workspace Agentic Identity Streaming — Research Synthesis
 
-> Deep research: how OSRAMP ingests Workspace activity as a stream, monitors
+> Deep research: how Signal Loom ingests Workspace activity as a stream, monitors
 > agentic identities for misbehaviour, and executes the revocation chain
 > (supercredential revoke → identity block → runtime controls).
 >
@@ -14,7 +14,7 @@ user-facing controls** — Context-Aware Access, device compliance, session
 management. The strongest Workspace-native control that applies to service
 accounts is DLP, and DLP cannot block reads. No competitor bridges
 cryptographic agent identity → scoped Workspace credentials → behavioural
-monitoring → automated revocation. OSRAMP's SPIRE/OpenBao/SuperCred model is
+monitoring → automated revocation. Signal Loom's SPIRE/OpenBao/SuperCred model is
 architecturally unique here.
 
 The key architectural move: **make OpenBao the credential gateway for Workspace
@@ -48,9 +48,9 @@ account**. The only mechanisms to unmask the true actor:
 1. `applicationInfo.oauthClientId` — present on some audit events (2026+)
 2. `applicationInfo.impersonation` — boolean flag, new in 2026, not universally populated
 3. OAuth Token log correlation — join activity logs with token grant logs on timestamp + user
-4. **OSRAMP's own audit trail** — if all Workspace credentials are issued through OpenBao, OSRAMP knows which SPIFFE-attested agent requested which token, regardless of what Workspace logs show
+4. **Signal Loom's own audit trail** — if all Workspace credentials are issued through OpenBao, Signal Loom knows which SPIFFE-attested agent requested which token, regardless of what Workspace logs show
 
-Option 4 is the architectural winner. It means OSRAMP doesn't need to unmask
+Option 4 is the architectural winner. It means Signal Loom doesn't need to unmask
 DWD at the Workspace layer because it has its own attribution chain from
 credential issuance.
 
@@ -65,7 +65,7 @@ credential issuance.
 
 **SCC is the best detection layer** — it applies ML-based anomaly detection to
 Workspace logs and produces findings. But it's detection-only; enforcement
-requires a separate action. That action is where OSRAMP lives.
+requires a separate action. That action is where Signal Loom lives.
 
 ---
 
@@ -85,10 +85,10 @@ requires a separate action. That action is where OSRAMP lives.
 
 **The critical asymmetry:** The kill switch (`serviceAccounts.disable`) is fast
 and programmatic. Surgical scope adjustment (DWD scope editing) is slow and
-manual. This means OSRAMP's automated response must favour the blunt instrument
+manual. This means Signal Loom's automated response must favour the blunt instrument
 (disable) over the scalpel (scope edit) for time-critical incidents.
 
-### 2.2 OSRAMP Stun Cascade — Workspace Extension
+### 2.2 Signal Loom Stun Cascade — Workspace Extension
 
 Extending the existing SuperCred "stun" pattern to Workspace:
 
@@ -114,7 +114,7 @@ Misbehaviour detected (Workspace activity stream)
 3. Remove emergency DLP rules
 4. SuperCred state: STUNNED → ACTIVE
 
-### 2.3 What OSRAMP Cannot Do (Workspace Gaps)
+### 2.3 What Signal Loom Cannot Do (Workspace Gaps)
 
 | Gap | Why | Workaround |
 |-----|-----|-----------|
@@ -126,7 +126,7 @@ Misbehaviour detected (Workspace activity stream)
 
 ---
 
-## Part 3: Architecture Mapping to OSRAMP
+## Part 3: Architecture Mapping to Signal Loom
 
 ### 3.1 Current Architecture
 
@@ -201,7 +201,7 @@ generate OAuth2 access tokens on demand:
 - Tokens are minutes-lived, not hours-lived (reduces blast radius)
 - OpenBao lease revocation instantly invalidates the credential chain
 - Policy engine can evaluate each credential request against risk state
-- The DWD impersonation blind spot is irrelevant — OSRAMP's own audit trail
+- The DWD impersonation blind spot is irrelevant — Signal Loom's own audit trail
   has the attribution chain from SPIFFE ID → credential request → Workspace token
 
 **Workload Identity Federation bridge** (for non-GCP agents):
@@ -210,7 +210,7 @@ generate OAuth2 access tokens on demand:
 3. Maps to a GCP service account
 4. OpenBao issues a scoped Workspace token via that SA
 
-This means OSRAMP governs agents regardless of where they run.
+This means Signal Loom governs agents regardless of where they run.
 
 ### 3.4 New Components Required
 
@@ -255,9 +255,9 @@ grants to the graph:
 
 ## Part 4: Competitive Positioning
 
-### 4.1 The Six Gaps OSRAMP Fills
+### 4.1 The Six Gaps Signal Loom Fills
 
-| # | Gap | Current State | OSRAMP's Answer |
+| # | Gap | Current State | Signal Loom's Answer |
 |---|-----|--------------|-----------------|
 | 1 | **Cryptographic agent identity across heterogeneous SaaS** | Google Agent Identity: Gemini agents only. Everyone else: OAuth tokens / SA keys | SPIRE issues SPIFFE IDs to ANY agent → WIF → scoped Workspace SA |
 | 2 | **Policy-as-code for agent access** | All competitors: console-click governance | OPA/Rego policies in git, evaluated at credential-issuance time |
@@ -273,7 +273,7 @@ Identity cannot show:
 
 1. **Cross-platform identity attestation** — the same SPIFFE ID governs an
    agent's Kubernetes access AND its Workspace access. One stun revokes both.
-2. **Credential-layer enforcement** — competitors discover and monitor; OSRAMP
+2. **Credential-layer enforcement** — competitors discover and monitor; Signal Loom
    controls issuance. An agent that never gets a credential cannot misbehave.
 3. **Quantified risk in pounds** — not traffic lights. FAIR Monte Carlo on
    live agent state including Workspace credential posture.
@@ -390,7 +390,7 @@ Identity cannot show:
 
 | Risk | Impact | Mitigation |
 |------|--------|-----------|
-| Google's Agent Identity becomes cross-platform | Reduces OSRAMP's unique value | OSRAMP's policy-as-code + FAIR risk quantification remain unique |
+| Google's Agent Identity becomes cross-platform | Reduces Signal Loom's unique value | Signal Loom's policy-as-code + FAIR risk quantification remain unique |
 | Reco or Obsidian adds credential governance | Competitor parity | They'd need to build SPIRE + OpenBao equivalent; years of catch-up |
 | Customers want Microsoft 365 not Workspace | Wrong SaaS target | Architecture is SaaS-agnostic; swap Workspace Connector for M365 Connector |
 | EU AI Act enforcement is weak | Reduces compliance urgency | NIST AI RMF and banking regs (SR 11-7) drive demand independently |
@@ -414,8 +414,8 @@ Identity cannot show:
 
 | Standard | Status (Aug 2026) | Relevance |
 |----------|-------------------|-----------|
-| **MCP** (Model Context Protocol) | De facto standard, 110M+ monthly downloads | Agent-to-tool communication. OSRAMP could inspect MCP traffic |
-| **A2A** (Agent-to-Agent) | v1.0, Linux Foundation, 150+ orgs | Agent-to-agent discovery. OSRAMP could validate agent cards |
-| **IETF WIMSE** | Active drafts (Agent Auth Profile, Transaction Tokens) | Future standard for agent identity. OSRAMP's SPIFFE model aligns |
-| **SPIFFE/SPIRE** | Mature, CNCF graduated | OSRAMP's identity layer. Google uses it for Agent Identity |
+| **MCP** (Model Context Protocol) | De facto standard, 110M+ monthly downloads | Agent-to-tool communication. Signal Loom could inspect MCP traffic |
+| **A2A** (Agent-to-Agent) | v1.0, Linux Foundation, 150+ orgs | Agent-to-agent discovery. Signal Loom could validate agent cards |
+| **IETF WIMSE** | Active drafts (Agent Auth Profile, Transaction Tokens) | Future standard for agent identity. Signal Loom's SPIFFE model aligns |
+| **SPIFFE/SPIRE** | Mature, CNCF graduated | Signal Loom's identity layer. Google uses it for Agent Identity |
 | **OpenID AIIM** | Community Group, interop demos | MCP + open identity standards. Watch for convergence |

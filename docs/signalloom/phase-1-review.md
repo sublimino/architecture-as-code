@@ -100,7 +100,7 @@ The clean local lifecycle documents Bao → Signal Loom infrastructure → front
 (`docs/signalloom/local-phase-1-lifecycle.md:3-15`) and the script performs the same
 bounded sequence (`scripts/signalloom-local.sh:58-69`). This is a useful shared
 pattern: one deterministic orchestration path, explicit waits, and no unrelated
-OSRAMP workloads.
+workloads.
 
 Two sequencing qualifications remain:
 

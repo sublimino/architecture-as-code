@@ -1,4 +1,4 @@
-# Walking Demo Runbook — Signal Loom Dashboard in OSRAMP
+# Walking Demo Runbook — Signal Loom Dashboard
 
 > **PARTIALLY SUPERSEDED, 2026-08-14.** Written 2026-07-28, when the API shim was not yet
 > at contract and the demo could not be walked. That gap closed on 2026-07-28 (see the

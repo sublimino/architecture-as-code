@@ -11,7 +11,7 @@ tags:
 date: 2026-10-06
 status: active
 author: Signal Loom Architecture Team
-title: "Azure & Azure Kubernetes Service (AKS) Architecture Specification — OSRAMP & Signal Loom Platform"
+title: "Azure & Azure Kubernetes Service (AKS) Architecture Specification — Signal Loom Platform"
 version: 1.0.0
 ---
 
@@ -19,7 +19,7 @@ version: 1.0.0
 
 ## Executive Summary
 
-This specification establishes the target architecture, security model, and implementation topology for deploying the **OSRAMP (Open Source Risk Assessment & Mitigation Platform)** and **Signal Loom** governance platform on **Microsoft Azure** and **Azure Kubernetes Service (AKS)**.
+This specification establishes the target architecture, security model, and implementation topology for deploying the **Signal Loom** governance platform on **Microsoft Azure** and **Azure Kubernetes Service (AKS)**.
 
 The architecture addresses three critical enterprise requirements:
 1. **Confidential Hardware Isolation:** Hardware-enforced enclaves using AMD SEV-SNP / Intel TDX confidential virtual machines on AKS, guaranteeing code and cryptographic state privacy against hypervisor and cloud operator inspection.
@@ -79,7 +79,7 @@ flowchart TB
         subgraph MANAGED_IDENTITIES ["User-Assigned Managed Identities"]
             MI_OPENBAO["id-openbao-unseal<br/>(Key Vault Crypto User)"]
             MI_FROSTDB["id-frostdb-storage<br/>(Storage Blob Data Contributor)"]
-            MI_OSRAMP["id-osramp-archiver<br/>(Storage Blob Data Contributor)"]
+            MI_ARCHIVER["id-evidence-archiver<br/>(Storage Blob Data Contributor)"]
             MI_AUDIT["id-azureaudit-collector<br/>(Event Hubs Data Receiver)"]
             MI_CERT["id-cert-manager<br/>(DNS Zone Contributor)"]
             MI_FLUX["id-flux-cosign<br/>(Key Vault Crypto User)"]
@@ -126,11 +126,11 @@ flowchart TB
             FROSTDB["FrostDB Columnar Store<br/>(Arrow / Parquet Engine & Query Node)"]
         end
 
-        %% Subgraph: d2-osramp-apps
-        subgraph NS_OSRAMP ["ns: d2-osramp-apps"]
-            OS_LISTENER["osramp-listener<br/>(High-Throughput Ingestion)"]
-            OS_PROCESSOR["osramp-processor<br/>(Schema Validation & Enricher)"]
-            OS_ARCHIVER["osramp-archiver<br/>(Signed Package Bundler)"]
+        %% Subgraph: fe-signalloom-ingest
+        subgraph NS_INGEST ["ns: fe-signalloom-ingest"]
+            INGEST_LISTENER["ingest-listener<br/>(High-Throughput Ingestion)"]
+            INGEST_PROCESSOR["ingest-processor<br/>(Schema Validation & Enricher)"]
+            INGEST_ARCHIVER["evidence-archiver<br/>(Signed Package Bundler)"]
         end
 
         %% Subgraph: agent-trust-platform & kagent
@@ -186,7 +186,7 @@ flowchart TB
     WI_OIDC -.->|"Federates"| MANAGED_IDENTITIES
     MI_OPENBAO -.->|"Injected Token"| OPENBAO
     MI_FROSTDB -.->|"Injected Token"| FROSTDB
-    MI_OSRAMP -.->|"Injected Token"| OS_ARCHIVER
+    MI_ARCHIVER -.->|"Injected Token"| INGEST_ARCHIVER
     MI_AUDIT -.->|"Injected Token"| AZ_COLLECTOR
     MI_CERT -.->|"Injected Token"| CM_POD
     MI_FLUX -.->|"Injected Token"| FLUX_RS
@@ -210,7 +210,7 @@ flowchart TB
     FROSTDB -->|"Parquet Segment Flush"| BLOB_HOT
     BLOB_HOT -->|"Lifecycle Management"| BLOB_COOL
     FE_API -->|"Relational CRUD"| DISK_PG
-    OS_ARCHIVER -->|"Signed WORM Audit Export"| BLOB_WORM
+    INGEST_ARCHIVER -->|"Signed WORM Audit Export"| BLOB_WORM
     FE_API -->|"Evidence Dossier Archival"| BLOB_WORM
 
     %% Agent Platform Connections
@@ -220,10 +220,10 @@ flowchart TB
     AGENT_RUNNER -.->|"eBPF Telemetry"| SIG_INGEST
     OLLY_SENTINEL -->|"Inspects Cluster Health"| FE_API
 
-    %% OSRAMP Processing Flow
-    OS_LISTENER -->|"Raw Messages"| OS_PROCESSOR
-    OS_PROCESSOR -->|"Batch Bundles"| OS_ARCHIVER
-    OS_PROCESSOR -->|"Telemetry Stream"| SIG_INGEST
+    %% Ingestion Processing Flow
+    INGEST_LISTENER -->|"Raw Messages"| INGEST_PROCESSOR
+    INGEST_PROCESSOR -->|"Batch Bundles"| INGEST_ARCHIVER
+    INGEST_PROCESSOR -->|"Telemetry Stream"| SIG_INGEST
 
     %% SPIRE Security Flow
     SPIRE_SRV -->|"Issue X.509 SVIDs"| SPIRE_AGT
@@ -299,7 +299,7 @@ The storage architecture is designed to handle high-throughput columnar ingestio
 | **Relational State Disk** | Azure Premium SSD v2 | `fe-signalloom` (PostgreSQL) | 3 ms latency, scalable IOPS & throughput | Metadata, RBAC policies, and user state |
 | **Hot Object Storage** | Azure Blob Storage (Hot Tier, ADLS Gen2) | `fe-signalloom` (FrostDB) | High throughput, multi-GB/s read for Parquet queries | Asynchronous Parquet segment spillover from FrostDB |
 | **Cool / Cold Object Storage** | Azure Blob Storage (Cool Tier) | `fe-signalloom` (FrostDB) | Cost-optimized analytical storage | Automated lifecycle compaction for historical metrics > 30 days |
-| **Immutable WORM Storage** | Azure Immutable Blob Storage (WORM) | `d2-osramp-apps` & `fe-signalloom` | Strict legal hold & time-based retention policy (WORM) | Tamper-proof OSRAMP audit logs and evidence dossiers |
+| **Immutable WORM Storage** | Azure Immutable Blob Storage (WORM) | `fe-signalloom-ingest` & `fe-signalloom` | Strict legal hold & time-based retention policy (WORM) | Tamper-proof audit logs and evidence dossiers |
 
 ### 2.6 Cloud Telemetry Ingestion Pipeline (`azureaudit`)
 
@@ -415,12 +415,12 @@ The platform strictly implements the standard nine-namespace architecture:
   - `signal-ingest`: High-throughput Go stream ingestion sink hosting the `azureaudit` collector, CEL policy evaluation pipeline, and memory staging buffers.
   - `frostdb`: Columnar Arrow/Parquet analytical database writing active chunks to Azure Ultra SSD and asynchronously flushing compressed Parquet segments to Azure Blob Storage Hot/Cool tiers.
 
-### 4.6 `d2-osramp-apps`
-- **Role:** OSRAMP ingestion and compliance packaging pipeline.
+### 4.6 `fe-signalloom-ingest`
+- **Role:** Ingestion and compliance packaging pipeline.
 - **Components:**
-  - `osramp-listener`: High-throughput message and webhook receiver.
-  - `osramp-processor`: Stream filtering, JSON schema validation, and event deduplication.
-  - `osramp-archiver`: Packages verified audit records into signed archive bundles and pushes directly to Azure Immutable Blob Storage (WORM container).
+  - `ingest-listener`: High-throughput message and webhook receiver.
+  - `ingest-processor`: Stream filtering, JSON schema validation, and event deduplication.
+  - `evidence-archiver`: Packages verified audit records into signed archive bundles and pushes directly to Azure Immutable Blob Storage (WORM container).
 
 ### 4.7 `agent-trust-platform` & `kagent`
 - **Role:** Autonomous AI agent execution, sandboxing, and governance.
@@ -580,7 +580,7 @@ spec:
 | `flux-system` | GitOps & OCI Gatekeeper | `id-flux-cosign` | Azure Key Vault Managed HSM, ACR | Ephemeral |
 | `inf-bao` | OpenBao Vault & SPIRE CA | `id-openbao-unseal` | Azure Key Vault Managed HSM | Azure Ultra SSD (Raft Log) |
 | `fe-signalloom` | Dashboard, API, Ingest, FrostDB | `id-frostdb-storage`, `id-azureaudit-collector` | Event Hubs, Azure Blob (Hot/Cool), Azure Monitor | Azure Ultra SSD (WAL), Premium SSD v2 (PostgreSQL) |
-| `d2-osramp-apps` | OSRAMP Ingest & Packaging | `id-osramp-archiver` | Azure Immutable Blob Storage (WORM) | Premium SSD v2 |
+| `fe-signalloom-ingest` | Evidence Ingest & Packaging | `id-evidence-archiver` | Azure Immutable Blob Storage (WORM) | Premium SSD v2 |
 | `agent-trust-platform` & `kagent` | Declarative Agents & Sandboxes | `id-cpai-proxy` | Azure OpenAI Service (Private Link) | Ephemeral (Sandboxes) |
 | `kubesec-afm` | Formal RBAC Z3 Analysis | None (In-Cluster) | In-Cluster API & Dex | Ephemeral |
 | `monitoring` | Prometheus & Log Analytics | `id-azure-monitor` | Azure Monitor Managed Prometheus, Log Analytics | Premium SSD v2 |

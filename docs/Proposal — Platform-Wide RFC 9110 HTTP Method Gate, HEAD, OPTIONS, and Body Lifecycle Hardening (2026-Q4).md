@@ -5,11 +5,11 @@
 | **Date** | 2026-10-13 |
 | **Status** | Delivered |
 | **Branch** | `integration/slsi-v0.1.0` |
-| **Scope** | `d2-signalloom`, `d2-agent-trust`, `d2-osramp-apps`, `d2-cpai`, `olly-replica`, `tools/harness-dash`, `test` |
+| **Scope** | `d2-signalloom`, `d2-agent-trust`, `d2-platform-apps`, `d2-cpai`, `olly-replica`, `tools/harness-dash`, `test` |
 
 ## 1. Context and problem statement
 
-Signal Loom, OSRAMP, Agent Trust, CPAI, and Olly Sentinel expose HTTP services across Go, Python, and TypeScript runtimes.
+Signal Loom, Agent Trust, CPAI, and Olly Sentinel expose HTTP services across Go, Python, and TypeScript runtimes.
 Before this hardening wave, multiple services and test harnesses handled HTTP methods, headers, and request streams inconsistently.
 Adversarial testing and protocol audits identified five systemic classes of defects across the platform.
 
@@ -79,7 +79,7 @@ The table below summarizes the hardened slices, services, and key changes.
 | `d2-signalloom/apps/netassert-controller` & `d2-signalloom/proof-helper` | Network assertion controller and proof helper | Enabled socket reuse, bounded controller body draining, added `/livez` and `/readyz` probe parity, and enforced `HEAD`/`OPTIONS`/`Allow` headers. |
 | `d2-signalloom/apps/agentmaxxing-host-sensor` | Workstation host sensor | Hardened cgroup path traversal checks, `openat2` relative path validation, pseudonym epoch bounds, and rate-limit token bucket scalar validation. |
 | `d2-agent-trust` | SPIFFE A2A receiver, `spire_workload_api`, `fake-integration-proxy`, netassert runner | Enabled HTTP/1.1 keep-alive persistence, rejected `TE.CL` framing desync with `400 Bad Request`, bounded chunk/trailer reads, enforced JWT timestamp bounds, and added `HEAD`/`OPTIONS`/`Allow` parity. |
-| `d2-osramp-apps` | `listener`, `processor`, and `archiver` | Sanitized task identifiers against path traversal and shell wildcards, streamed large SBOM payloads without `E2BIG` truncation, purged demo database defaults, and hardened HTTP chunk framing. |
+| `d2-platform-apps` | `listener`, `processor`, and `archiver` | Sanitized task identifiers against path traversal and shell wildcards, streamed large SBOM payloads without `E2BIG` truncation, purged demo database defaults, and hardened HTTP chunk framing. |
 | `d2-cpai` | CPAI runtime proxy and contract suite | Externalized GCP project configuration, enforced dynamic session attributes, drained chunked bodies, and aligned `HEAD`/`OPTIONS`/`Allow` semantics. |
 | `olly-replica` | Olly Sentinel A2A app, `olly-authz`, `elk-search-mcp`, `tenant-app`, `mapping-stub` | Enabled HTTP/1.1 persistent connections, rejected malformed chunk framing, decoupled staging/production/Grafana secrets, verified JWT algorithms, and enforced `HEAD`/`OPTIONS`/`Allow` parity. |
 | `tools/harness-dash` & `test/acceptance/harness` | Harness dashboard, Jev SPA server, user-surface stub, A2A conformance, SLSI mocks | Eliminated chunk delimiter `readline` deadlocks, suppressed `HEAD` error bodies, added `OPTIONS` and `Allow` parity, and prevented test socket descriptor leaks. |

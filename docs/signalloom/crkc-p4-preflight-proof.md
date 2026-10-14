@@ -69,7 +69,7 @@ All core infrastructure and active workloads report healthy states:
 - `fe-signalloom`: Signal Loom Dashboard, Fleet Manager, Signal Ingest, Supercred Runner (All Running).
 - `inf-bao`: OpenBao, SPIRE server (2/2 Running), SPIRE agent (1/1 Running).
 - `kagent`: Kagent controller, PostgreSQL, Tools server, UI (All Running).
-- `frontend`: OSRAMP archiver, multipurpose, purl services (All Running).
+- `frontend`: Signal Loom archiver, multipurpose, purl services (All Running).
 
 ---
 

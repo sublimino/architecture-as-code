@@ -33,7 +33,7 @@ re-litigate it:
 
 Every row above records what the **hub** settled, not what this repo deploys.
 One has since diverged here: ADR-0003's Kyverno CEL `ValidatingPolicy` is the
-hub's engine, but OSRAMP's own admission path is native CEL
+hub's engine, but Signal Loom's own admission path is native CEL
 `ValidatingAdmissionPolicy` with no controller (OSD-7, 2026-10-12). The hub
 decision is left stated as a hub decision; it is not a description of this
 repo.
@@ -188,11 +188,11 @@ service, no new datastore — the console shells out exactly as it does for the 
 
 ### 3.5 Provenance
 
-Every artefact under `risk/` is a file in git, so it inherits the estate's existing signing story
-unchanged: gitsign-keyless commits, Witness attestation of the generating step, Archivista as the
-queryable record. When the war-gamer arrives (phase 4) its PRs are signed the same way, and
-`actor: war-gamer[bot], from: <feed>@<version>, verdict: signed` is answerable from the same
-transparency log the rest of the estate already uses.
+Every artefact under `risk/` is a file in git. It inherits gitsign-keyless commits plus local
+Witness attestation of the generating step. CI retains the DSSE
+envelope, signed policy, public trust material, fingerprints, and rejection diagnostics as workflow
+artifacts. When the war-gamer arrives (phase 4), its PRs use the same signing path. No external
+evidence service becomes an active dependency.
 
 ---
 

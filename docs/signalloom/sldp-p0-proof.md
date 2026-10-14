@@ -64,7 +64,7 @@ The results below are machine-captured summaries of commands executed during P0.
 
 | Command | Exit | Measured evidence | Coverage statement |
 |---|---:|---|---|
-| `make test` | 0 | Completed in 12.11 seconds; eight TAP tests reported `ok`. | OSRAMP running-cluster baseline only. It does not prove SLDP privacy behavior. A wrapper comment contained the word “skips”; no skipped TAP result was observed. |
+| `make test` | 0 | Completed in 12.11 seconds; eight TAP tests reported `ok`. | Signal Loom running-cluster baseline only. It does not prove SLDP privacy behavior. A wrapper comment contained the word “skips”; no skipped TAP result was observed. |
 | `make test-signal-ingest` | 0 | Completed in 18.12 seconds; 19 Go packages reported `ok`, zero package failures. Target uses `-count=1`. | Exercises signal-ingest unit/integration packages. The default command does not compile the `frostdb` build-tag factory. |
 | `make demo-signalloom-api-test TIER=contract` | 0 | 56 tests passed, one warning, in 1.39 seconds. | Hermetic Tier-1 FastAPI contract and migration tests; no live PostgreSQL tenant-isolation proof. |
 | `bats test/acceptance-spec-coverage.bats` | 0 | 7 tests passed, zero failed, zero skipped. | Proves registry completeness and consistency, including explicit `unwired` classifications; it does not prove every spec is executable or run browser behavior. |
@@ -73,7 +73,7 @@ The results below are machine-captured summaries of commands executed during P0.
 
 ### False-green controls
 
-- `make test` targets the OSRAMP application suite (`Makefile:461-466`), not SLDP controls.
+- `make test` targets the Signal Loom application suite (`Makefile:461-466`), not SLDP controls.
 - `make test-signal-ingest` is defined at `Makefile:566-570` and omits `-tags frostdb`.
 - Contract tier selection is defined at `Makefile:812-813` and `scripts/signalloom-api-test.sh:1-40`; fixtures cannot prove database RLS.
 - Acceptance-spec coverage checks registry wiring; Playwright can otherwise silently ignore unclaimed specs.

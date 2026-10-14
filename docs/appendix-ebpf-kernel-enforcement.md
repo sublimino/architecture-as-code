@@ -2,7 +2,7 @@
 
 > **Author:** Andy Martin, ControlPlane  
 > **Date:** 2026-08-28  
-> **Status:** Research appendix for OSRAMP / Signal Loom  
+> **Status:** Research appendix for Signal Loom  
 > **Parent proposal:** [[Proposal — Secure Agent Swarm Architecture, OpenBao SPIFFE Registration, and Signal Loom Auto-Claim Demo Fleet [Claude Sonnet 4 / OpenCode CPAI] (2026-Q3)]]  
 > **Audience:** CTO-level; assumes familiarity with eBPF, cgroups v2, Linux security modules, and Kubernetes internals
 

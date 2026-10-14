@@ -41,7 +41,7 @@ aliases:
 
 **ControlPlane announces SLAAT: Whole-System Autonomous Adversarial Testing for Signal Loom**
 
-ControlPlane introduces SLAAT (Signal Loom Autonomous Adversarial Testing). This framework executes systematic adversarial verification across the entire OSRAMP and Signal Loom platform. SLAAT probes five attack surfaces: Ingress gateway routing, backend API token boundaries, SPIFFE workload identities, OpenBao secrets access, and kernel agent sandboxing. SLAAT runs in three distinct stages: whole-system adversarial probing, a fail/fix remediation stage, and a final re-test verification pass. The result gives operators provable confidence in platform isolation and tenant safety.
+ControlPlane introduces SLAAT (Signal Loom Autonomous Adversarial Testing). This framework executes systematic adversarial verification across the entire Signal Loom platform. SLAAT probes five attack surfaces: Ingress gateway routing, backend API token boundaries, SPIFFE workload identities, OpenBao secrets access, and kernel agent sandboxing. SLAAT runs in three distinct stages: whole-system adversarial probing, a fail/fix remediation stage, and a final re-test verification pass. The result gives operators provable confidence in platform isolation and tenant safety.
 
 ## Proposal Overview
 
@@ -59,7 +59,7 @@ ControlPlane introduces SLAAT (Signal Loom Autonomous Adversarial Testing). This
 
 **Key Customers (if relevant):**
 
-Regulated enterprises, financial services institutions, and security auditors who evaluate Signal Loom and OSRAMP for AI agent governance.
+Regulated enterprises, financial services institutions, and security auditors who evaluate Signal Loom for AI agent governance.
 
 |  |  |
 | :---- | :---- |

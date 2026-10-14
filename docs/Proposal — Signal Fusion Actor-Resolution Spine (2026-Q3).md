@@ -172,7 +172,7 @@ The MVP is deliberately narrow: **replace the brittle `correlationKey()` heurist
 | Opportunities | Threats |
 | :---- | :---- |
 | The defensible wedge for the whole Signal Loom platform; maps to EU AI Act / DORA | Standards churn (A2A/MCP/OCSF identity fields) forces adapter rework |
-| Design-partner pull-through from OSRAMP / FINOS relationships | A single false-merge in a demo destroys the trust the product is selling |
+| Design-partner pull-through from FINOS relationships | A single false-merge in a demo destroys the trust the product is selling |
 
 ## Milestones and Deliverables
 

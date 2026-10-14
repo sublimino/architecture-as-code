@@ -1,4 +1,4 @@
-# Unified Metrics Design — OSRAMP/SignalLoom
+# Unified Metrics Design — Signal Loom
 
 > Proposed by sensai based on operational experience as overnight STUN supervisor.
 > ISA: `~/.claude/PAI/MEMORY/WORK/20260831-osramp-unified-metrics/ISA.md`

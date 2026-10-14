@@ -31,7 +31,6 @@ onboarding pages.
 | Shared foundation | `README.md`, `AGENTS.md`, `TESTING.md` | Corrected lifecycle, workflow, prerequisite, and test-registry claims. |
 | Human navigation | `docs/README.md` | Added user-service, audit, style, collaborator, and proposal routes. |
 | Signal Loom | `d2-signalloom/AGENTS.md` | Added docs ownership and corrected Fleet Manager deployment guidance. |
-| OSRAMP apps | `d2-osramp-apps/AGENTS.md` | Entry point exists; no conflicting docs-service claim found. |
 | KubeSec-AFM | `d2-k8s-afm/AGENTS.md` | Entry point exists; external checkout prerequisite remains visible. |
 | Fleet | `d2-osramp-fleet/AGENTS.md` | Entry point exists; Flux ownership remains explicit. |
 | Infrastructure | `d2-infra/README.md` | Added the omitted Trivy Operator component. |

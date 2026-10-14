@@ -233,7 +233,7 @@ Reproduced from `docs/signalloom/sldp-p0-boundary-map.md` § Personal-data stora
 | Segment evidence directory (DSSE) | Implemented; inactive unless attestation enabled | Segment path, digest, size, signer identity, checkpoint chain, signed envelopes | Immutable; linkable metadata may survive source pseudonymisation |
 | Segment protected high-water file | As above | Sequence, journal size, evidence counts, segment inventory | Rollback-detection state; mode-0600 atomic replace |
 | Audit-anchor output + verifier | CLI capability; no deployed scheduler found | Tenant scope, time window, row count, chained hashes, Merkle root, DSSE envelope | Raw rows not embedded |
-| Archivista | Optional; no Signal Loom URL configured | DSSE envelopes (hashes and metadata) | Immutable by design |
+| CI-retained local Witness evidence | Active only for attested workflow runs | DSSE envelopes, signed policies, public keys, and rejection diagnostics | Workflow artifact retention; customer-controlled lifecycle |
 | Rekor | **Not implemented** — publication actively rejected | No current copy | Treat future publication as a new sink requiring re-assessment |
 | Kubernetes-audit receiver channel | Active when receiver runs; process-local | Normalised principal, impersonated user, object names, namespace, URI, user agent, labels | Process-local |
 | Segment-attestor queues | Inactive unless attestation enabled; process-local | Segment path, digest, byte count, errors | Process-local |

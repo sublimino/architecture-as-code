@@ -1,0 +1,60 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "Signal Loom dashboard release configuration overlay",
+  "documentNamespace": "https://controlplane.io/spdx/config-overlay/902bbb9240760291578ae84222a36fbc106ac4dcac949a15fb02db13e899c1d9",
+  "creationInfo": {
+    "created": "2026-10-14T10:54:32Z",
+    "creators": ["Tool: CPAI-Flux-configuration-overlay"]
+  },
+  "documentComment": "Overlay-level inventory. Unmodified contents are inherited from the signed base OCI artifact; this is not a new application dependency scan.",
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-ConfigOverlay",
+      "name": "fe-signalloom-config-overlay",
+      "versionInfo": "sha256:902bbb9240760291578ae84222a36fbc106ac4dcac949a15fb02db13e899c1d9",
+      "downloadLocation": "oci://zot.registry.svc.cluster.local:5000/acme/signalloom/apps/fe-signalloom@sha256:902bbb9240760291578ae84222a36fbc106ac4dcac949a15fb02db13e899c1d9",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-SignedBaseConfig",
+      "name": "fe-signalloom-signed-base-config",
+      "versionInfo": "sha256:893d1635138f2cf20b6b4659359bde06dfef910018690bcbdb488fd51cf721d1",
+      "downloadLocation": "oci://zot.registry.svc.cluster.local:5000/acme/signalloom/apps/fe-signalloom@sha256:893d1635138f2cf20b6b4659359bde06dfef910018690bcbdb488fd51cf721d1",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-VerifiedDashboardImage",
+      "name": "dashboard-signalloom-design-system-bc4a06502",
+      "versionInfo": "sha256:1d7104908f49122db75017d215e9cf8f273b402946231019171e628906f4fde0",
+      "downloadLocation": "oci://zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom@sha256:1d7104908f49122db75017d215e9cf8f273b402946231019171e628906f4fde0",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    }
+  ],
+  "files": [
+    {
+      "SPDXID": "SPDXRef-ReleasePinFile",
+      "fileName": "./fe-signalloom/local/kustomization.yaml",
+      "checksums": [{"algorithm": "SHA256", "checksumValue": "77c0b13e49570af2cd39307b900189b9045729365d1e35a165b107c2d5bc4c98"}],
+      "licenseConcluded": "NOASSERTION",
+      "licenseInfoInFiles": ["NOASSERTION"],
+      "copyrightText": "NOASSERTION"
+    }
+  ],
+  "relationships": [
+    {"spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": "SPDXRef-ConfigOverlay"},
+    {"spdxElementId": "SPDXRef-ConfigOverlay", "relationshipType": "GENERATED_FROM", "relatedSpdxElement": "SPDXRef-SignedBaseConfig"},
+    {"spdxElementId": "SPDXRef-ConfigOverlay", "relationshipType": "CONTAINS", "relatedSpdxElement": "SPDXRef-ReleasePinFile"},
+    {"spdxElementId": "SPDXRef-ConfigOverlay", "relationshipType": "DEPENDS_ON", "relatedSpdxElement": "SPDXRef-VerifiedDashboardImage"}
+  ]
+}

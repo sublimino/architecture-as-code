@@ -1,0 +1,35 @@
+{
+  "buildDefinition": {
+    "buildType": "https://controlplane.io/buildtypes/flux-config-overlay/v1",
+    "externalParameters": {
+      "changedFile": "fe-signalloom/local/kustomization.yaml",
+      "pinSourceCommit": "1f937ba51d0239cf8db2f51c61e13708f0ac1d8d",
+      "dashboardImage": "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:design-system-bc4a06502",
+      "description": "One-file configuration overlay on the existing signed OCI artifact, not a rebuild of its application source from a Git checkout."
+    },
+    "internalParameters": {
+      "unchangedOtherFiles": 64275,
+      "unchangedOtherBytes": 1449524386,
+      "unchangedTreeSha256": "b353b95aeb7db7bc1ded6a54e34a247c746078f75890a14cbf856bcf4eb571d9",
+      "roundTripVerification": true
+    },
+    "resolvedDependencies": [
+      {
+        "uri": "oci://zot.registry.svc.cluster.local:5000/acme/signalloom/apps/fe-signalloom",
+        "digest": {"sha256": "893d1635138f2cf20b6b4659359bde06dfef910018690bcbdb488fd51cf721d1"}
+      },
+      {
+        "uri": "git+file:///home/andy/src/cp/osramp-demo/d2-signalloom/apps/fe-signalloom/local/kustomization.yaml@1f937ba51d0239cf8db2f51c61e13708f0ac1d8d",
+        "digest": {"sha256": "77c0b13e49570af2cd39307b900189b9045729365d1e35a165b107c2d5bc4c98"}
+      },
+      {
+        "uri": "oci://zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom",
+        "digest": {"sha256": "1d7104908f49122db75017d215e9cf8f273b402946231019171e628906f4fde0"}
+      }
+    ]
+  },
+  "runDetails": {
+    "builder": {"id": "https://controlplane.io/cpai/local-config-overlay"},
+    "metadata": {"invocationId": "ses_ec8df0bddffecEDLV6nqAHmTRo-config-pin"}
+  }
+}

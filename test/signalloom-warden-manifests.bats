@@ -93,13 +93,13 @@ setup() {
     } | LC_ALL=C sort -u
   )"
 
-  # Assert the 10 required identity-bearing objects exist
+  # Assert the required identity-bearing objects exist
   local required_objects=(
-    "ConfigMap/fe-signalloom-agents/signalloom-warden-config"
-    "DaemonSet/fe-signalloom-agents/signalloom-warden"
+    "ConfigMap/inf-signalloom-warden/signalloom-warden-config"
+    "DaemonSet/inf-signalloom-warden/signalloom-warden"
     "Role/fe-signalloom-agents/signalloom-warden"
     "RoleBinding/fe-signalloom-agents/signalloom-warden"
-    "ServiceAccount/fe-signalloom-agents/signalloom-warden"
+    "ServiceAccount/inf-signalloom-warden/signalloom-warden"
     "Kustomization/fe-signalloom-agents/agent-signalloom-warden"
   )
 
@@ -208,7 +208,7 @@ setup() {
 
   # 2. RoleBinding roleRef and subjects resolve to Role and SA in base/swarm render
   local rb_role rb_subject role_name
-  role_name="$(yq -r 'select(.kind == "Role" and .metadata.name == "signalloom-warden") | .metadata.name' "${TMP_SWARM}" "${TMP_BASE}")"
+  role_name="$(yq -r 'select(.kind == "Role" and .metadata.name == "signalloom-warden") | .metadata.name' "${TMP_SWARM}" "${TMP_BASE}" | head -n1)"
   rb_role="$(yq -r 'select(.kind == "RoleBinding" and .metadata.name == "signalloom-warden") | .roleRef.name' "${TMP_BASE}")"
   rb_subject="$(yq -r 'select(.kind == "RoleBinding" and .metadata.name == "signalloom-warden") | .subjects[0].name' "${TMP_BASE}")"
   [ "${role_name}" = "signalloom-warden" ]
@@ -338,9 +338,9 @@ env_value() {
   # -o=json, because the two files write the same rules in different YAML
   # styles (flow sequences in one, block in the other) and a text compare of
   # the YAML would fail on formatting rather than on privilege.
-  central="$(yq -o=json -r 'select(.kind == "Role" and .metadata.name == "signalloom-warden") | .rules' \
+  central="$(yq -o=json -r 'select(.kind == "Role" and .metadata.name == "signalloom-warden" and .metadata.namespace == "fe-signalloom-agents") | .rules' \
     "${SWARM_BASE}/ebpf-sentinel-rbac.yaml")"
-  overlay="$(yq -o=json -r 'select(.kind == "Role" and .metadata.name == "signalloom-warden") | .rules' "${out}")"
+  overlay="$(yq -o=json -r 'select(.kind == "Role" and .metadata.name == "signalloom-warden" and .metadata.namespace == "fe-signalloom-agents") | .rules' "${out}")"
   [ -n "${central}" ]
   [ "${overlay}" = "${central}" ]
 }

@@ -34,6 +34,7 @@ var DefaultExcludedNamespaces = []string{
 	"cert-manager",
 	"envoy-gateway-system",
 	"inf-signalloom",
+	"inf-signalloom-warden",
 }
 
 const (

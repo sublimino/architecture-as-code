@@ -223,8 +223,12 @@ live_call() {
 
 live_probe_key_hdr() { # writes the probe's real key, from its Secret, into a header file
     local k
-    k="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents get secret signalloom-warden-ingest-token \
+    k="$(kubectl --context "${WL_CONTEXT}" -n inf-signalloom-warden get secret signalloom-warden-ingest-token \
         -o 'jsonpath={.data.token}' 2>/dev/null | base64 -d || true)"
+    if [ -z "$k" ]; then
+        k="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents get secret signalloom-warden-ingest-token \
+            -o 'jsonpath={.data.token}' 2>/dev/null | base64 -d || true)"
+    fi
     if [ -z "$k" ]; then
         k="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents get secret stun-sentinel-ingest-token \
             -o 'jsonpath={.data.token}' 2>/dev/null | base64 -d || true)"
@@ -257,10 +261,10 @@ teardown() {
 
 @test "live: the probe posts to its own cluster's signal-ingest, with its key from a Secret" {
     live_or_skip
-    local ds; ds="$(kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents get ds signalloom-warden -o json 2>/dev/null || kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents get ds stun-sentinel -o json)"
+    local ds; ds="$(kubectl --context "${WL_CONTEXT}" -n inf-signalloom-warden get ds signalloom-warden -o json 2>/dev/null || kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents get ds signalloom-warden -o json 2>/dev/null || kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents get ds stun-sentinel -o json)"
     local sname; sname="$(jq -r '.spec.template.spec.containers[0].env[] | select(.name=="SIGNAL_INGEST_TOKEN") | .valueFrom.secretKeyRef.name' <<<"$ds")"
     [[ "$sname" == "signalloom-warden-ingest-token" || "$sname" == "stun-sentinel-ingest-token" ]]
-    run bash -c "kubectl --context '${WL_CONTEXT}' -n fe-signalloom-agents get cm signalloom-warden-config -o 'jsonpath={.data.SIGNAL_INGEST_URL}' 2>/dev/null || kubectl --context '${WL_CONTEXT}' -n fe-signalloom-agents get cm stun-sentinel-config -o 'jsonpath={.data.SIGNAL_INGEST_URL}'"
+    run bash -c "kubectl --context '${WL_CONTEXT}' -n inf-signalloom-warden get cm signalloom-warden-config -o 'jsonpath={.data.SIGNAL_INGEST_URL}' 2>/dev/null || kubectl --context '${WL_CONTEXT}' -n fe-signalloom-agents get cm signalloom-warden-config -o 'jsonpath={.data.SIGNAL_INGEST_URL}' 2>/dev/null || kubectl --context '${WL_CONTEXT}' -n fe-signalloom-agents get cm stun-sentinel-config -o 'jsonpath={.data.SIGNAL_INGEST_URL}'"
     [ "$output" = "http://signal-ingest.fe-signalloom.svc.cluster.local:8082" ]
 }
 
@@ -286,7 +290,7 @@ teardown() {
 
 @test "live: the running probe holds its key and is posting with it" {
     live_or_skip
-    run bash -c "kubectl --context '${WL_CONTEXT}' -n fe-signalloom-agents logs ds/signalloom-warden --since=24h 2>/dev/null || kubectl --context '${WL_CONTEXT}' -n fe-signalloom-agents logs ds/stun-sentinel --since=24h"
+    run bash -c "kubectl --context '${WL_CONTEXT}' -n inf-signalloom-warden logs ds/signalloom-warden --since=24h 2>/dev/null || kubectl --context '${WL_CONTEXT}' -n fe-signalloom-agents logs ds/signalloom-warden --since=24h 2>/dev/null || kubectl --context '${WL_CONTEXT}' -n fe-signalloom-agents logs ds/stun-sentinel --since=24h"
     [ "$status" -eq 0 ]
     printf '%s' "$output" >"${BATS_TEST_TMPDIR}/sentinel.log"
     absent '"event":"ingest_token_missing"' "${BATS_TEST_TMPDIR}/sentinel.log"
@@ -338,7 +342,7 @@ teardown() {
     # The spool's replay counter before the partition (test/lib/spool-replay.sh):
     # the latest stats line is the counter's value now, since lines are emitted
     # only on change.
-    warden_stats() { kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents logs ds/signalloom-warden --since=20m 2>/dev/null; }
+    warden_stats() { kubectl --context "${WL_CONTEXT}" -n inf-signalloom-warden logs ds/signalloom-warden --since=20m 2>/dev/null || kubectl --context "${WL_CONTEXT}" -n fe-signalloom-agents logs ds/signalloom-warden --since=20m 2>/dev/null; }
     local replay_base
     replay_base="$(warden_stats | spool_replayed_latest)" || { echo "no warden stats line to baseline the spool"; return 1; }
 

@@ -72,7 +72,7 @@ swarm_yaml() {
   sa="$(yq -r '.spec.template.spec.serviceAccountName' "$ds")"
   ns="$(yq -r '.metadata.namespace' "$ds")"
   [ "$sa" = "signalloom-warden" ]
-  [ "$ns" = "fe-signalloom-agents" ]
+  [ "$ns" = "inf-signalloom-warden" ]
   subjects="$(while read -r f; do yq -r '
     select(.kind == "RoleBinding" or .kind == "ClusterRoleBinding")
     | select(

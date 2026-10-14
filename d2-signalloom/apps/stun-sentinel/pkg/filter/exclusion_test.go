@@ -107,7 +107,7 @@ func TestSelfPodExclusion(t *testing.T) {
 func TestInfrastructureNamespaceExclusion(t *testing.T) {
 	var audit []string
 	f := newTestFilter(&audit)
-	for _, ns := range []string{"kube-system", "spire", "flux-system", "cert-manager", "envoy-gateway-system", "inf-signalloom"} {
+	for _, ns := range []string{"kube-system", "spire", "flux-system", "cert-manager", "envoy-gateway-system", "inf-signalloom", "inf-signalloom-warden"} {
 		p := pod(ns, "victim", "uid-"+ns, corev1.PodRunning, nil)
 		if !f.IsExcludedPod(p) {
 			t.Errorf("namespace %s must be excluded", ns)
@@ -116,8 +116,8 @@ func TestInfrastructureNamespaceExclusion(t *testing.T) {
 			t.Errorf("%s: CheckFreezable = %v, want ErrExcluded", ns, err)
 		}
 	}
-	if got := len(audit); got != 12 {
-		t.Errorf("audit lines = %d, want 12 (one per evaluation, IsExcludedPod and CheckFreezable)", got)
+	if got := len(audit); got != 14 {
+		t.Errorf("audit lines = %d, want 14 (one per evaluation, IsExcludedPod and CheckFreezable)", got)
 	}
 	if !strings.Contains(audit[0], "audit: stun-sentinel skip pod=kube-system/victim") ||
 		!strings.Contains(audit[0], "reason=infrastructure-namespace") {

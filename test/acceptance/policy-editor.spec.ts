@@ -143,14 +143,24 @@ test.describe("Surfaces 7 & 8: Policy-as-Code Editor & Compliance Posture (Deskt
     await expect(page.getByText(/NIS2/i).first()).toBeVisible();
   });
 
-  test("filters out stun-sentinel observations on /signals?excludeSentinel=true", async ({ page }) => {
-    await page.goto(`${BASE}/signals?excludeSentinel=true`, { waitUntil: "domcontentloaded" });
+  // AJM 2026-10-14: the sentinel toggle hides the sentinel's own housekeeping
+  // streams (per-connection socket trace, telemetry-gap detector), never its
+  // detections. Prove both halves against the live feed: housekeeping rows that
+  // are present without the toggle disappear with it.
+  test("excludeSentinel hides sentinel housekeeping streams on /signals", async ({ page }) => {
+    const housekeeping = /socket_trace|gap_detector/;
+    const feedText = async (query: string) => {
+      await page.goto(`${BASE}/signals${query}`, { waitUntil: "domcontentloaded" });
+      const feed = page.getByTestId("observation-feed");
+      await expect(feed).toBeVisible({ timeout: 15_000 });
+      return feed.innerText();
+    };
 
-    // The feed should not contain stun-sentinel
-    const feed = page.getByTestId("observation-feed");
-    await expect(feed).toBeVisible({ timeout: 15_000 });
-    const feedText = await feed.innerText();
-    expect(feedText).not.toContain("stun-sentinel");
+    const unfiltered = await feedText("");
+    expect(unfiltered, "no sentinel housekeeping rows in the live feed, so the toggle cannot be tested").toMatch(housekeeping);
+
+    const filtered = await feedText("?excludeSentinel=true");
+    expect(filtered).not.toMatch(housekeeping);
   });
 
   test("policy and compliance pages contain zero em-dashes across rendered DOM", async ({ page }) => {

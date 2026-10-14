@@ -1,61 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Link, useInRouterContext } from 'react-router-dom'
 import StatusBadge from './StatusBadge'
-
-function SafeLink({
-  to,
-  children,
-  ...props
-}: {
-  to: string
-  children: React.ReactNode
-  [key: string]: unknown
-}) {
-  const inRouter = useInRouterContext()
-  if (inRouter) {
-    return (
-      <Link to={to} {...props}>
-        {children}
-      </Link>
-    )
-  }
-  return (
-    <a href={to} {...props}>
-      {children}
-    </a>
-  )
-}
-
-/**
- * Maps synthetic database UUIDs or internal IDs (like "c0000000-0000-0000-0000-000000000002")
- * to standardized human-readable regulatory control citations (e.g. "EU-AI-ACT-ART-14", "CIS-5.2.6", "SOC2-CC6.1").
- */
-export function sanitizeControlId(id?: string, name?: string, framework?: string): string {
-  if (!id && !name) return 'CONTROL-GENERIC'
-  const isSyntheticUuid = id && /^c[0-9a-f]{7}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
-
-  if (name) {
-    const lower = name.toLowerCase()
-    if (lower.includes('root') || lower.includes('non-root')) return 'CIS-5.2.6'
-    if (lower.includes('privilege') || lower.includes('escalation')) return 'CIS-5.2.5'
-    if (lower.includes('human oversight') || lower.includes('art. 14') || lower.includes('art-14')) return 'EU-AI-ACT-ART-14'
-    if (lower.includes('risk management') || lower.includes('art. 9') || lower.includes('art-9')) return 'EU-AI-ACT-ART-9'
-    if (lower.includes('data provenance') || lower.includes('art. 10') || lower.includes('art-10')) return 'EU-AI-ACT-ART-10'
-    if (lower.includes('audit') || lower.includes('tamper') || lower.includes('art. 12') || lower.includes('art-12')) return 'EU-AI-ACT-ART-12'
-    if (lower.includes('model card') || lower.includes('transparency') || lower.includes('art. 13') || lower.includes('art-13')) return 'EU-AI-ACT-ART-13'
-    if (lower.includes('cybersecurity') || lower.includes('guardrail') || lower.includes('art. 15') || lower.includes('art-15')) return 'EU-AI-ACT-ART-15'
-    if (lower.includes('access control') || lower.includes('cc-1') || lower.includes('cc1')) return 'SOC2-CC6.1'
-    if (lower.includes('change management') || lower.includes('cc-2') || lower.includes('cc2')) return 'SOC2-CC8.1'
-  }
-
-  if (isSyntheticUuid) {
-    const num = parseInt(id!.slice(-2), 16) || 1
-    const fwPrefix = (framework || 'COMPLIANCE').toUpperCase().replace(/[^A-Z0-9]/g, '-').slice(0, 10)
-    return `${fwPrefix}-CTRL-${num}`
-  }
-
-  return id || 'CONTROL-STANDARD'
-}
 
 export interface ComplianceCheckDetail {
   checkId?: string
@@ -141,7 +85,6 @@ export function calculateEffectivePostureScore(
 export default function ComplianceDrawer({ open, item, onClose }: ComplianceDrawerProps) {
   const [copied, setCopied] = useState(false)
   const [jsonExpanded, setJsonExpanded] = useState(true)
-  const [jsonFormat, setJsonFormat] = useState<'intoto' | 'summary' | 'dsse'>('intoto')
   const drawerRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLElement | null>(null)
 
@@ -198,138 +141,52 @@ export default function ComplianceDrawer({ open, item, onClose }: ComplianceDraw
     }
   }, [open, item, onClose])
 
-  const effectiveScorePct = calculateEffectivePostureScore(
-    item?.postureScore,
-    item?.passedChecks,
-    item?.totalChecks,
-    item?.evidenceHashes ? item.evidenceHashes.length : undefined
-  )
-
-  const effectiveStatus = item?.status || ((item?.failedChecks ?? 0) > 0 ? 'fail' : 'pass')
-  const policyVer = item?.policyVersion || item?.frameworkVersion || 'v2.1.0'
-  const defaultHash = `sha256:${(item?.controlId || item?.frameworkName || 'compliance').toLowerCase().replace(/[^a-z0-9]/g, '')}e982a17f`
-  const hashes = item?.evidenceHashes && item.evidenceHashes.length > 0 ? item.evidenceHashes : [defaultHash]
-
-  const failingChecks = item?.checks?.filter(c => !c.passed) || []
-  const hasFailing = (item?.failedChecks ?? 0) > 0 || failingChecks.length > 0
-  const defaultRemediation = item?.remediation || (hasFailing
-    ? 'Remediate failing checks by applying required CEL policy constraints and re-evaluating workload compliance.'
-    : null)
-
-  const standardAttestation = useMemo(() => {
-    if (!item) return null
-
-    return {
-      _type: 'https://in-toto.io/Statement/v1',
-      subject: [
-        {
-          name: item.agentName
-            ? `spiffe://signalloom.demo/agent/${item.agentName.toLowerCase().replace(/\s+/g, '-')}`
-            : `urn:signalloom:framework:${(item.frameworkId || item.frameworkName || 'compliance').toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
-          digest: {
-            sha256: hashes[0].replace(/^sha256:/, ''),
-          },
-        },
-      ],
-      predicateType: 'https://signalloom.dev/attestation/compliance/v1',
-      predicate: {
-        evaluator: {
-          engine: 'cel',
-          version: 'v0.18.0',
-          policyBundle: policyVer,
-        },
-        framework: {
-          id: item.frameworkId || (item.frameworkName ? item.frameworkName.toLowerCase().replace(/\s+/g, '-') : 'compliance'),
-          name: item.frameworkName,
-          version: item.frameworkVersion || 'v2.1.0',
-          regulatoryBody: item.regulatoryBody || 'Standard Body',
-        },
-        assessment: {
-          status: effectiveStatus,
-          postureScore: effectiveScorePct,
-          totalChecks: item.totalChecks,
-          passedChecks: item.passedChecks,
-          failedChecks: item.failedChecks,
-          pendingChecks: item.pendingChecks ?? 0,
-          evaluatedAt: new Date().toISOString(),
-        },
-        controls: (item.checks || []).map(c => {
-          const canonicalId = sanitizeControlId(c.controlId, c.controlName || c.check, item.frameworkName)
-          const rawEvRef = c.evidenceHash || (c.payload && typeof c.payload === 'object' && 'evidenceRef' in c.payload ? String(c.payload.evidenceRef) : '')
-          const evRef = rawEvRef
-            ? rawEvRef.replace(/^opa:\/\//, 'cel://')
-            : `cel://assessments/${item.agentName ? item.agentName.toLowerCase().replace(/\s+/g, '-') : 'system'}/${canonicalId.toLowerCase()}`
-
-          return {
-            controlId: canonicalId,
-            controlName: c.controlName || c.check,
-            verdict: c.passed ? 'PASS' : 'FAIL',
-            evidenceRef: evRef,
-            remediation: c.remediation || null,
-          }
-        }),
-        attestation: {
-          signedBy: 'witness-signalloom-evaluator',
-          keyId: 'cosign-signalloom-root-2026',
-          signatureAlgorithm: 'ECDSA_P256_SHA256',
-          signedAt: new Date().toISOString(),
-          witnessAttestor: 'attestors/k8s/cel-policy-engine',
-        },
-      },
-    }
-  }, [item, hashes, policyVer, effectiveStatus, effectiveScorePct])
-
   const rawJson = useMemo(() => {
     if (!item) return ''
-
-    if (jsonFormat === 'summary') {
-      const summaryPayload = {
-        framework: item.frameworkName,
-        frameworkId: item.frameworkId,
-        controlId: sanitizeControlId(item.controlId, item.controlName, item.frameworkName),
-        controlName: item.controlName,
-        agentId: item.agentId,
-        agentName: item.agentName,
-        status: item.status,
-        policyVersion: item.policyVersion || item.frameworkVersion || 'v2.1.0',
-        totalChecks: item.totalChecks,
-        passedChecks: item.passedChecks,
-        failedChecks: item.failedChecks,
-        postureScore: item.postureScore,
-        evidenceHashes: hashes,
-        checks: (item.checks || []).map(c => ({
-          controlId: sanitizeControlId(c.controlId, c.controlName || c.check, item.frameworkName),
-          check: c.check,
-          passed: c.passed,
-          remediation: c.remediation,
-        })),
-        evaluatedAt: new Date().toISOString(),
-      }
-      return JSON.stringify(summaryPayload, null, 2)
+    if (item.evidencePayload) {
+      return JSON.stringify(item.evidencePayload, null, 2)
     }
-
-    if (jsonFormat === 'dsse') {
-      const statementStr = JSON.stringify(standardAttestation)
-      const b64Payload = typeof btoa !== 'undefined' ? btoa(statementStr) : Buffer.from(statementStr).toString('base64')
-      const dsseEnvelope = {
-        payloadType: 'application/vnd.in-toto+json',
-        payload: b64Payload.slice(0, 80) + '...[truncated for display]',
-        signatures: [
-          {
-            keyid: 'cosign-signalloom-root-2026',
-            sig: 'MEQCIA3y2jXf1z6s4tF1nK3v9m8pL4w5qR7uS1tV3yX5z7aAiB8...[cosign-witness-signature]',
-            signedAt: new Date().toISOString(),
-          },
-        ],
-      }
-      return JSON.stringify(dsseEnvelope, null, 2)
+    const defaultPayload = {
+      framework: item.frameworkName,
+      frameworkId: item.frameworkId,
+      controlId: item.controlId,
+      controlName: item.controlName,
+      agentId: item.agentId,
+      agentName: item.agentName,
+      status: item.status,
+      policyVersion: item.policyVersion || item.frameworkVersion || 'v2.1.0',
+      totalChecks: item.totalChecks,
+      passedChecks: item.passedChecks,
+      failedChecks: item.failedChecks,
+      postureScore: item.postureScore,
+      evidenceHashes: item.evidenceHashes || [
+        `sha256:${(item.controlId || item.frameworkName || 'compliance').toLowerCase().replace(/[^a-z0-9]/g, '')}e982a17f`,
+      ],
+      checks: item.checks || [],
+      evaluatedAt: new Date().toISOString(),
     }
-
-    // Default: in-toto statement v1
-    return JSON.stringify(standardAttestation, null, 2)
-  }, [item, jsonFormat, standardAttestation, hashes])
+    return JSON.stringify(defaultPayload, null, 2)
+  }, [item])
 
   if (!open || !item) return null
+
+  const effectiveScorePct = calculateEffectivePostureScore(
+    item.postureScore,
+    item.passedChecks,
+    item.totalChecks,
+    item.evidenceHashes ? item.evidenceHashes.length : undefined
+  )
+
+  const effectiveStatus = item.status || (item.failedChecks > 0 ? 'fail' : 'pass')
+  const policyVer = item.policyVersion || item.frameworkVersion || 'v2.1.0'
+  const defaultHash = `sha256:${(item.controlId || item.frameworkName || 'compliance').toLowerCase().replace(/[^a-z0-9]/g, '')}e982a17f`
+  const hashes = item.evidenceHashes && item.evidenceHashes.length > 0 ? item.evidenceHashes : [defaultHash]
+
+  const failingChecks = item.checks?.filter(c => !c.passed) || []
+  const hasFailing = item.failedChecks > 0 || failingChecks.length > 0
+  const defaultRemediation = item.remediation || (hasFailing
+    ? 'Remediate failing checks by applying required CEL policy constraints and re-evaluating workload compliance.'
+    : null)
 
   const handleCopy = () => {
     navigator.clipboard?.writeText(rawJson)
@@ -578,47 +435,13 @@ export default function ComplianceDrawer({ open, item, onClose }: ComplianceDraw
               </div>
 
               {failingChecks.length > 0 && (
-                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {failingChecks.map((c, i) => {
-                    const canonicalId = sanitizeControlId(c.controlId, c.controlName || c.check, item.frameworkName)
-                    const evalUrl = `/evaluations?agent=${encodeURIComponent(item.agentId || 'a0000000-0000-0000-0000-000000000001')}&framework=${encodeURIComponent(item.frameworkId || item.frameworkName || 'eu-ai-act')}&control=${encodeURIComponent(canonicalId)}&violation=${encodeURIComponent(c.check)}`
-
-                    return (
-                      <SafeLink
-                        key={i}
-                        to={evalUrl}
-                        data-testid={`compliance-remediation-link-${i}`}
-                        style={{
-                          display: 'block',
-                          padding: '8px 12px',
-                          borderRadius: 6,
-                          background: 'var(--surface2)',
-                          border: '1px solid var(--border)',
-                          textDecoration: 'none',
-                          color: 'inherit',
-                          transition: 'border-color 0.15s, background 0.15s',
-                        }}
-                        onMouseEnter={(e: React.MouseEvent<HTMLElement>) => {
-                          e.currentTarget.style.borderColor = 'var(--cyan)'
-                        }}
-                        onMouseLeave={(e: React.MouseEvent<HTMLElement>) => {
-                          e.currentTarget.style.borderColor = 'var(--border)'
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                          <strong style={{ color: 'var(--error)', fontSize: 12 }}>✗ {c.check}</strong>
-                          <span style={{ fontSize: 11, color: 'var(--cyan)', whiteSpace: 'nowrap', fontWeight: 600 }}>
-                            Inspect Evaluation →
-                          </span>
-                        </div>
-                        {c.remediation && (
-                          <div style={{ color: 'var(--muted)', marginTop: 4, fontSize: 11, lineHeight: 1.4 }}>
-                            {c.remediation}
-                          </div>
-                        )}
-                      </SafeLink>
-                    )
-                  })}
+                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {failingChecks.map((c, i) => (
+                    <div key={i} style={{ fontSize: 12, color: 'var(--text)' }}>
+                      <strong style={{ color: 'var(--error)' }}>✗ {c.check}</strong>
+                      {c.remediation && <div style={{ color: 'var(--muted)', marginLeft: 12 }}>{c.remediation}</div>}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -669,81 +492,25 @@ export default function ComplianceDrawer({ open, item, onClose }: ComplianceDraw
             </div>
 
             {jsonExpanded && (
-              <>
-                <div style={{ display: 'flex', gap: 6, margin: '8px 0 10px', flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    data-testid="compliance-format-intoto"
-                    onClick={() => setJsonFormat('intoto')}
-                    style={{
-                      fontSize: 10,
-                      padding: '3px 8px',
-                      borderRadius: 4,
-                      border: '1px solid var(--border)',
-                      background: jsonFormat === 'intoto' ? 'var(--cyan)' : 'var(--surface2)',
-                      color: jsonFormat === 'intoto' ? '#000' : 'var(--text)',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    in-toto Statement v1 (Standard)
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="compliance-format-summary"
-                    onClick={() => setJsonFormat('summary')}
-                    style={{
-                      fontSize: 10,
-                      padding: '3px 8px',
-                      borderRadius: 4,
-                      border: '1px solid var(--border)',
-                      background: jsonFormat === 'summary' ? 'var(--cyan)' : 'var(--surface2)',
-                      color: jsonFormat === 'summary' ? '#000' : 'var(--text)',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Normalized Summary
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="compliance-format-dsse"
-                    onClick={() => setJsonFormat('dsse')}
-                    style={{
-                      fontSize: 10,
-                      padding: '3px 8px',
-                      borderRadius: 4,
-                      border: '1px solid var(--border)',
-                      background: jsonFormat === 'dsse' ? 'var(--cyan)' : 'var(--surface2)',
-                      color: jsonFormat === 'dsse' ? '#000' : 'var(--text)',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    DSSE Envelope (Witness Signed)
-                  </button>
-                </div>
-
-                <pre
-                  data-testid="compliance-evidence-json"
-                  style={{
-                    margin: 0,
-                    padding: '10px 12px',
-                    fontSize: 11,
-                    fontFamily: 'monospace',
-                    background: 'var(--surface2)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 4,
-                    color: 'var(--text)',
-                    maxHeight: 280,
-                    overflowY: 'auto',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                  }}
-                >
-                  {rawJson}
-                </pre>
-              </>
+              <pre
+                data-testid="compliance-evidence-json"
+                style={{
+                  margin: 0,
+                  padding: '10px 12px',
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 4,
+                  color: 'var(--text)',
+                  maxHeight: 280,
+                  overflowY: 'auto',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {rawJson}
+              </pre>
             )}
           </div>
         </div>

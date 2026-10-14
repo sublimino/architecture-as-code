@@ -1440,3 +1440,62 @@ The fix here is a `test-signal-segment-key` target that runs both suites, invoke
 P1-5 plans to export and restore the identity Secrets a rebuild would otherwise re-mint, and names `signal-segment-key` among them. That plan is unchanged and still needed. A rebuild now re-mints once and propagates one key, so a rebuilt cluster still has a single pseudonym domain. The data risk P1-5 guards is the stored rows pseudonymised under the previous key, and propagation does not address that.
 
 
+
+#### Errata — EAPCI-P1-6 (allocation measurement, 2026-10-14 17:34 +0100)
+
+P1-6 bounded both whole-store reads and proved it structurally, which is the
+right proof in the right place: `TestFrostDBStore_ObservationStats_ReadStaysBounded`
+asserts the stats plan projects exactly three columns and that the tally's group
+maps stay keyed by group rather than by row. What no test answered is the
+question this card's threshold is stated in — bytes per request, and whether
+that figure moves when the store grows. A plan can project three columns and
+still allocate per row somewhere the plan does not describe.
+
+`api/observations_alloc_bound_test.go` now measures it across a 10x store
+range, with the pre-P1-6 shape kept in the tree as a control that must itself
+scale. Writing it found two per-row allocations.
+
+| Read | Before | After | Status |
+|---|---|---|---|
+| `Stats` (`/store/stats`) | 800,528 B at 100k rows, growing 9.94x for 10x | 536 B, flat | **Fixed** — the aggregate took the address of a loop-local timestamp on nearly every row, which escapes to the heap |
+| `QueryPage` (`/observations`) | 273,781,296 B at 100k rows | 40,984 B scan + ~70 B/row | **Residual characterised** — see below |
+| control (pre-P1-6 shape) | — | 273,781,296 B at 100k rows, scaling | kept in-tree |
+
+**Open residual, and it is a decision rather than a bug to schedule.**
+`QueryPage` bounds the rows it *returns* to `Limit` via a min-heap, but its
+dedupe set holds one map entry per *matched* row, so a page is still
+O(matched) in live memory for the request's duration. Both implementations
+carry it: `store/memory.go` and the `seen` map in `store/frostdb.go`. On the
+estate that OOM-killed `signal-ingest` — a 10Gi store with roughly 2.5 days of
+warden ingest — a single-tenant unfiltered page still builds a set of every row
+that tenant owns. Measured by subtracting the scan from the real request:
+87.4 B/row at 10k rows, 69.9 B/row at 100k, against a scan-only cost of
+40,984 B flat at both. The dedupe set is the entire O(n) term.
+
+It is not fixed here because a bounded dedupe must decide which row wins for a
+repeated ID, and the current global set answers that by **scan order** rather
+than the `(timestamp DESC, id DESC)` order the endpoint claims — so bounding it
+is a change to the page contract, not an optimisation. Deduping within the heap
+would be O(`Limit`) and deterministic, and is the obvious candidate.
+`TestObservationsPageDedupeSetIsStillUnbounded` pins the current figure and
+fails in **both** directions, so a fix cannot land silently and a regression
+cannot hide behind it.
+
+**The 2Gi pin in `deploy_memory_test.go` is unchanged, deliberately.** This
+card's row states the pin returns to 1Gi once peak working set under concurrent
+polling is measured below 512Mi. The figure available here is 123.6 MiB
+`HeapInuse` under 16 pollers x 10 rounds over 100k rows — but that is the Go
+heap of one process over a `MemoryStore`, which is a **floor** on the
+container's working set, not a measurement of it: the FrostDB path adds Arrow
+buffers and a WAL this fixture has none of. Only a cluster measurement
+discharges the threshold.
+
+**Two mutants were rejected as badly built rather than recorded as survivors**,
+which is the transferable part. The first version of this measurement used a
+tenant owning no rows, reasoning that it isolates the scan; it isolates away
+the thing under test, because with nothing matched the cost is flat whether the
+limit is honoured or not and 0 B if the limit is removed — the headline
+mutation left it green. And mutating the control to
+`QueryRange(Query{TenantID, Limit})` does not bound it (201 MB at 100k rows),
+so that mutant tested nothing. A surviving mutant is a claim about the test
+only once the mutant is known to change behaviour.

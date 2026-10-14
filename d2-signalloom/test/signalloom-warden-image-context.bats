@@ -11,6 +11,8 @@
 setup() {
   repo_root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"
   d2="$repo_root/d2-signalloom"
+  export DOCKER_CONFIG="${DOCKER_CONFIG:-$BATS_TEST_TMPDIR/docker}"
+  mkdir -p "$DOCKER_CONFIG"
   if [ -d "$d2/apps/signalloom-warden" ]; then
     mod_dir="$d2/apps/signalloom-warden"
   else

@@ -25,11 +25,12 @@ KUBECTL="${SLDC_KUBECTL:-kubectl}"
 FLUX="${SLDC_FLUX:-flux}"
 AGENTS_NS="fe-signalloom-agents"
 FE_NS="fe-signalloom"
+WARDEN_NS="${WARDEN_NS:-inf-signalloom-warden}"
 
 REQUIRED_SECRETS=(
   "${FE_NS}/signal-ingest-key-signalloom-warden"
-  "${AGENTS_NS}/signalloom-warden-ingest-token"
-  "${AGENTS_NS}/signalloom-warden-fleet-key"
+  "${WARDEN_NS}/signalloom-warden-ingest-token"
+  "${WARDEN_NS}/signalloom-warden-fleet-key"
 )
 
 log() { printf '[warden-cutover] %s\n' "$*" >&2; }
@@ -122,21 +123,21 @@ main() {
 
   # 5. Wait for warden rollout
   log "waiting for DaemonSet ds/signalloom-warden rollout"
-  if ! "${KUBECTL}" --context "${context}" -n "${AGENTS_NS}" rollout status ds/signalloom-warden --timeout=120s; then
+  if ! "${KUBECTL}" --context "${context}" -n "${WARDEN_NS}" rollout status ds/signalloom-warden --timeout=120s; then
     log "rollout failed; gathering diagnostic state"
-    "${KUBECTL}" --context "${context}" -n "${AGENTS_NS}" get ds,pods -l 'signalloom.ai/role=sentinel' >&2 || true
+    "${KUBECTL}" --context "${context}" -n "${WARDEN_NS}" get ds,pods -l 'signalloom.ai/role=sentinel' >&2 || true
     die "signalloom-warden rollout failed. Legacy daemonset was NOT recreated." 1
   fi
 
   # 6. Assert exactly one probe DaemonSet exists
   log "verifying probe DaemonSet state"
   local ds_count ds_name
-  ds_count="$("${KUBECTL}" --context "${context}" -n "${AGENTS_NS}" get ds -l 'signalloom.ai/role=sentinel' -o jsonpath='{.items[*].metadata.name}' | tr ' ' '\n' | grep -c . || echo 0)"
+  ds_count="$("${KUBECTL}" --context "${context}" -n "${WARDEN_NS}" get ds -l 'signalloom.ai/role=sentinel' -o jsonpath='{.items[*].metadata.name}' | tr ' ' '\n' | grep -c . || echo 0)"
   if [[ "${ds_count}" -ne 1 ]]; then
     die "assertion failed: expected exactly 1 probe DaemonSet, found ${ds_count}" 1
   fi
 
-  ds_name="$("${KUBECTL}" --context "${context}" -n "${AGENTS_NS}" get ds -l 'signalloom.ai/role=sentinel' -o jsonpath='{.items[0].metadata.name}')"
+  ds_name="$("${KUBECTL}" --context "${context}" -n "${WARDEN_NS}" get ds -l 'signalloom.ai/role=sentinel' -o jsonpath='{.items[0].metadata.name}')"
   if [[ "${ds_name}" != "signalloom-warden" ]]; then
     die "assertion failed: expected probe DaemonSet 'signalloom-warden', found '${ds_name}'" 1
   fi

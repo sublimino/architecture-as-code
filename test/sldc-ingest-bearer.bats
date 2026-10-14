@@ -364,7 +364,7 @@ TWO_KEYS=$'stun-sentinel|fe-signalloom-agents|stun-sentinel-ingest-token|ds/stun
 	run "$SCRIPT" --context kind-osramp --key signalloom-warden --emit-remote-secrets "$dir"
 	[ "$status" -eq 0 ]
 	[ -f "$dir/signalloom-warden-ingest-token.yaml" ]
-	grep -q '^  namespace: fe-signalloom-agents$' "$dir/signalloom-warden-ingest-token.yaml"
+	grep -q '^  namespace: inf-signalloom-warden$' "$dir/signalloom-warden-ingest-token.yaml"
 	grep -q '^  token: ' "$dir/signalloom-warden-ingest-token.yaml"
 }
 

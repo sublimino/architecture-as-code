@@ -55,7 +55,12 @@ function renderPage() {
 describe('WeavePage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockWeaveApi.getObservations.mockResolvedValue(fakeWeaveData.observations)
+    mockWeaveApi.getObservations.mockImplementation((_token?: string, params?: { layer?: string }) => {
+      if (params?.layer) {
+        return Promise.resolve(fakeWeaveData.observations.filter((o) => o.layer === params.layer))
+      }
+      return Promise.resolve(fakeWeaveData.observations)
+    })
     mockWeaveApi.getActors.mockResolvedValue(fakeWeaveData.actors)
     mockWeaveApi.getCoverage.mockResolvedValue(fakeWeaveData.coverage)
   })
@@ -415,5 +420,31 @@ describe('WeavePage', () => {
       expect(screen.getByText(/eBPF Socket Sentinel: Degraded \/ Fail-Closed/)).toBeInTheDocument()
     })
   })
+
+  it('renders wrapped signal thread container without horizontal overspill for large observation counts', async () => {
+    const manyObservations = Array.from({ length: 75 }, (_, i) => ({
+      id: `obs-many-${i}`,
+      timestamp: '2026-10-14T12:00:00Z',
+      layer: 'endpoint_host' as const,
+      fidelity: 'strong' as const,
+      source: 'signalloom-warden',
+      confidence: 0.9,
+      description: `Syscall tcp_connect #${i}`,
+    }))
+    mockWeaveApi.getObservations.mockImplementation((_token?: string, params?: { layer?: string }) => {
+      if (params?.layer === 'endpoint_host') {
+        return Promise.resolve(manyObservations)
+      }
+      return Promise.resolve([])
+    })
+
+    renderPage()
+    await waitFor(() => {
+      const endpointThread = screen.getByTestId('signal-thread-endpoint_host')
+      expect(endpointThread).toBeInTheDocument()
+      expect(endpointThread).toHaveStyle({ 'flex-wrap': 'wrap', 'min-width': '0' })
+    })
+  })
 })
+
 

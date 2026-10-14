@@ -18,8 +18,8 @@ setup() {
 
   # Default fake secrets present
   touch "${STATE}/secret_fe-signalloom_signal-ingest-key-signalloom-warden"
-  touch "${STATE}/secret_fe-signalloom-agents_signalloom-warden-ingest-token"
-  touch "${STATE}/secret_fe-signalloom-agents_signalloom-warden-fleet-key"
+  touch "${STATE}/secret_inf-signalloom-warden_signalloom-warden-ingest-token"
+  touch "${STATE}/secret_inf-signalloom-warden_signalloom-warden-fleet-key"
 
   cat >"${BIN}/kubectl" <<'EOF'
 #!/usr/bin/env bash
@@ -106,10 +106,10 @@ EOF
 }
 
 @test "warden-cutover: preflight fails and names missing secret before mutating cluster" {
-  rm -f "${STATE}/secret_fe-signalloom-agents_signalloom-warden-ingest-token"
+  rm -f "${STATE}/secret_inf-signalloom-warden_signalloom-warden-ingest-token"
   run bash "${SCRIPT}" --context kind-osramp
   [ "$status" -eq 1 ]
-  [[ "$output" == *"fe-signalloom-agents/signalloom-warden-ingest-token is missing"* ]]
+  [[ "$output" == *"inf-signalloom-warden/signalloom-warden-ingest-token is missing"* ]]
   [ ! -f "${STATE}/events" ]
 }
 

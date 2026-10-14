@@ -26,6 +26,15 @@ if (!('mocked' in vi)) {
   ;(vi as any).mocked = (fn: any) => fn
 }
 
+const mockNavigate = vi.fn()
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  }
+})
+
 const mockGetAccessTokenSilently = vi.fn().mockResolvedValue('test-token')
 vi.mock('../auth/oidc', () => ({
   useAuth0: () => ({ getAccessTokenSilently: mockGetAccessTokenSilently }),
@@ -1139,32 +1148,35 @@ describe('AgentsPage — Auto-Claim workflow (SLAC-P2-1)', () => {
     expect(api.agents.list).toHaveBeenCalledTimes(2)
   })
 
-  it('restores the actionable discovered row and announces an API 500 failure', async () => {
+  it('navigates to the onboarding tab with claim error details on claim failure instead of transient alert popup', async () => {
     vi.mocked(api.agents.list).mockResolvedValue({ agents: [discoveredAgent()], total: 1 })
-    claimApiMock.claimDiscoveredAgent.mockRejectedValue(new Error('Claim service unavailable'))
+    claimApiMock.claimDiscoveredAgent.mockRejectedValue(new Error('Workload declares no signalloom.ai/model; refusing to record an invented model'))
 
     renderPage()
     await userEvent.click(await screen.findByTestId('agent-auto-claim-btn'))
 
-    const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent('Could not claim Kagent Reader: Claim service unavailable')
-    const restored = screen.getByTestId('agent-auto-claim-btn')
-    expect(restored).toBeEnabled()
-    expect(restored).toHaveAttribute('aria-busy', 'false')
-    expect(screen.getByText('Discovered')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(
+        expect.stringContaining('/agents/discovered%3Aclaim-target?tab=onboarding&claim_error=')
+      )
+    })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(api.agents.get).not.toHaveBeenCalled()
   })
 
-  it('does not transition state when the backend returns a non-granted claim', async () => {
+  it('navigates to the onboarding tab on non-granted claim status instead of showing alert popup', async () => {
     vi.mocked(api.agents.list).mockResolvedValue({ agents: [discoveredAgent()], total: 1 })
     claimApiMock.claimDiscoveredAgent.mockResolvedValue({ ...grantedClaim, status: 'pending-review' })
 
     renderPage()
     await userEvent.click(await screen.findByTestId('agent-auto-claim-btn'))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Claim was pending-review')
-    expect(screen.getByText('Discovered')).toBeInTheDocument()
-    expect(screen.getByTestId('agent-auto-claim-btn')).toBeEnabled()
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(
+        expect.stringContaining('/agents/discovered%3Aclaim-target?tab=onboarding&claim_error=Claim%20was%20pending-review.')
+      )
+    })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(api.agents.get).not.toHaveBeenCalled()
   })
 

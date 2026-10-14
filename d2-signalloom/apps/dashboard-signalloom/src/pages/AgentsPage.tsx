@@ -1688,6 +1688,7 @@ function SignalSummaryPanel() {
 
 export default function AgentsPage() {
   const { user, getAccessTokenSilently } = useAuth0()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const activeMainTab = searchParams.get('tab') === 'coding-agents' ? 'coding-agents' : 'governed'
 
@@ -1816,10 +1817,9 @@ export default function AgentsPage() {
       })
       await loadAgents()
     } catch (error) {
-      setClaimNotification({
-        kind: 'error',
-        message: `Could not claim ${agent.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      })
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+      // Instead of displaying a transient toast popup, navigate directly to the agent's onboarding tab with the claim error details
+      navigate(`/agents/${encodeURIComponent(agent.id)}?tab=onboarding&claim_error=${encodeURIComponent(errorMsg)}`)
     } finally {
       claimingIdsRef.current.delete(agent.id)
       setClaimingAgentIds(new Set(claimingIdsRef.current))

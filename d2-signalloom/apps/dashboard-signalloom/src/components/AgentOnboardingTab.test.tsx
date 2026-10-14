@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import AgentOnboardingTab from './AgentOnboardingTab'
 import type { AgentResponse } from '../types/api'
 
@@ -46,10 +47,18 @@ function createMockAgent(overrides: Partial<AgentResponse> = {}): AgentResponse 
   }
 }
 
+function renderTab(ui: React.ReactElement, initialEntries = ['/']) {
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      {ui}
+    </MemoryRouter>
+  )
+}
+
 describe('AgentOnboardingTab', () => {
   it('renders onboarding guide header and pre-flight diagnostics matrix', () => {
     const agent = createMockAgent()
-    render(<AgentOnboardingTab agent={agent} />)
+    renderTab(<AgentOnboardingTab agent={agent} />)
 
     expect(screen.getByTestId('agent-onboarding-tab')).toBeInTheDocument()
     expect(screen.getByText('Workload Onboarding & Governance Guide')).toBeInTheDocument()
@@ -62,7 +71,7 @@ describe('AgentOnboardingTab', () => {
 
   it('renders tenant objection banner with remediation commands when workload tenant differs from operator tenant', () => {
     const agent = createMockAgent({ tenant: 'kusari', tenant_id: 'kusari' })
-    render(
+    renderTab(
       <AgentOnboardingTab
         agent={agent}
         claimError="Could not claim kusari-agent: Workload 'agent-kusari-847cc7d984-mwg8c' belongs to another tenant"
@@ -78,7 +87,7 @@ describe('AgentOnboardingTab', () => {
   it('invokes onOpenClaim callback when Claim Agent Workload button is clicked', () => {
     const onOpenClaim = vi.fn()
     const agent = createMockAgent()
-    render(<AgentOnboardingTab agent={agent} onOpenClaim={onOpenClaim} />)
+    renderTab(<AgentOnboardingTab agent={agent} onOpenClaim={onOpenClaim} />)
 
     const claimBtn = screen.getByTestId('onboarding-open-claim-btn')
     fireEvent.click(claimBtn)
@@ -98,7 +107,7 @@ describe('AgentOnboardingTab', () => {
       } as any,
     })
 
-    render(<AgentOnboardingTab agent={fluxAgent} />)
+    renderTab(<AgentOnboardingTab agent={fluxAgent} />)
 
     expect(screen.getByTestId('onboarding-gitops-notice')).toBeInTheDocument()
     expect(screen.getByTestId('gitops-engine-badge')).toHaveTextContent('Flux GitOps Managed')
@@ -121,7 +130,7 @@ describe('AgentOnboardingTab', () => {
       } as any,
     })
 
-    render(<AgentOnboardingTab agent={argoAgent} />)
+    renderTab(<AgentOnboardingTab agent={argoAgent} />)
 
     expect(screen.getByTestId('onboarding-gitops-notice')).toBeInTheDocument()
     expect(screen.getByTestId('gitops-engine-badge')).toHaveTextContent('ArgoCD Managed')
@@ -130,8 +139,110 @@ describe('AgentOnboardingTab', () => {
 
   it('does not render GitOps notice card for bare unmanaged workloads', () => {
     const bareAgent = createMockAgent()
-    render(<AgentOnboardingTab agent={bareAgent} />)
+    renderTab(<AgentOnboardingTab agent={bareAgent} />)
 
     expect(screen.queryByTestId('onboarding-gitops-notice')).not.toBeInTheDocument()
   })
+
+  it('renders AI model objection banner with copyable remediation commands when workload lacks model declaration (e.g. netassert-generic-agent-fixture)', () => {
+    const agent = createMockAgent({
+      id: 'netassert-generic-agent-fixture-545f77f844-lvcdz',
+      name: 'netassert-generic-agent-fixture',
+      runtime: {
+        cluster_id: 'osramp',
+        namespace: 'fe-signalloom-agents',
+        pod_name: 'netassert-generic-agent-fixture-545f77f844-lvcdz',
+        service_account: 'netassert-agent',
+        framework: 'custom',
+        model: '' as any,
+        node: 'kind-control-plane',
+        phase: 'Running',
+      },
+    })
+
+    renderTab(
+      <AgentOnboardingTab
+        agent={agent}
+        claimError="Could not claim netassert-generic-agent-fixture-545f77f844-lvcdz: Workload 'netassert-generic-agent-fixture-545f77f844-lvcdz' declares no signalloom.ai/model; refusing to record an invented model."
+      />
+    )
+
+    expect(screen.getByTestId('onboarding-objection-banner')).toBeInTheDocument()
+    expect(screen.getByText(/Missing AI Model Declaration \(signalloom\.ai\/model\)/)).toBeInTheDocument()
+    expect(screen.getByText(/refusing to record an invented model/)).toBeInTheDocument()
+    expect(screen.getByText(/kubectl -n fe-signalloom-agents label pod netassert-generic-agent-fixture-545f77f844-lvcdz signalloom\.ai\/model=claude-3-5-sonnet --overwrite/)).toBeInTheDocument()
+    expect(screen.getByText(/kubectl -n fe-signalloom-agents patch deployment netassert-generic-agent-fixture/)).toBeInTheDocument()
+    expect(screen.getByTestId('onboarding-diag-model')).toBeInTheDocument()
+    expect(screen.getByTestId('onboarding-diag-model')).toHaveTextContent('UNDECLARED')
+  })
+
+  it('renders undeclared tenant objection when error indicates workload_tenant_undeclared', () => {
+    const agent = createMockAgent({
+      id: 'agent-undeclared-tenant-1',
+      name: 'undeclared-agent',
+      tenant: undefined,
+      tenant_id: 'undeclared',
+    })
+
+    renderTab(
+      <AgentOnboardingTab
+        agent={agent}
+        claimError="Could not claim undeclared-agent: Workload 'agent-undeclared-tenant-1' declares no signalloom.ai/tenant; it cannot be claimed"
+      />
+    )
+
+    expect(screen.getByTestId('onboarding-objection-banner')).toBeInTheDocument()
+    expect(screen.getByText(/Undeclared Workload Tenant \(signalloom\.ai\/tenant\)/)).toBeInTheDocument()
+    expect(screen.getByText(/kubectl -n fe-signalloom-agents label pod agent-kusari-847cc7d984-mwg8c signalloom\.ai\/tenant=default --overwrite/)).toBeInTheDocument()
+  })
+
+  it('renders model mismatch objection when asserted model differs from declared workload model', () => {
+    const agent = createMockAgent({
+      runtime: {
+        cluster_id: 'osramp',
+        namespace: 'fe-signalloom-agents',
+        pod_name: 'agent-model-mismatch',
+        service_account: 'test-agent',
+        framework: 'custom',
+        model: 'gpt-4o',
+        node: 'kind-control-plane',
+        phase: 'Running',
+      },
+    })
+
+    renderTab(
+      <AgentOnboardingTab
+        agent={agent}
+        claimError="Workload 'agent-model-mismatch' declares model 'gpt-4o', not 'claude-3-5-sonnet'"
+      />
+    )
+
+    const banner = screen.getByTestId('onboarding-objection-banner')
+    expect(banner).toBeInTheDocument()
+    expect(within(banner).getByText(/Model Mismatch Objection/)).toBeInTheDocument()
+    expect(within(banner).getByText(/Claim with Declared Model:/)).toBeInTheDocument()
+    expect(within(banner).getAllByText(/gpt-4o/).length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('reads claim_error from URL search params when prop is omitted', () => {
+    const agent = createMockAgent({
+      id: 'netassert-generic-agent-fixture-545f77f844-lvcdz',
+      name: 'netassert-generic-agent-fixture',
+    })
+
+    render(
+      <AgentOnboardingTab agent={agent} />,
+      {
+        wrapper: ({ children }) => (
+          <MemoryRouter initialEntries={['/agents/netassert-generic-agent-fixture-545f77f844-lvcdz?tab=onboarding&claim_error=Workload%20declares%20no%20signalloom.ai%2Fmodel']}>
+            {children}
+          </MemoryRouter>
+        ),
+      }
+    )
+
+    expect(screen.getByTestId('onboarding-objection-banner')).toBeInTheDocument()
+    expect(screen.getByText(/Missing AI Model Declaration \(signalloom\.ai\/model\)/)).toBeInTheDocument()
+  })
 })
+

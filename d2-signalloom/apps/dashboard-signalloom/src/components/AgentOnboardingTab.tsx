@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import type { AgentResponse } from '../types/api'
 import { getAgentWorkloadSecurityProfile } from './agents/ClaimModal'
 import { colors } from '../styles/tokens'
@@ -11,14 +12,37 @@ export interface AgentOnboardingTabProps {
   onOpenClaim?: () => void
 }
 
+export type ClaimObjectionType =
+  | 'missing_model'
+  | 'missing_tenant'
+  | 'cross_tenant'
+  | 'model_mismatch'
+  | 'service_account_mismatch'
+  | 'already_claimed'
+  | 'generic'
+
+function extractWorkloadName(podName: string): string {
+  const match = podName.match(/^(.+?)(?:-[0-9a-f]{8,10}-[0-9a-z]{5}|-[0-9a-f]{8,10})$/)
+  if (match) return match[1]
+  const singleSuffix = podName.match(/^(.+?)-[0-9a-z]{5}$/)
+  if (singleSuffix) return singleSuffix[1]
+  return podName
+}
+
 export default function AgentOnboardingTab({ agent, claimError, onOpenClaim }: AgentOnboardingTabProps) {
   const { user } = useAuth0()
+  const [searchParams] = useSearchParams()
+  const errorFromQuery = searchParams.get('claim_error') || searchParams.get('error')
+  const effectiveError = claimError || errorFromQuery || null
+
   const secProfile = getAgentWorkloadSecurityProfile(agent)
 
   const podName = agent.runtime?.pod_name || agent.id
   const namespace = agent.runtime?.namespace || agent.namespace || 'fe-signalloom-agents'
   const serviceAccount = agent.runtime?.service_account || agent.service_account || agent.name || 'default'
   const workloadTenant = agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared' ? agent.tenant_id : null)
+  const declaredModel = agent.runtime?.model || (agent as any).model || null
+  const deploymentName = agent.runtime?.workload_name || extractWorkloadName(agent.name || podName)
 
   // Determine user tenant
   const userTenant =
@@ -28,6 +52,63 @@ export default function AgentOnboardingTab({ agent, claimError, onOpenClaim }: A
     'default'
 
   const hasTenantMismatch = Boolean(workloadTenant && workloadTenant !== userTenant)
+  const isMissingModelError = Boolean(
+    effectiveError && (
+      effectiveError.toLowerCase().includes('no signalloom.ai/model') ||
+      effectiveError.toLowerCase().includes('workload_model_undeclared') ||
+      effectiveError.toLowerCase().includes('refusing to record an invented model')
+    )
+  )
+  const isMissingTenantError = Boolean(
+    effectiveError && (
+      effectiveError.toLowerCase().includes('no signalloom.ai/tenant') ||
+      effectiveError.toLowerCase().includes('workload_tenant_undeclared')
+    )
+  )
+  const isModelMismatchError = Boolean(
+    effectiveError && (
+      effectiveError.toLowerCase().includes('model_mismatch') ||
+      (effectiveError.toLowerCase().includes('declares model') && effectiveError.toLowerCase().includes('not'))
+    )
+  )
+  const isServiceAccountMismatchError = Boolean(
+    effectiveError && (
+      effectiveError.toLowerCase().includes('service_account_mismatch') ||
+      effectiveError.toLowerCase().includes('serviceaccount')
+    )
+  )
+  const isAlreadyClaimedError = Boolean(
+    effectiveError && (
+      effectiveError.toLowerCase().includes('already claimed') ||
+      effectiveError.toLowerCase().includes('duplicate_claim') ||
+      effectiveError.toLowerCase().includes('409') ||
+      effectiveError.toLowerCase().includes('conflict')
+    )
+  )
+  const isCrossTenantError = Boolean(
+    hasTenantMismatch ||
+    (effectiveError && (
+      effectiveError.toLowerCase().includes('belongs to another tenant') ||
+      effectiveError.toLowerCase().includes('cross_tenant_forbidden')
+    ))
+  )
+
+  const objectionType: ClaimObjectionType | null = isMissingModelError
+    ? 'missing_model'
+    : isMissingTenantError
+    ? 'missing_tenant'
+    : isModelMismatchError
+    ? 'model_mismatch'
+    : isServiceAccountMismatchError
+    ? 'service_account_mismatch'
+    : isAlreadyClaimedError
+    ? 'already_claimed'
+    : isCrossTenantError
+    ? 'cross_tenant'
+    : effectiveError
+    ? 'generic'
+    : null
+
   const gitops = detectGitOps(agent, { tenant: userTenant })
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null)
 
@@ -39,8 +120,35 @@ export default function AgentOnboardingTab({ agent, claimError, onOpenClaim }: A
     }
   }
 
+  const defaultRecommendedModel = 'claude-3-5-sonnet'
   const relabelCommand = `kubectl -n ${namespace} label pod ${podName} signalloom.ai/tenant=${userTenant} --overwrite`
+  const modelLabelCommand = `kubectl -n ${namespace} label pod ${podName} signalloom.ai/model=${defaultRecommendedModel} --overwrite`
+  const deploymentModelPatchCommand = `kubectl -n ${namespace} patch deployment ${deploymentName} -p '{"spec":{"template":{"metadata":{"labels":{"signalloom.ai/model":"${defaultRecommendedModel}"}}}}}'`
+  const deploymentTenantPatchCommand = `kubectl -n ${namespace} patch deployment ${deploymentName} -p '{"spec":{"template":{"metadata":{"labels":{"signalloom.ai/tenant":"${userTenant}"}}}}}'`
   const inspectCommand = `kubectl -n ${namespace} get pod ${podName} -o jsonpath='{.metadata.labels}'`
+  const inspectPodYamlCommand = `kubectl -n ${namespace} get pod ${podName} -o yaml`
+
+  const modelYamlPatch = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${deploymentName}
+  namespace: ${namespace}
+spec:
+  template:
+    metadata:
+      labels:
+        signalloom.ai/model: "${defaultRecommendedModel}"`
+
+  const tenantYamlPatch = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${deploymentName}
+  namespace: ${namespace}
+spec:
+  template:
+    metadata:
+      labels:
+        signalloom.ai/tenant: "${userTenant}"`
 
   return (
     <div
@@ -130,7 +238,7 @@ export default function AgentOnboardingTab({ agent, claimError, onOpenClaim }: A
       </div>
 
       {/* ─── Active Error or Pre-emptive Objection Alert ──────────────────────── */}
-      {(claimError || hasTenantMismatch) && (
+      {objectionType !== null && (
         <div
           data-testid="onboarding-objection-banner"
           style={{
@@ -140,51 +248,301 @@ export default function AgentOnboardingTab({ agent, claimError, onOpenClaim }: A
             borderRadius: 8,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, color: 'var(--error)', fontWeight: 700, fontSize: 14 }}>
-            <span>⚠️ Multi-Tenant Claim Objection: Cross-Tenant Boundary Protection</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--error)', fontWeight: 700, fontSize: 14 }}>
+              <span>
+                {objectionType === 'missing_model'
+                  ? '⚠️ Workload Model Objection: Missing AI Model Declaration (signalloom.ai/model)'
+                  : objectionType === 'missing_tenant'
+                  ? '⚠️ Tenancy Objection: Undeclared Workload Tenant (signalloom.ai/tenant)'
+                  : objectionType === 'cross_tenant'
+                  ? '⚠️ Multi-Tenant Claim Objection: Cross-Tenant Boundary Protection'
+                  : objectionType === 'model_mismatch'
+                  ? '⚠️ Model Mismatch Objection: Asserted Model Divergence'
+                  : objectionType === 'service_account_mismatch'
+                  ? '⚠️ Identity Objection: SPIFFE ServiceAccount Mismatch'
+                  : objectionType === 'already_claimed'
+                  ? 'ℹ️ Workload Objection: Workload Already Claimed'
+                  : '⚠️ Workload Claim Objection: Pre-Flight Verification Refusal'}
+              </span>
+            </div>
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: 4,
+                background: 'rgba(239, 68, 68, 0.15)',
+                color: 'var(--error)',
+                border: '1px solid rgba(239, 68, 68, 0.35)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+              }}
+            >
+              {objectionType === 'missing_model'
+                ? 'Model Required'
+                : objectionType === 'missing_tenant'
+                ? 'Tenant Required'
+                : objectionType === 'cross_tenant'
+                ? 'Boundary Violation'
+                : objectionType === 'model_mismatch'
+                ? 'Model Mismatch'
+                : objectionType === 'service_account_mismatch'
+                ? 'Identity Mismatch'
+                : objectionType === 'already_claimed'
+                ? 'Already Governed'
+                : 'Refusal'}
+            </span>
           </div>
 
           <p style={{ margin: '0 0 10px 0', fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
-            {claimError ? (
-              <span><strong>Reported Error:</strong> {claimError}</span>
-            ) : (
+            {effectiveError ? (
+              <span><strong>Reported Error:</strong> {effectiveError}</span>
+            ) : objectionType === 'cross_tenant' ? (
               <span>
                 Workload <strong>{podName}</strong> carries label <code style={{ color: 'var(--cyan)' }}>signalloom.ai/tenant="{workloadTenant}"</code>,
                 while your current operator session is authenticated under tenant <code style={{ color: 'var(--violet)' }}>"{userTenant}"</code>.
               </span>
+            ) : (
+              <span>Workload <strong>{podName}</strong> requires configuration alignment before governance admission.</span>
             )}
           </p>
 
           <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5, marginBottom: 12 }}>
-            <strong>Why this occurs:</strong> Signal Loom strictly enforces tenant isolation at the API gateway and claim engine (HTTP 403 <code>cross_tenant_forbidden</code>).
-            Workloads provisioned for one tenant (such as the Kusari secondary cluster pilot or vendor tenants) cannot be claimed or hijacked by another operator account.
+            <strong>Why this occurs:</strong>{' '}
+            {objectionType === 'missing_model'
+              ? 'Signal Loom strictly mandates that every governed agent declares an approved AI foundation model via the signalloom.ai/model label or annotation (HTTP 422 workload_model_undeclared). Without an explicit model identifier, token cost accounting, rate limiting, and model-specific compliance policies cannot be established. Refusing to record an invented model guarantees cryptographic attestation integrity.'
+              : objectionType === 'missing_tenant'
+              ? 'Signal Loom requires explicit tenant ownership before enrolling workloads into governance (HTTP 403 workload_tenant_undeclared). When allow_undeclared_tenant_claims is false, unassigned workloads cannot be claimed without an explicit signalloom.ai/tenant label.'
+              : objectionType === 'cross_tenant'
+              ? 'Signal Loom strictly enforces tenant isolation at the API gateway and claim engine (HTTP 403 cross_tenant_forbidden). Workloads provisioned for one tenant (such as vendor pilots) or platform-owned internal components (controlplane workloads like agent-cardvault, swarm-governor, or triage-ci-worker) cannot be claimed by other tenant operator accounts.'
+              : objectionType === 'model_mismatch'
+              ? 'Signal Loom validates that the model asserted in the claim request matches the workload runtime label signalloom.ai/model (HTTP 422 model_mismatch). Claiming an arbitrary or spoofed model is refused.'
+              : objectionType === 'service_account_mismatch'
+              ? 'The running pod ServiceAccount and namespace do not match the SPIFFE identity registered for this agent (HTTP 403 service_account_mismatch).'
+              : objectionType === 'already_claimed'
+              ? 'Workload has already been claimed by another tenant or operator (HTTP 409 Conflict). An agent cannot be concurrently governed across multiple tenants.'
+              : 'The claim engine refused the claim request during pre-flight policy evaluation.'}
           </div>
 
           <div style={{ background: 'var(--surface2)', padding: '12px 16px', borderRadius: 6, border: '1px solid var(--border)' }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
               Resolution Options:
             </div>
-            <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-              <li>
-                <strong>Switch Tenant Session:</strong> Log in with credentials belonging to tenant <code style={{ color: 'var(--cyan)' }}>{workloadTenant || 'kusari'}</code>.
-              </li>
-              <li>
-                <strong>Update Cluster Pod Label:</strong> If this pod belongs to your tenant, update its Kubernetes label:
-                <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <code style={{ background: 'var(--surface)', padding: '6px 10px', borderRadius: 4, color: 'var(--cyan)', fontSize: 11, flex: 1, overflowX: 'auto' }}>
-                    {relabelCommand}
-                  </code>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => handleCopy(relabelCommand, 'relabel')}
-                    style={{ fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}
-                  >
-                    {copiedCmd === 'relabel' ? 'Copied! ✓' : 'Copy'}
-                  </button>
-                </div>
-              </li>
-            </ol>
+
+            {objectionType === 'missing_model' && (
+              <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                <li>
+                  <strong>Option 1: Add Model Label to Pod (Immediate Hotfix):</strong>
+                  <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <code style={{ background: 'var(--surface)', padding: '6px 10px', borderRadius: 4, color: 'var(--cyan)', fontSize: 11, flex: 1, overflowX: 'auto' }}>
+                      {modelLabelCommand}
+                    </code>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => handleCopy(modelLabelCommand, 'model-label')}
+                      style={{ fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}
+                    >
+                      {copiedCmd === 'model-label' ? 'Copied! ✓' : 'Copy'}
+                    </button>
+                  </div>
+                </li>
+                <li style={{ marginTop: 8 }}>
+                  <strong>Option 2: Patch Workload Deployment (Persistent):</strong>
+                  <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <code style={{ background: 'var(--surface)', padding: '6px 10px', borderRadius: 4, color: 'var(--cyan)', fontSize: 11, flex: 1, overflowX: 'auto' }}>
+                      {deploymentModelPatchCommand}
+                    </code>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => handleCopy(deploymentModelPatchCommand, 'model-patch')}
+                      style={{ fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}
+                    >
+                      {copiedCmd === 'model-patch' ? 'Copied! ✓' : 'Copy'}
+                    </button>
+                  </div>
+                </li>
+                <li style={{ marginTop: 8 }}>
+                  <strong>Option 3: Declarative Kustomize / GitOps Patch:</strong>
+                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => handleCopy(modelYamlPatch, 'model-yaml')}
+                        style={{ fontSize: 11, padding: '3px 8px' }}
+                      >
+                        {copiedCmd === 'model-yaml' ? 'Copied! ✓' : 'Copy YAML'}
+                      </button>
+                    </div>
+                    <pre style={{ margin: 0, padding: '8px 12px', background: 'var(--surface)', borderRadius: 4, color: 'var(--cyan)', fontSize: 11, fontFamily: 'monospace', overflowX: 'auto' }}>
+                      {modelYamlPatch}
+                    </pre>
+                  </div>
+                </li>
+              </ol>
+            )}
+
+            {objectionType === 'missing_tenant' && (
+              <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                <li>
+                  <strong>Option 1: Add Tenant Label to Pod:</strong>
+                  <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <code style={{ background: 'var(--surface)', padding: '6px 10px', borderRadius: 4, color: 'var(--cyan)', fontSize: 11, flex: 1, overflowX: 'auto' }}>
+                      {relabelCommand}
+                    </code>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => handleCopy(relabelCommand, 'relabel')}
+                      style={{ fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}
+                    >
+                      {copiedCmd === 'relabel' ? 'Copied! ✓' : 'Copy'}
+                    </button>
+                  </div>
+                </li>
+                <li style={{ marginTop: 8 }}>
+                  <strong>Option 2: Patch Workload Deployment:</strong>
+                  <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <code style={{ background: 'var(--surface)', padding: '6px 10px', borderRadius: 4, color: 'var(--cyan)', fontSize: 11, flex: 1, overflowX: 'auto' }}>
+                      {deploymentTenantPatchCommand}
+                    </code>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => handleCopy(deploymentTenantPatchCommand, 'tenant-patch')}
+                      style={{ fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}
+                    >
+                      {copiedCmd === 'tenant-patch' ? 'Copied! ✓' : 'Copy'}
+                    </button>
+                  </div>
+                </li>
+                <li style={{ marginTop: 8 }}>
+                  <strong>Option 3: Declarative Kustomize / GitOps Patch:</strong>
+                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => handleCopy(tenantYamlPatch, 'tenant-yaml')}
+                        style={{ fontSize: 11, padding: '3px 8px' }}
+                      >
+                        {copiedCmd === 'tenant-yaml' ? 'Copied! ✓' : 'Copy YAML'}
+                      </button>
+                    </div>
+                    <pre style={{ margin: 0, padding: '8px 12px', background: 'var(--surface)', borderRadius: 4, color: 'var(--cyan)', fontSize: 11, fontFamily: 'monospace', overflowX: 'auto' }}>
+                      {tenantYamlPatch}
+                    </pre>
+                  </div>
+                </li>
+              </ol>
+            )}
+
+            {objectionType === 'cross_tenant' && (
+              <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                <li>
+                  <strong>Switch Tenant Session:</strong> Log in with credentials belonging to tenant <code style={{ color: 'var(--cyan)' }}>{workloadTenant || 'kusari'}</code>.
+                </li>
+                <li>
+                  <strong>Update Cluster Pod Label:</strong> If this pod belongs to your tenant, update its Kubernetes label:
+                  <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <code style={{ background: 'var(--surface)', padding: '6px 10px', borderRadius: 4, color: 'var(--cyan)', fontSize: 11, flex: 1, overflowX: 'auto' }}>
+                      {relabelCommand}
+                    </code>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => handleCopy(relabelCommand, 'relabel')}
+                      style={{ fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}
+                    >
+                      {copiedCmd === 'relabel' ? 'Copied! ✓' : 'Copy'}
+                    </button>
+                  </div>
+                </li>
+              </ol>
+            )}
+
+            {objectionType === 'model_mismatch' && (
+              <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                <li>
+                  <strong>Claim with Declared Model:</strong> Re-open the claim dialog and select the declared model <code style={{ color: 'var(--cyan)' }}>{declaredModel || 'declared'}</code>.
+                </li>
+                <li>
+                  <strong>Update Cluster Model Label:</strong> Update the pod's label to match your asserted model:
+                  <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <code style={{ background: 'var(--surface)', padding: '6px 10px', borderRadius: 4, color: 'var(--cyan)', fontSize: 11, flex: 1, overflowX: 'auto' }}>
+                      {modelLabelCommand}
+                    </code>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => handleCopy(modelLabelCommand, 'model-label')}
+                      style={{ fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}
+                    >
+                      {copiedCmd === 'model-label' ? 'Copied! ✓' : 'Copy'}
+                    </button>
+                  </div>
+                </li>
+              </ol>
+            )}
+
+            {objectionType === 'service_account_mismatch' && (
+              <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                <li>
+                  <strong>Align ServiceAccount:</strong> Ensure the deployment pod template specifies <code style={{ color: 'var(--cyan)' }}>serviceAccountName: {serviceAccount}</code> in namespace <code style={{ color: 'var(--cyan)' }}>{namespace}</code> to match SPIFFE SVID mapping.
+                </li>
+                <li>
+                  <strong>Inspect Live Pod:</strong>
+                  <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <code style={{ background: 'var(--surface)', padding: '6px 10px', borderRadius: 4, color: 'var(--cyan)', fontSize: 11, flex: 1, overflowX: 'auto' }}>
+                      {inspectCommand}
+                    </code>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => handleCopy(inspectCommand, 'inspect')}
+                      style={{ fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}
+                    >
+                      {copiedCmd === 'inspect' ? 'Copied! ✓' : 'Copy'}
+                    </button>
+                  </div>
+                </li>
+              </ol>
+            )}
+
+            {objectionType === 'already_claimed' && (
+              <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                <li>
+                  <strong>Review Existing Agent Dossier:</strong> This workload is already governed. Check the <a href={`/agents/${agent.id}?tab=overview`} style={{ color: 'var(--cyan)' }}>dossier overview</a> to inspect active ownership and telemetry.
+                </li>
+                <li>
+                  <strong>Contact Workspace Administrator:</strong> If this workload needs to be reassigned, request claim release from the current tenant owner.
+                </li>
+              </ol>
+            )}
+
+            {objectionType === 'generic' && (
+              <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                <li>
+                  <strong>Inspect Pod Manifest:</strong> Review workload labels and annotations in Kubernetes:
+                  <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <code style={{ background: 'var(--surface)', padding: '6px 10px', borderRadius: 4, color: 'var(--cyan)', fontSize: 11, flex: 1, overflowX: 'auto' }}>
+                      {inspectPodYamlCommand}
+                    </code>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => handleCopy(inspectPodYamlCommand, 'inspect-yaml')}
+                      style={{ fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}
+                    >
+                      {copiedCmd === 'inspect-yaml' ? 'Copied! ✓' : 'Copy'}
+                    </button>
+                  </div>
+                </li>
+              </ol>
+            )}
           </div>
         </div>
       )}
@@ -333,6 +691,44 @@ export default function AgentOnboardingTab({ agent, claimError, onOpenClaim }: A
             <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.4 }}>
               Claimant session: <code style={{ color: 'var(--text)' }}>{userTenant}</code>.
               {hasTenantMismatch && ' Refusal expected unless re-labelled or session switched.'}
+            </div>
+          </div>
+
+          {/* Diagnostic 2: AI Model Attribution */}
+          <div
+            className="card"
+            data-testid="onboarding-diag-model"
+            style={{
+              padding: 16,
+              background: 'var(--surface)',
+              border: `1px solid ${!declaredModel ? 'rgba(239, 68, 68, 0.4)' : 'var(--border)'}`,
+              borderRadius: 6,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase' }}>
+                AI Model Attribution
+              </span>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: '2px 6px',
+                  borderRadius: 3,
+                  background: !declaredModel ? 'rgba(239, 68, 68, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                  color: !declaredModel ? 'var(--error)' : 'var(--teal)',
+                }}
+              >
+                {!declaredModel ? 'UNDECLARED' : 'VERIFIED'}
+              </span>
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 600, marginBottom: 4 }}>
+              {declaredModel ? `Model: ${declaredModel}` : 'Missing signalloom.ai/model'}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.4 }}>
+              {declaredModel
+                ? 'Cryptographic token budget and CEL risk gating enabled.'
+                : 'Refusal expected: model attribution is mandatory before governance.'}
             </div>
           </div>
 

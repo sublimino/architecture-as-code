@@ -897,7 +897,15 @@ export default function AgentDetailPage() {
   const [scanning, setScanning] = useState(false)
   const [lastScanTimestamp, setLastScanTimestamp] = useState<string | null>(null)
   const [claiming, setClaiming] = useState(false)
-  const [claimError, setClaimError] = useState<string | null>(null)
+  const urlClaimError = searchParams.get('claim_error') || searchParams.get('error')
+  const [claimError, setClaimError] = useState<string | null>(() => urlClaimError)
+
+  useEffect(() => {
+    if (urlClaimError) {
+      setClaimError(urlClaimError)
+    }
+  }, [urlClaimError])
+
   const [claimNotification, setClaimNotification] = useState<ClaimNotification | null>(null)
   const [claimRefreshId, setClaimRefreshId] = useState<string | null>(null)
   const claimInFlightRef = useRef(false)

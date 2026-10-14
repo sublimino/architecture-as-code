@@ -79,12 +79,50 @@ need() {
     [ "$ds" -eq 0 ]
 }
 
+# The tag pinned in THE warden DaemonSet. Overlays change only the repository
+# (newName), never the tag, so the tag is the whole pin. Empty output is a failure.
+warden_pinned_tag() {
+    local manifest="${1:-${REPO_ROOT}/d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml}"
+    local tag
+    tag="$(sed -n 's#^[[:space:]]*image:[[:space:]]*[^[:space:]]*/signalloom-warden:\([^@[:space:]]*\).*#\1#p' "$manifest" | head -n 1)"
+    [ -n "$tag" ] || { echo "no signalloom-warden image pin in $manifest" >&2; return 1; }
+    printf '%s\n' "$tag"
+}
+
+# Succeeds only when RUNNING is a signalloom-warden image whose tag equals PIN.
+# A digest suffix is ignored; the repository host and path may differ (overlays).
+warden_image_matches_pin() {
+    local running="${1%%@*}" pin="$2"
+    [ -n "$pin" ] || return 1
+    local repo="${running%:*}" tag="${running##*:}"
+    [ "$repo" != "$running" ] || return 1
+    [ "${repo##*/}" = signalloom-warden ] || return 1
+    [ "$tag" = "$pin" ]
+}
+
+@test "offline: warden pin check accepts only the pinned tag" {
+    local pin
+    pin="$(warden_pinned_tag)"
+    [[ "$pin" == src-* ]]
+    warden_image_matches_pin "ghcr.io/controlplaneio-in-toto/signalloom-warden:${pin}" "$pin"
+    warden_image_matches_pin "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/signalloom-warden:${pin}@sha256:00" "$pin"
+    run ! warden_image_matches_pin "ghcr.io/controlplaneio-in-toto/signalloom-warden:src-08e40cec5d33" "$pin"
+    run ! warden_image_matches_pin "ghcr.io/controlplaneio-in-toto/signalloom-warden:${pin}-dirty" "$pin"
+    run ! warden_image_matches_pin "ghcr.io/controlplaneio-in-toto/signalloom-sentinel:${pin}" "$pin"
+    run ! warden_image_matches_pin "zot.registry.svc.cluster.local:5000/acme/signalloom-warden" "$pin"
+    run ! warden_image_matches_pin "ghcr.io/controlplaneio-in-toto/signalloom-warden:${pin}" ""
+    run ! warden_pinned_tag /dev/null
+}
+
 @test "eBPF warden preflight: deployed image tag matches manifest pin" {
     live_or_skip
-    local running_image
+    local running_image pin
     running_image="$(jq -r '.environment.warden_image' "${PROOF_JSON}")"
-    [ -n "$running_image" ]
-    [[ "$running_image" == *"src-08e40cec5d33"* ]] || [[ "$running_image" == *"signalloom-warden"* ]]
+    pin="$(warden_pinned_tag)"
+    warden_image_matches_pin "$running_image" "$pin" || {
+        echo "running warden image '$running_image' is not the pinned tag '$pin'" >&2
+        return 1
+    }
 }
 
 @test "eBPF warden live adversarial run: full attack battery executes with zero warden restarts" {

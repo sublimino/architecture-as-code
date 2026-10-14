@@ -168,12 +168,12 @@ now catches — a reader guessing a fourth value by analogy.
 ## Contract objection: the `10.20.1.0/24` instruction
 
 I was told to put `demo-1` on `10.20.1.0/24`, chosen "to not collide with the
-existing `signalloom-ci` VPC". **I kept `10.10.1.0/24`.** Two reasons, and the
+existing `sl-ci-1-vm` VPC". **I kept `10.10.1.0/24`.** Two reasons, and the
 orchestrator can overrule both cheaply.
 
 1. **The stated rationale does not hold.** The pre-existing hand-built CI estate
-   creates VPC `signalloom-ci` with a single subnet on `10.0.0.0/24`
-   (`scripts/ci/gcp-ci.sh:469`, names at `:43`/`:44`). Neither `10.10.1.0/24`
+   creates VPC `sl-ci-1-vm` with a single subnet on `10.0.0.0/24`
+   (`scripts/ci/gcp-tf-ci.sh:469`, names at `:43`/`:44`). Neither `10.10.1.0/24`
    nor `10.20.1.0/24` collides with it. There is no collision to avoid.
 
 2. **`10.20.x` turns a pre-existing suite red, and I may not edit it.**

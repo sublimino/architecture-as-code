@@ -48,8 +48,8 @@
 #                     environment labels have     ONLY gate 5's name check stops
 #                     been forged to match ci     it. This row is the reason
 #                                                 gate 5 is not decoration.
-#   signalloom-ci     legacy runner, valid ci-1-> only gate 6 rejects it.
-#   signalloom-ci-2   legacy runner, valid ci-2-> only gate 6 rejects it.
+#   sl-protected-runner     legacy runner, valid ci-1-> only gate 6 rejects it.
+#   sl-protected-runner-2   legacy runner, valid ci-2-> only gate 6 rejects it.
 #   sl-ci-4-vm        kind label MISSING       -> gate 3 must reject an absent
 #                                                 value, not read it as unset-
 #                                                 and-therefore-fine.
@@ -79,8 +79,8 @@ sl-ci-2-vm|europe-west2-b|ci-2|@OLD@|RUNNING|ci|ci-2
 sl-demo-1-vm|europe-west2-a|demo-1|@OLD@|RUNNING|demo|demo-1
 sl-demo-2-vm|europe-west2-a|ci-1|@OLD@|RUNNING|demo|demo-2
 sl-demo-3-vm|europe-west2-a|ci-3|@OLD@|RUNNING|ci|ci-3
-signalloom-ci|europe-west2-a|ci-1|@OLD@|RUNNING|ci|ci-1
-signalloom-ci-2|europe-west2-a|ci-2|@OLD@|RUNNING|ci|ci-2
+sl-protected-runner|europe-west2-a|ci-1|@OLD@|RUNNING|ci|ci-1
+sl-protected-runner-2|europe-west2-a|ci-2|@OLD@|RUNNING|ci|ci-2
 sl-ci-4-vm|europe-west2-a|ci-4|@OLD@|RUNNING||ci-4
 sl-ci-5-vm|europe-west2-a|ci-5|@OLD@|RUNNING|ci|ci-6
 sl-ci-6-vm|europe-west2-a|xci-6|@OLD@|RUNNING|ci|xci-6

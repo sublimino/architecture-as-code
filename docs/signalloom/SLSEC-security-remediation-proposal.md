@@ -125,7 +125,7 @@ Every EAP route rejects anonymous callers; tenant is derived from the verified p
 | nginx `add_header`, `server_tokens off`, `limit_req` | Security headers, banner suppression, rate limiting | docs nginx.conf already sets headers — copy the pattern |
 | Dex Auth Code + PKCE | Replace ROPC/public-client password grant | Dex supports it; `dex.yaml` change |
 | K8s / docker bind + gated proxy | Loopback/internal binding for datastores & Archivista | `kind` API already binds loopback-only |
-| pytest / bats + `vm-pipeline.sh` | Regression gate and re-test | Extends existing offline + cluster suites |
+| pytest / bats + `demo-pipeline.sh` | Regression gate and re-test | Extends existing offline + cluster suites |
 
 #### Infrastructure and Repositories
 
@@ -280,8 +280,8 @@ Living architectural constitution for the mission. `P<N>-PRE` and `P<N>-GOV` car
 | `P4-PRE` | preflight | Diff dashboard `nginx.conf` against the docs `nginx.conf` header set; enumerate the six headers to add and `server_tokens off`; confirm the `/supercred-api/` read-only exception stays intact | P1-GOV | Header gap list vs docs conf | S | daily | Pending — not started |  |  |  |  |  |  |  |
 | `P4-1` | implementation | Add CSP, X-Frame-Options, X-Content-Type-Options, HSTS, Referrer-Policy, Permissions-Policy and `server_tokens off` to dashboard `nginx.conf`; add `nginx-security-headers.bats` (static parse + live check) | P4-PRE | `nginx-security-headers.bats` green; live dump shows 6/6, no version banner | M | daily | Pending — not started |  |  |  |  |  |  |  |
 | `P4-GOV` | governor | Certify Phase 4: verify headers live and no banner leak; no SPA regression | P4-1 | Live header dump | S | daily | Pending — not started |  |  |  |  |  |  |  |
-| `P5-PRE` | preflight | Design the CI unauth-sweep gate: where it wires in `scripts/ci/vm-pipeline.sh` (Stage 2 pytest, Stage 7 bats); design the regression fixture that must fail the build | P1-GOV, P2-GOV, P3-GOV, P4-GOV | Identify wiring points; fixture design | S | daily | Pending — not started |  |  |  |  |  |  |  |
-| `P5-1` | implementation | Add the unauthenticated-access sweep pytest (auto-collected Stage 2); extend `api-route-liveness.bats` unauth loop to the EAP routers; wire `adversarial-boundaries.bats` into `vm-pipeline.sh`; prove the gate fails on a regression fixture | P5-PRE | Gate fails on injected unauth regression; passes clean | M | daily | Pending — not started |  |  |  |  |  |  |  |
+| `P5-PRE` | preflight | Design the CI unauth-sweep gate: where it wires in `scripts/gcp-tf/demo-pipeline.sh` (Stage 2 pytest, Stage 7 bats); design the regression fixture that must fail the build | P1-GOV, P2-GOV, P3-GOV, P4-GOV | Identify wiring points; fixture design | S | daily | Pending — not started |  |  |  |  |  |  |  |
+| `P5-1` | implementation | Add the unauthenticated-access sweep pytest (auto-collected Stage 2); extend `api-route-liveness.bats` unauth loop to the EAP routers; wire `adversarial-boundaries.bats` into `demo-pipeline.sh`; prove the gate fails on a regression fixture | P5-PRE | Gate fails on injected unauth regression; passes clean | M | daily | Pending — not started |  |  |  |  |  |  |  |
 | `P5-2` | implementation | Rebuild + redeploy the running instance (`make demo-signalloom-up` → `signalloom-local.sh up`); blackbox re-test all seven findings (repeat pentest ISCs); capture certified evidence | P5-1 | Redeploy verified; ISC-8–12 unauth probes → 401/403; 0 Critical/High | L | deep | Pending — not started |  |  |  |  |  |  |  |
 | `P5-GOV` | governor | Final mission certification: full offline gate + EAP suites + live re-test evidence; produce the sign-off evidence ledger | P5-1, P5-2 | `make test-all-offline` green; certified re-test attached | L | deep | Pending — not started |  |  |  |  |  |  |  |
 

@@ -13,7 +13,7 @@
 # scripts/lib/spire-trust-anchor.sh has carried `assert_openbao_accepts_spire_
 # jwt_keys` since the 2026-08-14 outage. It was invoked by exactly one caller,
 # scripts/agent-trust-local.sh, and by NEITHER scripts/gcp-tf/demo-pipeline.sh
-# NOR scripts/ci/vm-pipeline.sh. Every lane therefore drifted green. The
+# NOR scripts/gcp-tf/demo-pipeline.sh. Every lane therefore drifted green. The
 # capability existed; the hand-maintained runner lists did not name it. That is
 # the fifth instance of that shape in this repo -- see the stage 1g/1h comments
 # in both pipelines for the previous four.

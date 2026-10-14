@@ -36,7 +36,7 @@ run "the_tunnel_and_login_roles_are_granted_at_project_scope" {
 
   assert {
     condition     = contains(local.operator_project_roles, "roles/compute.osAdminLogin")
-    error_message = "The demo pipeline runs every remote command through sudo (scripts/ci/gcp-ci.sh), so plain roles/compute.osLogin cannot run it."
+    error_message = "The demo pipeline runs every remote command through sudo (scripts/ci/gcp-tf-ci.sh), so plain roles/compute.osLogin cannot run it."
   }
 
   assert {

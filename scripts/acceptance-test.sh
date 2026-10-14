@@ -67,9 +67,11 @@ start_port_forward() {
 }
 
 # Pre-flight
-echo "==> Running cluster doctor..."
-"${SCRIPT_DIR}/doctor.sh" 2>&1 | grep -E '━━━|✓|⚠|✗|SUMMARY' | sed 's/\x1b\[[0-9;]*m//g' || true
-echo ""
+if [[ -z "${DASHBOARD_URL:-}" || "${DASHBOARD_URL}" == *"dashboard.osramp.acme.local"* ]] && [[ "${SKIP_DOCTOR:-0}" != "1" ]]; then
+  echo "==> Running cluster doctor..."
+  "${SCRIPT_DIR}/doctor.sh" 2>&1 | grep -E '━━━|✓|⚠|✗|SUMMARY' | sed 's/\x1b\[[0-9;]*m//g' || true
+  echo ""
+fi
 
 # The Envoy Gateway forward is required by EVERY spec that authenticates through
 # Dex — auth.setup.ts navigates to DASHBOARD_URL regardless of which specs were

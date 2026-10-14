@@ -127,7 +127,7 @@ Use the correct label for the level of risk [7.1].
 Example:
 
 ```text
-WARNING: Do not run `gcp-ci.sh destroy` against `signalloom-ci`.
+WARNING: Do not run `gcp-tf-ci.sh destroy` against `sl-ci-1-vm`.
 The command deletes the shared VPC and NAT network. The second CI VM
 also uses that network.
 ```

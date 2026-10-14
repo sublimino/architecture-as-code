@@ -130,7 +130,7 @@ setup() {
 # deleted. Measured: test/afm-delivery-mutation-proof.sh M8 deleted
 # `$(MAKE) check-backends` from the recipe and the assertion stayed GREEN,
 # matching the comment above the line it had just removed. Same shape as
-# scripts/check-ci-build-parity.sh's own `if (line ~ /^#/) next`, and for the
+# scripts/check-build-parity.sh's own `if (line ~ /^#/) next`, and for the
 # same reason — that guard learned it first.
 recipe_body() {
 	awk -v target="$1" '

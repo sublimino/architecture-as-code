@@ -13,12 +13,12 @@
 #   1 — one or more stages failed (the demo is STILL up; see below)
 #   2 — the run aborted before reaching the stage list
 #
-# ─── How this differs from scripts/ci/vm-pipeline.sh, and why ───────────────
+# ─── How this differs from scripts/gcp-tf/demo-pipeline.sh, and why ───────────────
 #
-# vm-pipeline.sh is CI. This is a demo. Three consequences, each of which is a
+# demo-pipeline.sh is CI. This is a demo. Three consequences, each of which is a
 # deliberate inversion rather than an omission:
 #
-#   1. NO TEARDOWN. vm-pipeline.sh opens with `make teardown` and gcp-ci.sh
+#   1. NO TEARDOWN. demo-pipeline.sh opens with `make teardown` and gcp-tf-ci.sh
 #      suspends the VM when it finishes, because a CI lane that stays up is a
 #      lane nobody can use and a bill nobody approved. A demo that tears itself
 #      down is worthless. Teardown here is reachable ONLY through an explicit
@@ -32,7 +32,7 @@
 #   3. IT PUBLISHES. See publish_dashboard below for the port, the bind address
 #      and the supervision, all three of which are load-bearing.
 #
-# ─── What is carried over from vm-pipeline.sh unchanged ─────────────────────
+# ─── What is carried over from demo-pipeline.sh unchanged ─────────────────────
 #
 # Everything else. That file is ~1000 lines of which roughly 40% is comments
 # recording failures paid for in lost CI runs; its ordering constraints, retry
@@ -42,7 +42,7 @@
 #
 # ─── The ONE thing done differently ─────────────────────────────────────────
 #
-# vm-pipeline.sh hand-copies the body of the `demo-signalloom-up` Makefile
+# demo-pipeline.sh hand-copies the body of the `demo-signalloom-up` Makefile
 # recipe, because it deliberately skips the OSRAMP-demo ResourceSets to save
 # time and so cannot call the target. That copy has drifted FOUR times — the
 # fourth invisible to the guard written for the first three, because that guard
@@ -133,6 +133,10 @@ if [[ -n "${DEMO_ZOT_CACHE_DIR:-}" ]]; then
   export ZOT_CACHE_DIR="${DEMO_ZOT_CACHE_DIR}"
 fi
 
+if [[ -n "${DEMO_POSTGRES_DATA_DIR:-}" ]]; then
+  export POSTGRES_DATA_DIR="${DEMO_POSTGRES_DATA_DIR}"
+fi
+
 # The verdict file. Derived from REPORT_DIR by default, because that is the
 # contract demo-up.sh documents ("must write DEMO_REPORT_DIR/summary.json"), but
 # overridable so the driver's own GCP_TF_DEMO_SUMMARY_NAME cannot name a file
@@ -191,20 +195,19 @@ SOURCE_BRANCH="${DEMO_SOURCE_BRANCH:-$(git -C "$WORK_DIR" rev-parse --abbrev-ref
 # change against a script whose steps are not currently separable.
 STAGE="${DEMO_STAGE:-full}"
 case "$STAGE" in
-  full) ;;
+  full|deploy) ;;
   *)
     echo "ERROR: DEMO_STAGE='${STAGE}' was requested, and this pipeline cannot honour it." >&2
-    echo "       demo-pipeline.sh implements a single fixed sequence and has no stage" >&2
-    echo "       selection. Running anyway would silently perform a FULL bring-up —" >&2
-    echo "       including a cluster rebuild — for a caller that asked not to." >&2
+    echo "       demo-pipeline.sh implements 'full' and 'deploy' stages." >&2
     echo "       Refusing rather than doing the wrong thing quietly." >&2
-    echo "       Only DEMO_STAGE=full is supported today." >&2
+    echo "       Only DEMO_STAGE=full and DEMO_STAGE=deploy are supported today." >&2
     exit 2
     ;;
 esac
 
 MAKE_BIN="${MAKE_BIN:-make}"
 KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
+export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}"
 BATS_BIN="${BATS_BIN:-bats}"
 SUDO_BIN="${SUDO_BIN:-sudo}"
 CHROME_BIN="${DEMO_CHROME_BIN:-/opt/google/chrome/chrome}"
@@ -407,7 +410,7 @@ mkdir -p "$REPORT_DIR"
 # the early-abort case this writer exists for is precisely the case where jq is
 # missing. Hand-rolled escaping keeps the writer dependency-free — and the same
 # reasoning is why the final summary is hand-rolled too rather than shelling out
-# to node the way vm-pipeline.sh does.
+# to node the way demo-pipeline.sh does.
 PIPELINE_PHASE="startup"
 
 json_str() {
@@ -418,7 +421,7 @@ json_str() {
 }
 
 # shellcheck disable=SC2329  # invoked from the EXIT trap, which shellcheck 0.11
-# does not follow here; the same false positive is live in scripts/ci/vm-pipeline.sh.
+# does not follow here; the same false positive is live in scripts/gcp-tf/demo-pipeline.sh.
 write_terminal_summary() {
   local rc="$1"
   # A summary already on disk is the run's own verdict. Never overwrite it: a
@@ -543,27 +546,32 @@ bash ./scripts/ci/install-ci-tools.sh
 bash ./scripts/setup.sh --tools-only
 "$SUDO_BIN" chmod go-w /usr/local/bin 2>/dev/null || true
 
-if [[ ! -x "$CHROME_BIN" ]]; then
-  echo "==> Installing Google Chrome for Playwright..."
-  "$SUDO_BIN" npx playwright install chrome
-fi
+GCP_TF_VM_BROWSER="${GCP_TF_VM_BROWSER:-0}"
+if [[ "$GCP_TF_VM_BROWSER" != "0" && "$GCP_TF_VM_BROWSER" != "false" ]]; then
+  if [[ ! -x "$CHROME_BIN" ]]; then
+    echo "==> Installing Google Chrome for Playwright..."
+    "$SUDO_BIN" npx playwright install chrome
+  fi
 
-# ffmpeg must be installed by the SAME Playwright version the runner uses.
-# acceptance-test.sh runs `bunx playwright test` from test/acceptance against
-# the pinned @playwright/test, which looks for one specific revision directory
-# (e.g. ~/.cache/ms-playwright/ffmpeg-1011). An unpinned `npx playwright
-# install` from the repo root resolves the LATEST release and writes a different
-# revision, and `sudo npx` additionally writes into root's cache rather than the
-# invoking user's. Both produce "Executable doesn't exist at .../ffmpeg-linux",
-# which failed a browser stage in 89ms before the browser reached a login page.
-echo "==> Installing the Playwright ffmpeg helper (pinned to test/acceptance)..."
-(
-  cd "${WORK_DIR}/test/acceptance"
-  [[ -d node_modules/@playwright ]] \
-    || bun install --frozen-lockfile 2>/dev/null \
-    || bun install
-  bunx playwright install ffmpeg
-)
+  # ffmpeg must be installed by the SAME Playwright version the runner uses.
+  # acceptance-test.sh runs `bunx playwright test` from test/acceptance against
+  # the pinned @playwright/test, which looks for one specific revision directory
+  # (e.g. ~/.cache/ms-playwright/ffmpeg-1011). An unpinned `npx playwright
+  # install` from the repo root resolves the LATEST release and writes a different
+  # revision, and `sudo npx` additionally writes into root's cache rather than the
+  # invoking user's. Both produce "Executable doesn't exist at .../ffmpeg-linux",
+  # which failed a browser stage in 89ms before the browser reached a login page.
+  echo "==> Installing the Playwright ffmpeg helper (pinned to test/acceptance)..."
+  (
+    cd "${WORK_DIR}/test/acceptance"
+    [[ -d node_modules/@playwright ]] \
+      || bun install --frozen-lockfile 2>/dev/null \
+      || bun install
+    bunx playwright install ffmpeg
+  )
+else
+  echo "==> Skipping in-VM Google Chrome/ffmpeg install (GCP_TF_VM_BROWSER=${GCP_TF_VM_BROWSER}; browser suites decouple to runner/orchestrator)"
+fi
 
 # ── Phase: stages ────────────────────────────────────────────────────────────
 #
@@ -651,7 +659,7 @@ run_stage() {
 
 # ═══ Tier 0: the gates that need NO cluster, run BEFORE there is one ═════════
 #
-# This is where this pipeline diverges most from vm-pipeline.sh, and the
+# This is where this pipeline diverges most from demo-pipeline.sh, and the
 # divergence is deliberate. v1 runs every stage in one block after the cluster,
 # the image builds and the tenant activation — roughly twenty-five minutes in —
 # even though most of them need none of it. Its own comments say the placement
@@ -671,13 +679,16 @@ run_stage() {
 # Believing it belongs here because its stage is numbered 1 would be reading the
 # number rather than the contents.
 #
-# Report filenames are deliberately identical to vm-pipeline.sh's, because
+# Report filenames are deliberately identical to demo-pipeline.sh's, because
 # scripts/ci/openreports-convert.sh maps report FILES to parsers by name. A
 # stage whose file is not in that map contributes zero rows to the OpenReports
 # artifact while reading as configured — so a stage either reuses a mapped name
 # or is written as .txt prose, which the map deliberately does not claim. There
 # is no third option, and inventing a new .tap name would silently drop it.
 echo "==> [3/8] Static gates (no cluster required)..."
+if [[ "${STAGE}" == "deploy" ]]; then
+  echo "==> [3/8] Static gates: skipped (DEMO_STAGE=deploy: fast estate provisioning)"
+else
 
 # --frozen-lockfile is the point of the install, not a detail: this directory is
 # the only one in the repo with both a bun.lock and a package-lock.json, `bun
@@ -700,7 +711,7 @@ run_stage \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap test/acceptance-spec-coverage.bats"
 
 # SLER-P6-3 multi-plane containment acceptance, and its own wiring guard as a
-# separate stage, mirroring vm-pipeline.sh stages 1c3 and 1c4 (the reasons for
+# separate stage, mirroring demo-pipeline.sh stages 1c3 and 1c4 (the reasons for
 # two stages are written there). Offline, no cluster, ~2s. Registered here
 # because nothing about it is lane-specific: it arrived in the CI lane alone,
 # which test/terraform-dual-lane-registration.bats reported.
@@ -725,25 +736,14 @@ run_stage \
    docker pull -q python:3.12-alpine && \
    ${BATS_BIN} --tap d2-signalloom/test/dashboard-fleet-gate.bats"
 
-# Guards vm-pipeline.sh's hand-copy of demo-signalloom-up, which this file does
+# Guards demo-pipeline.sh's hand-copy of demo-signalloom-up, which this file does
 # not have. Run anyway: v1 is frozen but still the CI lane, and a demo run is a
-# free opportunity to notice that its copy has drifted a fifth time.
-run_stage \
-  "CI build parity with demo-signalloom-up" \
-  "stage1d-build-parity.tap" \
-  "cd ${WORK_DIR} && ${BATS_BIN} --tap test/ci-build-parity.bats"
-
 run_stage \
   "Doctor node-image expectations" \
   "stage1e-node-images.tap" \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap test/node-images.bats"
 
-run_stage \
-  "CI terminal-state honesty" \
-  "stage1f-ci-terminal-state.tap" \
-  "cd ${WORK_DIR} && ${BATS_BIN} --tap test/ci-terminal-state.bats"
-
-# 29 suites that no runner invoked until vm-pipeline.sh named them. Measured
+# 29 suites that no runner invoked until demo-pipeline.sh named them. Measured
 # across the tree at the time: 68 .bats suites present, 35 executed, 33 executed
 # by nothing at all — and all 33 passed. They were not broken, they were unasked.
 #
@@ -751,7 +751,7 @@ run_stage \
 #
 # The orphan guard asks "does ANY runner invoke this suite", and that is the
 # right question for an orphan. It is the wrong question for a LANE: a suite
-# named here and not in scripts/ci/vm-pipeline.sh (or the reverse) is invoked,
+# named here and not in scripts/gcp-tf/demo-pipeline.sh (or the reverse) is invoked,
 # reported as covered, and runs in exactly one of the two lanes. Measured across
 # both files: 50 suites in both, 4 in one — and two of those four were plain
 # omissions rather than decisions.
@@ -773,13 +773,15 @@ run_stage \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap \
      test/acceptance-gateway-forward.bats \
      test/audit-anchor-keys-path.bats \
-     test/bao-spire-proof.bats test/ci-lock.bats \
-     test/ci-path-anchoring.bats test/ci-state-locality.bats \
+     test/bao-spire-proof.bats \
+     test/ci-report-integrity.bats \
+     test/http-guard-dedup-contracts.bats \
+     test/worktree-hygiene.bats \
      test/cosign-signing-consistency.bats test/demo-lifecycle.bats \
      test/supercred-spire-preflight.bats test/wait-deadline.bats \
      test/flux-dynamic-labels.bats \
-     test/flux-substitution.bats test/gcp-ci-ssh-diagnosis.bats \
-     test/gcp-ci-vm-status.bats test/healthcheck.bats \
+     test/flux-substitution.bats \
+     test/healthcheck.bats \
      test/k8s-afm-preflight.bats test/keys-dir-path-safety.bats \
      test/kind-config-heredoc.bats test/kind-load-verified.bats \
      test/node-doctor.bats \
@@ -864,7 +866,7 @@ run_stage \
 
 run_stage \
   "CI report integrity" \
-  "stage1j-ci-report-integrity.tap" \
+  "stage1j-lane-report-integrity.tap" \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap test/ci-report-integrity.bats"
 
 run_stage \
@@ -921,8 +923,8 @@ run_stage \
 #
 # .txt, and NOT --tap, for the mapped-name reason given above: there is no
 # stage1r entry in scripts/ci/openreports-convert.sh and adding one would break
-# test/ci-report-integrity.bats, which asserts that no converter entry names a
-# file scripts/ci/vm-pipeline.sh does not produce.
+# test/lane-report-integrity.bats, which asserts that no converter entry names a
+# file scripts/gcp-tf/demo-pipeline.sh does not produce.
 #
 # supervise-port-forward-knobs.bats is here rather than with its sibling in 1g
 # for a specific reason: gcp-demo-pipeline.bats asserts what THIS file exports
@@ -967,7 +969,7 @@ run_stage \
   "cd ${WORK_DIR} && ${BATS_BIN} test/gcp-demo-pipeline.bats \
      test/supervise-port-forward-knobs.bats"
 
-# The language suites. Also cluster-free, and vm-pipeline.sh runs them after
+# The language suites. Also cluster-free, and demo-pipeline.sh runs them after
 # bring-up purely because that is where its numbering put them.
 run_stage \
   "API contracts and persistence" \
@@ -997,6 +999,7 @@ run_stage \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap \
      test/signalloom-test-1-harness.bats \
      test/ci-installer-privileges.bats"
+fi
 
 # ── Phase: cluster ───────────────────────────────────────────────────────────
 PIPELINE_PHASE="create-cluster"
@@ -1010,7 +1013,7 @@ if ((RECREATE)); then
   "$MAKE_BIN" teardown 2>/dev/null || true
 fi
 
-# Ordering and retry placement carried from vm-pipeline.sh. `registry` and
+# Ordering and retry placement carried from demo-pipeline.sh. `registry` and
 # `bootstrap-local` are the two that pull from the network and are the two that
 # flake; the rest are local and a retry on them only hides a real failure.
 "$MAKE_BIN" cluster
@@ -1052,7 +1055,7 @@ retry 3 "$KUBECTL_BIN" -n flux-system wait kustomization/flux-system \
 # script directly.
 PIPELINE_PHASE="estate"
 #
-# COST OF DELEGATING, stated rather than glossed: vm-pipeline.sh wraps each
+# COST OF DELEGATING, stated rather than glossed: demo-pipeline.sh wraps each
 # image target in `retry 3` individually, and calling the recipe as one unit
 # gives that up. `retry 2` here is the coarser replacement. It is affordable
 # because the target is idempotent by construction — every step is a make target
@@ -1144,7 +1147,7 @@ run_stage \
 # static however its number reads, and running it before the cluster would fail
 # for reasons that have nothing to do with the code.
 #
-# It sits AFTER the staleness proof, which is where vm-pipeline.sh does not put
+# It sits AFTER the staleness proof, which is where demo-pipeline.sh does not put
 # it: v1 runs it as stage 1, before stage 6b certifies that the pods are this
 # checkout. A cluster suite that runs before the staleness proof is a suite
 # whose result cannot be attributed to the tree under test — the exact defect
@@ -1191,6 +1194,9 @@ record_stage "Publish the dashboard on a supervised port-forward" \
   "stage6d-publish.txt" "$publish_rc" "$(( SECONDS - publish_start ))"
 
 # ═══ Tier 3: runtime. Needs the cluster AND the published Gateway. ═══════════
+if [[ "${STAGE}" == "deploy" ]]; then
+  echo "==> Post-publish test suites: skipped (DEMO_STAGE=deploy: fast estate provisioning)"
+else
 PIPELINE_PHASE="tests"
 run_stage \
   "Gateway, probes, Dex, and NetworkPolicy runtime negatives" \
@@ -1234,7 +1240,7 @@ run_stage \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap test/signalloom-autoclaim.bats"
 
 # Stage 7e: SFAS live dossier authorization and stun containment acceptance.
-# Same tier and same suites as vm-pipeline.sh stage 7e. Both need the deployed
+# Same tier and same suites as demo-pipeline.sh stage 7e. Both need the deployed
 # estate: signal-ingest, the dashboard, and agent-nono-evidenced's pod logs.
 run_stage \
   "SFAS live dossier authorization and stun containment acceptance" \
@@ -1275,19 +1281,23 @@ run_stage \
 
 
 # ═══ Tier 4: the browser journey. ════════════════════════════════════════════
-run_stage \
-  "Dex and complete dashboard journey matrix" \
-  "stage8-browser.txt" \
-  "cd ${WORK_DIR} && \
-   PLAYWRIGHT_JUNIT_OUTPUT_FILE=${REPORT_DIR}/stage8-browser.xml \
-   ./scripts/acceptance-test.sh signalloom-test-1.spec.ts"
+if [[ "$GCP_TF_VM_BROWSER" != "0" && "$GCP_TF_VM_BROWSER" != "false" ]]; then
+  run_stage \
+    "Dex and complete dashboard journey matrix" \
+    "stage8-browser.txt" \
+    "cd ${WORK_DIR} && \
+     PLAYWRIGHT_JUNIT_OUTPUT_FILE=${REPORT_DIR}/stage8-browser.xml \
+     ./scripts/acceptance-test.sh signalloom-test-1.spec.ts"
 
-run_stage \
-  "Dashboard page smoke suite" \
-  "stage8b-smoke.txt" \
-  "cd ${WORK_DIR} && \
-   PLAYWRIGHT_JUNIT_OUTPUT_FILE=${REPORT_DIR}/stage8b-smoke.xml \
-    ./scripts/acceptance-test.sh smoke.spec.ts live-data.spec.ts docs.spec.ts"
+  run_stage \
+    "Dashboard page smoke suite" \
+    "stage8b-smoke.txt" \
+    "cd ${WORK_DIR} && \
+     PLAYWRIGHT_JUNIT_OUTPUT_FILE=${REPORT_DIR}/stage8b-smoke.xml \
+      ./scripts/acceptance-test.sh smoke.spec.ts live-data.spec.ts"
+else
+  echo "==> Skipping in-VM browser acceptance stages (GCP_TF_VM_BROWSER=${GCP_TF_VM_BROWSER}; run remotely via make gcp-tf-acceptance)"
+fi
 
 # ═══ Tier 5: the user surface, over the origin a human actually opens. ══════
 #
@@ -1319,6 +1329,7 @@ run_stage \
   "cd ${WORK_DIR} && \
    origin=\$(./scripts/ci/resolve-tailnet-origin.sh) && \
    ./scripts/ci/user-surface-gate.sh --base-url \"\${origin}\""
+fi
 
 # ── Phase: report ────────────────────────────────────────────────────────────
 PIPELINE_PHASE="report"

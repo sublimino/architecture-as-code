@@ -312,9 +312,9 @@ del_g5env
 check "M8b env marker is load-bearing" "the LIVE demo sl-demo-1-vm is never suspended"
 
 # ─── M9: gate 6 deleted ─────────────────────────────────────────────────────
-echo "M9  gate 6 deleted (the legacy signalloom-ci denylist)"
+echo "M9  gate 6 deleted (the legacy sl-protected-runner denylist)"
 mutate 's|^    if is_protected "\$name"; then$|    if false; then|'
-check "M9 gate 6 denylist" "GATE 6 the legacy signalloom-ci runners are NEVER suspended"
+check "M9 gate 6 denylist" "GATE 6 the legacy sl-protected-runner runners are NEVER suspended"
 
 # ─── M10: the ci-lane label pattern loses its anchors ───────────────────────
 #

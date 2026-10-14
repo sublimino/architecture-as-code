@@ -157,7 +157,7 @@ The startup script installs Docker. It cannot add the logged-in user to the `doc
 because this VM enforces OS Login and the account does not exist yet. OS Login provisions
 `sa_<numeric-id>` (service account) or `<user>_<domain>` (human) at **first login**, strictly
 later than a startup script. A `usermod` naming a fixed user here would match nobody and
-succeed silently. `scripts/ci/vm-startup.sh` gets away with exactly that line for one reason
+succeed silently. `scripts/ci/demo-vm.sh` gets away with exactly that line for one reason
 only. The v1 CI VM creates a fixed local `ci` user and does not use OS Login.
 
 Measured on a freshly replaced `sl-demo-1-vm`:

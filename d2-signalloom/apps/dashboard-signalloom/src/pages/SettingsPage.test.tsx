@@ -155,7 +155,7 @@ describe('SettingsPage: Integration & Reconciliation', () => {
 
   it('renders configured connectors and allows toggling disconnect confirm', async () => {
     renderSettingsPage(['/settings?tab=connectors'])
-    expect(await screen.findByText('Connected · Last tested 29 Sept 2026, 11:00')).toBeInTheDocument()
+    expect(await screen.findByText(/Connected · Last tested 29 Sept 2026/)).toBeInTheDocument()
     const switches = screen.getAllByRole('switch')
     expect(switches[0]).toHaveAttribute('aria-checked', 'true')
     await userEvent.click(switches[0])

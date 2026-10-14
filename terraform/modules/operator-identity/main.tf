@@ -76,7 +76,7 @@ locals {
   # grounds that it "seems related"; every entry has a line of shell behind it.
   operator_lifecycle_permissions = [
     # The operation this role exists for. scripts/ci/gcp-tf-ci.sh:248 (end of a
-    # CI lane), scripts/ci/gcp-ci.sh:535 and :1301, scripts/ci/gcp-tf-reaper.sh:138
+    # CI lane), scripts/ci/gcp-tf-ci.sh:535 and :1301, scripts/ci/gcp-tf-reaper.sh:138
     # (idle-lane reaper). Documented requirement: "To suspend an instance:
     # compute.instances.suspend" — cloud.google.com/compute/docs/instances/
     # suspend-resume-instance, Required roles and permissions.
@@ -84,7 +84,7 @@ locals {
 
     # The reciprocal, and the SUSPENDED branch of every driver's state machine:
     # scripts/gcp-tf/demo-up.sh:532, scripts/ci/gcp-tf-ci.sh:219,
-    # scripts/ci/gcp-ci.sh:271 and :1328. Same doc, same section: "To resume an
+    # scripts/ci/gcp-tf-ci.sh:271 and :1328. Same doc, same section: "To resume an
     # instance: compute.instances.resume". Suspend without resume is a one-way
     # door — the operator could stop the billing and never restart the lane.
     "compute.instances.resume",
@@ -100,7 +100,7 @@ locals {
     # for only up to 60 days before Compute Engine automatically transitions its
     # state to TERMINATED" (suspend-resume-instance, Limitations). A parked lane
     # is exactly the thing that sits suspended for months. Every driver already
-    # has the branch — demo-up.sh:538, gcp-tf-ci.sh:225, gcp-ci.sh:278, all
+    # has the branch — demo-up.sh:538, gcp-tf-ci.sh:225, gcp-tf-ci.sh:278, all
     # `TERMINATED | STOPPED)` arms of the same case statement that calls resume —
     # so without this permission the operator's lane lifecycle fails on a state
     # Google itself created, and the fallback is the project-owner escalation
@@ -113,7 +113,7 @@ locals {
     # --async is passed. `gcloud compute instances suspend --help` on the
     # installed SDK: "--async  Return immediately, without waiting for the
     # operation in progress to complete." Waiting is therefore the default, and
-    # `grep -rn -- --async` across gcp-tf-ci.sh, gcp-ci.sh, demo-up.sh and
+    # `grep -rn -- --async` across gcp-tf-ci.sh, gcp-tf-ci.sh, demo-up.sh and
     # gcp-tf-reaper.sh returns NOTHING — every call site waits.
     #
     # Without this, the mutation lands and the poll returns 403: the VM really
@@ -196,9 +196,9 @@ locals {
     "roles/iap.tunnelResourceAccessor",
 
     # OS Login WITH sudo. The narrower roles/compute.osLogin was considered and
-    # rejected on evidence, not preference: scripts/ci/gcp-ci.sh runs every
+    # rejected on evidence, not preference: scripts/ci/gcp-tf-ci.sh runs every
     # remote command as `sudo -u ci`, unpacks the work tree with `sudo tar` and
-    # `sudo chown -R ci:ci`, and scripts/ci/vm-pipeline.sh opens and re-closes
+    # `sudo chown -R ci:ci`, and scripts/gcp-tf/demo-pipeline.sh opens and re-closes
     # /usr/local/bin with `sudo chmod`. The pipeline is therefore unrunnable
     # without sudo, and an operator identity that cannot run the pipeline does
     # not solve the problem this module was written for.

@@ -21,12 +21,12 @@ can diff, review, test and re-apply.
 
 | | **v1 — ControlPlane CI** | **v2 — Signal Loom Terraform** |
 |---|---|---|
-| **Project** | `cp-dev-ajm` | `sl-port-over-sandbox` (org `510505892391`) |
+| **Project** | `sl-port-over-sandbox` | `sl-port-over-sandbox` (org `510505892391`) |
 | **Identity** | `andy@control-plane.io` | `sublimino@gmail.com`, impersonating `sl-tf-deploy@sl-port-over-sandbox.iam.gserviceaccount.com` |
 | **Region** | `europe-west2` | `us-east4` |
-| **Provisioning** | imperative — `scripts/ci/gcp-ci.sh` drives `gcloud` | declarative — `terraform apply` over `terraform/environments` |
+| **Provisioning** | imperative — `scripts/ci/gcp-tf-ci.sh` drives `gcloud` | declarative — `terraform apply` over `terraform/environments` |
 | **State** | none; the VM *is* the state | GCS backend, versioned, UBLA + public-access prevention enforced |
-| **Compute** | two long-lived VMs, `signalloom-ci` and `signalloom-ci-2`, suspended between runs | per-environment VM named from the environment key, e.g. `sl-demo-1-vm` |
+| **Compute** | two long-lived VMs, `sl-ci-1-vm` and `sl-ci-2-vm`, suspended between runs | per-environment VM named from the environment key, e.g. `sl-demo-1-vm` |
 | **Access path** | `gcloud compute ssh` | Identity-Aware Proxy — no external IP on any instance |
 | **Environment key** | implicit in the VM name | explicit: `demo-1`, and every resource is named `sl-<key>-<role>` |
 | **Teardown** | suspend the VM | `terraform destroy`, verified by `scripts/gcp-tf/teardown-verify.sh` |
@@ -38,12 +38,12 @@ different identities, different regions, different resource names.
 
 All of it, for now.
 
-- **`scripts/ci/gcp-ci.sh`, `scripts/ci/vm-pipeline.sh`, `scripts/ci/ci-lock.sh`**
+- **`scripts/ci/gcp-tf-ci.sh`, `scripts/gcp-tf/demo-pipeline.sh`**
   — the imperative pipeline. Still the path that runs the D2 end-to-end suite on
   a real cluster. v2 does not yet run that workload.
-- **`.github/workflows/signalloom-ci.yaml`** — resumes `signalloom-ci` in
-  `europe-west2` under `cp-dev-ajm`. Untouched.
-- **`make ci-gcp` / `make ci-gcp-2`** — their entry points.
+- **`.github/workflows/sl-ci-1-vm.yaml`** — resumes `sl-ci-1-vm` in
+  `europe-west2` under `sl-port-over-sandbox`. Untouched.
+- **`make gcp-tf-demo-up ENV=ci-1` / `make gcp-tf-demo-up ENV=ci-2`** — their entry points.
 
 The reason to leave them is not sentiment. v1 currently carries the only working
 end-to-end kind-cluster run in the repository, and the v2 estate has a VM that
@@ -162,18 +162,18 @@ bucket.
 
 It refuses.
 
-A handoff or a command-line flag naming `cp-dev-ajm`, `andy@control-plane.io`,
-`europe-west2`, `signalloom-ci` or `signalloom-ci-2` exits `4` before a single
+A handoff or a command-line flag naming `sl-port-over-sandbox`, `andy@control-plane.io`,
+`europe-west2`, `sl-ci-1-vm` or `sl-ci-2-vm` exits `4` before a single
 cloud call is made.
 
 This is a real guard, not a courtesy. The two estates have different identities,
 so a cross-run would not fail cleanly — it would authenticate as the Signal Loom
-identity, find nothing named `sl-demo-1-*` in `cp-dev-ajm`, and report a tidy
+identity, find nothing named `sl-demo-1-*` in `sl-port-over-sandbox`, and report a tidy
 page of `UNKNOWN`s. The reader's reasonable conclusion is "the estate is
 unreachable", when the truth is "you graded the wrong estate". Refusing is the
 only outcome that cannot be misread.
 
-v1 has its own path and is unaffected: `scripts/ci/gcp-ci.sh`.
+v1 has its own path and is unaffected: `scripts/ci/gcp-tf-ci.sh`.
 
 ## What acceptance checks
 

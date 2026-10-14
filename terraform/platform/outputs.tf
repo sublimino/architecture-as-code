@@ -98,7 +98,7 @@ output "ci_apply_service_account_email" {
 
 # ── Operator identity ───────────────────────────────────────────────────────
 #
-# Exported for the runbook and for scripts/ci/gcp-ci.sh, which needs the email
+# Exported for the runbook and for scripts/ci/gcp-tf-ci.sh, which needs the email
 # to pass to --impersonate-service-account. Nobody should be retyping it.
 
 output "operator_service_account_email" {

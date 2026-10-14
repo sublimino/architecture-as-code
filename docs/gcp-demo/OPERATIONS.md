@@ -272,4 +272,4 @@ A full recreation cycle takes approximately 40 minutes.
 | [`INCIDENTS-2026-08.md`](INCIDENTS-2026-08.md) | Incident post-mortems and diagnostic proofs |
 | [`../../deploy/gcp/README.md`](../../deploy/gcp/README.md) | Deployment inputs and hand-off specifications |
 | [`../../terraform/CONTRACT.md`](../../terraform/CONTRACT.md) | Inter-module contracts for Terraform |
-| [`../../scripts/ci/README.md`](../../scripts/ci/README.md) | CI pipeline architecture for `signalloom-ci` |
+| [`../../scripts/ci/README.md`](../../scripts/ci/README.md) | CI pipeline architecture for `sl-ci-1-vm` |

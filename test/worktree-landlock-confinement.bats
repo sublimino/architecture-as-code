@@ -41,7 +41,7 @@ setup() {
 	HARNESS="$REPO_ROOT/scripts/test-worktree-confinement.sh"
 	EVIDENCE="$REPO_ROOT/docs/signalloom/evidence/worktree-confinement-proof.json"
 	DOC="$REPO_ROOT/docs/signalloom/worktree-landlock-confinement.md"
-	PIPELINE="$REPO_ROOT/scripts/ci/vm-pipeline.sh"
+	PIPELINE="$REPO_ROOT/scripts/gcp-tf/demo-pipeline.sh"
 }
 
 # True when this host can actually enforce the control. Both halves matter: nono

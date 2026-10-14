@@ -157,7 +157,7 @@ install_tools() {
   # Required by scripts/build-sign-dashboard.sh, which make signalloom-images
   # invokes. Note the deliberate PKG_SUDO: the ${SUDO} above means "needed to
   # write to BIN_DIR" and is empty whenever /usr/local/bin happens to be
-  # writable (which is exactly what vm-pipeline.sh arranges before calling
+  # writable (which is exactly what demo-pipeline.sh arranges before calling
   # this script), whereas a package install always needs real root.
   have skopeo || {
     echo "installing skopeo"

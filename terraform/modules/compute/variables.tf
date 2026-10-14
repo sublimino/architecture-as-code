@@ -104,7 +104,7 @@ variable "machine_type" {
   #
   # The MEASURED profile for this workload is v1's CI VM: n2-standard-16,
   # 16 vCPU / 64GB, running the same `make demo-signalloom-up` bring-up
-  # (scripts/ci/gcp-ci.sh). That is the default above and it is the only size
+  # (scripts/ci/gcp-tf-ci.sh). That is the default above and it is the only size
   # anything has been observed to complete on.
   #
   # 8 is not a second known-good value. It is the boundary below which the
@@ -155,7 +155,7 @@ variable "boot_disk_gb" {
   # accepted 20 — which is the shape of comment this repo treats as a defect in
   # its own right: an invariant asserted in prose and not enforced in code.
   # 100 is the documented requirement; 200 is what v1 CI actually provisions
-  # (scripts/ci/gcp-ci.sh, BOOT_DISK_SIZE="200GB") and what the default sets.
+  # (scripts/ci/gcp-tf-ci.sh, BOOT_DISK_SIZE="200GB") and what the default sets.
   # A disk that fills mid-run fails as image-pull errors scattered across
   # unrelated pods, which is a genuinely expensive thing to diagnose.
   validation {

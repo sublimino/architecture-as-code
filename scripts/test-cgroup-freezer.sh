@@ -47,6 +47,7 @@ POD="${POD:-crkc-cpu-burner}"
 BURNER_IMAGE="${BURNER_IMAGE:-docker.io/library/busybox:1.36}"
 DAEMON_ADDR="${DAEMON_ADDR:-127.0.0.1:18080}"
 RESUME_TOKEN="${RESUME_TOKEN:-crkc-governor-token}"
+FREEZE_TOKEN="${FREEZE_TOKEN:-crkc-freeze-token}"
 # CPU sampling window. Long enough that a running busy-loop accumulates
 # hundreds of milliseconds of usage, so "0" is unmistakably a halt and not a
 # scheduling artefact.
@@ -141,7 +142,7 @@ start_daemon() {
   # all three fds are redirected so it never writes back into our stream.
   # No `disown`: the node's /bin/sh is dash, which does not have it — and
   # setsid alone is what does the detaching.
-  nsh "STUN_RESUME_TOKEN='${RESUME_TOKEN}' setsid /usr/local/bin/stun-sentinel \
+  nsh "STUN_FREEZE_TOKEN='${FREEZE_TOKEN}' STUN_RESUME_TOKEN='${RESUME_TOKEN}' setsid /usr/local/bin/stun-sentinel \
          --listen-addr='${DAEMON_ADDR}' </dev/null >/tmp/stun-sentinel.log 2>&1 &"
   # Poll for readiness rather than sleeping a fixed interval.
   local i
@@ -264,6 +265,7 @@ main() {
   local stun_raw stun_resp stun_code latency_ms resolved_path
   stun_raw="$(nsh "curl -s -w '\n%{http_code}' --max-time 10 -X POST http://${DAEMON_ADDR}/stun \
       -H 'Content-Type: application/json' \
+      -H 'Authorization: Bearer ${FREEZE_TOKEN}' \
       -d '{\"pod_uid\":\"${pod_uid}\",\"pod\":\"${POD}\",\"namespace\":\"${NAMESPACE}\"}'")"
   stun_code="$(printf '%s' "${stun_raw}" | tail -n1)"
   stun_resp="$(printf '%s' "${stun_raw}" | sed '$d')"
@@ -318,7 +320,7 @@ main() {
   unauth_code="$(nsh "curl -s -o /dev/null -w '%{http_code}' --max-time 5 -X POST http://${DAEMON_ADDR}/resume \
       -H 'Content-Type: application/json' -d '{\"pod_uid\":\"${pod_uid}\"}'")"
   record "P11-resume-without-credential-refused" "http_status=${unauth_code}" \
-    "$([[ "${unauth_code}" == "403" ]] && echo 1 || echo 0)"
+    "$([[ "${unauth_code}" == "403" || "${unauth_code}" == "401" ]] && echo 1 || echo 0)"
 
   # ── P12: authorised resume thaws, and CPU actually restarts ───────────────
   local resume_resp resume_delta e f

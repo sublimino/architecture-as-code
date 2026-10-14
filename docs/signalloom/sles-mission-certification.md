@@ -79,7 +79,7 @@ The one full-suite failure is `test_audit_provenance::test_every_mutating_route_
 | **B9** | Mutating routes make an audit decision | `test_audit_provenance` fails at base and at tip on `POST /execute` | existing test |
 | **B10** | One canonical pilot identity | Shared Patterns say `kusari`/`6f82ad81`, but `derive_customer_hash("kusari")` is `4b53ab6b`. Code, cards and tests use `kurasi` | `derive_customer_hash` probe |
 | **B13** | One definition of a valid tenant key | `/stream` enforces `^[0-9a-f]{8}$`, but `ExecuteScenarioRequest.customer_hash` only checks length: `POST /execute` with `ZZ/..zz!` returns 201 and stores the key. Such events are readable via `/events` but can never be streamed | `test_blocker_execute_rejects_non_hex_customer_hash` |
-| **B11** | SLES suite runs in PR validation | `signalloom-ci.yaml` triggers only on `workflow_dispatch` and a nightly cron, and `vm-pipeline.sh` builds images rather than running pytest. Only `terraform-validate.yaml` runs on `pull_request`. The suite runs only via local `make test-all-offline` | workflow read |
+| **B11** | SLES suite runs in PR validation | `sl-ci-1-vm.yaml` triggers only on `workflow_dispatch` and a nightly cron, and `demo-pipeline.sh` builds images rather than running pytest. Only `terraform-validate.yaml` runs on `pull_request`. The suite runs only via local `make test-all-offline` | workflow read |
 
 B1, B2, B4, B5 and B13 are security findings. B1 plus B2 means any network client that reaches the portal can generate events for any tenant, enumerate every tenant's hash from `/history`, and stream that tenant's events live.
 

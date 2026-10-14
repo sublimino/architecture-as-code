@@ -5,11 +5,11 @@
 #
 # ─── The defect ─────────────────────────────────────────────────────────────
 # SLES B11: the EAP pytest suites ran only on the nightly GCP VM lane
-# (signalloom-ci.yaml, workflow_dispatch + cron). Nothing ran them on a PR.
+# (sl-ci-1-vm.yaml, workflow_dispatch + cron). Nothing ran them on a PR.
 # The fix is a second, runner-hosted workflow. Two ways that fix quietly
 # regresses, both caught here:
 #
-#   1. Someone adds `pull_request` to signalloom-ci.yaml instead. That starts
+#   1. Someone adds `pull_request` to sl-ci-1-vm.yaml instead. That starts
 #      a GCP VM on every PR and times out. So this suite asserts the NEW file
 #      has the trigger AND the OLD file still does not.
 #   2. The PR workflow drifts from the Makefile target to a bare pytest
@@ -31,7 +31,7 @@ setup_file() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
   export REPO_ROOT
   export WORKFLOW="${EAP_PR_WORKFLOW:-${REPO_ROOT}/.github/workflows/signalloom-eap-pr.yaml}"
-  export NIGHTLY="${REPO_ROOT}/.github/workflows/signalloom-ci.yaml"
+  export NIGHTLY="${REPO_ROOT}/.github/workflows/sl-ci-1-vm.yaml"
   export CONTROL="${REPO_ROOT}/.github/workflows/security-scan.yaml"
 }
 
@@ -67,7 +67,7 @@ triggers() {
   grep -qx 'pull_request' <<<"$output"
 }
 
-@test "nightly signalloom-ci.yaml still does NOT trigger on pull_request" {
+@test "nightly sl-ci-1-vm.yaml still does NOT trigger on pull_request" {
   [ -f "${NIGHTLY}" ]
   run triggers "${NIGHTLY}"
   [ "$status" -eq 0 ]

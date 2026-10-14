@@ -60,7 +60,7 @@
 #   demo-2  10.10.3.0/24     (see demo-1-and-demo-2.tfvars.example)
 #
 # None of these collide with the pre-existing hand-built CI estate, whose VPC
-# `signalloom-ci` carries a single subnet on 10.0.0.0/24 (scripts/ci/gcp-ci.sh).
+# `sl-ci-1-vm` carries a single subnet on 10.0.0.0/24 (scripts/ci/gcp-tf-ci.sh).
 # That estate is not managed by this Terraform and will not be migrated by it;
 # the two must coexist in the same project without a routing conflict.
 #

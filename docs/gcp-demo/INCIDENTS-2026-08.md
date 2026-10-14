@@ -121,7 +121,7 @@ exceeded`. The estate never converged.
 `push_foundation` honoured it correctly. Three other paths publish the same
 `acme/fleet` artifact, and none of them filtered:
 
-- `scripts/ci/vm-pipeline.sh` → `retry 3 make push-local-fleet`
+- `scripts/gcp-tf/demo-pipeline.sh` → `retry 3 make push-local-fleet`
 - `Makefile` → `demo-agent-trust-up` → `$(MAKE) push-local-fleet`
 - `Makefile` → `demo-signalloom-up` → `$(MAKE) push-local-fleet`
 

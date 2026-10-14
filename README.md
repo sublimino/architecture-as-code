@@ -402,7 +402,7 @@ The workflows are in [`.github/workflows/`](.github/workflows/).
 | `push-images` | Manual (`workflow_dispatch`) | Builds multi-arch container images with SBOMs and provenance |
 | `release-artifacts` | Manual (`workflow_dispatch`) | Publishes versioned artifacts and moves the `latest-stable` pointer |
 | `reusable-witness-step` | `workflow_call` | Runs commands under `witness run` to record signed evidence |
-| `signalloom-ci` | Manual, and a daily schedule at 02:00 UTC | Signal Loom D2 end-to-end tests |
+| `sl-ci-1-vm` | Manual, and a daily schedule at 02:00 UTC | Signal Loom D2 end-to-end tests |
 | `terraform-validate` | Manual, and a pull request to `main` that changes Terraform, `scripts/gcp-tf/`, the Terraform tests, or the `Makefile` | Offline, read-only Terraform validation |
 
 ## Current state and roadmap

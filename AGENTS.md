@@ -246,29 +246,6 @@ Frequent pitfalls from
 - `make -n` runs each recipe line that contains `$(MAKE)`.
 - Let's Encrypt permits five certificates for one exact DNS name in 168 hours.
 
-## The older CI lane: two GCP VMs
-
-This system is separate from the four lanes. It uses two persistent VMs,
-`signalloom-ci` and `signalloom-ci-2`, and runs through
-[`scripts/ci/gcp-ci.sh`](scripts/ci/gcp-ci.sh). It runs the end-to-end pipeline
-[`scripts/ci/vm-pipeline.sh`](scripts/ci/vm-pipeline.sh) against a real cluster.
-The VMs suspend between runs to save cost. The full guide is
-[`scripts/ci/README.md`](scripts/ci/README.md).
-
-| Command | Action |
-|---------|--------|
-| `make ci-gcp` | Warm run on `signalloom-ci` |
-| `make ci-gcp-2` | Run on the second VM, `signalloom-ci-2` |
-| `make ci-status` / `make ci-status-2` | Show the VM state |
-| `make ci-ssh` / `make ci-ssh-2` | SSH to the VM to debug |
-| `make ci-report` / `make ci-report-2` | Show the last stage summary |
-
-- `SUSPENDED` is the success state. The script suspends the VM after a pass. It
-  keeps the VM running after a failure.
-
-WARNING: Do not run `gcp-ci.sh destroy` against `signalloom-ci`. The command
-deletes the VPC and NAT network. The second CI VM also uses that network.
-
 ## CI reports, audits, and proofs
 
 All CI reports, preflight audits, compliance bundles, and verification proofs

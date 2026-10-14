@@ -405,7 +405,7 @@ Baseline standards for every card in this mission. Pre-Flight (`P<N>-PRE`) and G
 | Constraint | Gate |
 |---|---|
 | Register the suite in a runner or CI fails | `d2-signalloom/test/bats-registry-coverage.bats` (stage 1h) |
-| Register in **both** pipelines or it runs single-lane silently | `scripts/ci/vm-pipeline.sh` **and** `scripts/gcp-tf/demo-pipeline.sh` |
+| Register in **both** pipelines or it runs single-lane silently | `scripts/gcp-tf/demo-pipeline.sh` **and** `scripts/gcp-tf/demo-pipeline.sh` |
 | No `kubectl exec` probes outside the allowlist | `test/no-exec-probes-in-tests.bats` (stage 1k) |
 | Assertions must be able to go red | `scripts/check-vacuous-assertions.sh` (1o), `test/guard-falsification-proof.sh` (1q) |
 | Every `.bats` must parse and declare ≥1 test | `d2-signalloom/test/tree-integrity.bats` |
@@ -558,7 +558,7 @@ Baseline standards for every card in this mission. Pre-Flight (`P<N>-PRE`) and G
 - Hardened agent pod resolution and sed substitution: dynamically queries exactly 1 live agent pod in `fe-signalloom-agents`, replaces placeholder tokens, and asserts 0 placeholder tokens remain with substitution count matching expectations.
 - Enforced case-tally invariant (5 allowed exitCode 0, 5 denied exitCode 1) to refuse execution on corrupted case definitions.
 - Implemented positive-control gating: bounded poll on permitted path `dashboard-to-api-allowed` before evaluating denials; timeouts exit distinct status `3` (`UNVERIFIED`).
-- Registered stage `Live NetworkPolicy enforcement (netassert)` (`stage7a-netassert.tap`) identically across `scripts/ci/vm-pipeline.sh` and `scripts/gcp-tf/demo-pipeline.sh`, mapped in `scripts/ci/openreports-convert.sh` under security category.
+- Registered stage `Live NetworkPolicy enforcement (netassert)` (`stage7a-netassert.tap`) identically across `scripts/gcp-tf/demo-pipeline.sh` and `scripts/gcp-tf/demo-pipeline.sh`, mapped in `scripts/ci/openreports-convert.sh` under security category.
 - Provisioned pinned `netassert` `v2.1.5` in `scripts/ci/install-ci-tools.sh` and `scripts/setup.sh`.
 - Created 10-test BATS suite `d2-signalloom/test/netassert-stage-registration.bats` and 8-case mutation falsification proof in `test/netassert-gate-falsification-proof.sh`.
 **Deviations:** None.
@@ -721,7 +721,7 @@ Baseline standards for every card in this mission. Pre-Flight (`P<N>-PRE`) and G
 - Merge order: P1-PRE and P1-2 and initial P1-3 were already ancestors; Governor fast-forwarded P1-1 through `05d5a0bdfafca8c9eb2739496baf496cf40e20b6`, then merged P1-3 follow-ups through `059408acebada971d75715166f28d9d12026b45d`. P1-1 was based on initial P1-3, so this preserves the committed dependency graph without rewriting reviewed history.
 - Merge-base evidence: `df4330a1c7b659be8bacf8713ee929c0e6d9ad52`, `f141a985910032f867b29d9eec1fb626b0e45848`, `8ad80113b6d4468c16a8f6eebe18f7ca29843ae9`, `05d5a0bdfafca8c9eb2739496baf496cf40e20b6`, `061bd57715135d1ed35404041e8ab291314d0a43`, `59cd01f79a7443f574003bcf45381d8e75b9e7e1`, `ff9d13b3dc2a63db68df9a9e9f64bcfebce84add`, and `059408acebada971d75715166f28d9d12026b45d` each returned exit `0` from `git merge-base --is-ancestor <sha> HEAD`.
 - Census: raw pre/post declared, ok, not_ok, and skip values are committed in `docs/signalloom/stun-p1-governor-census.md`. No declared count fell; no suite became all-skip; no skip count rose.
-- Pipeline evidence: `stage7a-netassert.tap` occurs at `scripts/ci/vm-pipeline.sh:1020` and `scripts/gcp-tf/demo-pipeline.sh:1122`.
+- Pipeline evidence: `stage7a-netassert.tap` occurs at `scripts/gcp-tf/demo-pipeline.sh:1020` and `scripts/gcp-tf/demo-pipeline.sh:1122`.
 - Baseline evidence: P1-PRE committed nonzero files at `docs/signalloom/kindnet-baseline-2026-08-30.md`, `docs/signalloom/evidence/kindnet-baseline.json`, `docs/stun-under-flux/kindnet-baseline.md`, and `evidence/kindnet-baseline/20260830T215227Z/`.
 - Blocker: `grep -n -F netassert-gate-falsification-proof.sh scripts/gcp-tf/demo-pipeline.sh` returned exit `1`; P1-3 did not explicitly register the required GCP TF falsification proof. The two kindnet baseline BATS suites also remain red before and after the merge. Governor does not repair either card-owned defect.
 - Decomposition accounting: the mandated cost invocation was attempted exactly, but this installed kanban-check rejected the update-table option; its supported read-only cost report recorded STUN-P1-GOV at zero dollars, 12m04s, and 18,622 output tokens. No unsupported substitute was used.

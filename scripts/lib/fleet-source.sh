@@ -20,7 +20,7 @@
 # published a two-tenant fleet. But THREE other paths publish the same
 # `acme/fleet` artifact:
 #
-#   scripts/ci/vm-pipeline.sh:283   retry 3 make push-local-fleet
+#   scripts/gcp-tf/demo-pipeline.sh:283   retry 3 make push-local-fleet
 #   Makefile:455  demo-agent-trust-up:   $(MAKE) push-local-fleet
 #   Makefile:506  demo-signalloom-up:    $(MAKE) push-local-fleet
 #

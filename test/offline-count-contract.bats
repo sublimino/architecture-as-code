@@ -138,7 +138,7 @@ setup() {
 @test "the coverage caveat states that no pipeline runs the offline leg" {
 	# Measured, not assumed: the claim in the contract has to still be true.
 	local hits=0 p
-	for p in scripts/ci/vm-pipeline.sh scripts/gcp-tf/demo-pipeline.sh .github/workflows/signalloom-eap-pr.yaml; do
+	for p in scripts/gcp-tf/demo-pipeline.sh .github/workflows/signalloom-eap-pr.yaml; do
 		[ -f "${REPO_ROOT}/${p}" ] || continue
 		if grep -qF 'test-all-offline' "${REPO_ROOT}/${p}"; then
 			hits=$((hits + 1))

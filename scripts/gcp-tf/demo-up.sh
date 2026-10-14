@@ -45,10 +45,10 @@
 # else, where http is safe because the origin is loopback and the IAP tunnel is
 # the confidentiality boundary.
 #
-# It is a SIBLING of scripts/ci/gcp-ci.sh and scripts/ci/gcp-tf-ci.sh. That
-# first one owns the shared signalloom-ci VMs and their kind pipeline; the
+# It is a SIBLING of scripts/ci/gcp-tf-ci.sh and scripts/ci/gcp-tf-ci.sh. That
+# first one owns the shared sl-ci-1-vm VMs and their kind pipeline; the
 # second owns the per-lane Terraform CI runners. This one owns the human-facing
-# demo VM. None of the three reads or writes another's state, and gcp-ci.sh is
+# demo VM. None of the three reads or writes another's state, and gcp-tf-ci.sh is
 # frozen (test/fixtures/gcp-tf-ci/untouched-scripts.sha256 pins its digest).
 #
 # ─── Nothing is hardcoded; everything comes from the hand-off ───────────────
@@ -236,6 +236,7 @@ REMOTE_KEYS_DIR="${GCP_TF_DEMO_REMOTE_KEYS_DIR:-/opt/signalloom/keys}"
 # `ls` on the host shows a directory that create-kind-cluster.sh has since
 # recreated. Only a push fails, with a 500 that names nothing.
 REMOTE_ZOT_CACHE="${GCP_TF_DEMO_REMOTE_ZOT_CACHE:-/opt/signalloom/zot-cache}"
+REMOTE_POSTGRES_DATA="${GCP_TF_DEMO_REMOTE_POSTGRES_DATA:-/opt/signalloom/postgres-data}"
 
 # EMPTY by default, meaning "run as whoever OS Login logged us in as".
 #
@@ -936,8 +937,14 @@ run_filtered() {
 vm_ssh() {
   local args=()
   mapfile -t args < <(gcloud_common)
+  local ssh_key_arg=()
+  if [ -n "${GCP_SSH_KEY_FILE:-}" ] && [ -f "$GCP_SSH_KEY_FILE" ]; then
+    ssh_key_arg=(--ssh-key-file="$GCP_SSH_KEY_FILE")
+  elif [ -f "/tmp/gcp_ssh_key" ]; then
+    ssh_key_arg=(--ssh-key-file="/tmp/gcp_ssh_key")
+  fi
   run_filtered env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute ssh "$INSTANCE_NAME" \
-    --zone="$ZONE" "${args[@]}" --tunnel-through-iap \
+    --zone="$ZONE" "${args[@]}" "${ssh_key_arg[@]}" --tunnel-through-iap \
     --command="$1"
 }
 
@@ -960,8 +967,14 @@ remote_run() {
 vm_scp() {
   local args=()
   mapfile -t args < <(gcloud_common)
+  local ssh_key_arg=()
+  if [ -n "${GCP_SSH_KEY_FILE:-}" ] && [ -f "$GCP_SSH_KEY_FILE" ]; then
+    ssh_key_arg=(--ssh-key-file="$GCP_SSH_KEY_FILE")
+  elif [ -f "/tmp/gcp_ssh_key" ]; then
+    ssh_key_arg=(--ssh-key-file="/tmp/gcp_ssh_key")
+  fi
   run_filtered env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute scp --tunnel-through-iap \
-    --zone="$ZONE" "${args[@]}" "$@"
+    --zone="$ZONE" "${args[@]}" "${ssh_key_arg[@]}" "$@"
 }
 
 # An unreadable state is not an absent VM. Distinguishing them matters: acting
@@ -1575,6 +1588,11 @@ unrecoverable."
     "The running registry keeps a handle on the deleted directory, so every push
 fails with a 500 while the host path looks healthy and 'kind get clusters'
 reports the cluster is fine. Recreating the Kind cluster is the only way back."
+
+  assert_dir_is_durable GCP_TF_DEMO_REMOTE_POSTGRES_DATA "$REMOTE_POSTGRES_DATA" \
+    "the postgres database storage, bind-mounted into the Kind node" \
+    "The running postgres container keeps a handle on the deleted directory, so every restart
+fails with a mount error while the host path looks healthy. Recreating the Kind cluster is the only way back."
 }
 
 provision_remote_paths() {
@@ -1594,13 +1612,13 @@ provision_remote_paths() {
   # nothing else — no rm, no install -m, no truncation. chmod 700 because it
   # holds a cosign private key; cosign writes the key file itself 0600, but the
   # directory it lands in is created by us and would otherwise be 0755.
-  vm_ssh "sudo mkdir -p $(printf '%q' "$REMOTE_REPORT_DIR") $(printf '%q' "$log_dir") $(printf '%q' "$REMOTE_KEYS_DIR") $(printf '%q' "$REMOTE_ZOT_CACHE") \
+  vm_ssh "sudo mkdir -p $(printf '%q' "$REMOTE_REPORT_DIR") $(printf '%q' "$log_dir") $(printf '%q' "$REMOTE_KEYS_DIR") $(printf '%q' "$REMOTE_ZOT_CACHE") $(printf '%q' "$REMOTE_POSTGRES_DATA") \
     && sudo chown -R ${owner} $(printf '%q' "$REMOTE_REPORT_DIR") \
-    && sudo chown ${owner} $(printf '%q' "$REMOTE_KEYS_DIR") $(printf '%q' "$REMOTE_ZOT_CACHE") \
+    && sudo chown ${owner} $(printf '%q' "$REMOTE_KEYS_DIR") $(printf '%q' "$REMOTE_ZOT_CACHE") $(printf '%q' "$REMOTE_POSTGRES_DATA") \
     && sudo chmod 700 $(printf '%q' "$REMOTE_KEYS_DIR") \
     && sudo touch $(printf '%q' "$REMOTE_LOG") \
     && sudo chown ${owner} $(printf '%q' "$REMOTE_LOG")" \
-    || die "could not provision ${REMOTE_REPORT_DIR}, ${REMOTE_KEYS_DIR}, ${REMOTE_ZOT_CACHE} and ${REMOTE_LOG} on ${INSTANCE_NAME}. The pipeline writes its verdict there and cannot start without them."
+    || die "could not provision ${REMOTE_REPORT_DIR}, ${REMOTE_KEYS_DIR}, ${REMOTE_ZOT_CACHE}, ${REMOTE_POSTGRES_DATA} and ${REMOTE_LOG} on ${INSTANCE_NAME}. The pipeline writes its verdict there and cannot start without them."
 }
 
 # Kustomize uses .git/ as a security boundary for relative path traversal:
@@ -1625,7 +1643,7 @@ snapshot_remote_git() {
 
 # ── Run state: written at every transition, starting before the VM is touched ─
 #
-# Lifted from scripts/ci/gcp-ci.sh, which arrived at it the hard way. The
+# Lifted from scripts/ci/gcp-tf-ci.sh, which arrived at it the hard way. The
 # failure it removes is a report directory whose newest file describes a
 # PREVIOUS run: a mid-run poll then reads a verdict that has already been
 # superseded, and an aborted run inherits its predecessor's "all green".
@@ -1817,7 +1835,7 @@ on_term() { exit 143; }
 #                      summary was ever collected and the classifier read the
 #                      absent verdict as ABORTED.
 #   DEMO_SOURCE_COMMIT the pipeline fell back to `git rev-parse HEAD` against
-#                      the throwaway repo vm-pipeline.sh git-inits for
+#                      the throwaway repo demo-pipeline.sh git-inits for
 #                      Kustomize, and stamped THAT into summary.json — the
 #                      `master@47c5ea5` in the run log. That is the exact
 #                      failure the paragraph above predicts, and it disables the
@@ -1863,10 +1881,10 @@ run_pipeline() {
   # pipeline publishes the same dashboard Nginx service for its handover.
   # Exporting APP_PORT would couple independent lifecycle owners.
   local envs
-  printf -v envs 'DEMO_ENV=%q DEMO_STAGE=%q DEMO_WORK_DIR=%q DEMO_REPORT_DIR=%q DEMO_SUMMARY_FILE=%q DEMO_DASHBOARD_HOSTNAME=%q DEMO_PIPELINE_LOG=%q DEMO_SOURCE_COMMIT=%q DEMO_SOURCE_BRANCH=%q DEMO_KEYS_DIR=%q DEMO_ZOT_CACHE_DIR=%q' \
+  printf -v envs 'DEMO_ENV=%q DEMO_STAGE=%q DEMO_WORK_DIR=%q DEMO_REPORT_DIR=%q DEMO_SUMMARY_FILE=%q DEMO_DASHBOARD_HOSTNAME=%q DEMO_PIPELINE_LOG=%q DEMO_SOURCE_COMMIT=%q DEMO_SOURCE_BRANCH=%q DEMO_KEYS_DIR=%q DEMO_ZOT_CACHE_DIR=%q DEMO_POSTGRES_DATA_DIR=%q' \
     "$ENV_KEY" "$stage" "$REMOTE_WORK_DIR" "$REMOTE_REPORT_DIR" \
     "${REMOTE_REPORT_DIR}/${SUMMARY_NAME}" "$DASHBOARD_HOST" \
-    "$REMOTE_LOG" "$RUN_COMMIT" "$RUN_BRANCH" "$REMOTE_KEYS_DIR" "$REMOTE_ZOT_CACHE"
+    "$REMOTE_LOG" "$RUN_COMMIT" "$RUN_BRANCH" "$REMOTE_KEYS_DIR" "$REMOTE_ZOT_CACHE" "$REMOTE_POSTGRES_DATA"
 
   # `env VAR=… cmd` with no sudo when no service account is configured. v1 always
   # drops to `ci`; here that account is not guaranteed to exist, and `sudo -u`
@@ -1895,10 +1913,17 @@ run_pipeline() {
   #
   # PIPESTATUS[0], not $?, because tee is what the shell sees last.
   set +e
+  local ssh_key_arg=()
+  if [ -n "${GCP_SSH_KEY_FILE:-}" ] && [ -f "$GCP_SSH_KEY_FILE" ]; then
+    ssh_key_arg=(--ssh-key-file="$GCP_SSH_KEY_FILE")
+  elif [ -f "/tmp/gcp_ssh_key" ]; then
+    ssh_key_arg=(--ssh-key-file="/tmp/gcp_ssh_key")
+  fi
   "$TIMEOUT_CMD" -k 60s "${TIMEOUT_MINUTES}m" \
     env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute ssh "$INSTANCE_NAME" \
     --zone="$ZONE" --project="$PROJECT_ID" \
     --impersonate-service-account="$OPERATOR_SA" \
+    "${ssh_key_arg[@]}" \
     --tunnel-through-iap \
     --command="$invocation" \
     2>&1 | strip_impersonation_warning | tee -a "${REPORT_DIR}/pipeline.log"
@@ -2184,7 +2209,24 @@ run_lane() {
 
 cmd_up() {
   prepare up
-  run_lane full
+  local stage="${DEMO_STAGE:-}"
+  if [ -z "$stage" ]; then
+    case "$ENV_KEY" in
+      demo*|eap*) stage="deploy" ;;
+      *) stage="full" ;;
+    esac
+  fi
+  run_lane "$stage"
+}
+
+cmd_clean_down() {
+  prepare clean-down
+  ensure_vm_ready || exit 2
+  log "Cleaning down estate on ${INSTANCE_NAME} (resetting database and removing test artifacts)..."
+  local clean_cmd
+  clean_cmd='cd '"${REMOTE_WORK_DIR}"' && export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}" && make postgres-data-recreate && if [ -x ./scripts/clean-test-artifacts.sh ]; then ./scripts/clean-test-artifacts.sh; fi && make healthcheck'
+  remote_run "$clean_cmd"
+  log "==> PASS — estate on ${INSTANCE_NAME} is cleaned down to pristine state ready for login."
 }
 
 cmd_test() {
@@ -2198,8 +2240,14 @@ cmd_ssh() {
 
   local args=()
   mapfile -t args < <(gcloud_common)
+  local ssh_key_arg=()
+  if [ -n "${GCP_SSH_KEY_FILE:-}" ] && [ -f "$GCP_SSH_KEY_FILE" ]; then
+    ssh_key_arg=(--ssh-key-file="$GCP_SSH_KEY_FILE")
+  elif [ -f "/tmp/gcp_ssh_key" ]; then
+    ssh_key_arg=(--ssh-key-file="/tmp/gcp_ssh_key")
+  fi
   exec env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute ssh "$INSTANCE_NAME" \
-    --zone="$ZONE" "${args[@]}" --tunnel-through-iap "$@"
+    --zone="$ZONE" "${args[@]}" "${ssh_key_arg[@]}" --tunnel-through-iap "$@"
 }
 
 cmd_connect() {
@@ -2375,7 +2423,7 @@ dex_origin() {
     return $?
   fi
   local remote
-  printf -v remote 'cd %q && %q %s' "$REMOTE_WORK_DIR" \
+  printf -v remote 'cd %q && export KUBECONFIG="${KUBECONFIG:-/tmp/osramp-kubeconfig.yaml}" && %q %s' "$REMOTE_WORK_DIR" \
     "${REMOTE_WORK_DIR}/${DEX_ORIGIN_REL}" "$(printf '%q ' "$@")"
   remote_run "$remote"
 }
@@ -2690,7 +2738,16 @@ fi
 # systemd does not: a unit with no KUBECONFIG runs with HOME=/root, finds
 # nothing, and fails authenticating to localhost:6443, which reads like a broken
 # cluster rather than a missing variable.
-KUBECONFIG_PATH="\${KUBECONFIG:-\${HOME}/.kube/config}"
+KUBECONFIG_PATH="\${KUBECONFIG:-}"
+if [ -z "\$KUBECONFIG_PATH" ]; then
+  if [ -r "\${HOME}/.kube/config" ]; then
+    KUBECONFIG_PATH="\${HOME}/.kube/config"
+  elif [ -r "/tmp/osramp-kubeconfig.yaml" ]; then
+    KUBECONFIG_PATH="/tmp/osramp-kubeconfig.yaml"
+  else
+    KUBECONFIG_PATH="\${HOME}/.kube/config"
+  fi
+fi
 if [ ! -r "\$KUBECONFIG_PATH" ]; then
   echo "NO_KUBECONFIG:\${KUBECONFIG_PATH}" >&2
   exit 4
@@ -4800,7 +4857,7 @@ TS_TEST_SLOWEST_NAME=""
 #
 # Each request runs under a hard `--max-time ${TS_TEST_TIMEOUT}` ceiling, and
 # until this was added the run reported the VERDICT and nothing about the
-# margin. That is the same instrumentation hole as scripts/ci/vm-pipeline.sh,
+# margin. That is the same instrumentation hole as scripts/gcp-tf/demo-pipeline.sh,
 # which announces `──── TEST: <name> (timeout 900s) ────` and never prints what
 # the stage actually took — so the inner waits are well instrumented, the outer
 # fences are not measured at all, and nobody can say what the headroom is.
@@ -5270,11 +5327,59 @@ cmd_surfaces() {
   exit 1
 }
 
+cmd_acceptance() {
+  require_env acceptance
+  capture_source_identity
+  load_handoff
+
+  local target="${DASHBOARD_URL:-}"
+  if [ -z "$target" ]; then
+    # Try Tailscale resolution first
+    if ts_resolve_node 2>/dev/null; then
+      target="https://${TS_FQDN}"
+      log "resolved tailnet target: ${target}"
+    else
+      # Check if an IAP tunnel is already listening locally
+      local local_port origin
+      local_port="$(local_tunnel_port)"
+      origin="$(iap_origin)"
+      if nc -z 127.0.0.1 "$local_port" 2>/dev/null; then
+        target="$origin"
+        log "using active IAP tunnel target: ${target}"
+      else
+        die "no target available for ${ENV_KEY}: Tailscale node is not online and no IAP tunnel is listening on port ${local_port}. Run 'make gcp-tf-ts-up ENV=${ENV_KEY}' or 'make gcp-tf-connect ENV=${ENV_KEY}' first."
+      fi
+    fi
+  fi
+
+  echo "════════════════════════════════════════════════════════════"
+  echo "  Signal Loom — REMOTE acceptance tests"
+  echo "  ENV: ${ENV_KEY}  |  target: ${target}"
+  echo "════════════════════════════════════════════════════════════"
+
+  local specs=("$@")
+  if [ "${#specs[@]}" -eq 0 ]; then
+    specs=(signalloom-test-1.spec.ts smoke.spec.ts live-data.spec.ts)
+  fi
+
+  log "running acceptance suite against ${target}: ${specs[*]}"
+  DASHBOARD_URL="$target" \
+  SKIP_DOCTOR=1 \
+  SIGNALLOOM_UI_URL="$target" \
+  SIGNALLOOM_API_URL="$target" \
+  SIGNALLOOM_DEX_URL="$target" \
+  "${REPO_ROOT}/scripts/acceptance-test.sh" "${specs[@]}"
+}
+
 case "${1:-up}" in
   up) cmd_up ;;
   test) cmd_test ;;
   ts-test) cmd_ts_test ;;
   test-surfaces) cmd_surfaces ;;
+  acceptance)
+    shift
+    cmd_acceptance "$@"
+    ;;
   connect) cmd_connect ;;
   ssh)
     shift
@@ -5292,10 +5397,11 @@ case "${1:-up}" in
   funnel-up) cmd_funnel_up ;;
   funnel-down) cmd_funnel_down ;;
   status) cmd_status ;;
+  clean-down) cmd_clean_down ;;
   payload)
     shift
     cmd_payload "${1:-}"
     ;;
   -h | --help | help) sed -n '2,28p' "$0" ;;
-  *) die "usage: $(basename "$0") {up|test|ts-test|test-surfaces|connect|ssh|ts-up|ts-status|ts-logout|funnel-up|funnel-down|public|public-down|public-status|status|payload <file>}" ;;
+  *) die "usage: $(basename "$0") {up|test|ts-test|test-surfaces|acceptance [specs...]|clean-down|connect|ssh|ts-up|ts-status|ts-logout|funnel-up|funnel-down|public|public-down|public-status|status|payload <file>}" ;;
 esac

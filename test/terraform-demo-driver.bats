@@ -336,7 +336,7 @@ dex_log() {
 	# instance's internal IP). None can go stale when the estate is rebuilt,
 	# which is the property being protected.
 	local hits
-	hits="$(grep -nE '(cp-dev-ajm|acme-real-project|[a-z0-9-]+\.iam\.gserviceaccount\.com|europe-west[0-9]-[a-z]|((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9]))' "${DRIVER_SRC}" |
+	hits="$(grep -nE '(legacy-v1-project|acme-real-project|[a-z0-9-]+\.iam\.gserviceaccount\.com|europe-west[0-9]-[a-z]|((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9]))' "${DRIVER_SRC}" |
 		grep -v -e '127\.0\.0\.1' -e '35\.235\.240\.0' -e '0\.0\.0\.0' || true)"
 	[ -z "$hits" ] || {
 		echo "hardcoded estate identity in the driver:"
@@ -346,7 +346,7 @@ dex_log() {
 
 	# The scan must be capable of finding something, or its silence is worthless.
 	local control
-	control="$(printf '%s\n' 'sa = "x@cp-dev-ajm.iam.gserviceaccount.com"' |
+	control="$(printf '%s\n' 'sa = "x@legacy-v1-project.iam.gserviceaccount.com"' |
 		grep -cE '[a-z0-9-]+\.iam\.gserviceaccount\.com' || true)"
 	[ "$control" -eq 1 ]
 }

@@ -499,7 +499,7 @@ attach_oracle() {
 #                        control: delete the invocation line entirely      -> RED
 #
 # CI-BUILD-PARITY-REAL is recorded above as it was MEASURED, not as it stands.
-# That blind spot was real and is now closed: check-ci-build-parity.sh strips
+# That blind spot was real and is now closed: check-build-parity.sh strips
 # trailing comments quote-awarely, and both parity cases FIRE on the subtle
 # mutation as of 2026-08-16. The record stays because the classification is the
 # lesson — the first run called this guard DECORATION and was wrong, and the
@@ -682,7 +682,7 @@ register KEYS-DIR-CONCAT keys bats test/keys-dir-path-safety.bats \
 
 # ── CI honesty ──────────────────────────────────────────────────────────────
 
-PIPELINE="scripts/ci/vm-pipeline.sh"
+PIPELINE="scripts/gcp-tf/demo-pipeline.sh"
 # The second runner of root-level suites. The CI lane and the demo lane register
 # overlapping but NOT identical sets, and reading only one of them counts every
 # suite the other owns as invoked by nothing.
@@ -727,15 +727,6 @@ mut_ci_parser_format_mismatch() {
 register CI-PARSER-MISMATCH ci-honesty bats test/ci-report-integrity.bats \
 	'no converter entry uses parseTap on a non-TAP file' \
 	"$CONVERTER" 'mismatched file/parser|not ok' mut_ci_parser_format_mismatch
-
-mut_ci_relative_path_var() {
-	# A CI path variable holding a relative value resolves against whatever cwd
-	# the stage happens to have. The VM's cwd is not ours.
-	py_sub "Makefile" 'GCP_CI_REPORT_DIR=$(abspath ci-reports-2)' 'GCP_CI_REPORT_DIR=ci-reports-2'
-}
-register CI-RELATIVE-PATH ci-honesty bats test/ci-path-anchoring.bats \
-	'no CI path variable is assigned a relative value in the Makefile' \
-	"Makefile" 'not ok' mut_ci_relative_path_var
 
 mut_ci_installer_unpinned() {
 	# `@latest` in an installer makes the CI toolchain a moving target: the same
@@ -889,121 +880,6 @@ mut_exec_allowlist_count_drift() {
 register META-ALLOWLIST-COUNT-DRIFT meta bats test/no-exec-probes-in-tests.bats \
 	'every allowlisted file has exactly its recorded number of occurrences' \
 	"d2-signalloom/test/supercred-demo.bats" 'no longer match|not ok' mut_exec_allowlist_count_drift
-
-mut_ci_build_parity_drop() {
-	# The real-tree half of ci-build-parity. A build step present in the Makefile
-	# recipe and missing from the pipeline is how a workload reached a VM in
-	# ImagePullBackOff and failed three stages forty minutes into a lane.
-	py_sub "$PIPELINE" 'make demo-signalloom-supercred-images' 'true # make demo-signalloom-supercred-images'
-}
-register CI-BUILD-PARITY-REAL ci-honesty bats test/ci-build-parity.bats \
-	"PARITY the repo's own pipeline builds everything demo-signalloom-up builds" \
-	"$PIPELINE" 'MISSING|not ok' mut_ci_build_parity_drop
-
-ctl_ci_build_parity_delete() {
-	# The control: delete the invocation line outright, leaving the pipeline's
-	# explanatory FULL-LINE comment about the same step in place.
-	#
-	# Measured — this goes RED. That is the whole point: check-ci-build-parity.sh
-	# does strip full-line comments, so a surviving comment does NOT rescue a
-	# deleted step.
-	#
-	# This control earned its keep. It was what separated "live guard, one narrow
-	# blind spot" from "decoration", and the two repairs are not the same repair:
-	# the first gets a filter widened, the second gets the guard rewritten. The
-	# gap it isolated — full-line comments stripped, TRAILING comments not, so
-	# `sed -E 's/.*make[[:space:]]+//'` lifted the step name back out of dead
-	# text — is closed as of 2026-08-16 by strip_shell_comments() in the guard.
-	# The subtle mutation now goes red on its own, so this control no longer runs
-	# (the harness only reaches a control when the guard stays green). It stays
-	# registered anyway: it is the regression lock on the classification, and a
-	# control that never fires costs nothing while a missing one costs a wrong
-	# verdict.
-	MUT_FILE="$PIPELINE" python3 - <<-'PY'
-		import os, sys, pathlib
-		p = pathlib.Path(os.environ["MUT_FILE"])
-		lines = p.read_text().splitlines(keepends=True)
-		inv = [i for i, l in enumerate(lines)
-		       if "demo-signalloom-supercred-images" in l and not l.lstrip().startswith("#")]
-		if len(inv) != 1:
-		    sys.stderr.write("expected exactly 1 live invocation line, found %d\n" % len(inv))
-		    sys.exit(3)
-		del lines[inv[0]]
-		p.write_text("".join(lines))
-	PY
-}
-register_control ctl_ci_build_parity_delete
-
-# The same defect measured one layer down, through the `sh` guard kind rather
-# than through the bats wrapper. This localises the blind spot: if the bats case
-# above and this one both stay green on the trailing-comment mutation, the gap is
-# in check-ci-build-parity.sh itself and not in how the suite calls it. It also
-# exercises the harness's `sh` code path against a real guard — that path had no
-# registered case at all until now, which in a tool about untested checks was an
-# untested branch of the tool itself.
-register CI-BUILD-PARITY-SCRIPT ci-honesty sh scripts/check-ci-build-parity.sh \
-	'' "$PIPELINE" 'MISSING' mut_ci_build_parity_drop
-register_control ctl_ci_build_parity_delete
-
-# The same guard aimed at the half of the recipe it could not see until now.
-# check-ci-build-parity.sh read `$(MAKE)` lines only, so demo-signalloom-up's two
-# closing script invocations were outside the comparison — and the guard printed
-# a pass over a pipeline missing the only step that activates the Agent Trust
-# slice. A from-scratch run then reached 21/27 stages with zero of six
-# agent-trust-* namespaces, reporting the failure against signalloom-infra.
-#
-# Deleting the line rather than commenting it: the trailing-comment variant is
-# already proven for `make` by mut_ci_build_parity_drop above, and both extractors
-# share one strip_shell_comments.
-mut_ci_build_parity_activation_drop() {
-	# Line-precise, not py_sub. py_sub replaces the FIRST occurrence, and the
-	# invocation now sits under a thirty-line comment block that discusses it —
-	# add one backticked mention of the literal and py_sub would silently mutate
-	# the prose while the live step kept running, scoring the guard green on a
-	# tree that was never mutated.
-	MUT_FILE="$PIPELINE" python3 - <<-'PY'
-		import os, sys, pathlib
-		p = pathlib.Path(os.environ["MUT_FILE"])
-		lines = p.read_text().splitlines(keepends=True)
-		inv = [i for i, l in enumerate(lines)
-		       if l.strip() == "./scripts/agent-trust-local.sh up"]
-		if len(inv) != 1:
-		    sys.stderr.write("expected exactly 1 live invocation line, found %d\n" % len(inv))
-		    sys.exit(3)
-		del lines[inv[0]]
-		p.write_text("".join(lines))
-	PY
-}
-register CI-BUILD-PARITY-ACTIVATION ci-honesty bats test/ci-build-parity.bats \
-	"PARITY the repo's pipeline activates the Agent Trust slice, in recipe order" \
-	"$PIPELINE" 'MISSING|not ok' mut_ci_build_parity_activation_drop
-
-mut_ci_build_parity_activation_early() {
-	# Present but early, which is the worse of the two failures: the activation
-	# snapshots its sibling ResourceSets' inputs and restores them after a fleet
-	# refresh that reapplies `inputs: []`, so it must observe them ACTIVE. Run
-	# before the handover it snapshots nothing, and preflight_bao then waits its
-	# full 600s on a signalloom-infra that will never go Ready — a ten-minute
-	# hang where the omission at least failed fast.
-	MUT_FILE="$PIPELINE" python3 - <<-'PY'
-		import os, sys, pathlib
-		p = pathlib.Path(os.environ["MUT_FILE"])
-		lines = p.read_text().splitlines(keepends=True)
-		inv = [i for i, l in enumerate(lines)
-		       if l.strip() == "./scripts/agent-trust-local.sh up"]
-		anc = [i for i, l in enumerate(lines)
-		       if "signalloom-local.sh up" in l and not l.lstrip().startswith("#")]
-		if len(inv) != 1 or not anc:
-		    sys.stderr.write("expected 1 invocation and >=1 anchor, found %d/%d\n"
-		                     % (len(inv), len(anc)))
-		    sys.exit(3)
-		line = lines.pop(inv[0])
-		p.write_text("".join(lines[:anc[0]] + [line] + lines[anc[0]:]))
-	PY
-}
-register CI-BUILD-PARITY-ACTIVATION-ORDER ci-honesty bats test/ci-build-parity.bats \
-	"PARITY the repo's pipeline activates the Agent Trust slice, in recipe order" \
-	"$PIPELINE" 'TOO EARLY|not ok' mut_ci_build_parity_activation_early
 
 # ── Kind cluster config safety ──────────────────────────────────────────────
 
@@ -1348,14 +1224,6 @@ orc_ci_parser_mismatch() {
 	PY
 }
 
-orc_ci_relative_path() {
-	local n
-	n="$(grep -vE '^[[:space:]]*#' Makefile \
-		| grep -oE 'GCP_CI_[A-Z_]*(DIR|PATH|ROOT)=[^ 	]*' \
-		| grep -cvE '=(/|\$\(abspath|\$\(CURDIR\)|\$\{CURDIR\})' || true)"
-	printf '%s' "${n:-0}"
-}
-
 orc_ci_unpinned() {
 	local n
 	n="$(grep -E '^[A-Z_]+_VERSION="' scripts/ci/install-ci-tools.sh \
@@ -1365,7 +1233,7 @@ orc_ci_unpinned() {
 }
 
 # ---- meta -----------------------------------------------------------------
-_ROOT_BATS_EXCLUDED='supercred-images.bats e2e-dual-cluster-containment.bats agent-trust-lifecycle.bats deployed-staleness.bats signalloom-flux-integration.bats signalloom-preflight.bats test-count-floor.bats dashboard-route-collisions.bats docs-index-sync.bats docs-lint.bats docs-rewrite-guard.bats afm-importer-key.bats afm-importer-key-stdin.bats afm-import-gateway-manifests.bats afm-rbac-exporter-manifests.bats afm-rbac-exporter-push.bats agent-identity-binding-vap.bats dockerfile-copy-sources.bats docs-tests-alignment.bats fleet-operator-keys.bats freeport-lib.bats jev-browser-loop.bats jev-loop.bats kusari-e2e-live.bats old-probe-name-guard.bats parallel-acceptance.bats remote-tenant-lab.bats signal-ingest-image-tag.bats signalloom-warden-manifests.bats signal-segment-key.bats slaws-slaat-cross-plane-probes.bats sltm-ingest-chain.bats sltm-ingest-reload-ratelimit.bats source-id-tracked.bats spool-replay-lib.bats stun-evidence-ownership-generator.bats tenant-kustomizations-no-cluster-scoped-kinds.bats test-isolation-audit.bats tombstone-mutation-check.bats warden-cutover.bats'
+_ROOT_BATS_EXCLUDED='supercred-images.bats supercred-fleet-deploy.bats e2e-dual-cluster-containment.bats agent-trust-lifecycle.bats deployed-staleness.bats signalloom-flux-integration.bats signalloom-preflight.bats test-count-floor.bats dashboard-route-collisions.bats docs-index-sync.bats docs-lint.bats docs-rewrite-guard.bats afm-importer-key.bats afm-importer-key-stdin.bats afm-import-gateway-manifests.bats afm-rbac-exporter-manifests.bats afm-rbac-exporter-push.bats agent-identity-binding-vap.bats dockerfile-copy-sources.bats docs-tests-alignment.bats fleet-operator-keys.bats freeport-lib.bats jev-browser-loop.bats jev-loop.bats kusari-e2e-live.bats old-probe-name-guard.bats parallel-acceptance.bats remote-tenant-lab.bats signal-ingest-image-tag.bats signalloom-warden-manifests.bats signal-segment-key.bats slaws-slaat-cross-plane-probes.bats sltm-ingest-chain.bats sltm-ingest-reload-ratelimit.bats source-id-tracked.bats spool-replay-lib.bats stun-evidence-ownership-generator.bats tenant-kustomizations-no-cluster-scoped-kinds.bats test-isolation-audit.bats tombstone-mutation-check.bats warden-cutover.bats slsi-airgap-bundle.bats slsi-bundle-manifest.bats slsi-adversarial-redteam.bats slsi-bootstrap-persistence.bats slsi-diagnostics-bundler.bats slsi-dual-trust.bats slsi-host-mounts.bats slsi-ingress-modes.bats slsi-tenant-keys.bats slsi-upgrade-rollback.bats slsi-zot-preload.bats diagram-focus.bats impl-agent-log.bats acceptance-demo-mode-honesty.bats applicability-chaos.bats demo-mission-honesty.bats flux-workload-coverage.bats money-golden-guard.bats slaws-live-lab.bats ui-policy-posture-honesty.bats verify-cel.bats'
 
 # ── Registration by GLOB, which a basename grep structurally cannot see ──────
 #
@@ -1506,141 +1374,9 @@ orc_kind_cmdsub() {
 # Build steps in the demo-signalloom-up recipe that the CI pipeline does not
 # actually invoke.
 #
-# The first version of this oracle shelled out to check-ci-build-parity.sh —
+# The first version of this oracle shelled out to check-build-parity.sh —
 # which IS the guard for CI-BUILD-PARITY-SCRIPT. An oracle that runs the guard
 # agrees with the guard by construction, including in its blind spots, so it
-# reported "no violation" for a step the pipeline had genuinely stopped
-# building and the case was filed as an unfaithful mutation. A guard cannot be
-# its own oracle; that is a tautology with extra steps.
-orc_ci_build_parity() {
-	python3 - <<-'PY'
-		import re, pathlib
-		mk = pathlib.Path("Makefile").read_text()
-		pipe = pathlib.Path("scripts/ci/vm-pipeline.sh").read_text()
-		# Written-down decisions, mirrored from the checker's ALLOWED list: one is
-		# runtime-only, one needs a source tree absent from the CI VM.
-		ALLOWED = {"netassert-runner-image", "demo-signalloom-afm-up"}
-
-		steps, inrecipe = [], False
-		for line in mk.split("\n"):
-		    if line.startswith("demo-signalloom-up:"):
-		        inrecipe = True
-		        continue
-		    if not inrecipe:
-		        continue
-		    if not line.startswith("\t"):
-		        if line.strip():
-		            break
-		        continue
-		    body = re.sub(r'^\t+[@+-]*', '', line)
-		    if body.lstrip().startswith("#"):
-		        continue
-		    m = re.search(r'\$\(MAKE\)[ \t]+([A-Za-z0-9_][A-Za-z0-9_.-]*)', body)
-		    if m:
-		        steps.append(m.group(1))
-
-		# Comments are stripped from the pipeline before looking for invocations,
-		# and that IS the property: a step named only inside a comment is built by
-		# nothing. An oracle that skipped this would inherit the guard's blind spot
-		# instead of measuring it.
-		code = "\n".join(re.sub(r'#.*$', '', ln) for ln in pipe.split("\n"))
-		missing = 0
-		for s in steps:
-		    if s in ALLOWED:
-		        continue
-		    if not re.search(r'\bmake[ \t]+(-[A-Za-z]+[ \t]+)*%s\b' % re.escape(s), code):
-		        missing += 1
-		print(missing)
-	PY
-}
-
-# The same property for the recipe's SCRIPT steps, which the $(MAKE)-only oracle
-# above cannot see any more than the guard could. Independently parsed, for the
-# reason recorded above orc_ci_build_parity: an oracle that shells out to the
-# checker inherits the checker's blind spots and certifies them.
-#
-# The verb is part of the identity here too. `agent-trust-local.sh down` is a
-# teardown, and an oracle matching the path alone would score it as the bring-up.
-orc_ci_parity_activation() {
-	python3 - <<-'PY'
-		import re, pathlib
-		mk = pathlib.Path("Makefile").read_text()
-		pipe = pathlib.Path("scripts/ci/vm-pipeline.sh").read_text()
-
-		steps, inrecipe = [], False
-		for line in mk.split("\n"):
-		    if line.startswith("demo-signalloom-up:"):
-		        inrecipe = True
-		        continue
-		    if not inrecipe:
-		        continue
-		    if not line.startswith("\t"):
-		        if line.strip():
-		            break
-		        continue
-		    body = re.sub(r'^\t+[@+-]*', '', line)
-		    if body.lstrip().startswith("#"):
-		        continue
-		    m = re.search(r'\./(scripts/[A-Za-z0-9_.-]+\.sh)[ \t]+([A-Za-z0-9_-]+)', body)
-		    if m:
-		        steps.append((m.group(1), m.group(2)))
-
-		code = "\n".join(re.sub(r'#.*$', '', ln) for ln in pipe.split("\n"))
-		missing = 0
-		for path, verb in steps:
-		    if not re.search(r'\./%s[ \t]+%s\b' % (re.escape(path), re.escape(verb)), code):
-		        missing += 1
-		print(missing)
-	PY
-}
-
-# Script steps the recipe runs AFTER its handover to signalloom-local.sh that the
-# pipeline runs BEFORE its own. Counted separately from membership because the
-# remedies differ and so does the failure: a missing activation fails fast, an
-# early one snapshots inputs that are not active yet and hangs for ten minutes.
-orc_ci_parity_activation_order() {
-	python3 - <<-'PY'
-		import re, pathlib
-		mk = pathlib.Path("Makefile").read_text()
-		pipe = pathlib.Path("scripts/ci/vm-pipeline.sh").read_text()
-		ANCHOR = r'signalloom-local\.sh up'
-
-		steps, inrecipe, anchor_at = [], False, None
-		for n, line in enumerate(mk.split("\n")):
-		    if line.startswith("demo-signalloom-up:"):
-		        inrecipe = True
-		        continue
-		    if not inrecipe:
-		        continue
-		    if not line.startswith("\t"):
-		        if line.strip():
-		            break
-		        continue
-		    body = re.sub(r'^\t+[@+-]*', '', line)
-		    if body.lstrip().startswith("#"):
-		        continue
-		    if anchor_at is None and re.search(ANCHOR, body):
-		        anchor_at = n
-		    m = re.search(r'\./(scripts/[A-Za-z0-9_.-]+\.sh)[ \t]+([A-Za-z0-9_-]+)', body)
-		    if m:
-		        steps.append((n, m.group(1), m.group(2)))
-
-		lines = [re.sub(r'#.*$', '', ln) for ln in pipe.split("\n")]
-		p_anchor = next((n for n, ln in enumerate(lines) if re.search(ANCHOR, ln)), None)
-		bad = 0
-		if anchor_at is not None and p_anchor is not None:
-		    for n, path, verb in steps:
-		        if n <= anchor_at:
-		            continue
-		        hit = next((i for i, ln in enumerate(lines)
-		                    if re.search(r'\./%s[ \t]+%s\b'
-		                                 % (re.escape(path), re.escape(verb)), ln)), None)
-		        if hit is not None and hit < p_anchor:
-		            bad += 1
-		print(bad)
-	PY
-}
-
 # ── Every case must have an oracle ──────────────────────────────────────────
 #
 # Attached by id, so this block is the only place the oracle layer touches.
@@ -1655,7 +1391,6 @@ attach_oracle KEYS-DIR-CONCAT                   orc_keys_concat
 attach_oracle CI-ORPHAN-REPORT                  orc_ci_orphan_report
 attach_oracle CI-STALE-CONVERTER-ENTRY          orc_ci_stale_entry
 attach_oracle CI-PARSER-MISMATCH                orc_ci_parser_mismatch
-attach_oracle CI-RELATIVE-PATH                  orc_ci_relative_path
 attach_oracle CI-UNPINNED-VERSION               orc_ci_unpinned
 attach_oracle META-UNREGISTERED-SUITE           orc_meta_unreg_suite
 # Both proof-script cases assert the SAME property — "no proof script under
@@ -1667,10 +1402,6 @@ attach_oracle META-PROOF-COMMENT-ONLY           orc_meta_uninvoked_proof
 attach_oracle META-UNREGISTERED-SPEC            orc_meta_unreg_spec
 attach_oracle META-EXEC-PROBE                   orc_meta_exec_probe
 attach_oracle META-ALLOWLIST-COUNT-DRIFT        orc_meta_exec_probe
-attach_oracle CI-BUILD-PARITY-REAL              orc_ci_build_parity
-attach_oracle CI-BUILD-PARITY-SCRIPT            orc_ci_build_parity
-attach_oracle CI-BUILD-PARITY-ACTIVATION        orc_ci_parity_activation
-attach_oracle CI-BUILD-PARITY-ACTIVATION-ORDER  orc_ci_parity_activation_order
 attach_oracle KIND-COMMAND-SUBSTITUTION         orc_kind_cmdsub
 
 # ── Foreign-edit detection: content hashes, never mtimes ────────────────────

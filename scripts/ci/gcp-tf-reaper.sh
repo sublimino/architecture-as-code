@@ -20,7 +20,7 @@
 # ─── Why this cannot touch anything but a CI lane ───────────────────────────
 #
 # A reaper is a script whose entire job is turning other people's machines off.
-# The demo VMs and the pre-existing signalloom-ci / signalloom-ci-2 runners must
+# The demo VMs and the pre-existing sl-protected-runner / sl-protected-runner-2 runners must
 # be unreachable from it by construction, not by careful reading.
 #
 # ─── THE SELECTOR MOVED, AND THE OLD ONE WAS A FILENAME ─────────────────────
@@ -78,8 +78,8 @@
 #      `demo-`, or a name containing `demo`. Redundant against gates 3 and 4 by
 #      construction, and that is the point — it is the gate that still fires if
 #      someone later "simplifies" the label checks.
-#   6. an explicit denylist naming signalloom-ci and signalloom-ci-2, the shared
-#      runners owned by scripts/ci/gcp-ci.sh.
+#   6. an explicit denylist naming sl-protected-runner and sl-protected-runner-2, the shared
+#      runners owned by scripts/ci/gcp-tf-ci.sh.
 #
 # The cost of the redundancy is a dozen lines. The cost of being wrong once is
 # somebody else's running demo.
@@ -106,10 +106,10 @@ DRY_RUN=0
 export SSH_AUTH_SOCK=
 
 # Instances that must never be suspended by this script regardless of labels.
-# These are the shared runners owned by scripts/ci/gcp-ci.sh.
+# These are the shared runners owned by scripts/ci/gcp-tf-ci.sh.
 readonly PROTECTED_INSTANCES=(
-  signalloom-ci
-  signalloom-ci-2
+  sl-protected-runner
+  sl-protected-runner-2
 )
 
 # The `ci-lane` label value terraform/modules/compute emits for kind = "ci".
@@ -327,7 +327,7 @@ main() {
       continue
     fi
 
-    # ── Gate 6 — the shared runners owned by scripts/ci/gcp-ci.sh ───────────
+    # ── Gate 6 — the shared runners owned by scripts/ci/gcp-tf-ci.sh ───────────
     if is_protected "$name"; then
       printf '    skip %-24s REFUSED: protected instance\n' "$name"
       skipped=$((skipped + 1))

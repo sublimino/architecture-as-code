@@ -147,7 +147,7 @@ mutate() {
   [[ "$output" == *"Usage: acceptance-v2.sh"* ]] || { echo "$output"; return 1; }
   # The help has to say which estate this is, or someone will point it at v1.
   [[ "$output" == *"v1"* ]] || { echo "help does not mention v1 at all"; echo "$output"; return 1; }
-  [[ "$output" == *"gcp-ci.sh"* ]] || { echo "help does not name the v1 path"; echo "$output"; return 1; }
+  [[ "$output" == *"legacy-v1.sh"* ]] || { echo "help does not name the v1 path"; echo "$output"; return 1; }
 }
 
 @test "an unknown argument is a usage error" {
@@ -772,9 +772,9 @@ mutate() {
   run "$ACCEPT" --handoff "${HANDOFFS}/v1-controlplane.handoff.json"
   [ "$status" -eq 4 ] || { echo "expected exit 4, got ${status}"; echo "$output"; return 1; }
   [[ "$output" == *"REFUSING TO RUN"* ]] || { echo "$output"; return 1; }
-  [[ "$output" == *"cp-dev-ajm"* ]] || { echo "the refusal does not name what it saw"; echo "$output"; return 1; }
+  [[ "$output" == *"legacy-v1-project"* ]] || { echo "the refusal does not name what it saw"; echo "$output"; return 1; }
   [[ "$output" == *"v2 acceptance suite"* ]] || { echo "$output"; return 1; }
-  [[ "$output" == *"scripts/ci/gcp-ci.sh"* ]] || { echo "the refusal does not point at the v1 path"; echo "$output"; return 1; }
+  [[ "$output" == *"scripts/gcp-tf/legacy-v1.sh"* ]] || { echo "the refusal does not point at the v1 path"; echo "$output"; return 1; }
   # Nothing was checked. A refusal that had already made cloud calls would be a
   # refusal in name only.
   [ ! -s "$CALL_LOG" ] || { echo "cloud calls were made before refusing:"; cat "$CALL_LOG"; return 1; }
@@ -791,7 +791,7 @@ mutate() {
 
 @test "a v1 marker on the command line is refused before anything is read" {
   local marker
-  for marker in "cp-dev-ajm" "signalloom-ci" "signalloom-ci-2" "andy@control-plane.io" "europe-west2"; do
+  for marker in "legacy-v1-project" "legacy-v1-vm" "legacy-v1-vm-2" "andy@control-plane.io" "europe-west2"; do
     run "$ACCEPT" --env "$marker"
     [ "$status" -eq 4 ] || {
       echo "marker '${marker}' on the command line was not refused (status ${status})"

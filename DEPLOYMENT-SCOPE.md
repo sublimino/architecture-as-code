@@ -162,7 +162,7 @@ Until implemented, this gate reports `not implemented`. CI/demo development may 
 
 The independent adversarial repository is a separately delivered dependency, not hidden inside Phase C or E. Its interface can be tested with contract fixtures, but fixture success must never satisfy the real adversarial gate.
 
-Reuse `scripts/gcp-tf/demo-pipeline.sh`, existing slice lifecycle commands, test registry conventions and Terraform patterns where their assumptions hold. Treat `scripts/ci/vm-pipeline.sh` as a reference subject to its frozen legacy policy. Do not simply add GKE flags to Kind-specific image loading or bootstrap code.
+Reuse `scripts/gcp-tf/demo-pipeline.sh`, existing slice lifecycle commands, test registry conventions and Terraform patterns where their assumptions hold. Treat `scripts/gcp-tf/demo-pipeline.sh` as a reference subject to its frozen legacy policy. Do not simply add GKE flags to Kind-specific image loading or bootstrap code.
 
 The first code should be a small release/evidence validator and supported lifecycle adapters after the contract is approved. It must reject missing evidence, changed digests, wrong profiles, stale baselines, skipped required tests and unauthorized exceptions. Avoid building a dashboard or a general workflow engine.
 

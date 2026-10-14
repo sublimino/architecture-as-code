@@ -260,7 +260,7 @@ run "enabling_confidential_compute_forces_terminate_on_maintenance" {
 # The demo VM carries a Kind cluster running the whole Signal Loom estate,
 # brought up by this repo's own `make demo-signalloom-up`. The measured
 # reference for that exact bring-up is v1 CI: n2-standard-16 with a 200GB boot
-# disk (scripts/ci/gcp-ci.sh). These runs assert the module can express that
+# disk (scripts/ci/gcp-tf-ci.sh). These runs assert the module can express that
 # profile and that both values reach the instance rather than stopping at a
 # variable nobody wired through.
 # ---------------------------------------------------------------------------

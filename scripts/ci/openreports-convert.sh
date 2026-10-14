@@ -13,7 +13,7 @@
 set -euo pipefail
 
 REPORT_DIR="${1:?Usage: openreports-convert.sh <report-dir>}"
-REPORT_FILENAME="${2:-signalloom-ci-report.yaml}"
+REPORT_FILENAME="${2:-sl-ci-1-vm-report.yaml}"
 
 node - "$REPORT_DIR" "$REPORT_FILENAME" <<'OPENREPORTS_SCRIPT'
 const { readFileSync, writeFileSync } = require('fs');
@@ -124,32 +124,11 @@ const stageMap = [
   // asserts nothing about the product -- it asserts that the other stages run
   // what they claim to run.
   { file: 'stage1c-acceptance-coverage.tap', parser: parseTap, source: 'bats-acceptance-coverage', category: 'meta' },
-  // Stage 1c2. 'meta' for the same reason as 1c above: it asserts that the
-  // gateway-forward supervisor behaves, which is machinery the acceptance run
-  // depends on, not a claim about the product.
-  //
-  // This entry exists because ci-terminal-state.bats caught its absence within
-  // minutes of stage 1c2 being added — a TAP report with no stage-map row is
-  // produced, parsed by nothing, and silently absent from the verdict. Adding
-  // the stage and forgetting the row is the exact failure that guard is for.
-  { file: 'stage1c2-gateway-forward.tap', parser: parseTap, source: 'bats-gateway-forward', category: 'meta' },
-  // Also 'meta': it asserts that stage [4/7] builds everything
-  // demo-signalloom-up builds, not anything about the product. Reported
-  // separately from 1c because the two answer different questions -- 1c asks
-  // whether the tests run, this asks whether the thing under test was built.
-  { file: 'stage1d-build-parity.tap', parser: parseTap, source: 'bats-ci-build-parity', category: 'meta' },
-  // 'meta' for the same reason as 1c and 1d: it asserts that a diagnostic tells
+  // 'meta' for the same reason as 1c: it asserts that a diagnostic tells
   // the truth about this profile, not anything about the product. Without a row
   // here the stage would run and its results would be dropped from the report --
   // which is the silent-degradation shape 1c exists to catch.
   { file: 'stage1e-node-images.tap', parser: parseTap, source: 'bats-doctor-node-images', category: 'meta' },
-  // 'meta' for the same reason again: it asserts nothing about the product. It
-  // asserts that the artifacts this pipeline leaves behind say which run they
-  // belong to and how it ended -- the guard on the harness reporting honestly
-  // about itself. 1f rather than a second 1e: this and the node-image stage were
-  // written in parallel and both claimed the 1e slot. The suffixes exist to keep
-  // insertion cheap, which only holds while each one names exactly one stage.
-  { file: 'stage1f-ci-terminal-state.tap', parser: parseTap, source: 'bats-ci-terminal-state', category: 'meta' },
   // 1g/1h/1i: the suites that used to run nowhere, and the guards that keep
   // them running. 'meta' for 1h and 1i and 'contract' for 1g -- 1g asserts
   // things about the product (RBAC, images, flux substitution, port-forward
@@ -166,7 +145,7 @@ const stageMap = [
   // one layer up in the reporting.
   { file: 'stage1g-unregistered-guards.tap', parser: parseTap, source: 'bats-previously-unrun-guards', category: 'contract' },
   { file: 'stage1h-bats-registry.tap', parser: parseTap, source: 'bats-registry-coverage', category: 'meta' },
-  { file: 'stage1j-ci-report-integrity.tap', parser: parseTap, source: 'ci-report-integrity', category: 'meta' },
+  { file: 'stage1j-lane-report-integrity.tap', parser: parseTap, source: 'lane-report-integrity', category: 'meta' },
   // 1k bans kubectl exec as a probe in test files. Categorised 'contract'
   // rather than 'meta' on the same distinction 1g is: it asserts a property of
   // the tests that guard the product -- specifically that a probe's failure can
@@ -297,13 +276,13 @@ const lines = [];
 lines.push('apiVersion: openreports.io/v1alpha1');
 lines.push('kind: Report');
 lines.push('metadata:');
-lines.push(`  name: signalloom-ci-${now.replace(/[:.]/g, '-').slice(0, 19)}`);
-lines.push('  namespace: signalloom-ci');
+lines.push(`  name: sl-ci-1-vm-${now.replace(/[:.]/g, '-').slice(0, 19)}`);
+lines.push('  namespace: sl-ci-1-vm');
 lines.push('  labels:');
 lines.push('    app.kubernetes.io/name: signalloom-d2');
 lines.push('    app.kubernetes.io/component: ci');
-lines.push('    openreports.io/source: signalloom-ci-pipeline');
-lines.push(`source: signalloom-ci-pipeline`);
+lines.push('    openreports.io/source: sl-ci-1-vm-pipeline');
+lines.push(`source: sl-ci-1-vm-pipeline`);
 lines.push('summary:');
 lines.push(`  pass: ${summary.pass}`);
 lines.push(`  fail: ${summary.fail}`);

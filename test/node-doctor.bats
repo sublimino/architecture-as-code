@@ -1186,9 +1186,9 @@ code_only() {
 
 @test "MAKE both CI pipelines invoke this suite, not just one of them" {
   # The two pipeline scripts carry hand-written suite lists and are known to
-  # drift: scripts/ci/vm-pipeline.sh duplicates chunks of the Makefile, so a fix
+  # drift: scripts/gcp-tf/demo-pipeline.sh duplicates chunks of the Makefile, so a fix
   # applied to one has repeatedly failed to reach the other. Both are asserted
   # here rather than trusting that whoever edits one will remember the other.
-  grep -q 'test/node-doctor.bats' "${REPO_ROOT}/scripts/ci/vm-pipeline.sh"
+  grep -q 'test/node-doctor.bats' "${REPO_ROOT}/scripts/gcp-tf/demo-pipeline.sh"
   grep -q 'test/node-doctor.bats' "${REPO_ROOT}/scripts/gcp-tf/demo-pipeline.sh"
 }

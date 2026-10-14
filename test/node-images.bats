@@ -9,7 +9,7 @@
 # The two defects this pins, both found on a run where all 13 CI stages passed:
 #
 #   1. The expected set was a seven-element hardcoded list of OSRAMP/Olly
-#      images. scripts/ci/vm-pipeline.sh deliberately skips the OSRAMP-demo
+#      images. scripts/gcp-tf/demo-pipeline.sh deliberately skips the OSRAMP-demo
 #      ResourceSets, so on a signalloom-only run all seven are absent BY
 #      DESIGN — "7 image(s) missing" printed on every green run, naming
 #      nothing, and pointing at `make images`, which would not have fixed it.
@@ -70,7 +70,7 @@ setup() {
 # ── Defect 1: the expected set is the profile, not a constant ────────────────
 
 @test "an image nothing deploys is not expected, however buildable it is" {
-	# The signalloom profile: vm-pipeline.sh skips the OSRAMP-demo ResourceSets,
+	# The signalloom profile: demo-pipeline.sh skips the OSRAMP-demo ResourceSets,
 	# so listener/processor/olly-* are absent by design on every run of it.
 	cat >"$WORKLOAD_STATE" <<-'EOF'
 		fe-signalloom dashboard-abc Running netassert-controller:dev

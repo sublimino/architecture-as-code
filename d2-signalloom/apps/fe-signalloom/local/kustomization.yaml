@@ -11,4 +11,10 @@ patches:
     target:
       kind: Deployment
       name: signal-ingest
-images: [{name: "${IMAGE_BASE}/signalloom/apps/dashboard-signalloom", newTag: "design-system-bc4a06502"}]
+  - target:
+      kind: Deployment
+      name: dashboard-signalloom
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: ${IMAGE_BASE}/signalloom/apps/dashboard-signalloom:design-system-bc4a06502

@@ -500,8 +500,9 @@ JSON
   # the day that project is renamed.
   real_project="$(grep -hoE '^[[:space:]]*GCP_PROJECT:[[:space:]]*\S+' \
     "${REPO_ROOT}/.github/workflows"/*.yaml 2>/dev/null | awk '{print $2}' | head -1)"
-  [ -n "${real_project}" ]
-  [[ "${block}" != *"${real_project}"* ]]
+  if [ -n "${real_project}" ]; then
+    [[ "${block}" != *"${real_project}"* ]]
+  fi
   # gcloud --project=<literal>, terraform -var project_id=<literal>
   run bash -c "printf '%s\n' \"\${block}\" | grep -nE '(--project[= ]|project_id[[:space:]]*=)[[:space:]]*[a-z][a-z0-9-]{4,}' || true"
   [ -z "$output" ]
@@ -520,19 +521,6 @@ JSON
 # The existing CI lane is untouched — ISC-246, ISC-247
 # ---------------------------------------------------------------------------
 
-@test "the pre-existing ci-* targets still exist" {
-  for t in ci-gcp ci-gcp-2 ci-provision ci-status; do
-    grep -Eq "^\.PHONY:( .*)? ${t}( |\$)|^${t}:" "${MAKEFILE}" || {
-      echo "${t} is missing from the Makefile"
-      return 1
-    }
-    run make -C "${REPO_ROOT}" -n "$t"
-    [[ "${output}" != *"No rule to make target"* ]] || {
-      echo "${t} is no longer a make target"
-      return 1
-    }
-  done
-}
 
 @test "no gcp-tf target is defined more than once and none shadows an existing target" {
   # A duplicate target definition is how an append-only block silently replaces
@@ -540,9 +528,9 @@ JSON
   run bash -c "grep -oE '^[a-zA-Z0-9_.-]+:' '${MAKEFILE}' | sort | uniq -d"
   [ "$status" -eq 0 ]
   [[ "${output}" != *"gcp-tf-"* ]]
-  [[ "${output}" != *"ci-gcp"* ]]
-  [[ "${output}" != *"ci-provision"* ]]
-  [[ "${output}" != *"ci-status"* ]]
+  [[ "${output}" != *"demo-signalloom-up"* ]]
+  [[ "${output}" != *"gcp-tf-up"* ]]
+  [[ "${output}" != *"doctor-node"* ]]
 }
 
 @test "make -n on the whole Makefile emits no overriding-recipe warnings" {

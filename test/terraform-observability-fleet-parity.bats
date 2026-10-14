@@ -12,7 +12,7 @@
 #
 # Nothing checked that before 2026-08-22, which is precisely why the estate
 # shipped broken. push_foundation() filtered the fleet correctly, but three
-# other call paths — scripts/ci/vm-pipeline.sh:283, and `$(MAKE)
+# other call paths — scripts/gcp-tf/demo-pipeline.sh:283, and `$(MAKE)
 # push-local-fleet` inside both demo-agent-trust-up and demo-signalloom-up —
 # reached push_fleet(), whose default argument was the raw unfiltered tree.
 # Every bring-up therefore published a correct two-tenant fleet at bootstrap and

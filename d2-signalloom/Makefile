@@ -104,7 +104,7 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 	@# durability the cluster no longer has.
 	@#
 	@# Registered here rather than in a pipeline on purpose. The two sibling
-	@# proofs live in scripts/ci/vm-pipeline.sh (frozen) and
+	@# proofs live in scripts/gcp-tf/demo-pipeline.sh (frozen) and
 	@# scripts/gcp-tf/demo-pipeline.sh (a live bring-up); this one is a static
 	@# manifest guard with no cluster dependency, so it belongs with the other
 	@# static gates and costs ~20s. A Makefile target counts as a runner for
@@ -178,7 +178,7 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 #                               -k apps/cardvault/base` and `kubectl apply -f
 #                               agents-cardvault.yaml`), reached via `make
 #                               demo-signalloom-supercred-1`. Neither
-#                               scripts/ci/vm-pipeline.sh nor
+#                               scripts/gcp-tf/demo-pipeline.sh nor
 #                               scripts/gcp-tf/demo-pipeline.sh ever calls
 #                               either one: they build the supercred IMAGES
 #                               (`make demo-signalloom-supercred-images`) and
@@ -226,7 +226,7 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 #                               refused, and with an operator's kubeconfig loaded
 #                               they acted on the shared cluster from a config
 #                               check. runtime.bats and test-1-runtime.bats keep
-#                               their owners: stage 7 of scripts/ci/vm-pipeline.sh
+#                               their owners: stage 7 of scripts/gcp-tf/demo-pipeline.sh
 #                               and the root `demo-signalloom-runtime-test`.
 #                               spire-jwks-live.bats belongs in the same stage 7
 #                               list; it had no other runner.

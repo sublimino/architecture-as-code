@@ -258,7 +258,7 @@ metadata_attr() {
 # in the repo demonstrably calls it, not because it seemed likely:
 #
 #   git             install-ci-tools.sh installs bats by `git clone`, and
-#                   vm-pipeline.sh runs `git init -q` so Kustomize will resolve
+#                   demo-pipeline.sh runs `git init -q` so Kustomize will resolve
 #                   the tree as a repository. Neither can install git first.
 #   make            the pipeline drives the demo entirely through make targets
 #                   (`make ci-tools`, `make demo-signalloom-up`). A VM with no
@@ -289,9 +289,9 @@ metadata_attr() {
 #
 # THIS LIST PREVIOUSLY CLAIMED "node arrives with the Playwright setup". It does
 # not, and the claim cost three separate forty-minute runs to disprove one tool
-# at a time. The Playwright step in scripts/ci/vm-pipeline.sh RUNS `npx
+# at a time. The Playwright step in scripts/gcp-tf/demo-pipeline.sh RUNS `npx
 # playwright install chrome` — it consumes npx and has never provided it. The v1
-# CI VM's scripts/ci/vm-startup.sh installs node, bun and uv; this script is v1's
+# CI VM's scripts/ci/demo-vm.sh installs node, bun and uv; this script is v1's
 # replacement for the demo lane and silently dropped all three, so every fresh
 # VM failed on `npx: not found`, then `bun: command not found`, then uv. They are
 # now installed, pinned and checksum-verified, in install-ci-tools.sh beside the
@@ -1439,7 +1439,7 @@ UNIT
 #
 # ─── Why the obvious fix is dead code here ─────────────────────────────────
 #
-# scripts/ci/vm-startup.sh (the v1 CI VM) solves this with
+# scripts/ci/demo-vm.sh (the v1 CI VM) solves this with
 # `usermod -aG docker ci`, and that works there because v1 creates a fixed
 # local user. This VM enforces OS Login, so the account is provisioned by the
 # guest agent AT FIRST LOGIN — strictly later than this script — and its name

@@ -62,6 +62,10 @@ BAO_TOKEN="${ND_BAO_TOKEN:-signalloom-demo-root-token}"
 # probe_zot_push.
 ZOT_PUSH="${ND_ZOT_PUSH:-1}"
 
+if [ -z "${KUBECONFIG:-}" ] && [ -r /tmp/osramp-kubeconfig.yaml ]; then
+  export KUBECONFIG=/tmp/osramp-kubeconfig.yaml
+fi
+
 emit() {
   # A value that is empty, or that never got assigned, becomes UNKNOWN. Newlines
   # are folded to a space so one fact is always one line — a multi-line value

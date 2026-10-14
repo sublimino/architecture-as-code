@@ -9,7 +9,7 @@
 # commands that each know about one surface and nothing about the others:
 #
 #   make public-status      local Kind, via the ngrok tunnel
-#   make ci-status          the imperative GCP CI VMs
+#   make doctor-node ENV=ci-1          the imperative GCP CI VMs
 #   make gcp-tf-status ENV= a Terraform environment, and only if you already
 #                           know its key and the state bucket
 #
@@ -183,9 +183,9 @@ fi
 echo
 bold "GCP — imperative CI VMs (pre-existing estate)"
 
-gcp_ci="${REPO_ROOT}/scripts/ci/gcp-ci.sh"
+gcp_ci="${REPO_ROOT}/scripts/ci/gcp-tf-ci.sh"
 if [ ! -x "$gcp_ci" ]; then
-  row "gcp-ci.sh" "ABSENT" "script missing"
+  row "gcp-tf-ci.sh" "ABSENT" "script missing"
 elif ! have gcloud; then
   row "CI VMs" "UNKNOWN" "gcloud not installed"
 else
@@ -194,9 +194,9 @@ else
   # local one.
   out="$(env SSH_AUTH_SOCK='' timeout 45 "$gcp_ci" status 2>&1 | head -2)"
   if grep -q 'QUERY_FAILED' <<<"$out"; then
-    row "signalloom-ci" "UNKNOWN" "query failed — the active account cannot see the project"
+    row "sl-ci-1-vm" "UNKNOWN" "query failed — the active account cannot see the project"
   else
-    row "signalloom-ci" "PRESENT" "$(echo "$out" | head -1 | cut -c1-70)"
+    row "sl-ci-1-vm" "PRESENT" "$(echo "$out" | head -1 | cut -c1-70)"
   fi
   row "" "" "these are CI runners, not demo surfaces — no public route by design"
 fi

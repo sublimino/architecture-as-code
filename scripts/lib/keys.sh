@@ -23,8 +23,8 @@
 # nothing was passed; and the plain relative default is last.
 #
 # That last branch almost never fires, and it is important not to believe
-# otherwise. gcp-ci.sh does tar the tree with --exclude='.git' — but
-# vm-pipeline.sh runs `git init` on the VM straight after extracting it, because
+# otherwise. gcp-tf-ci.sh does tar the tree with --exclude='.git' — but
+# demo-pipeline.sh runs `git init` on the VM straight after extracting it, because
 # Kustomize treats .git/ as the security boundary for relative path traversal.
 # So the git branch above fires on CI too, and this returns an ABSOLUTE path
 # there. An earlier version of this comment asserted a CI VM has no git at all;

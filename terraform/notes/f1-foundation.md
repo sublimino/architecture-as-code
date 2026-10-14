@@ -210,7 +210,7 @@ nothing after line one. Read the skip count, not just the fail count.
 
 2. **"No committed file contains an absolute `/home/andy` path" cannot be enforced repo-wide.**
    34 tracked files already contain that literal, including `AGENTS.md`, `Makefile`,
-   `.dockerignore`, `.github/workflows/signalloom-ci.yaml`, and five pre-existing `test/` files —
+   `.dockerignore`, `.github/workflows/sl-ci-1-vm.yaml`, and five pre-existing `test/` files —
    plus `terraform/CONTRACT.md` and `terraform/ISA.md` themselves, which quote the prohibition.
    A repo-wide guard would have been red on arrival and I am forbidden from modifying any of
    those files. The guard is therefore scoped to tracked files under `terraform/` plus the two

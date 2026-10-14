@@ -12,7 +12,7 @@
 #
 # They are not the same identifier. On a Docker daemon using the containerd
 # image store, .Id is the MANIFEST (or index) digest and crictl reports the
-# CONFIG digest. Measured on signalloom-ci, Docker 29.7.1: a correctly loaded
+# CONFIG digest. Measured on sl-ci-1-vm, Docker 29.7.1: a correctly loaded
 # fe-signalloom reported .Id sha256:24b2503b… against crictl f03fa9444ad8…,
 # where f03fa944… is what that same build logged as `exporting config`. The
 # guard called a perfect load "a DIFFERENT image" and aborted both CI lanes in

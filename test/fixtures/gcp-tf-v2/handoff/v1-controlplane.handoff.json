@@ -1,14 +1,14 @@
 {
-  "schema": "signalloom.gcp.handoff/v1",
-  "env": "ci",
-  "project": "cp-dev-ajm",
+  "schema_version": 1,
+  "env": "demo-1",
+  "project_id": "legacy-v1-project",
   "region": "europe-west2",
-  "zone": "europe-west2-a",
-  "instance": "signalloom-ci",
-  "internal_ip": "10.154.0.2",
-  "app_port": 8080,
-  "state_bucket": "cp-dev-ajm-tfstate",
-  "deploy_sa": "signalloom-ci@cp-dev-ajm.iam.gserviceaccount.com",
-  "access_mode": "iap",
-  "hostname": ""
+  "zone": "europe-west2-c",
+  "vm_name": "legacy-v1-vm",
+  "vm_internal_ip": "10.40.0.10",
+  "vm_self_link": "https://www.googleapis.com/compute/v1/projects/legacy-v1-project/zones/europe-west2-c/instances/legacy-v1-vm",
+  "service_account_email": "sl-demo-1-vm@legacy-v1-project.iam.gserviceaccount.com",
+  "artifact_registry_repo": "europe-west2-docker.pkg.dev/legacy-v1-project/sl-demo-1-images",
+  "ssh_iap_command": "gcloud compute ssh legacy-v1-vm --project=legacy-v1-project --zone=europe-west2-c --tunnel-through-iap",
+  "generated_at": "2026-08-05T10:00:00Z"
 }

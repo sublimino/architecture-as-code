@@ -524,7 +524,7 @@ export default defineConfig({
   ],
   // The junit reporter is added only when CI asks for it by setting
   // PLAYWRIGHT_JUNIT_OUTPUT_FILE, so local runs keep the list + html output
-  // unchanged. vm-pipeline.sh has always set that variable for stage 8, but no
+  // unchanged. demo-pipeline.sh has always set that variable for stage 8, but no
   // junit reporter was configured to consume it, so stage8-browser.xml was
   // never written -- and openreports-convert.sh, which expects that file,
   // silently contributed ZERO browser-journey results to the OpenReports

@@ -1,7 +1,7 @@
 # signalloom-eap-pr.yaml — the PR-time offline gate for the Signal Loom EAP suites.
 #
 # Closes SLES B11: until this file existed the EAP pytest suites ran only on
-# the nightly GCP VM lane (signalloom-ci.yaml: workflow_dispatch + cron). That
+# the nightly GCP VM lane (sl-ci-1-vm.yaml: workflow_dispatch + cron). That
 # lane resumes a VM and takes up to 90 minutes, so it cannot be a PR check.
 # This one is runner-hosted, credential-free, and scoped to ONE make target so
 # it stays inside a five-minute budget.
@@ -152,7 +152,7 @@ jobs:
         #
         # The guard itself was never the problem: d2-signalloom/Makefile's
         # `test` target runs validate-dependencies.sh, and `make -C d2-signalloom
-        # test` is named twice in scripts/ci/vm-pipeline.sh and three times in
+        # test` is named twice in scripts/gcp-tf/demo-pipeline.sh and three times in
         # scripts/gcp-tf/demo-pipeline.sh. It was absent from THIS file -- the
         # pull-request gate -- so nothing could catch the drift at the moment it
         # was introduced. A correct guard that runs only after merge is a

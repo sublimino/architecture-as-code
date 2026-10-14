@@ -796,7 +796,7 @@ then reads:
 **Zero test failures, having run zero tests.** Three different upstream causes
 produced that identical presentation during this work — tflint unused-variable
 findings in `terraform/platform`, a digest-ledger drift on
-`scripts/ci/vm-pipeline.sh`, and a short `override_data` mock in
+`scripts/gcp-tf/demo-pipeline.sh`, and a short `override_data` mock in
 `edge_dormant.tftest.hcl`. None was distinguishable from the others, or from a
 clean run, without reading further up the log.
 

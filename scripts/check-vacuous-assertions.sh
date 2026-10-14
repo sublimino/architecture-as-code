@@ -190,7 +190,7 @@ collect() {
 	# confusion this script's own header warns about.
 	find "$root" \
 		\( -name .git -o -name node_modules -o -name test_helper -o -name vendor \
-		-o -name .venv -o -name dist -o -name .terraform -o -name ci-reports \
+		-o -name .venv -o -name dist -o -name .terraform -o -name lane-reports \
 		-o -name .claude -o -name .worktrees -o -name .cache \) -prune -o \
 		-type f \( -name '*.bats' -o -name '*.sh' -o -name '*.bash' \
 		-o -name '*.yaml' -o -name '*.yml' -o -name 'Makefile' -o -name '*.mk' \) \

@@ -6,8 +6,8 @@
 # THIS IS THE v2 SUITE. It grades the Terraform estate in the Signal Loom
 # sandbox project, reached as the Signal Loom identity impersonating the deploy
 # service account. It is NOT the v1 path: v1 is the imperative ControlPlane CI
-# (project cp-dev-ajm, identity andy@control-plane.io, region europe-west2, VMs
-# signalloom-ci / signalloom-ci-2) driven by scripts/ci/gcp-ci.sh, which remains
+# (project legacy-v1-project, identity andy@control-plane.io, region europe-west2, VMs
+# legacy-v1-vm / legacy-v1-vm-2) driven by scripts/gcp-tf/legacy-v1.sh, which remains
 # in place and working. The two estates have different identities, different
 # regions and different resource names; a cross-run would report confident
 # nonsense, so refuse_v1_estate() below aborts rather than grading one with the
@@ -93,11 +93,11 @@ readonly SSH_PORT="22"
 # The v1 estate's fingerprints. Any of these appearing in the handoff or on the
 # command line means someone is pointing the v2 suite at ControlPlane.
 readonly V1_MARKERS=(
-  "cp-dev-ajm"
+  "legacy-v1-project"
   "andy@control-plane.io"
   "europe-west2"
-  "signalloom-ci"
-  "signalloom-ci-2"
+  "legacy-v1-vm"
+  "legacy-v1-vm-2"
 )
 
 # Binaries are injectable so the suite can put a stub on PATH and drive every
@@ -173,8 +173,8 @@ Read-only against the cloud: it asserts, it does not provision. Creates,
 modifies and deletes nothing. Safe to run repeatedly, safe to run during a
 demo, safe to run when you are not sure the environment is up.
 
-This is the v2 suite. v1 (the imperative ControlPlane CI in cp-dev-ajm) has its
-own path at scripts/ci/gcp-ci.sh and is not graded here.
+This is the v2 suite. v1 (the imperative ControlPlane CI in legacy-v1-project) has its
+own path at scripts/gcp-tf/legacy-v1.sh and is not graded here.
 
 Options:
   --env <key>          Environment key, e.g. demo-1. Selects the handoff file
@@ -356,7 +356,7 @@ jqr() {
 # ---------------------------------------------------------------------------
 #
 # A real guard, not a courtesy. v1 runs as the ControlPlane identity against
-# cp-dev-ajm in europe-west2 with instances named signalloom-ci*; v2 runs as the
+# legacy-v1-project in europe-west2 with instances named legacy-v1-vm*; v2 runs as the
 # Signal Loom identity against the Signal Loom sandbox, in a different region,
 # with instances named from the handoff. The concrete values live in
 # docs/policy-as-versioned-code/V2-CICD.md and in the handoff file, not here --
@@ -380,8 +380,8 @@ refuse_v1_estate() {
         printf 'different resource names.\n' >&2
         printf '\n' >&2
         printf 'v1 has its own path and is unaffected by this suite:\n' >&2
-        printf '    scripts/ci/gcp-ci.sh          the imperative ControlPlane CI\n' >&2
-        printf '    make ci-gcp / make ci-gcp-2   its entry points\n' >&2
+        printf '    scripts/gcp-tf/legacy-v1.sh          the imperative ControlPlane CI\n' >&2
+        printf '    make legacy-v1 / make legacy-v1-2   its entry points\n' >&2
         printf '\n' >&2
         printf 'Grading one estate with the other estate assumptions produces confident\n' >&2
         printf 'nonsense, so nothing was checked. Point --handoff at a v2 environment.\n' >&2

@@ -63,7 +63,7 @@ execution environment. This governor records those facts and does not repair the
   58 common declarations; the three demo-only suites are named in the transcript.
   No passed-plus-skipped runtime arithmetic is claimed.
 - **Pipeline registration audit:** generic dual-lane guard passed, but P7’s own suite
-  reported zero matching residual-risk stages in `scripts/ci/vm-pipeline.sh`; the
+  reported zero matching residual-risk stages in `scripts/gcp-tf/demo-pipeline.sh`; the
   full residual-risk suite therefore exits `1`. The dedicated admin-tier suite is also
   absent from both pipeline files. Those gaps independently block bullets two and six.
 - **Completion check:** `kanban-check.sh --repo /home/andy/src/cp/osramp-demo

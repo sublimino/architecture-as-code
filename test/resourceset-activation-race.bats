@@ -21,7 +21,7 @@
 setup() {
   root="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
   local_sh="$root/scripts/signalloom-local.sh"
-  pipeline="$root/scripts/ci/vm-pipeline.sh"
+  pipeline="$root/scripts/gcp-tf/demo-pipeline.sh"
 }
 
 @test "RSRACE activate_resourceset waits for the object before patching it" {
@@ -42,7 +42,7 @@ setup() {
   # setup abort reports stages 6-8 as test failures, sending the reader to the
   # tests instead of the setup.
   grep -qF 'resourceset signalloom-infra' "$pipeline" || {
-    echo "vm-pipeline.sh never checks that signalloom-infra was activated"
+    echo "demo-pipeline.sh never checks that signalloom-infra was activated"
     return 1
   }
   grep -qF 'SETUP failure, not a test failure' "$pipeline"

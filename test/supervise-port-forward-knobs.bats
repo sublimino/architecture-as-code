@@ -5,7 +5,7 @@
 #
 # Separate from test/supervise-port-forward.bats, which owns the supervisor
 # lifecycle — respawn, owner death, teardown, restart accounting — and is run by
-# scripts/ci/vm-pipeline.sh's stage 1g. This file owns only the knobs, so the
+# scripts/gcp-tf/demo-pipeline.sh's stage 1g. This file owns only the knobs, so the
 # two can be read and changed independently.
 #
 # WHY THESE NEED A TEST AT ALL. test/gcp-demo-pipeline.bats asserts that

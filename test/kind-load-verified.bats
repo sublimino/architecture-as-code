@@ -39,7 +39,7 @@
 #   docker .Id       the MANIFEST (or index) digest of the image
 #   crictl IMAGE ID  the CONFIG digest
 #
-# Different values for the same image, always. Measured on signalloom-ci
+# Different values for the same image, always. Measured on sl-ci-1-vm
 # (Docker 29.7.1, driver-type io.containerd.snapshotter.v1): a correctly loaded
 # fe-signalloom reported .Id sha256:24b2503b… against crictl f03fa9444ad8…,
 # where f03fa944… is exactly what that build logged as `exporting config`. The
@@ -118,7 +118,7 @@ setup() {
 		        case "$*" in
 		          # The CONTENT STORE, which is a different thing from the CRI view.
 		          # $CTR_CONTENT names refs whose bytes are already on the node —
-		          # the state measured on signalloom-ci-2 on 2026-08-18, where ctr
+		          # the state measured on sl-ci-2-vm on 2026-08-18, where ctr
 		          # held 102 images and crictl could run 40 of them.
 		          *"images ls"*)
 		            for r in ${CTR_CONTENT:-}; do
@@ -579,7 +579,7 @@ setup() {
 
 # ─── Label-first recovery ───────────────────────────────────────────────────
 #
-# Measured on signalloom-ci-2, 2026-08-18, during a cold run that aborted in
+# Measured on sl-ci-2-vm, 2026-08-18, during a cold run that aborted in
 # build-images. The diagnostics caught the failure in the act:
 #
 #   ctr, content store:  docker.io/library/fake-integration-proxy:dev sha256:fe4a005f…

@@ -22,7 +22,7 @@
 #
 # The Makefile had the mirror-image bug at the same time. Its recipes cd into
 # the package directory before invoking the CLI, so a RELATIVE KEYS_DIR — the
-# default in a single checkout, and on a CI VM which gcp-ci.sh tars without
+# default in a single checkout, and on a CI VM which gcp-tf-ci.sh tars without
 # .git so no git branch can fire — resolved against that subdirectory instead of
 # the repo root. Absolute broke one side, relative broke the other.
 #

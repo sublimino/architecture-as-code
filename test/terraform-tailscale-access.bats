@@ -337,7 +337,7 @@ mutate() {
 	[ -f "${DRIVER_SRC}" ]
 
 	local hits
-	hits="$(grep -nE '[a-z0-9]+\.ts\.net|cp-dev-ajm|acme-real-project|[a-z0-9-]+\.iam\.gserviceaccount\.com|europe-west[0-9]-[a-z]' \
+	hits="$(grep -nE '[a-z0-9]+\.ts\.net|legacy-v1-project|acme-real-project|[a-z0-9-]+\.iam\.gserviceaccount\.com|europe-west[0-9]-[a-z]' \
 		"${DRIVER_SRC}" | grep -v '<tailnet>' || true)"
 	[ -z "$hits" ] || {
 		echo "hardcoded tailnet or estate identity in the driver:"

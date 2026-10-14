@@ -148,7 +148,7 @@ There are two supported modes. **Mode B is the recommended default for the pilot
 | Endpoint | `/api/v1/webhooks/github` | `/api/v1/webhooks/generic` |
 | Signed by | GitHub (`X-Hub-Signature-256`) | Customer runner (`X-SignalLoom-Timestamp` + `-Signature`) |
 | Replay bound | **None today** (G4; needs delivery-id dedupe) | 300 s timestamp window |
-| Reachability | GitHub's egress ranges must reach the receiver, so it needs a **public** route (Funnel or public Gateway) | Runner can join the tailnet (`tailscale/github-action`, ephemeral `tag:signalloom-ci`) or use a public route |
+| Reachability | GitHub's egress ranges must reach the receiver, so it needs a **public** route (Funnel or public Gateway) | Runner can join the tailnet (`tailscale/github-action`, ephemeral `tag:sl-ci-1-vm`) or use a public route |
 | PR metadata | Full GitHub payload | Template sends `pr_number`, `pr_action`, `merged`, `head_sha`, `repository`, `delivery_id` (ignored by today's handler; P4-1 consumes them) |
 | Sync semantics today | TTL extend | `provision` → `already_active` (no extend: the generic vocabulary has no `extend`) |
 

@@ -4,7 +4,7 @@
 # Pre-built binaries where available (no go install, no compile on the VM).
 # Every tool is version-gated: re-running is a no-op when versions match.
 #
-# Called by vm-pipeline.sh immediately before `setup.sh --tools-only`, and
+# Called by demo-pipeline.sh immediately before `setup.sh --tools-only`, and
 # standalone via `make ci-tools`. This installer is a COMPLEMENT to setup.sh,
 # not a replacement: it does not install skopeo, witness, yq, govulncheck,
 # vexctl or jq, all of which setup.sh does and the pipeline needs. Running it
@@ -20,7 +20,7 @@ ARCH="amd64"
 # Two distinct privilege questions, and conflating them is a live trap (the
 # same one setup.sh documents around skopeo). SUDO answers "can I write to
 # ${BIN}?" — it is empty whenever ${BIN} is already writable, which is exactly
-# what vm-pipeline.sh arranges with `chmod a+w` before calling this. PKG_SUDO
+# what demo-pipeline.sh arranges with `chmod a+w` before calling this. PKG_SUDO
 # answers "am I root?", which is what apt-get and any write outside ${BIN}
 # (bats installs into /usr/local/{bin,lib,libexec}) actually require.
 SUDO=""
@@ -47,7 +47,7 @@ log() { printf '\033[1;36m[ci-tools]\033[0m %s\n' "$*"; }
 #
 #   scripts/gcp-tf/demo-pipeline.sh:488   chmod a+w /usr/local/bin  2>/dev/null || true
 #   scripts/gcp-tf/demo-pipeline.sh:491   chmod go-w /usr/local/bin 2>/dev/null || true
-#   scripts/ci/vm-pipeline.sh:178/201     the same pair
+#   scripts/gcp-tf/demo-pipeline.sh:178/201     the same pair
 #
 # Both are `2>/dev/null || true`, so a chmod that FAILS is indistinguishable
 # from one that succeeded.
@@ -271,6 +271,13 @@ if ! grep -q "${CRANE_VERSION}" <<<"$(crane version 2>/dev/null)"; then
   install_from_tarball "https://github.com/google/go-containerregistry/releases/download/v${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz" crane crane
 fi
 
+# ── nono 0.80.0 ───────────────────────────────────────────────────────
+NONO_VERSION="0.80.0"
+if ! grep -q "${NONO_VERSION}" <<<"$(nono --version 2>/dev/null)"; then
+  log "installing nono ${NONO_VERSION}"
+  install_from_tarball "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/nono-v${NONO_VERSION}-x86_64-unknown-linux-gnu.tar.gz" nono nono
+fi
+
 # ── cosign 3.0.6 (matches local dev; needs --signing-config for key-only, no-tlog
 # signing, the non-deprecated replacement for --tlog-upload=false). The version
 # is load-bearing: 3.0.6 always stores a key-based signature as a sigstore-bundle
@@ -366,7 +373,7 @@ fi
 # ── ngrok 3.39.10 ────────────────────────────────────────────────────
 # Needed by `make public`, which until now had only ever run from a laptop.
 # The CI VM has NO external IP (verified: `gcloud compute instances describe
-# signalloom-ci` returns networkIP 10.0.0.13 with no accessConfigs block), so
+# sl-ci-1-vm` returns networkIP 10.0.0.13 with no accessConfigs block), so
 # a tunnel is not a laptop workaround carried over — it is the only mechanism
 # that reaches the demo from outside at all. It is also the only one that
 # terminates TLS, which this system already requires: the traffic-policy gate
@@ -399,16 +406,16 @@ fi
 #
 # ─── Why these three were absent from every v2 VM ───────────────────────────
 #
-# scripts/ci/vm-startup.sh — the v1 CI VM's startup script — installs all three.
+# scripts/ci/demo-vm.sh — the v1 CI VM's startup script — installs all three.
 # terraform/modules/compute/startup/demo-vm.sh, the v2 Terraform demo VM's
 # startup script, installs none of them and asserted a reason that was not true:
 # "node arrives with the Playwright setup". It does not. The Playwright block in
-# vm-pipeline.sh RUNS `npx playwright install chrome`; it has never PROVIDED
+# demo-pipeline.sh RUNS `npx playwright install chrome`; it has never PROVIDED
 # npx. So v2 re-implemented v1's role and silently dropped three tools, and
 # every fresh v2 VM hit the same three failures in the same order, one full
 # forty-minute run apart:
 #
-#   sudo: npx: not found       vm-pipeline.sh, Playwright/Chrome step
+#   sudo: npx: not found       demo-pipeline.sh, Playwright/Chrome step
 #   bun: command not found     demo-pipeline.sh:441, test/acceptance install
 #   uv: command not found      demo-pipeline.sh:666, the fe-signalloom suite
 #
@@ -417,7 +424,7 @@ fi
 # while being installed by nobody in this lane.
 #
 # HERE rather than in demo-vm.sh, deliberately. Nothing at BOOT uses any of the
-# three; the first consumer is vm-pipeline.sh, which calls this script before
+# three; the first consumer is demo-pipeline.sh, which calls this script before
 # anything else. demo-vm.sh's own contract is that it stops at prerequisites the
 # pipeline cannot bootstrap for itself, and the pipeline can bootstrap these.
 # Putting them here also means their pins sit beside the other fourteen, where
@@ -501,7 +508,7 @@ if ! node --version 2>/dev/null | grep -q "^v${NODE_VERSION}$"; then
   rm -rf "${node_tmp}"
 fi
 
-# bun, and bunx alongside it. vm-pipeline.sh calls `bunx playwright install
+# bun, and bunx alongside it. demo-pipeline.sh calls `bunx playwright install
 # ffmpeg`, and bunx is a symlink rather than a separate artefact.
 #
 # unzip is apt-installed on demand because bun ships a .zip and nothing

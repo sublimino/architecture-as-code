@@ -234,7 +234,7 @@ being destroyed. Doing neither means the demo VM bootstraps to a broken state, l
 - No checksum literal is pinned in the script, by choice: a pinned hash goes stale at the next
   version bump and gets deleted rather than updated, which is how download verification quietly
   disappears from a bootstrap script.
-- `scripts/ci/gcp-ci.sh` was read, not modified, and none of its resources are imported. Region
+- `scripts/ci/gcp-tf-ci.sh` was read, not modified, and none of its resources are imported. Region
   `europe-west2`, IAP-only SSH, and the Cloud Router + NAT design match it. The two things it
   does that this module does not: it scopes no firewall rule to a service account, and it relies
   on the implied allow-all egress.

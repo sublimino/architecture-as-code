@@ -7,8 +7,8 @@
 #   gcp-tf-ci.sh status       # print the lane's instance state
 #   gcp-tf-ci.sh lock-path    # print this lane's lock path and exit
 #
-# This is a SIBLING of scripts/ci/gcp-ci.sh, not a replacement. That script owns
-# the shared signalloom-ci VMs and the kind-cluster pipeline; this one owns the
+# This is a SIBLING of scripts/ci/gcp-tf-ci.sh, not a replacement. That script owns
+# the shared sl-protected-runner VMs and the kind-cluster pipeline; this one owns the
 # per-lane Terraform runners built by terraform/modules/compute with
 # `kind = "ci"`. Neither file reads or writes the other's state.
 #
@@ -27,7 +27,7 @@
 # Under `set -e` a failing final command in an EXIT trap replaces the status the
 # script asked for. This repo has already lost a run to that: 8/8 stages green,
 # reported as failure, because a cleanup conditional evaluated false as the last
-# statement of the trap. See scripts/ci/gcp-ci.sh's lock_release comment.
+# statement of the trap. See scripts/ci/gcp-tf-ci.sh's lock_release comment.
 #
 # Three things prevent a repeat here, and all three are tested:
 #   1. the real status is captured into `rc` as the trap's FIRST action;
@@ -112,7 +112,7 @@ vm_name() {
 # ── Per-lane lock ───────────────────────────────────────────────────────────
 #
 # Keyed on the lane, so ci-1 and ci-2 never contend — the whole point of having
-# lanes. Same idiom as scripts/ci/ci-lock.sh: mkdir is atomic and fails
+# lanes. Same lock idiom: mkdir is atomic and fails
 # unambiguously when the directory exists, where `[ -e ] && mkdir` is the
 # check-then-act race the lock exists to remove. That file locks a path on a
 # shared VM; this one locks locally, because each lane is its own VM and the

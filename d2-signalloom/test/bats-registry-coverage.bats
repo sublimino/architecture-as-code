@@ -4,7 +4,7 @@
 #
 # The defect this pins: `make -C d2-signalloom test` named ten .bats files in an
 # explicit, hand-maintained list while 32 sat in d2-signalloom/test/, and
-# scripts/ci/vm-pipeline.sh named a further handful at the repo root. Measured
+# scripts/gcp-tf/demo-pipeline.sh named a further handful at the repo root. Measured
 # across the whole tree: 68 .bats suites present, 35 executed by a runner,
 # **33 never executed by anything**.
 #
@@ -45,9 +45,9 @@ setup() {
 	# the list has to be a list rather than a single path because the guard's
 	# question is "does ANY runner invoke this suite", not "does the CI lane".
 	#
-	# scripts/ci/vm-pipeline.sh is CI and is frozen. scripts/gcp-tf/demo-pipeline.sh
+	# scripts/gcp-tf/demo-pipeline.sh is CI and is frozen. scripts/gcp-tf/demo-pipeline.sh
 	# is the demo bring-up, which runs the same static gates plus its own control-flow
-	# suite. Hard-coding vm-pipeline.sh as THE runner would have made every suite
+	# suite. Hard-coding demo-pipeline.sh as THE runner would have made every suite
 	# registered only in the demo pipeline read as unrun — the same
 	# omits-by-default failure this file exists to end, one level up, and it would
 	# have pushed the next person to edit a frozen file to satisfy a guard.
@@ -57,11 +57,11 @@ setup() {
 	# guard, test/eap-pr-workflow.bats, so that suite is owned by the workflow
 	# it guards -- the same ownership shape as gcp-tf-validate and the
 	# terraform-*.bats suites -- and is registered in neither shell pipeline.
-	# vm-pipeline.sh is frozen and the dual-lane guard would flag a suite named
+	# demo-pipeline.sh is frozen and the dual-lane guard would flag a suite named
 	# in demo-pipeline.sh alone, so the workflow is listed here as a runner
 	# rather than the suite being excluded as "run by nothing".
 	pipelines=(
-		"$repo_root/scripts/ci/vm-pipeline.sh"
+		"$repo_root/scripts/gcp-tf/demo-pipeline.sh"
 		"$repo_root/scripts/gcp-tf/demo-pipeline.sh"
 		"$repo_root/.github/workflows/signalloom-eap-pr.yaml"
 	)
@@ -509,7 +509,7 @@ unregistered_from() {
 		echo "  $unrun"
 		echo ""
 		echo "A proof nothing runs proves nothing. Either add it to a run_stage in"
-		echo "scripts/ci/vm-pipeline.sh or to a Makefile target, or -- for a"
+		echo "scripts/gcp-tf/demo-pipeline.sh or to a Makefile target, or -- for a"
 		echo "Terraform-domain mutation proof -- simply NAME it"
 		echo "test/<topic>-mutation-proof.sh, which GCP_TF_PROOFS globs and"
 		echo "'make gcp-tf-validate' then runs with no registration step at all."
@@ -568,7 +568,7 @@ unregistered_from() {
 			return 1
 		}
 		if grep -qF "$base" <<<"$pipeline_text"; then
-			echo "$base is owned by gcp-tf-validate and must not be listed in vm-pipeline.sh"
+			echo "$base is owned by gcp-tf-validate and must not be listed in demo-pipeline.sh"
 			return 1
 		fi
 	done
@@ -576,7 +576,7 @@ unregistered_from() {
 
 @test "every repo-root bats suite is invoked by the CI pipeline" {
 	# The other half of the same hole. Root-level test/*.bats are named
-	# individually by scripts/ci/vm-pipeline.sh, so one that is never added is
+	# individually by scripts/gcp-tf/demo-pipeline.sh, so one that is never added is
 	# never run -- exactly the d2-signalloom failure in a second location.
 	local runner
 	for runner in "${pipelines[@]}"; do
@@ -611,7 +611,7 @@ $(sed 's/#.*//' "$runner")"
 	#
 	# The four below FAIL on the CI VM while passing locally, which is exactly
 	# the information their never having run was hiding. Quoted verbatim from
-	# ci-reports/stage1g-unregistered-guards.tap on signalloom-ci (310 passed,
+	# lane-reports/stage1g-unregistered-guards.tap on the CI lane (310 passed,
 	# 4 failed) so the next person does not have to rediscover them:
 	#
 	#   agent-trust-lifecycle.bats:433   [ "$output" = "true" ] failed
@@ -620,7 +620,7 @@ $(sed 's/#.*//' "$runner")"
 	#
 	#   deployed-staleness.bats:132      fatal: Needed a single revision
 	#     Asserts "<n> commits behind HEAD". The CI VM has no real git history:
-	#     vm-pipeline.sh `git init`s a synthetic single-commit repo because
+	#     demo-pipeline.sh `git init`s a synthetic single-commit repo because
 	#     Kustomize needs .git as a path-traversal boundary, so HEAD~n cannot
 	#     resolve. The test is right; its environment has one commit.
 	#
@@ -770,7 +770,7 @@ worktree-hygiene.bats"
 	[ "$(ls "$repo_root"/test/*.bats 2>/dev/null | wc -l)" -gt 0 ]
 
 	if [ -n "$unrun" ]; then
-		echo "Repo-root bats suite(s) that no runner (vm-pipeline.sh, demo-pipeline.sh,"
+		echo "Repo-root bats suite(s) that no runner (demo-pipeline.sh, demo-pipeline.sh,"
 		echo "signalloom-eap-pr.yaml) ever runs:"
 		echo "  $unrun"
 		echo ""

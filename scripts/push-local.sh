@@ -208,7 +208,7 @@ run_parallel_push() {
 # EVERY path that publishes the fleet artifact must obtain its directory here.
 # This used to be an inline case inside push_foundation, which meant
 # `push-local.sh fleet` — reached by `make push-local-fleet` from
-# scripts/ci/vm-pipeline.sh, demo-agent-trust-up and demo-signalloom-up —
+# scripts/gcp-tf/demo-pipeline.sh, demo-agent-trust-up and demo-signalloom-up —
 # republished the UNFILTERED tree and silently reinstated the monitoring and
 # trivy-system tenants an hour after bootstrap had correctly excluded them. See
 # scripts/lib/fleet-source.sh for the full incident and the live evidence.

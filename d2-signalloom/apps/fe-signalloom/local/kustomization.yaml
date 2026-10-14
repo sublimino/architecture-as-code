@@ -11,3 +11,4 @@ patches:
     target:
       kind: Deployment
       name: signal-ingest
+images: [{name: "${IMAGE_BASE}/signalloom/apps/dashboard-signalloom", newTag: "design-system-bc4a06502"}]

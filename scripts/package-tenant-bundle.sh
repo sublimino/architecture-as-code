@@ -2315,10 +2315,10 @@ stage_p1_3_manifest() {
     "ownedBy": "SLSI-P1-2"
   },
   {
-    "ref": "ghcr.io/controlplaneio-in-toto/signalloom-warden:src-a8607eb8d90c",
+    "ref": "ghcr.io/controlplaneio-in-toto/signalloom-warden:src-86720f67840d",
     "reason": "dev-deferred-pin",
     "kind": "DaemonSet",
-    "tag": "src-a8607eb8d90c",
+    "tag": "src-86720f67840d",
     "mutableTag": false,
     "justification": "AJM decision OSD-2: pinning deferred for development. First-party image on a source-id tag, which is a fingerprint of its build inputs and therefore immutable in practice; one reference site in d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml.",
     "ownedBy": "SLSI-P2-1"

@@ -214,7 +214,9 @@ func (s *server) handleAuditStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send initial ping to establish connection
-	fmt.Fprintf(w, ": connected\n\n")
+	if _, err := fmt.Fprintf(w, ": connected\n\n"); err != nil {
+		return
+	}
 	flusher.Flush()
 
 	buf := s.getAuditBuffer()
@@ -233,7 +235,9 @@ func (s *server) handleAuditStream(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
-			fmt.Fprintf(w, "event: audit\ndata: %s\n\n", data)
+			if _, err := fmt.Fprintf(w, "event: audit\ndata: %s\n\n", data); err != nil {
+				return
+			}
 			flusher.Flush()
 		}
 	}

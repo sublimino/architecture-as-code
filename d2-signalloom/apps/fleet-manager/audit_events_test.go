@@ -260,7 +260,7 @@ func TestHandleAuditStream_SSEStreaming(t *testing.T) {
 		t.Fatalf("failed to create request: %v", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := ts.Client().Do(req)
 	if err != nil {
 		t.Fatalf("failed to open SSE stream: %v", err)
 	}
@@ -307,6 +307,7 @@ func TestHandleAuditStream_SSEStreaming(t *testing.T) {
 		}
 		if strings.HasPrefix(line, "data: ") && strings.Contains(line, "evt-stream-1") {
 			foundData = true
+			cancel()
 			break
 		}
 	}

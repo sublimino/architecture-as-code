@@ -204,9 +204,21 @@ applies() { grep -c ' apply -f -' "${STATE}/argv" 2>/dev/null || true; }
   # supercred-demo.sh applies that base into inf-signalloom.
   grep -q 'NAMESPACE_INFRA="inf-signalloom"' "${REPO_ROOT}/scripts/supercred-demo.sh"
   grep -q 'apps/policy-engine/base/ -n "\$NAMESPACE_INFRA"' "${REPO_ROOT}/scripts/supercred-demo.sh"
-  # ...and refuses to start there without the Secret, so it must be preflighted
-  # by name, naming the namespace too.
-  grep -q 'signal-ingest-segment-pseudonym' "${REPO_ROOT}/scripts/supercred-demo.sh"
+  # ...and refuses to start there without the Secret, so the Secret is
+  # preflighted in that namespace before the 120s rollout is spent. A comment
+  # mentioning the Secret must not satisfy this: assert the actual get.
+  grep -qE 'kubectl -n "\$NAMESPACE_INFRA" get secret "\$segment_secret"' \
+    "${REPO_ROOT}/scripts/supercred-demo.sh"
+  # The failure must name the Secret AND the namespace AND the fix, on one
+  # line, because the bare message sent an investigator to the wrong service.
+  msg="$(grep -E '^ *fail "Secret \$segment_secret is missing from namespace \$NAMESPACE_INFRA' \
+    "${REPO_ROOT}/scripts/supercred-demo.sh")"
+  [ -n "${msg}" ]
+  [[ "${msg}" == *'make signal-segment-key CONTEXT='* ]]
+  # The rollout failure path reports the pod's own reason, not just "failed".
+  grep -q 'rollout_failure_detail policy-engine "\$NAMESPACE_INFRA"' \
+    "${REPO_ROOT}/scripts/supercred-demo.sh"
+  grep -q '^rollout_failure_detail() {' "${REPO_ROOT}/scripts/supercred-demo.sh"
 }
 
 @test "signal-segment-key: the Deployment reads both values from the Secret this script mints" {

@@ -1,0 +1,475 @@
+{
+  "id": "nist-800-53",
+  "name": "NIST SP 800-53 Rev. 5",
+  "version": "v2.1.0",
+  "applicability": {
+    "inForceFrom": "2026-05-11",
+    "basis": "publication-date",
+    "source": "policy/frameworks/nist-800-53/catalogue/PROVENANCE.md",
+    "note": "NIST SP 800-53 Rev 5 is a PUBLISHED STANDARD, not enforced law: it carries no penalty, no applicability article and no date on which an obligation begins, so the basis is publication-date and nothing here is an enforcement claim. The date is NOT typed from a secondary source -- it is the OSCAL catalogue metadata the pack is already anchored to: metadata.last-modified 2026-05-11T16:01:09.00000-00:00 at metadata.version 5.2.0, catalog UUID ea7c7688-79c5-463b-a91b-0650f2d98623, recorded in catalogue/PROVENANCE.md and used by catalogue/anchor-test.sh to resolve this pack control references. TestNIST80053WindowMatchesTheCatalogueMetadata holds this field equal to the date in PROVENANCE.md, so a catalogue refresh that moves last-modified turns the suite red rather than leaving a stale date behind -- the catalogue moving is a signal, not a nuisance, which is the workflow PROVENANCE.md already states. verified:true means the date matches the catalogue record, nothing more: a publication date gates nothing that anyone can be penalised for.",
+    "verified": true
+  },
+  "controlSets": [
+    {
+      "id": "ac-access-control",
+      "name": "AC: Access Control",
+      "controls": [
+        {
+          "id": "AC-3",
+          "name": "AC-3 Access Enforcement",
+          "checks": [
+            {
+              "id": "no-automount-sa-token",
+              "name": "Service account token auto-mount disabled",
+              "description": "Prevents automatic injection of default API credentials into container pods.",
+              "celExpression": "has(object.spec) && has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false",
+              "severity": "high",
+              "remediation": "Set automountServiceAccountToken: false in pod spec.",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "freqTriple": {
+                "min": 0.5,
+                "mode": 1.5,
+                "max": 4
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            },
+            {
+              "id": "spiffe-peer-authorization",
+              "name": "SPIFFE peer workload identity authorization",
+              "description": "Enforces cryptographically verifiable SPIFFE SVID peer authentication.",
+              "celExpression": "has(request.peer) && has(request.peer.spiffe_id) && request.peer.spiffe_id.startsWith('spiffe://signalloom.demo/ns/')",
+              "severity": "critical",
+              "remediation": "Present valid SPIFFE SVID rooted in the Signal Loom trust domain.",
+              "riskTriple": {
+                "min": 10000,
+                "mode": 45000,
+                "max": 180000
+              },
+              "freqTriple": {
+                "min": 0.3,
+                "mode": 1,
+                "max": 3
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            },
+            {
+              "id": "no-host-ipc",
+              "name": "Host IPC namespace not shared",
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as one Host Namespaces control and baseline forbids all three. Sharing the host IPC namespace exposes host shared memory and semaphores. Added by the lead after V3 built and mutation-proved it but could not land it from inside the pack: a Go test pinned the check count and the oracle group mapped two names. Frequency is NOT calibrated: this check was cloned from a sibling and inherited its triples verbatim, which priced host-namespace sharing at the same annual loss as an auto-mounted service-account token. Calibration is the principal's decision, so the frequency is zeroed and the check is declared unpriced.",
+              "celExpression": "has(object.spec) && !(has(object.spec.hostIPC) && object.spec.hostIPC == true)",
+              "severity": "high",
+              "remediation": "Remove spec.hostIPC (or set it false) so the pod does not share the host IPC namespace.",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            },
+            {
+              "id": "no-host-pid",
+              "name": "Host PID namespace not shared",
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as ONE Host Namespaces control and baseline forbids all three. This version checked none of them until the lead added no-host-ipc, which made the gap visible to the external PSA oracle as a hostPID-only divergence. Completing the control set is the honest fix: a partial cover of a single upstream control reports a host-namespace-sharing pod as compliant. Frequency is NOT calibrated: this check was cloned from a sibling and inherited its triples verbatim, which priced host-namespace sharing at the same annual loss as an auto-mounted service-account token. Calibration is the principal's decision, so the frequency is zeroed and the check is declared unpriced.",
+              "celExpression": "has(object.spec) && !(has(object.spec.hostPID) && object.spec.hostPID == true)",
+              "severity": "high",
+              "remediation": "Remove spec.hostPID (or set it false) so the pod does not share the host PID namespace.",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            },
+            {
+              "id": "no-host-network",
+              "name": "Host network namespace not shared",
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as ONE Host Namespaces control and baseline forbids all three. This version checked none of them until the lead added no-host-ipc, which made the gap visible to the external PSA oracle as a hostPID-only divergence. Completing the control set is the honest fix: a partial cover of a single upstream control reports a host-namespace-sharing pod as compliant. Frequency is NOT calibrated: this check was cloned from a sibling and inherited its triples verbatim, which priced host-namespace sharing at the same annual loss as an auto-mounted service-account token. Calibration is the principal's decision, so the frequency is zeroed and the check is declared unpriced.",
+              "celExpression": "has(object.spec) && !(has(object.spec.hostNetwork) && object.spec.hostNetwork == true)",
+              "severity": "high",
+              "remediation": "Remove spec.hostNetwork (or set it false) so the pod does not share the host network namespace.",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AC-4",
+          "name": "AC-4 Information Flow Enforcement",
+          "checks": [
+            {
+              "id": "cross-namespace-egress-authorization",
+              "name": "Cross-namespace network egress authorization",
+              "description": "Restricts inter-agent communication across namespace boundaries without explicit egress grant.",
+              "celExpression": "has(request.destination) && has(request.destination.namespace) && request.destination.namespace != '' && ((has(request.source) && has(request.source.namespace) && request.destination.namespace == request.source.namespace) || (has(request.context) && has(request.context.egress_authorized) && request.context.egress_authorized == true))",
+              "severity": "high",
+              "remediation": "Obtain cross-namespace authorization grant or isolate within local namespace.",
+              "riskTriple": {
+                "min": 8000,
+                "mode": 35000,
+                "max": 150000
+              },
+              "freqTriple": {
+                "min": 0.4,
+                "mode": 1.2,
+                "max": 3.5
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AC-6",
+          "name": "AC-6 Least Privilege",
+          "checks": [
+            {
+              "id": "container-run-as-non-root",
+              "name": "Container runs as non-root",
+              "description": "Enforces least privilege execution preventing root user execution.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && !(has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == false) && !(has(object.spec.securityContext) && has(object.spec.securityContext.runAsUser) && object.spec.securityContext.runAsUser == 0) && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.runAsNonRoot)) ? c.securityContext.runAsNonRoot == true : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true)) && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.runAsUser) && c.securityContext.runAsUser == 0))",
+              "severity": "high",
+              "remediation": "Configure runAsNonRoot: true in container securityContext.",
+              "riskTriple": {
+                "min": 10000,
+                "mode": 50000,
+                "max": 200000
+              },
+              "freqTriple": {
+                "min": 0.5,
+                "mode": 2,
+                "max": 6
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            },
+            {
+              "id": "no-privilege-escalation",
+              "name": "Privilege escalation disabled",
+              "description": "Blocks privilege escalation flag across all containers in the pod.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && ((!has(object.spec.os) || !has(object.spec.os.name) || object.spec.os.name != 'windows') ? (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false) : true)",
+              "severity": "critical",
+              "remediation": "Set allowPrivilegeEscalation: false in container securityContext.",
+              "riskTriple": {
+                "min": 15000,
+                "mode": 70000,
+                "max": 280000
+              },
+              "freqTriple": {
+                "min": 0.3,
+                "mode": 1.5,
+                "max": 4
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            },
+            {
+              "id": "no-privileged-mode",
+              "name": "Privileged mode disabled",
+              "description": "Strictly forbids container execution with privileged host device access.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true))",
+              "severity": "critical",
+              "remediation": "Remove privileged: true from container securityContext.",
+              "riskTriple": {
+                "min": 20000,
+                "mode": 90000,
+                "max": 350000
+              },
+              "freqTriple": {
+                "min": 0.2,
+                "mode": 1,
+                "max": 3
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "au-audit-accountability",
+      "name": "AU: Audit and Accountability",
+      "controls": [
+        {
+          "id": "AU-2",
+          "name": "AU-2 Event Logging",
+          "checks": [
+            {
+              "id": "immutable-audit-sink",
+              "name": "Immutable event logging sink active",
+              "description": "Ensures security-relevant agent lifecycle and access events are forwarded to audit sink.",
+              "celExpression": "has(agent.audit_config) && has(agent.audit_config.event_logging_enabled) && agent.audit_config.event_logging_enabled == true",
+              "severity": "high",
+              "remediation": "Configure event_logging_enabled: true in agent audit configuration.",
+              "riskTriple": {
+                "min": 7000,
+                "mode": 30000,
+                "max": 120000
+              },
+              "freqTriple": {
+                "min": 0.5,
+                "mode": 1.5,
+                "max": 4
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cm-configuration-mgmt",
+      "name": "CM: Configuration Management",
+      "controls": [
+        {
+          "id": "CM-7",
+          "name": "CM-7 Least Functionality",
+          "checks": [
+            {
+              "id": "read-only-rootfs",
+              "name": "Read-only root filesystem",
+              "description": "Configures containers with read-only root filesystems to prevent runtime tampering.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true)",
+              "severity": "medium",
+              "remediation": "Enable readOnlyRootFilesystem: true in container securityContext.",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "freqTriple": {
+                "min": 0.3,
+                "mode": 1,
+                "max": 3
+              },
+              "policyVersions": [
+                "v2.1.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ia-identification-auth",
+      "name": "IA: Identification and Authentication",
+      "controls": [
+        {
+          "id": "IA-2",
+          "name": "IA-2 Identification and Authentication (Organizational Users)",
+          "checks": [
+            {
+              "id": "mfa-spiffe-svid-required",
+              "name": "Cryptographic SVID identity presentation",
+              "description": "Requires valid cryptographic SVID presentation for all inter-service communications.",
+              "celExpression": "has(request.auth) && has(request.auth.svid_presented) && request.auth.svid_presented == true",
+              "severity": "critical",
+              "remediation": "Authenticate using an issued X.509 or JWT SPIFFE SVID credential.",
+              "riskTriple": {
+                "min": 12000,
+                "mode": 50000,
+                "max": 210000
+              },
+              "freqTriple": {
+                "min": 0.2,
+                "mode": 0.9,
+                "max": 2.8
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sc-system-comms",
+      "name": "SC: System and Communications Protection",
+      "controls": [
+        {
+          "id": "SC-7",
+          "name": "SC-7 Boundary Protection",
+          "checks": [
+            {
+              "id": "drop-all-capabilities",
+              "name": "All capabilities dropped",
+              "description": "Strips Linux kernel capabilities to establish strict container isolation boundary. The ALL token is compared exactly, as Pod Security Admission compares it: a lowercase \"all\" is rejected by a restricted namespace, so it fails here.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d == 'ALL') && (!has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.all(a, a == 'NET_BIND_SERVICE')))",
+              "severity": "high",
+              "remediation": "Add ALL to securityContext.capabilities.drop.",
+              "riskTriple": {
+                "min": 8000,
+                "mode": 40000,
+                "max": 160000
+              },
+              "freqTriple": {
+                "min": 0.5,
+                "mode": 2,
+                "max": 5
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            },
+            {
+              "id": "network-boundary-enforcement",
+              "name": "Network boundary ingress isolation",
+              "description": "Verifies NetworkPolicy isolation is active for workload boundaries.",
+              "celExpression": "has(request.network_policy) && has(request.network_policy.ingress_isolated) && request.network_policy.ingress_isolated == true",
+              "severity": "high",
+              "remediation": "Attach default-deny ingress NetworkPolicy to agent namespace.",
+              "riskTriple": {
+                "min": 9000,
+                "mode": 42000,
+                "max": 170000
+              },
+              "freqTriple": {
+                "min": 0.4,
+                "mode": 1.3,
+                "max": 3.8
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "si-system-integrity",
+      "name": "SI: System and Information Integrity",
+      "controls": [
+        {
+          "id": "SI-4",
+          "name": "SI-4 System Monitoring",
+          "checks": [
+            {
+              "id": "anomaly-detection-telemetry",
+              "name": "Continuous runtime anomaly monitoring",
+              "description": "Monitors runtime telemetry streams for anomalous tool invocation patterns.",
+              "celExpression": "has(agent.telemetry) && has(agent.telemetry.monitoring_active) && agent.telemetry.monitoring_active == true",
+              "severity": "medium",
+              "remediation": "Enable telemetry streaming agent monitor.",
+              "riskTriple": {
+                "min": 6000,
+                "mode": 30000,
+                "max": 120000
+              },
+              "freqTriple": {
+                "min": 0.6,
+                "mode": 2,
+                "max": 5
+              },
+              "policyVersions": [
+                "v2.0.0",
+                "v2.1.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "SI-7",
+          "name": "SI-7 Software, Firmware, and Information Integrity",
+          "checks": [
+            {
+              "id": "image-digest",
+              "name": "Immutable container image digest",
+              "description": "Ensures container images are pinned by immutable cryptographic SHA-256 digest.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.image) && c.image.matches('@sha256:[a-f0-9]{64}$'))",
+              "severity": "high",
+              "remediation": "Reference images by immutable sha256 digest.",
+              "riskTriple": {
+                "min": 10000,
+                "mode": 45000,
+                "max": 180000
+              },
+              "freqTriple": {
+                "min": 0.2,
+                "mode": 1,
+                "max": 3
+              },
+              "policyVersions": [
+                "v2.1.0"
+              ]
+            },
+            {
+              "id": "trusted-registry",
+              "name": "Image from trusted registry",
+              "description": "Every container, init container and ephemeral container image comes from a trusted organisation prefix (listed in AGENT-CONTEXT.md); a whole public registry is never trusted.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.image) && (c.image.startsWith('zot.local/') || c.image.startsWith('registry.internal/') || c.image.startsWith('ghcr.io/controlplaneio/') || c.image.startsWith('ghcr.io/controlplaneio-in-toto/') || c.image.startsWith('ghcr.io/controlplaneio-fluxcd/') || c.image.startsWith('gcr.io/distroless/')))",
+              "severity": "high",
+              "remediation": "Deploy images sourced exclusively from trusted registries.",
+              "riskTriple": {
+                "min": 12000,
+                "mode": 50000,
+                "max": 200000
+              },
+              "freqTriple": {
+                "min": 0.2,
+                "mode": 0.8,
+                "max": 2.5
+              },
+              "policyVersions": [
+                "v2.1.0"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -106,6 +106,60 @@ func compareSemver(v1, v2 string) (int, error) {
 	return 0, nil
 }
 
+func (s *PolicyStore) registerLoadedFramework(fwID, ver string, fw *frameworks.Framework) {
+	checks := frameworks.ChecksForVersion(fw, "")
+	rules := make([]PolicyRule, 0, len(checks))
+	for _, c := range checks {
+		rules = append(rules, PolicyRule{
+			ID:            c.Check.ID,
+			Name:          c.Check.Name,
+			Description:   c.Check.Description,
+			CELExpression: c.Check.CELExpression,
+			Severity:      c.Check.Severity,
+			Remediation:   c.Check.Remediation,
+			Status:        c.Check.Status,
+			RiskTriple:    c.Check.RiskTriple,
+			FreqTriple:    c.Check.FreqTriple,
+		})
+	}
+
+	bundleVer := ver
+	if !strings.HasPrefix(bundleVer, "v") && !strings.HasPrefix(bundleVer, "V") {
+		bundleVer = "v" + bundleVer
+	}
+	// Pad if only 2 components (e.g. v2.1 -> v2.1.0)
+	parts := strings.Split(bundleVer, ".")
+	if len(parts) == 2 {
+		bundleVer = bundleVer + ".0"
+	}
+
+	bundle := &PolicyBundle{
+		ID:          fmt.Sprintf("%s-%s", fwID, bundleVer),
+		FrameworkID: fwID,
+		TenantID:    "", // global default
+		Version:     bundleVer,
+		Author:      "system",
+		Description: fmt.Sprintf("Built-in regulatory framework bundle for %s", fw.Name),
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+		Status:      fw.Status,
+		Rules:       rules,
+	}
+
+	if err := s.RegisterBundle("", bundle); err != nil {
+		slog.Warn("skipping invalid framework bundle", "framework", fwID, "version", bundleVer, "error", err)
+	}
+
+	// Register alias between cis-kubernetes and k8s-cis-benchmark
+	if fwID == "cis-kubernetes" {
+		aliasBundle := *bundle
+		aliasBundle.ID = fmt.Sprintf("k8s-cis-benchmark-%s", bundleVer)
+		aliasBundle.FrameworkID = "k8s-cis-benchmark"
+		if err := s.RegisterBundle("", &aliasBundle); err != nil {
+			slog.Warn("skipping alias framework bundle", "framework", "k8s-cis-benchmark", "version", bundleVer, "error", err)
+		}
+	}
+}
+
 // LoadFrameworks imports existing frameworks from disk as default global bundles.
 func (s *PolicyStore) LoadFrameworks(policyRoot string) error {
 	available, err := frameworks.ListFrameworks(policyRoot)
@@ -120,48 +174,27 @@ func (s *PolicyStore) LoadFrameworks(policyRoot string) error {
 				slog.Error("failed loading framework", "framework", fwID, "version", ver, "error", err)
 				continue
 			}
+			s.registerLoadedFramework(fwID, ver, fw)
+		}
+	}
+	return nil
+}
 
-			checks := frameworks.ChecksForVersion(fw, "")
-			rules := make([]PolicyRule, 0, len(checks))
-			for _, c := range checks {
-				rules = append(rules, PolicyRule{
-					ID:            c.Check.ID,
-					Name:          c.Check.Name,
-					Description:   c.Check.Description,
-					CELExpression: c.Check.CELExpression,
-					Severity:      c.Check.Severity,
-					Remediation:   c.Check.Remediation,
-					Status:        c.Check.Status,
-					RiskTriple:    c.Check.RiskTriple,
-					FreqTriple:    c.Check.FreqTriple,
-				})
-			}
+// LoadBuiltinFrameworks imports embedded canonical framework definitions from BuiltinFS.
+func (s *PolicyStore) LoadBuiltinFrameworks() error {
+	available, err := frameworks.ListEmbeddedFrameworks()
+	if err != nil {
+		return fmt.Errorf("listing embedded frameworks: %w", err)
+	}
 
-			bundleVer := ver
-			if !strings.HasPrefix(bundleVer, "v") && !strings.HasPrefix(bundleVer, "V") {
-				bundleVer = "v" + bundleVer
+	for fwID, versions := range available {
+		for _, ver := range versions {
+			fw, err := frameworks.LoadEmbeddedFramework(fwID, ver)
+			if err != nil {
+				slog.Error("failed loading embedded framework", "framework", fwID, "version", ver, "error", err)
+				continue
 			}
-			// Pad if only 2 components (e.g. v2.1 -> v2.1.0)
-			parts := strings.Split(bundleVer, ".")
-			if len(parts) == 2 {
-				bundleVer = bundleVer + ".0"
-			}
-
-			bundle := &PolicyBundle{
-				ID:          fmt.Sprintf("%s-%s", fwID, bundleVer),
-				FrameworkID: fwID,
-				TenantID:    "", // global default
-				Version:     bundleVer,
-				Author:      "system",
-				Description: fmt.Sprintf("Built-in regulatory framework bundle for %s", fw.Name),
-				CreatedAt:   time.Now().UTC().Format(time.RFC3339),
-				Status:      fw.Status,
-				Rules:       rules,
-			}
-
-			if err := s.RegisterBundle("", bundle); err != nil {
-				slog.Warn("skipping invalid framework bundle", "framework", fwID, "version", bundleVer, "error", err)
-			}
+			s.registerLoadedFramework(fwID, ver, fw)
 		}
 	}
 	return nil
@@ -366,6 +399,16 @@ func (s *PolicyStore) Rollback(tenantID, frameworkID, targetVersion string) (*Po
 	return matched, nil
 }
 
+func resolveFrameworkAlias(id string) string {
+	if id == "k8s-cis-benchmark" {
+		return "cis-kubernetes"
+	}
+	if id == "cis-kubernetes" {
+		return "k8s-cis-benchmark"
+	}
+	return ""
+}
+
 // GetActiveBundle returns the current active bundle for a tenant and framework.
 // Tenant-specific bundles override global default frameworks.
 func (s *PolicyStore) GetActiveBundle(tenantID, frameworkID, version string) (*PolicyBundle, error) {
@@ -374,19 +417,22 @@ func (s *PolicyStore) GetActiveBundle(tenantID, frameworkID, version string) (*P
 
 	// If specific version is requested
 	if version != "" {
-		// Check tenant history first
-		if tenantHistory := s.bundles[tenantID][frameworkID]; len(tenantHistory) > 0 {
-			for _, b := range tenantHistory {
-				if b.Version == version {
-					return b, nil
+		for _, fId := range []string{frameworkID, resolveFrameworkAlias(frameworkID)} {
+			if fId == "" {
+				continue
+			}
+			if tenantHistory := s.bundles[tenantID][fId]; len(tenantHistory) > 0 {
+				for _, b := range tenantHistory {
+					if b.Version == version {
+						return b, nil
+					}
 				}
 			}
-		}
-		// Fall back to global default history
-		if globalHistory := s.bundles[""][frameworkID]; len(globalHistory) > 0 {
-			for _, b := range globalHistory {
-				if b.Version == version {
-					return b, nil
+			if globalHistory := s.bundles[""][fId]; len(globalHistory) > 0 {
+				for _, b := range globalHistory {
+					if b.Version == version {
+						return b, nil
+					}
 				}
 			}
 		}
@@ -399,6 +445,14 @@ func (s *PolicyStore) GetActiveBundle(tenantID, frameworkID, version string) (*P
 	}
 	if active := s.active[""][frameworkID]; active != nil {
 		return active, nil
+	}
+	if alias := resolveFrameworkAlias(frameworkID); alias != "" {
+		if active := s.active[tenantID][alias]; active != nil {
+			return active, nil
+		}
+		if active := s.active[""][alias]; active != nil {
+			return active, nil
+		}
 	}
 
 	return nil, fmt.Errorf("no active bundle found for framework %q", frameworkID)

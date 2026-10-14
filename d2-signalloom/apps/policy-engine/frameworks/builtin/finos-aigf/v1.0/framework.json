@@ -1,0 +1,456 @@
+{
+  "id": "finos-aigf",
+  "name": "FINOS AI Governance Framework (AIGF)",
+  "version": "v1.0.0",
+  "description": "Agent-configuration checks evidencing FINOS AIGF mitigations. Control IDs are the catalogue's own mitigation IDs (AIR-PREV-nnn / AIR-DET-nnn) from https://github.com/finos/ai-governance-framework at a149dd1eb763c0be4ff8107b698c41230ecfbfc8 (2026-10-07). The agent context schema is policy/frameworks/finos-aigf/v1.0/AGENT-CONTEXT.md.",
+  "applicability": {
+    "inForceFrom": "2026-10-07",
+    "basis": "publication-date",
+    "source": "https://github.com/finos/ai-governance-framework/commit/a149dd1eb763c0be4ff8107b698c41230ecfbfc8",
+    "note": "The FINOS AI Governance Framework is a LIVING DOCUMENT with no version number, no publication event and no enforcement of any kind, so there is no enforcement date to cite and the only honest date is the commit the pack was built against: a149dd1eb763c0be4ff8107b698c41230ecfbfc8, committed 2026-10-07, already recorded in this pack framework description and in README.md. basis is publication-date because a commit date is when a document said what it says, which is the same category of fact. A living document can also be amended without any date moving, so unlike a regulation this window carries no implication that the content is still current -- it states which snapshot these controls were derived from. verified:true means the commit SHA and its date match the pack README record; it is not a claim that any obligation begins on that day, because none does.",
+    "verified": true
+  },
+  "controlSets": [
+    {
+      "id": "aigf-preventative",
+      "name": "AIGF Preventative Mitigations (AIR-PREV)",
+      "description": "Catalogue mitigations of type PREV that are evidenced by agent configuration and registry facts.",
+      "controls": [
+        {
+          "id": "AIR-PREV-002",
+          "name": "AIR-PREV-002 Data Filtering From External Knowledge Bases",
+          "description": "Sensitive data is filtered before external knowledge is ingested into a RAG pipeline. Mitigates: AIR-RC-001 Information Leaked To Hosted Model, AIR-SEC-009 Data Poisoning.",
+          "checks": [
+            {
+              "id": "rag-ingestion-sensitive-data-filtered",
+              "name": "RAG ingestion filters sensitive data",
+              "description": "If the agent uses retrieval-augmented generation (agent.data.rag_enabled is true), sensitive-data filtering must be active on ingestion. Not applicable, and passes, when rag_enabled is false. Undeclared or non-boolean rag_enabled fails.",
+              "celExpression": "has(agent.data) && type(agent.data) == map && has(agent.data.rag_enabled) && type(agent.data.rag_enabled) == bool && (agent.data.rag_enabled == false || (has(agent.data.ingestion_sensitive_data_filter) && agent.data.ingestion_sensitive_data_filter == true))",
+              "severity": "high",
+              "remediation": "Enable sensitive-data filtering (PII/confidential classification and redaction) on every RAG ingestion path, or declare rag_enabled false.",
+              "riskTriple": {
+                "min": 10000,
+                "mode": 45000,
+                "max": 180000
+              },
+              "freqTriple": {
+                "min": 0.3,
+                "mode": 1,
+                "max": 3
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AIR-PREV-003",
+          "name": "AIR-PREV-003 User/App/Model Firewalling/Filtering",
+          "description": "Interactions between users, the application and the model are inspected and filtered in both directions. Mitigates: AIR-OP-007 Availability of Foundational Model, AIR-SEC-010 Prompt Injection, AIR-OP-018 Model Overreach / Expanded Use, AIR-OP-020 Reputational Risk.",
+          "checks": [
+            {
+              "id": "prompt-injection-guardrail-active",
+              "name": "Active prompt injection filter guardrail",
+              "description": "Enforces real-time input guardrails to detect adversarial prompt injection attacks (agent.guardrails.prompt_injection_filter is true).",
+              "celExpression": "has(agent.guardrails) && type(agent.guardrails) == map && has(agent.guardrails.prompt_injection_filter) && agent.guardrails.prompt_injection_filter == true",
+              "severity": "critical",
+              "remediation": "Enable prompt injection detection filter in agent inference pipeline.",
+              "riskTriple": {
+                "min": 18000,
+                "mode": 75000,
+                "max": 300000
+              },
+              "freqTriple": {
+                "min": 0.4,
+                "mode": 1.4,
+                "max": 4.2
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            },
+            {
+              "id": "output-leakage-filter-active",
+              "name": "Model output filtered for leakage and harmful content",
+              "description": "Model responses are inspected for sensitive-data leakage and policy-violating content before they leave the system (agent.guardrails.output_filter is true).",
+              "celExpression": "has(agent.guardrails) && type(agent.guardrails) == map && has(agent.guardrails.output_filter) && agent.guardrails.output_filter == true",
+              "severity": "high",
+              "remediation": "Enable output filtering/redaction on the response path (DLP and content policy) before responses reach users or downstream systems.",
+              "riskTriple": {
+                "min": 12000,
+                "mode": 50000,
+                "max": 200000
+              },
+              "freqTriple": {
+                "min": 0.3,
+                "mode": 1.2,
+                "max": 3.5
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AIR-PREV-008",
+          "name": "AIR-PREV-008 Quality of Service (QoS) and DDoS Prevention for AI Systems",
+          "description": "Single or few callers cannot exhaust finite inference capacity. Mitigates: AIR-OP-007 Availability of Foundational Model.",
+          "checks": [
+            {
+              "id": "inference-rate-limit-configured",
+              "name": "Inference request rate limit configured",
+              "description": "A positive per-minute request limit is enforced on the agent (agent.rate_limits.requests_per_minute is a JSON number > 0).",
+              "celExpression": "has(agent.rate_limits) && type(agent.rate_limits) == map && has(agent.rate_limits.requests_per_minute) && type(agent.rate_limits.requests_per_minute) == double && agent.rate_limits.requests_per_minute > 0.0",
+              "severity": "medium",
+              "remediation": "Configure a per-caller request rate limit at the gateway or inference proxy and record it in the agent registry.",
+              "riskTriple": {
+                "min": 4000,
+                "mode": 18000,
+                "max": 80000
+              },
+              "freqTriple": {
+                "min": 0.5,
+                "mode": 2,
+                "max": 6
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AIR-PREV-010",
+          "name": "AIR-PREV-010 AI Model Version Pinning",
+          "description": "The deployed model is inventoried and pinned to a specific, approved version rather than a floating alias. Mitigates: AIR-OP-005 Foundation Model Versioning, AIR-OP-006 Non-Deterministic Behaviour.",
+          "checks": [
+            {
+              "id": "registered-model-registry-entry",
+              "name": "Model catalog registration and approval",
+              "description": "Verifies AI agent model is registered and actively approved in the enterprise model inventory (agent.registry.model_registered is true).",
+              "celExpression": "has(agent.registry) && type(agent.registry) == map && has(agent.registry.model_registered) && agent.registry.model_registered == true",
+              "severity": "high",
+              "remediation": "Register model in the centralized enterprise AI model registry.",
+              "riskTriple": {
+                "min": 8000,
+                "mode": 35000,
+                "max": 140000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            },
+            {
+              "id": "model-version-pinned",
+              "name": "Model version pinned, not a floating alias",
+              "description": "agent.registry.model_version names an explicitly pinned version. Built from vendor model-ID documentation (URLs in AGENT-CONTEXT.md), not from a regex: it must carry one of the forms vendors actually ship a pin in -- an ISO date (gpt-4o-2024-08-06), a compact YYYYMMDD date (claude-sonnet-4-5-20250929), a sha256 digest of 64 hex digits, a MAJOR.MINOR.PATCH version, or a trailing three- or four-digit numeric snapshot/version suffix (gemini-1.5-pro-002, gpt-3.5-turbo-0125, mistral-large-2411). It must contain no whitespace. A floating channel segment anywhere other than the start of the string -- latest, stable, nightly, canary or edge, case-insensitive -- fails even when a pin form is also present, because the tag is still re-pointed: acme-v1.2.3-latest-canary fails. A dateless family ID with no version marker (gpt-4o, gemini-1.5-pro) fails. Derived from AIR-PREV-010: use 'a specific, fixed version ... rather than automatically adopting the latest available version'.",
+              "celExpression": "has(agent.registry) && type(agent.registry) == map && has(agent.registry.model_version) && type(agent.registry.model_version) == string && agent.registry.model_version.matches('^\\\\S+$') && !agent.registry.model_version.matches('(?i)[-_.:/@](latest|stable|nightly|canary|edge)([-_.:/@]|$)') && agent.registry.model_version.matches('(^|[^0-9])(19|20)[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])([^0-9]|$)|(^|[^0-9])(19|20)[0-9]{2}(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])([^0-9]|$)|sha256:[a-f0-9]{64}|(^|[^0-9.])v?[0-9]+[.][0-9]+[.][0-9]+([^0-9.]|$)|[-_][0-9]{3,4}$')",
+              "severity": "medium",
+              "remediation": "Pin the model to an explicit dated or digest version and record it in the registry; upgrade only through change control.",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 22000,
+                "max": 90000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AIR-PREV-012",
+          "name": "AIR-PREV-012 Role-Based Access Control for AI Data",
+          "description": "Callers are authenticated and their access to the agent and its data is governed by roles. Mitigates: AIR-RC-001 Information Leaked To Hosted Model, AIR-SEC-008 Tampering With the Foundational Model, AIR-SEC-009 Data Poisoning.",
+          "checks": [
+            {
+              "id": "user-authn-and-rbac-enforced",
+              "name": "Caller authentication and RBAC enforced",
+              "description": "Callers must authenticate (agent.access.authentication_required is true) and role-based authorisation is enforced (agent.access.rbac_enforced is true).",
+              "celExpression": "has(agent.access) && type(agent.access) == map && has(agent.access.authentication_required) && agent.access.authentication_required == true && has(agent.access.rbac_enforced) && agent.access.rbac_enforced == true",
+              "severity": "high",
+              "remediation": "Front the agent with the enterprise IdP and enforce role-based authorisation on the data and actions it exposes.",
+              "riskTriple": {
+                "min": 10000,
+                "mode": 40000,
+                "max": 160000
+              },
+              "freqTriple": {
+                "min": 0.4,
+                "mode": 1.2,
+                "max": 3.5
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AIR-PREV-014",
+          "name": "AIR-PREV-014 Encryption of AI Data at Rest",
+          "description": "Every persistent store the agent writes (vector indexes, conversation history, caches) is encrypted at rest. Mitigates: AIR-SEC-002 Information Leaked to Vector Store, AIR-RC-022 Regulatory Compliance and Oversight.",
+          "checks": [
+            {
+              "id": "ai-data-encrypted-at-rest",
+              "name": "All persistent AI data stores encrypted at rest",
+              "description": "Every entry of agent.data.persistent_stores has encrypted_at_rest true. An empty list (the agent persists nothing) passes; an absent or non-list field fails.",
+              "celExpression": "has(agent.data) && type(agent.data) == map && has(agent.data.persistent_stores) && type(agent.data.persistent_stores) == list && agent.data.persistent_stores.all(s, type(s) == map && has(s.encrypted_at_rest) && s.encrypted_at_rest == true)",
+              "severity": "high",
+              "remediation": "Enable encryption at rest (KMS-managed keys) on every vector store, history store and cache the agent uses.",
+              "riskTriple": {
+                "min": 9000,
+                "mode": 38000,
+                "max": 150000
+              },
+              "freqTriple": {
+                "min": 0.2,
+                "mode": 0.8,
+                "max": 2.5
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AIR-PREV-018",
+          "name": "AIR-PREV-018 Agent Authority Least Privilege Framework",
+          "description": "Each agent tool is granted only explicitly enumerated, narrow scopes. Mitigates: AIR-SEC-024 Agent Action Authorization Bypass, AIR-OP-018 Model Overreach / Expanded Use.",
+          "checks": [
+            {
+              "id": "tool-grants-least-privilege",
+              "name": "Tool grants are explicitly scoped, no wildcards",
+              "description": "Every entry of agent.tools declares a non-empty scopes list of non-empty strings, none ending in '*' (no '*' or prefix wildcards). An empty tools list passes; an absent or non-list field fails.",
+              "celExpression": "has(agent.tools) && type(agent.tools) == list && agent.tools.all(t, type(t) == map && has(t.scopes) && type(t.scopes) == list && size(t.scopes) > 0 && t.scopes.all(s, type(s) == string && s != '' && !s.contains('*')))",
+              "severity": "high",
+              "remediation": "Replace wildcard and unscoped tool grants with enumerated per-tool scopes matched to the agent's designated function.",
+              "riskTriple": {
+                "min": 15000,
+                "mode": 60000,
+                "max": 250000
+              },
+              "freqTriple": {
+                "min": 0.3,
+                "mode": 1.1,
+                "max": 3.2
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AIR-PREV-020",
+          "name": "AIR-PREV-020 MCP Server Security Governance",
+          "description": "The agent connects only to MCP servers on the centrally maintained allow-list. Mitigates: AIR-SEC-026 MCP Server Supply Chain Compromise, AIR-SEC-008 Tampering With the Foundational Model, AIR-RC-001 Information Leaked To Hosted Model.",
+          "checks": [
+            {
+              "id": "mcp-servers-allowlisted",
+              "name": "Only allow-listed MCP servers connected",
+              "description": "Every entry of agent.mcp_servers has allowlisted true. An empty list (no MCP servers) passes; an absent or non-list field fails.",
+              "celExpression": "has(agent.mcp_servers) && type(agent.mcp_servers) == list && agent.mcp_servers.all(m, type(m) == map && has(m.allowlisted) && m.allowlisted == true)",
+              "severity": "high",
+              "remediation": "Route MCP connections through the central proxy and remove any server not on the security-vetted allow-list.",
+              "riskTriple": {
+                "min": 12000,
+                "mode": 55000,
+                "max": 220000
+              },
+              "freqTriple": {
+                "min": 0.2,
+                "mode": 0.9,
+                "max": 2.8
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AIR-PREV-023",
+          "name": "AIR-PREV-023 Agentic System Credential Protection Framework",
+          "description": "Long-lived credentials are kept out of the agent's execution environment; credentials are injected just in time. Mitigates: AIR-SEC-029 Agent-Mediated Credential Discovery and Harvesting, AIR-SEC-024 Agent Action Authorization Bypass, AIR-SEC-026 MCP Server Supply Chain Compromise.",
+          "checks": [
+            {
+              "id": "no-long-lived-credentials-exposed",
+              "name": "No long-lived credentials exposed to the agent",
+              "description": "agent.credentials.long_lived_secrets_exposed is boolean false. Absent or non-boolean fails: lack of a finding is not evidence of protection.",
+              "celExpression": "has(agent.credentials) && type(agent.credentials) == map && has(agent.credentials.long_lived_secrets_exposed) && agent.credentials.long_lived_secrets_exposed == false",
+              "severity": "critical",
+              "remediation": "Remove static API keys and secrets from the agent's environment and files; deliver short-lived credentials via workload identity or a secrets broker.",
+              "riskTriple": {
+                "min": 20000,
+                "mode": 85000,
+                "max": 350000
+              },
+              "freqTriple": {
+                "min": 0.3,
+                "mode": 1,
+                "max": 3
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AIR-PREV-024",
+          "name": "AIR-PREV-024 Human-in-the-Loop Action Approval Gate",
+          "description": "High-impact agent actions are held for explicit human approval. Catalogue doc-status of this mitigation is Draft at the pinned commit. Mitigates: AIR-SEC-024 Agent Action Authorization Bypass, AIR-OP-018 Model Overreach / Expanded Use, AIR-RC-022 Regulatory Compliance and Oversight.",
+          "checks": [
+            {
+              "id": "high-impact-actions-human-approved",
+              "name": "High-impact tools gated by human approval",
+              "description": "Every entry of agent.tools either declares impact 'low' or 'medium', or has requires_human_approval true. Tools with impact 'high' or no impact classification are treated as high (fail-closed). Not applicable, and passes, when every tool is low/medium or the list is empty; an absent or non-list field fails, and so does a list element that is not an object -- the type guard gates both branches of the test.",
+              "celExpression": "has(agent.tools) && type(agent.tools) == list && agent.tools.all(t, type(t) == map && ((has(t.impact) && t.impact in ['low', 'medium']) || (has(t.requires_human_approval) && t.requires_human_approval == true)))",
+              "severity": "critical",
+              "remediation": "Classify every tool's impact and route high-impact and unclassified tool calls through a fail-closed human approval gate.",
+              "riskTriple": {
+                "min": 25000,
+                "mode": 100000,
+                "max": 400000
+              },
+              "freqTriple": {
+                "min": 0.2,
+                "mode": 0.8,
+                "max": 2.5
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "aigf-detective",
+      "name": "AIGF Detective Mitigations (AIR-DET)",
+      "description": "Catalogue mitigations of type DET that are evidenced by agent configuration and registry facts.",
+      "controls": [
+        {
+          "id": "AIR-DET-004",
+          "name": "AIR-DET-004 AI System Observability",
+          "description": "Agent interactions, tool calls and security events are logged to an audit trail. Mitigates: AIR-RC-001, AIR-OP-005, AIR-OP-006, AIR-OP-007, AIR-OP-014, AIR-OP-018, AIR-OP-019, AIR-SEC-024, AIR-SEC-025, AIR-SEC-026, AIR-SEC-027, AIR-OP-028, AIR-SEC-029.",
+          "checks": [
+            {
+              "id": "ai-interaction-audit-logging",
+              "name": "Agent interaction audit logging enabled",
+              "description": "agent.observability.audit_logging is true.",
+              "celExpression": "has(agent.observability) && type(agent.observability) == map && has(agent.observability.audit_logging) && agent.observability.audit_logging == true",
+              "severity": "medium",
+              "remediation": "Ship prompts, responses, tool calls and policy decisions to the central audit log with retention per policy.",
+              "riskTriple": {
+                "min": 6000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "freqTriple": {
+                "min": 0.5,
+                "mode": 1.6,
+                "max": 4.5
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AIR-DET-009",
+          "name": "AIR-DET-009 AI System Alerting and Denial of Wallet (DoW) / Spend Monitoring",
+          "description": "Spend is bounded by a budget and overconsumption raises an alert. Mitigates: AIR-OP-007 Availability of Foundational Model.",
+          "checks": [
+            {
+              "id": "spend-budget-alerting-configured",
+              "name": "Spend budget and alerting configured",
+              "description": "agent.cost_controls.budget_limit is a JSON number > 0 and agent.cost_controls.spend_alerting is true.",
+              "celExpression": "has(agent.cost_controls) && type(agent.cost_controls) == map && has(agent.cost_controls.budget_limit) && type(agent.cost_controls.budget_limit) == double && agent.cost_controls.budget_limit > 0.0 && has(agent.cost_controls.spend_alerting) && agent.cost_controls.spend_alerting == true",
+              "severity": "medium",
+              "remediation": "Set a budget for the agent's model usage and configure threshold alerts against it.",
+              "riskTriple": {
+                "min": 3000,
+                "mode": 15000,
+                "max": 70000
+              },
+              "freqTriple": {
+                "min": 0.5,
+                "mode": 2,
+                "max": 6
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AIR-DET-021",
+          "name": "AIR-DET-021 Agent Decision Audit and Explainability",
+          "description": "Agent decisions are recorded with explanations in a tamper-evident audit trail. Mitigates: AIR-SEC-024 Agent Action Authorization Bypass, AIR-SEC-025 Tool Chain Manipulation and Injection, AIR-RC-022 Regulatory Compliance and Oversight.",
+          "checks": [
+            {
+              "id": "decision-explainability-metadata",
+              "name": "Decision explainability and reasoning trace",
+              "description": "Requires recorded reasoning traces and explainability metadata for compliance auditing (agent.governance.decision_explainability is true).",
+              "celExpression": "has(agent.governance) && type(agent.governance) == map && has(agent.governance.decision_explainability) && agent.governance.decision_explainability == true",
+              "severity": "medium",
+              "remediation": "Record structured reasoning traces and explainability metadata on tool invocations.",
+              "riskTriple": {
+                "min": 7000,
+                "mode": 32000,
+                "max": 130000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            },
+            {
+              "id": "decision-audit-tamper-evident",
+              "name": "Decision audit log is tamper-evident",
+              "description": "agent.governance.audit_log_tamper_evident is true (cryptographic integrity protection on the decision log).",
+              "celExpression": "has(agent.governance) && type(agent.governance) == map && has(agent.governance.audit_log_tamper_evident) && agent.governance.audit_log_tamper_evident == true",
+              "severity": "medium",
+              "remediation": "Write decision records to an append-only, hash-chained or signed log so tampering is detectable.",
+              "riskTriple": {
+                "min": 6000,
+                "mode": 28000,
+                "max": 110000
+              },
+              "freqTriple": {
+                "min": 0.3,
+                "mode": 1,
+                "max": 3
+              },
+              "policyVersions": [
+                "v1.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

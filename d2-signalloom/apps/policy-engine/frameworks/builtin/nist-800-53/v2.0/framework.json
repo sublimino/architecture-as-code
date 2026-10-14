@@ -1,0 +1,604 @@
+{
+  "id": "nist-800-53",
+  "name": "NIST 800-53",
+  "version": "v2.0.0",
+  "description": "Standard tier \u2014 defence-in-depth access control, integrity, and audit",
+  "applicability": {
+    "inForceFrom": "2026-05-11",
+    "basis": "publication-date",
+    "source": "policy/frameworks/nist-800-53/catalogue/PROVENANCE.md",
+    "note": "NIST SP 800-53 Rev 5 is a PUBLISHED STANDARD, not enforced law: it carries no penalty, no applicability article and no date on which an obligation begins, so the basis is publication-date and nothing here is an enforcement claim. The date is NOT typed from a secondary source -- it is the OSCAL catalogue metadata the pack is already anchored to: metadata.last-modified 2026-05-11T16:01:09.00000-00:00 at metadata.version 5.2.0, catalog UUID ea7c7688-79c5-463b-a91b-0650f2d98623, recorded in catalogue/PROVENANCE.md and used by catalogue/anchor-test.sh to resolve this pack control references. TestNIST80053WindowMatchesTheCatalogueMetadata holds this field equal to the date in PROVENANCE.md, so a catalogue refresh that moves last-modified turns the suite red rather than leaving a stale date behind -- the catalogue moving is a signal, not a nuisance, which is the workflow PROVENANCE.md already states. verified:true means the date matches the catalogue record, nothing more: a publication date gates nothing that anyone can be penalised for.",
+    "verified": true
+  },
+  "controlSets": [
+    {
+      "id": "ac-access-control",
+      "name": "AC \u2014 Access Control",
+      "controls": [
+        {
+          "id": "ac-1-non-root",
+          "name": "Containers run as non-root",
+          "description": "AC-6: Principle of least privilege \u2014 containers must not run as root",
+          "checks": [
+            {
+              "id": "container-run-as-non-root",
+              "name": "Container runs as non-root",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && !(has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == false) && !(has(object.spec.securityContext) && has(object.spec.securityContext.runAsUser) && object.spec.securityContext.runAsUser == 0) && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.runAsNonRoot)) ? c.securityContext.runAsNonRoot == true : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true)) && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.runAsUser) && c.securityContext.runAsUser == 0))",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "ac-2-no-privilege-escalation",
+          "name": "No privilege escalation",
+          "description": "AC-6(1): Containers must not allow privilege escalation",
+          "checks": [
+            {
+              "id": "no-privilege-escalation",
+              "name": "Privilege escalation disabled",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && ((!has(object.spec.os) || !has(object.spec.os.name) || object.spec.os.name != 'windows') ? (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false) : true)",
+              "riskTriple": {
+                "min": 8000,
+                "mode": 40000,
+                "max": 150000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "ac-3-no-privileged",
+          "name": "No privileged containers",
+          "description": "AC-6(2): Containers must not run in privileged mode",
+          "checks": [
+            {
+              "id": "no-privileged-mode",
+              "name": "Privileged mode disabled",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true))",
+              "riskTriple": {
+                "min": 10000,
+                "mode": 50000,
+                "max": 180000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "ac-4-service-account",
+          "name": "Service account token not auto-mounted",
+          "description": "AC-3: Disable automatic service account token mounting",
+          "checks": [
+            {
+              "id": "no-automount-sa-token",
+              "name": "Service account token auto-mount disabled",
+              "celExpression": "has(object.spec) && has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false",
+              "riskTriple": {
+                "min": 3000,
+                "mode": 15000,
+                "max": 60000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "ac-5-pod-security-context",
+          "name": "Pod-level security context",
+          "description": "AC-6: Pod must define security context with runAsNonRoot",
+          "checks": [
+            {
+              "id": "pod-security-context",
+              "name": "Pod security context present",
+              "celExpression": "has(object.spec) && has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 20000,
+                "max": 80000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "ac-6-host-network-disabled",
+          "name": "Host network disabled",
+          "description": "AC-4: Containers must not use host networking",
+          "checks": [
+            {
+              "id": "no-host-network",
+              "name": "Host network disabled",
+              "celExpression": "has(object.spec) && !(has(object.spec.hostNetwork) && object.spec.hostNetwork == true)",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ],
+              "remediation": "Remove spec.hostNetwork (or set it false) so the pod does not share the host network namespace."
+            }
+          ]
+        },
+        {
+          "id": "ac-7-host-pid-disabled",
+          "name": "Host PID namespace disabled",
+          "description": "AC-4: Containers must not share host PID namespace",
+          "checks": [
+            {
+              "id": "no-host-pid",
+              "name": "Host PID namespace disabled",
+              "celExpression": "has(object.spec) && !(has(object.spec.hostPID) && object.spec.hostPID == true)",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 20000,
+                "max": 90000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ],
+              "remediation": "Remove spec.hostPID (or set it false) so the pod does not share the host PID namespace."
+            },
+            {
+              "id": "no-host-ipc",
+              "name": "Host IPC namespace not shared",
+              "celExpression": "has(object.spec) && !(has(object.spec.hostIPC) && object.spec.hostIPC == true)",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 20000,
+                "max": 90000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ],
+              "description": "PSS treats hostNetwork, hostPID and hostIPC as one Host Namespaces control and baseline forbids all three. Sharing the host IPC namespace exposes host shared memory and semaphores. Added by the lead after V3 built and mutation-proved it but could not land it from inside the pack: a Go test pinned the check count and the oracle group mapped two names.",
+              "remediation": "Remove spec.hostIPC (or set it false) so the pod does not share the host IPC namespace."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cm-config-mgmt",
+      "name": "CM \u2014 Configuration Management",
+      "controls": [
+        {
+          "id": "cm-1-app-label",
+          "name": "Application label present",
+          "description": "CM-8: All workloads must be labelled for inventory",
+          "checks": [
+            {
+              "id": "app-label",
+              "name": "Application label exists",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.app) && object.metadata.labels.app != ''",
+              "riskTriple": {
+                "min": 2000,
+                "mode": 10000,
+                "max": 40000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "cm-2-version-label",
+          "name": "Version label present",
+          "description": "CM-8(1): Workloads must declare their version",
+          "checks": [
+            {
+              "id": "version-label",
+              "name": "Version label exists",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.version) && object.metadata.labels.version != ''",
+              "riskTriple": {
+                "min": 2000,
+                "mode": 8000,
+                "max": 35000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "cm-3-resource-limits",
+          "name": "Resource limits defined",
+          "description": "CM-6: Containers must have resource limits configured",
+          "checks": [
+            {
+              "id": "resource-limits-set",
+              "name": "CPU and memory limits defined",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.resources) && has(c.resources.limits))",
+              "riskTriple": {
+                "min": 3000,
+                "mode": 15000,
+                "max": 60000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "cm-4-resource-requests",
+          "name": "Resource requests defined",
+          "description": "CM-6: Containers must declare resource requests",
+          "checks": [
+            {
+              "id": "resource-requests-set",
+              "name": "CPU and memory requests defined",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.resources) && has(c.resources.requests))",
+              "riskTriple": {
+                "min": 2000,
+                "mode": 10000,
+                "max": 40000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "cm-5-managed-by-label",
+          "name": "Managed-by label present",
+          "description": "CM-3: Workloads must declare their management toolchain",
+          "checks": [
+            {
+              "id": "managed-by-label",
+              "name": "Managed-by label exists",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.managed_by) && object.metadata.labels.managed_by != ''",
+              "riskTriple": {
+                "min": 1000,
+                "mode": 5000,
+                "max": 25000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "cm-6-env-label",
+          "name": "Environment label present",
+          "description": "CM-3(1): Workloads must declare their target environment",
+          "checks": [
+            {
+              "id": "env-label",
+              "name": "Environment label exists",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.environment) && object.metadata.labels.environment != ''",
+              "riskTriple": {
+                "min": 1000,
+                "mode": 5000,
+                "max": 20000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sc-system-comms",
+      "name": "SC \u2014 System & Communications Protection",
+      "controls": [
+        {
+          "id": "sc-1-drop-capabilities",
+          "name": "Drop all capabilities",
+          "description": "SC-7: Containers must drop all Linux capabilities",
+          "checks": [
+            {
+              "id": "drop-all-capabilities",
+              "name": "All capabilities dropped",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d == 'ALL') && (!has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.all(a, a == 'NET_BIND_SERVICE')))",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "sc-2-read-only-rootfs",
+          "name": "Read-only root filesystem",
+          "description": "SC-28: Containers must use read-only root filesystem",
+          "checks": [
+            {
+              "id": "read-only-rootfs",
+              "name": "Read-only root filesystem",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true)",
+              "riskTriple": {
+                "min": 3000,
+                "mode": 15000,
+                "max": 65000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "sc-3-tls-annotation",
+          "name": "TLS configuration annotation",
+          "description": "SC-8: Workloads must declare their TLS configuration",
+          "checks": [
+            {
+              "id": "tls-annotation",
+              "name": "TLS configuration declared",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/tls-config' in object.metadata.annotations && object.metadata.annotations['osramp.io/tls-config'] != ''",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 20000,
+                "max": 80000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "sc-4-seccomp-profile",
+          "name": "Seccomp profile applied",
+          "description": "SC-39: Containers must use a seccomp profile",
+          "checks": [
+            {
+              "id": "seccomp-profile",
+              "name": "Seccomp profile set",
+              "celExpression": "(has(object.spec) && has(object.spec.os) && has(object.spec.os.name) && object.spec.os.name == 'windows') || (has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (!(has(object.spec.securityContext) && has(object.spec.securityContext.seccompProfile)) || (has(object.spec.securityContext.seccompProfile.type) && object.spec.securityContext.seccompProfile.type in ['RuntimeDefault', 'Localhost'] && (object.spec.securityContext.seccompProfile.type == 'Localhost' ? (has(object.spec.securityContext.seccompProfile.localhostProfile) && object.spec.securityContext.seccompProfile.localhostProfile != '') : !has(object.spec.securityContext.seccompProfile.localhostProfile)))) && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, (has(c.securityContext) && has(c.securityContext.seccompProfile)) ? (has(c.securityContext.seccompProfile.type) && c.securityContext.seccompProfile.type in ['RuntimeDefault', 'Localhost'] && (c.securityContext.seccompProfile.type == 'Localhost' ? (has(c.securityContext.seccompProfile.localhostProfile) && c.securityContext.seccompProfile.localhostProfile != '') : !has(c.securityContext.seccompProfile.localhostProfile))) : (has(object.spec.securityContext) && has(object.spec.securityContext.seccompProfile) && has(object.spec.securityContext.seccompProfile.type) && object.spec.securityContext.seccompProfile.type in ['RuntimeDefault', 'Localhost'])))",
+              "riskTriple": {
+                "min": 3000,
+                "mode": 15000,
+                "max": 60000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ],
+              "description": " Windows pods are exempt: the Pod Security Standards do not apply the seccomp rule to them and a Windows workload cannot set a seccomp profile, so requiring one makes a conformant pod unsatisfiable (the same class as the Windows allowPrivilegeEscalation exemption). Found by the external PSA oracle after V3 tightened this check."
+            }
+          ]
+        },
+        {
+          "id": "sc-5-encryption-annotation",
+          "name": "Encryption at rest annotation",
+          "description": "SC-28(1): Workloads must declare encryption-at-rest status",
+          "checks": [
+            {
+              "id": "encryption-annotation",
+              "name": "Encryption at rest declared",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/encryption-at-rest' in object.metadata.annotations && object.metadata.annotations['osramp.io/encryption-at-rest'] != ''",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "si-system-integrity",
+      "name": "SI \u2014 System & Information Integrity",
+      "controls": [
+        {
+          "id": "si-1-image-digest",
+          "name": "Image pinned by digest",
+          "description": "SI-7: Container images must use digest references",
+          "checks": [
+            {
+              "id": "image-digest-required",
+              "name": "Image uses sha256 digest",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.image) && c.image.matches('@sha256:[a-f0-9]{64}$'))",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "si-2-trusted-registry",
+          "name": "Trusted registry enforcement",
+          "description": "SI-7(1): Images must originate from approved registries",
+          "checks": [
+            {
+              "id": "trusted-registry",
+              "name": "Image from trusted registry",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.image) && (c.image.startsWith('zot.local/') || c.image.startsWith('registry.internal/') || c.image.startsWith('ghcr.io/controlplaneio/') || c.image.startsWith('ghcr.io/controlplaneio-in-toto/') || c.image.startsWith('ghcr.io/controlplaneio-fluxcd/') || c.image.startsWith('gcr.io/distroless/')))",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ],
+              "description": "Every container, init container and ephemeral container image comes from a trusted organisation prefix (listed in AGENT-CONTEXT.md); a whole public registry is never trusted."
+            }
+          ]
+        },
+        {
+          "id": "si-3-vuln-scan",
+          "name": "Vulnerability scan annotation",
+          "description": "SI-2: Container images must reference vulnerability scan results",
+          "checks": [
+            {
+              "id": "vuln-scan-annotation",
+              "name": "Vulnerability scan reference present",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/vuln-scan-url' in object.metadata.annotations && object.metadata.annotations['osramp.io/vuln-scan-url'] != ''",
+              "riskTriple": {
+                "min": 3000,
+                "mode": 15000,
+                "max": 60000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "si-4-liveness-probe",
+          "name": "Liveness probe configured",
+          "description": "SI-4: Workloads must have liveness probes for health monitoring",
+          "checks": [
+            {
+              "id": "liveness-probe-present",
+              "name": "Liveness probe defined",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && object.spec.containers.all(c, has(c.livenessProbe))",
+              "riskTriple": {
+                "min": 2000,
+                "mode": 10000,
+                "max": 40000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "si-5-readiness-probe",
+          "name": "Readiness probe configured",
+          "description": "SI-4: Workloads must have readiness probes for availability",
+          "checks": [
+            {
+              "id": "readiness-probe-present",
+              "name": "Readiness probe defined",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && object.spec.containers.all(c, has(c.readinessProbe))",
+              "riskTriple": {
+                "min": 2000,
+                "mode": 10000,
+                "max": 40000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "au-audit",
+      "name": "AU \u2014 Audit & Accountability",
+      "controls": [
+        {
+          "id": "au-1-audit-label",
+          "name": "Audit logging label",
+          "description": "AU-2: Workloads must declare audit logging configuration",
+          "checks": [
+            {
+              "id": "audit-label",
+              "name": "Audit logging label present",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.audit_logging) && object.metadata.labels.audit_logging != ''",
+              "riskTriple": {
+                "min": 3000,
+                "mode": 15000,
+                "max": 60000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "au-2-log-volume",
+          "name": "Log volume mount present",
+          "description": "AU-3: Workloads must mount a log volume for audit collection",
+          "checks": [
+            {
+              "id": "log-volume-mount",
+              "name": "Log volume mount exists",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && object.spec.containers.all(c, has(c.volumeMounts) && c.volumeMounts.exists(v, has(v.mountPath) && v.mountPath.startsWith('/var/log')))",
+              "riskTriple": {
+                "min": 2000,
+                "mode": 10000,
+                "max": 40000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "au-3-log-format",
+          "name": "Log format annotation",
+          "description": "AU-3(1): Workloads must declare their log format",
+          "checks": [
+            {
+              "id": "log-format-annotation",
+              "name": "Log format declared",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/log-format' in object.metadata.annotations && object.metadata.annotations['osramp.io/log-format'] != ''",
+              "riskTriple": {
+                "min": 1000,
+                "mode": 5000,
+                "max": 25000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "au-4-owner-label",
+          "name": "Owner label present",
+          "description": "AU-6: Workloads must declare an owner for audit trail",
+          "checks": [
+            {
+              "id": "owner-label",
+              "name": "Owner label exists",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.owner) && object.metadata.labels.owner != ''",
+              "riskTriple": {
+                "min": 1000,
+                "mode": 5000,
+                "max": 20000
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

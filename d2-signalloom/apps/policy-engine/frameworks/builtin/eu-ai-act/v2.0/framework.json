@@ -1,0 +1,533 @@
+{
+  "id": "eu-ai-act",
+  "name": "EU AI Act",
+  "version": "v2.0.0",
+  "description": "Standard tier — defence-in-depth for high-risk AI systems. Citations are at article granularity only; the paragraph actually engaged, and every check that is a proxy rather than evidence, is named in each control set's description and in the citation table in ../README.md. Verified against CELEX 32024R1689. UNPRICED: every check in this version declares freqTriple {min: 0, mode: 0, max: 0}, so fair.Simulate returns zero and a failing check contributes GBP 0.00 of annual loss. The riskTriple states loss magnitude only; loss-event frequency has never been calibrated for this tier. A scan of this version reports zero total exposure however many controls fail. The zeros are declared rather than omitted so the absence of pricing is visible in the pack instead of arriving as a Go zero value. Do not quote a figure from this version. v2.1 carries real frequency triples. See ../README.md, section 'Pricing'.",
+  "applicability": {
+    "inForceFrom": "2027-12-02",
+    "basis": "enforcement-date",
+    "source": "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32026R1744",
+    "note": "Chapter III high-risk obligations (Articles 9 to 15 and 26), as AMENDED. Regulation (EU) 2026/1744 (Digital Omnibus on AI, OJ 24.7.2026, act of 8 July 2026, in force 27 July 2026), Article 1 point (40)(b), replaces the third paragraph point (c) of Article 113 of Regulation (EU) 2024/1689 with: \"Chapter III, Sections 1, 2, and 3, with the exception of Article 6(5), shall apply from: (i) 2 December 2027 as regards AI systems classified as high-risk pursuant to Article 6(2) and Annex III; and (ii) 2 August 2028 as regards AI systems classified as high-risk pursuant to Article 6(1) and Annex I.\" Read verbatim from the EUR-Lex primary text of the AMENDING regulation, which is why this is verified:true. THE EARLIER OF THE TWO DATES IS USED DELIBERATELY. A pack cannot tell whether a scanned workload is Annex III or Annex I high-risk -- an agent manifest asserts neither -- so one of the two dates has to be chosen. 2 December 2027 means an Annex I system is reported in force eight months before it actually is, which OVER-reports exposure. 2 August 2028 would under-report it for every Annex III system for eight months, erasing priced exposure that genuinely exists. Over-reporting is the cheaper error and is the only one a reader can catch. WHAT IS NOT VERIFIED: no CONSOLIDATED text of Regulation (EU) 2024/1689 incorporating the omnibus was read, and 2026/1744 carries 43 amendment items of which only point (40) was inspected individually, so another date-bearing amendment cannot be ruled out. The omnibus does NOT touch Article 113 third paragraph point (b), so the 2 August 2025 penalty date below stands unamended. PENALTIES ARE A DIFFERENT DATE AND A DIFFERENT CHAPTER. Article 113, third paragraph, point (b) of Reg. 2024/1689: \"Chapter III Section 4, Chapter V, Chapter VII and Chapter XII and Article 78 shall apply from 2 August 2025, with the exception of Article 101.\" Chapter XII is Penalties, so Article 99 applies from 2 August 2025 -- but ARTICLE 101 IS EXPRESSLY EXCEPTED and falls to the general 2 August 2026 date. A claim that \"Arts 99 and 101 apply from 2 Aug 2025\" is half wrong and must be written as \"Art. 99 (Art. 101 excepted)\". No check in this pack evidences a penalty provision, so no window here is set to that date.",
+    "verified": true
+  },
+  "controlSets": [
+    {
+      "id": "art9-risk-mgmt",
+      "name": "Art. 9(2)(d) — Risk Management Measures",
+      "description": "Article 9 requires a risk management system; 9(2)(d) requires 'the adoption of appropriate and targeted risk management measures'. It names no technical control, so every check in this set is a proxy for a documented measure. Container hardening is more directly an Article 15(5) cybersecurity measure, and a liveness probe is more directly an Article 15(4) resilience measure.",
+      "controls": [
+        {
+          "id": "art9-1-non-root",
+          "name": "AI containers run as non-root",
+          "description": "High-risk AI systems must not run with root privileges",
+          "checks": [
+            {
+              "id": "container-run-as-non-root",
+              "name": "Container runs as non-root",
+              "description": "No container may run as UID 0. An explicit runAsNonRoot: false or runAsUser: 0 is fatal at pod level and at container level; otherwise a container without its own runAsNonRoot inherits the pod value. Pod Security Admission restricted rejects a pod that sets runAsNonRoot: false at pod level even where every container overrides it to true, so a pass here means the pod is admissible, not merely that it would run non-root.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && !(has(object.spec.securityContext) && has(object.spec.securityContext.runAsUser) && object.spec.securityContext.runAsUser == 0) && !(has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == false) && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, ((has(c.securityContext) && has(c.securityContext.runAsNonRoot)) ? c.securityContext.runAsNonRoot == true : (has(object.spec.securityContext) && has(object.spec.securityContext.runAsNonRoot) && object.spec.securityContext.runAsNonRoot == true)) && !(has(c.securityContext) && has(c.securityContext.runAsUser) && c.securityContext.runAsUser == 0) && !(has(c.securityContext) && has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot == false))",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "art9-2-no-privilege-escalation",
+          "name": "No privilege escalation",
+          "description": "AI containers must not allow privilege escalation",
+          "checks": [
+            {
+              "id": "no-privilege-escalation",
+              "name": "Privilege escalation disabled",
+              "description": "Every container, init container and ephemeral container must set allowPrivilegeEscalation: false. Windows pods are exempt, as they are under Pod Security Admission: the field is a Linux-only field and a Windows pod cannot set it, so demanding it would make a conformant Windows workload impossible to satisfy.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && ((has(object.spec.os) && has(object.spec.os.name) && object.spec.os.name == 'windows') || (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false))",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 30000,
+                "max": 120000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "art9-3-no-privileged",
+          "name": "No privileged containers",
+          "description": "AI containers must not run in privileged mode",
+          "checks": [
+            {
+              "id": "no-privileged-mode",
+              "name": "Privileged mode disabled",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, !(has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true))",
+              "riskTriple": {
+                "min": 8000,
+                "mode": 40000,
+                "max": 150000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "art9-4-read-only-rootfs",
+          "name": "Read-only root filesystem",
+          "description": "Containers must use read-only root filesystem to limit attack surface",
+          "checks": [
+            {
+              "id": "read-only-rootfs",
+              "name": "Read-only root filesystem",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true)",
+              "riskTriple": {
+                "min": 3000,
+                "mode": 15000,
+                "max": 70000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "art9-5-drop-capabilities",
+          "name": "Drop all capabilities",
+          "description": "Containers must drop all Linux capabilities",
+          "checks": [
+            {
+              "id": "drop-all-capabilities",
+              "name": "All capabilities dropped",
+              "description": "Every container, init container and ephemeral container must drop ALL capabilities AND add back nothing outside NET_BIND_SERVICE. Pod Security Admission restricted is a conjunction over both halves; checking only the drop half reports a container that drops ALL and re-adds SYS_ADMIN (mount, ptrace, kernel-module loading) as compliant. Windows pods are exempt, as they are under PSA.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && ((has(object.spec.os) && has(object.spec.os.name) && object.spec.os.name == 'windows') || (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.securityContext) && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && c.securityContext.capabilities.drop.exists(d, d == 'ALL') && (!has(c.securityContext.capabilities.add) || c.securityContext.capabilities.add.all(a, a == 'NET_BIND_SERVICE'))))",
+              "riskTriple": {
+                "min": 4000,
+                "mode": 20000,
+                "max": 90000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "art9-6-liveness-probe",
+          "name": "Liveness probe configured",
+          "description": "AI workloads must have liveness probes for fault detection",
+          "checks": [
+            {
+              "id": "liveness-probe-present",
+              "name": "Liveness probe defined",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && object.spec.containers.all(c, has(c.livenessProbe))",
+              "riskTriple": {
+                "min": 1000,
+                "mode": 8000,
+                "max": 35000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "art10-data-governance",
+      "name": "Art. 10 — Data and Data Governance",
+      "description": "Article 10 governs the quality and governance of TRAINING, VALIDATION and TESTING data sets (10(2)(a)-(h)). It does not regulate runtime handling or retention of operational data. `data-classification-label` is a weak proxy for 10(2)(a)/(e). `pii-handling-annotation` is MIS-ATTRIBUTED: Article 10's only personal-data provision is 10(5), which permits processing special categories strictly for bias detection and correction; runtime PII handling is a GDPR obligation. `data-retention-annotation` is MIS-ATTRIBUTED: Article 10 imposes no retention period (10(5)(e) requires deletion of special-category bias data only); log retention of at least six months is Article 26(6) and QMS data retention is Article 17(1)(f).",
+      "controls": [
+        {
+          "id": "art10-1-data-classification",
+          "name": "Data classification label present",
+          "description": "Workloads handling training data must declare classification",
+          "checks": [
+            {
+              "id": "data-classification-label",
+              "name": "Data classification label exists",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.data_classification) && object.metadata.labels.data_classification != ''",
+              "riskTriple": {
+                "min": 3000,
+                "mode": 15000,
+                "max": 70000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "art10-2-pii-handling",
+          "name": "PII handling annotation",
+          "description": "Workloads must declare whether they process PII",
+          "checks": [
+            {
+              "id": "pii-handling-annotation",
+              "name": "PII handling declared",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/pii-handling' in object.metadata.annotations && object.metadata.annotations['osramp.io/pii-handling'] != ''",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "art10-3-data-retention",
+          "name": "Data retention annotation",
+          "description": "Workloads must declare data retention policy",
+          "checks": [
+            {
+              "id": "data-retention-annotation",
+              "name": "Data retention policy declared",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/data-retention' in object.metadata.annotations && object.metadata.annotations['osramp.io/data-retention'] != ''",
+              "riskTriple": {
+                "min": 2000,
+                "mode": 12000,
+                "max": 55000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "art14-human-oversight",
+      "name": "Art. 14 — Human Oversight",
+      "description": "Verified. Article 14(4)(d)-(e) requires that the oversight person be enabled to disregard, override or reverse the output and to interrupt the system, and 14(3)(b) allows measures the deployer implements. A declared oversight label, approval gate and override contact are declarations that such measures exist, not evidence of them.",
+      "controls": [
+        {
+          "id": "art14-1-hitl-label",
+          "name": "Human-in-the-loop label present",
+          "description": "AI workloads must declare their human oversight level",
+          "checks": [
+            {
+              "id": "hitl-label",
+              "name": "HITL oversight label exists",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.ai_human_oversight) && object.metadata.labels.ai_human_oversight != ''",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "art14-2-approval-gate",
+          "name": "Approval gate annotation",
+          "description": "High-risk AI decisions must have an approval gate configured",
+          "checks": [
+            {
+              "id": "approval-gate-annotation",
+              "name": "Approval gate annotation present",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/approval-gate' in object.metadata.annotations && object.metadata.annotations['osramp.io/approval-gate'] != ''",
+              "riskTriple": {
+                "min": 8000,
+                "mode": 35000,
+                "max": 140000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "art14-3-override-contact",
+          "name": "Human override contact",
+          "description": "Workloads must declare a human override contact",
+          "checks": [
+            {
+              "id": "override-contact-annotation",
+              "name": "Override contact declared",
+              "celExpression": "has(object.metadata) && has(object.metadata.annotations) && 'osramp.io/override-contact' in object.metadata.annotations && object.metadata.annotations['osramp.io/override-contact'] != ''",
+              "riskTriple": {
+                "min": 3000,
+                "mode": 15000,
+                "max": 60000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "art15-accuracy-robustness",
+      "name": "Art. 15(4) — Robustness and Resilience",
+      "description": "Verified against Article 15(4): resilience 'regarding errors, faults or inconsistencies', achievable 'through technical redundancy solutions, which may include backup or fail-safe plans'. Resource bounds, probes and a replica floor are redundancy and fail-safe measures. Note that CYBERSECURITY is Article 15(5), not 15(4); no check in this set evidences 15(5).",
+      "controls": [
+        {
+          "id": "art15-1-resource-limits",
+          "name": "Resource limits defined",
+          "description": "AI workloads must have resource limits to prevent resource exhaustion",
+          "checks": [
+            {
+              "id": "resource-limits-set",
+              "name": "CPU and memory limits defined",
+              "description": "Every container and init container must bound both cpu and memory in resources.limits. Ephemeral containers are excluded: the Kubernetes EphemeralContainer schema forbids resources on them.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.resources) && has(c.resources.limits) && 'cpu' in c.resources.limits && 'memory' in c.resources.limits)",
+              "riskTriple": {
+                "min": 3000,
+                "mode": 15000,
+                "max": 60000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "art15-2-resource-requests",
+          "name": "Resource requests defined",
+          "description": "AI workloads must declare resource requests for scheduling",
+          "checks": [
+            {
+              "id": "resource-requests-set",
+              "name": "CPU and memory requests defined",
+              "description": "Every container and init container must bound both cpu and memory in resources.requests. Ephemeral containers are excluded: the Kubernetes EphemeralContainer schema forbids resources on them.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])).all(c, has(c.resources) && has(c.resources.requests) && 'cpu' in c.resources.requests && 'memory' in c.resources.requests)",
+              "riskTriple": {
+                "min": 2000,
+                "mode": 10000,
+                "max": 40000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "art15-3-readiness-probe",
+          "name": "Readiness probe configured",
+          "description": "AI workloads must have readiness probes for availability",
+          "checks": [
+            {
+              "id": "readiness-probe-present",
+              "name": "Readiness probe defined",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && object.spec.containers.all(c, has(c.readinessProbe))",
+              "riskTriple": {
+                "min": 2000,
+                "mode": 10000,
+                "max": 45000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "art15-4-replica-count",
+          "name": "Minimum replica count",
+          "description": "High-risk AI workloads should have multiple replicas",
+          "checks": [
+            {
+              "id": "min-replicas",
+              "name": "At least 2 replicas specified",
+              "description": "Placeholder: replica count is a controller-level fact (Deployment/StatefulSet spec.replicas). The engine evaluates a pod spec, which never carries replicas, so this control is not evaluable here. Pod fixtures that set spec.replicas made it a fake green.",
+              "celExpression": "false",
+              "status": "placeholder",
+              "riskTriple": {
+                "min": 3000,
+                "mode": 12000,
+                "max": 50000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "art17-quality-mgmt",
+      "name": "Art. 17(1) — Quality Management System",
+      "description": "Article 17(1) requires a documented quality management system; 17(1)(a) covers 'procedures for the management of modifications' and 17(1)(e) 'technical specifications ... to be applied'. Digest pinning, a trusted-registry allow-list and a policy-version label are proxies for those procedures: a pod spec cannot evidence that a QMS exists. Supply-chain integrity is also engaged by Article 15(5), which names 'pre-trained components used in training (model poisoning)'.",
+      "controls": [
+        {
+          "id": "art17-1-image-digest",
+          "name": "Image pinned by digest",
+          "description": "Container images must use digest references for reproducibility",
+          "checks": [
+            {
+              "id": "image-digest-required",
+              "name": "Image uses sha256 digest",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.image) && c.image.matches('@sha256:[a-f0-9]{64}$'))",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 20000,
+                "max": 80000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "art17-2-trusted-registry",
+          "name": "Trusted registry enforcement",
+          "description": "Images must originate from approved registries",
+          "checks": [
+            {
+              "id": "trusted-registry",
+              "name": "Image from trusted registry",
+              "description": "Every container, init container and ephemeral container image comes from a trusted organisation prefix (listed in AGENT-CONTEXT.md); a whole public registry is never trusted.",
+              "celExpression": "has(object.spec) && has(object.spec.containers) && size(object.spec.containers) > 0 && (object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : []) + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])).all(c, has(c.image) && (c.image.startsWith('zot.local/') || c.image.startsWith('registry.internal/') || c.image.startsWith('ghcr.io/controlplaneio/') || c.image.startsWith('ghcr.io/controlplaneio-in-toto/') || c.image.startsWith('ghcr.io/controlplaneio-fluxcd/') || c.image.startsWith('gcr.io/distroless/')))",
+              "riskTriple": {
+                "min": 5000,
+                "mode": 25000,
+                "max": 100000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "art17-3-version-label",
+          "name": "Policy version label",
+          "description": "Workloads must declare the policy version they comply with",
+          "checks": [
+            {
+              "id": "policy-version-label",
+              "name": "Policy version label present",
+              "celExpression": "has(object.metadata) && has(object.metadata.labels) && has(object.metadata.labels.policy_version) && object.metadata.labels.policy_version != ''",
+              "riskTriple": {
+                "min": 1000,
+                "mode": 5000,
+                "max": 25000
+              },
+              "freqTriple": {
+                "min": 0,
+                "mode": 0,
+                "max": 0
+              },
+              "policyVersions": [
+                "v2.0.0"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

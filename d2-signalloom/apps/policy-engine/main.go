@@ -357,7 +357,16 @@ func main() {
 			slog.Info("compliance scanner enabled", "policyRoot", policyRoot)
 		}
 	} else {
-		slog.Warn("compliance scanner disabled: policy/ directory not found (set POLICY_ROOT)")
+		slog.Warn("compliance scanner running in embedded fallback mode: policy/ directory not found (set POLICY_ROOT)")
+	}
+
+	// Always load embedded frameworks if policy store has 0 bundles (e.g. running in distroless container without POLICY_ROOT)
+	if len(store.ListPolicies("")) == 0 {
+		if err := store.LoadBuiltinFrameworks(); err != nil {
+			slog.Warn("loading embedded frameworks into policy store", "error", err)
+		} else {
+			slog.Info("loaded embedded frameworks into policy store", "count", len(store.ListPolicies("")))
+		}
 	}
 
 	srv := &http.Server{

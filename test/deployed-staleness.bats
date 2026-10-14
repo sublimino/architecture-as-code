@@ -261,6 +261,26 @@ setup() {
 	[[ "$output" != *"every checked workload is running the current working tree"* ]]
 }
 
+@test "a workload list that FAILS part-way is CANNOT VERIFY, not a check of the part it printed" {
+	# The case the empty-list guard cannot see: the lister prints one name and
+	# then fails. Through `mapfile < <(…)` that status was discarded and the one
+	# name was checked as if it were the whole estate.
+	local shadow="$BATS_TEST_TMPDIR/shadow-partial"
+	mkdir -p "$shadow/lib"
+	ln -s "$script" "$shadow/check-deployed-staleness.sh"
+	cat >"$shadow/lib/source-id.sh" <<-'STUB'
+		source_id_workloads() { printf 'dashboard-signalloom\n'; return 1; }
+	STUB
+
+	run "$shadow/check-deployed-staleness.sh"
+	[ "$status" -eq 2 ]
+	[[ "$output" == *"workload list could not be read"* ]]
+	[[ "$output" == *"NOT a pass"* ]]
+	# refused before the cluster preflight, so it never got as far as kubectl
+	[[ "$output" != *"no reachable cluster"* ]]
+	[[ "$output" != *"is not on PATH"* ]]
+}
+
 @test "the empty-list refusal is reached before the cluster preflight" {
 	# Ordering matters, and it is the opposite of the --list case above. --list
 	# answers a question about the REPO and must work with no cluster; this one

@@ -514,7 +514,18 @@ main() {
 
 	local requested=("$@")
 	if [ "${#requested[@]}" -eq 0 ]; then
-		mapfile -t requested < <(source_id_workloads)
+		# Captured, not `mapfile < <(source_id_workloads)`: process substitution
+		# discards the command's status, so a list that failed half-way through
+		# would be checked as if it were complete. A failure is a refusal here,
+		# before the cluster preflight, and an empty list falls to the guard below.
+		local listing
+		if ! listing="$(source_id_workloads)"; then
+			printf '\n'
+			unk "CANNOT VERIFY: the workload list could not be read (source_id_workloads failed)."
+			printf '           No claim is being made about the deployed workloads. This is NOT a pass.\n\n' >&2
+			exit 2
+		fi
+		[ -z "$listing" ] || mapfile -t requested <<<"$listing"
 	elif [ "${requested[0]}" = "--discover-flux" ] || [ "${requested[0]}" = "--flux" ]; then
 		load_flux_workloads
 		requested=()

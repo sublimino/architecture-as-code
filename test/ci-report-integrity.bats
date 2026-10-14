@@ -167,3 +167,39 @@ converter_mapped_files() {
         false
     fi
 }
+
+# Lists the suites of every `${BATS_BIN} ...` invocation in the pipeline, one
+# "<invocation-start-line> <suite>" per line. An invocation runs from the line
+# naming BATS_BIN to the first line that does not end in a backslash.
+pipeline_bats_invocation_suites() {
+    awk '
+        /\$\{BATS_BIN\}/ { inv = NR; on = 1 }
+        on {
+            line = $0
+            while (match(line, /[A-Za-z0-9_.\/-]+\.bats/)) {
+                print inv, substr(line, RSTART, RLENGTH)
+                line = substr(line, RSTART + RLENGTH)
+            }
+            if ($0 !~ /\\[[:space:]]*$/) on = 0
+        }
+    ' "$pipeline"
+}
+
+@test "no pipeline bats invocation lists the same suite twice" {
+    # bats-core 1.13 mishandles a file named twice in one invocation: the run
+    # tmpdir loses the preprocessed sources of the files after it, so each of
+    # them fails setup_file with "<n>-<name>.bats.src: No such file or
+    # directory". Stage 1g carried two duplicates and lost 89 tests that way,
+    # every one reported as a setup_file failure rather than as a list defect.
+    local listing dups
+    listing="$(pipeline_bats_invocation_suites)"
+    # The parser must have walked the stage 1g list, or this test proves nothing.
+    [ "$(grep -c ' test/wait-job\.bats$' <<<"$listing")" -ge 1 ]
+    [ "$(wc -l <<<"$listing")" -gt 100 ]
+    dups="$(sort <<<"$listing" | uniq -d)"
+    if [ -n "$dups" ]; then
+        echo "Suite listed more than once in one bats invocation (start line, suite):"
+        echo "$dups"
+        false
+    fi
+}

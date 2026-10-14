@@ -39,9 +39,10 @@ collector is a roadmap item: no Azure collector exists in code yet, and the
 cloud diagrams are design records, so that is consistent. Do not claim it
 runs today.
 
-The core platform stays on every diagram. That is Envoy Gateway, the Signal
-Loom API (`fe-signalloom`), the dashboard, fleet-manager and policy-engine.
-It also includes signal-ingest with FrostDB, Flux, and the Zot registry.
+The core platform stays on every diagram. That is Envoy Gateway with cert-manager
+TLS, the Signal Loom API (`fe-signalloom` / `api-signalloom`), the dashboard,
+fleet-manager, and policy-engine. It also includes signal-ingest with FrostDB,
+PostgreSQL for audit events and state, Flux, and the Zot registry.
 
 ## Leave these out
 

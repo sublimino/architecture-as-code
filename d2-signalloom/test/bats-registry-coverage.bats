@@ -646,7 +646,7 @@ $(sed 's/#.*//' "$runner")"
 	#                               gate, not inside a pipeline that already runs
 	#                               those same suites and times out at 900s per
 	#                               stage. Its value is the FLOOR assertion, not
-	#   docs-lint.bats, docs-index-sync.bats, docs-rewrite-guard.bats - documentation lint suites owned by `make docs-lint-test`.
+	#   docs-lint.bats, docs-index-sync.bats, docs-rewrite-guard.bats, dev-docs-sovereign.bats - documentation lint suites owned by `make docs-lint-test`.
 	#   dashboard-route-collisions.bats - offline route collision lint suite.
 	#   sentinel-ebpf-live.bats   - live adversarial eBPF warden verification suite;
 	#                               needs local kind-osramp and live flag.
@@ -703,6 +703,7 @@ sentinel-ebpf-live.bats
 docs-index-sync.bats
 docs-lint.bats
 docs-rewrite-guard.bats
+dev-docs-sovereign.bats
 afm-importer-key.bats
 afm-importer-key-stdin.bats
 afm-import-gateway-manifests.bats

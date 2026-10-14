@@ -1122,8 +1122,8 @@ docs-dev-render-check: ## Build both portals and check engineering pages and arc
 test-alignment: ## Check that what the docs CLAIM about the tests is true: Go test names, bats and spec files, make targets, walkthrough shell commands and flags, and the walkthrough-to-spec map. No cluster.
 	./scripts/docs-tests-alignment.sh
 
-docs-lint-test: ## Run the BATS suites for docs-lint, the index sync, the rewrite guard, and the docs-to-tests alignment gate. No cluster.
-	bats test/docs-lint.bats test/docs-index-sync.bats test/docs-rewrite-guard.bats test/docs-tests-alignment.bats
+docs-lint-test: ## Run the BATS suites for docs-lint, the index sync, the rewrite guard, the docs-to-tests alignment gate, and dev-docs sovereign. No cluster.
+	bats test/docs-lint.bats test/docs-index-sync.bats test/docs-rewrite-guard.bats test/docs-tests-alignment.bats test/dev-docs-sovereign.bats
 	$(MAKE) docs-dev-test
 
 docs-rewrite-guard: ## Check that a doc rewrite kept every fact-bearing token: make docs-rewrite-guard FILES='a.md b.md'. No cluster.

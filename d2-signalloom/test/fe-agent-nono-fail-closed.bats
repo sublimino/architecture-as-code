@@ -81,11 +81,23 @@ teardown() {
   # The script file lives in the repo, outside the /tmp allow-list. Reading it
   # with no sandbox succeeds; reading the identical path under nono is a kernel
   # EACCES — a matched pair that attributes the deny to Landlock, not DAC.
-  run cat "$SCRIPT"
+  local probe_file="$SCRIPT"
+  if [[ "$probe_file" == /tmp/* ]]; then
+    local common_git
+    common_git="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+    if [ -n "$common_git" ] && [[ "$common_git" != /tmp/* ]]; then
+      local parent_repo
+      parent_repo="$(cd "$common_git/.." && pwd)"
+      if [ -f "${parent_repo}/d2-signalloom/apps/fe-signalloom-agents/probe-nono-capability.sh" ]; then
+        probe_file="${parent_repo}/d2-signalloom/apps/fe-signalloom-agents/probe-nono-capability.sh"
+      fi
+    fi
+  fi
+  run cat "$probe_file"
   [ "$status" -eq 0 ]
   [[ "$output" == *"probe-nono-capability"* || -n "$output" ]]
 
-  run bash -c "cd /tmp && XDG_STATE_HOME='$STATE_DIR' NONO_ALLOW_PATHS=/tmp bash '$SCRIPT' -- cat '$SCRIPT'"
+  run bash -c "cd /tmp && XDG_STATE_HOME='$STATE_DIR' NONO_ALLOW_PATHS=/tmp bash '$SCRIPT' -- cat '$probe_file'"
   [ "$status" -ne 0 ]
   [[ "$output" == *"Permission denied"* || "$output" == *"permission denied"* ]]
   [[ "$output" != *"No such file"* ]]

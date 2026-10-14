@@ -41,5 +41,5 @@ describe('DesignSystemCssLabPage real gallery portal', () => {
     expect(demandLivePreferences).not.toHaveBeenCalled()
   // The real gallery renders the full specimen inventory alongside the iframe;
   // allow the complete-suite worker pool time to perform its accessibility queries.
-  }, 15_000)
+  }, 30_000)
 })

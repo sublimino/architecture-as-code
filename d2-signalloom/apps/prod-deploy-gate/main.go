@@ -1,7 +1,7 @@
 // prod-deploy-gate: HITL policy enforcement boundary.
 //
 // Intercepts deployment commands, generates cryptographic 30m approval tokens,
-// dispatches interactive approval cards to Slack/Zulip, and resumes execution
+// dispatches interactive approval cards to a configured webhook, and resumes execution
 // only upon valid HMAC signature.
 //
 // Endpoints:

@@ -168,16 +168,22 @@ fetch_topology() {
   }
 }
 
-@test "FLEET-LIVE aggregateRisk carries the numeric RiskSummary fields" {
+@test "FLEET-LIVE aggregateRisk carries valid RiskSummary fields (pricing status or numbers)" {
   run fetch_topology
   [ "$status" -eq 0 ]
 
-  # The Fleet page formats these as currency. A string here renders as NaN
-  # rather than failing, so the type is part of the contract, not just the key.
+  # RiskSummary in fleetApi.ts: either priced numbers (ale/var95) or a refusal pricing status
+  # (AUTHORED_NOT_COMPUTED, as mandated by the FAIR honesty audit).
   run jq -e '
-    (.aggregateRisk.ale | type) == "number"
-    and (.aggregateRisk.var95 | type) == "number"
-    and ([.aggregateRisk.trend] | inside(["up","down","stable"]))
+    (
+      (.aggregateRisk.pricing != null)
+      and (.aggregateRisk.pricing.status | type == "string")
+      and (.aggregateRisk.pricing.available | type == "boolean")
+    ) or (
+      (.aggregateRisk.ale | type) == "number"
+      and (.aggregateRisk.var95 | type) == "number"
+      and ([.aggregateRisk.trend] | inside(["up","down","stable"]))
+    )
   ' "$BATS_TEST_TMPDIR/body"
   [ "$status" -eq 0 ] || {
     printf 'aggregateRisk does not match RiskSummary in fleetApi.ts.\n' >&2

@@ -3,7 +3,7 @@
 # Every openbao-agent in the estate authenticates from a JWT-SVID FILE that a
 # helper in its own pod writes, never from the SPIRE socket.
 #
-# Live, 2026-10-03: every agent-swarm openbao-agent sidecar (zulip-chat-agent,
+# Live, 2026-10-03: every agent-swarm openbao-agent sidecar (triage-ci-worker,
 # swarm-governor, prod-deploy-gate, cpai-engineer, triage-ci-worker,
 # prompt-commit-summarizer) had its jwt method's `path` on
 # /run/spire/sockets/agent.sock. The jwt method reads a file holding a JWT, so

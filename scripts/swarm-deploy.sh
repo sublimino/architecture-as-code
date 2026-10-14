@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/swarm-deploy.sh — Deploy, remove, and inspect the 10-agent Signal
+# scripts/swarm-deploy.sh — Deploy, remove, and inspect the Signal
 # Loom swarm via Flux ResourceSet reconciliation.
 #
 # Usage:
@@ -16,11 +16,10 @@ NAMESPACE="fe-signalloom-agents"
 RESOURCESET_NAME="agent-swarm"
 RESOURCESET_NS="flux-system"
 
-# All 11 agent Kustomization names (as declared in the ResourceSet).
+# All 10 agent Kustomization names (as declared in the ResourceSet).
 AGENTS=(
   agent-prompt-commit-summarizer
   agent-triage-ci-worker
-  agent-zulip-chat-agent
   agent-cpai-engineer
   agent-hosted-daytona-coder
   agent-swarm-governor

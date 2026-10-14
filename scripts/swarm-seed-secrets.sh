@@ -78,10 +78,6 @@ main() {
   seed_secret "triage-ci-worker" "github/token" \
     "ghp_demo000000000000000000000000000000000"
 
-  # zulip-chat-agent — Zulip API key
-  seed_secret "zulip-chat-agent" "zulip/api-key" \
-    "demo-zulip-api-key-not-real-000000000000"
-
   # cpai-engineer — Anthropic API key
   seed_secret "cpai-engineer" "anthropic/api-key" \
     "sk-ant-demo-000000000000000000000000000000"

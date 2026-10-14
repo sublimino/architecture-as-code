@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# swarm-fleet-demo.sh — Deploy and verify the 10-agent demo fleet
+# swarm-fleet-demo.sh — Deploy and verify the demo agent fleet
 #
 # Usage:
 #   scripts/swarm-fleet-demo.sh deploy    # Deploy all agents
@@ -16,7 +16,6 @@
 # The fleet exercises every workload archetype:
 #   Tier 1: prompt-commit-summarizer (stateless prompt function)
 #   Tier 2: triage-ci-worker (deterministic structured worker)
-#   Tier 3: zulip-chat-agent (interactive ChatOps)
 #   Tier 4A: cpai-engineer (in-cluster sandboxed coding)
 #   Tier 4B: hosted-daytona-coder (hosted remote coding)
 #   Tier 5: swarm-governor (A2A dispatcher)
@@ -74,12 +73,11 @@ deploy_infra() {
 }
 
 deploy_fleet() {
-  log "Deploying 10-agent demo fleet..."
+  log "Deploying demo agent fleet..."
 
   local agents=(
     prompt-commit-summarizer
     triage-ci-worker
-    zulip-chat-agent
     cpai-engineer
     hosted-daytona-coder
     swarm-governor
@@ -140,15 +138,6 @@ verify_triage_worker() {
     pass "triage-ci-worker exists"
   else
     warn "triage-ci-worker not deployed — skipping"
-  fi
-}
-
-verify_chatops() {
-  log "Gate 3: ChatOps Ingress (zulip-chat-agent)..."
-  if kubectl get deployment zulip-chat-agent -n "$NAMESPACE" >/dev/null 2>&1; then
-    pass "zulip-chat-agent deployment exists"
-  else
-    warn "zulip-chat-agent not deployed — skipping"
   fi
 }
 
@@ -297,7 +286,6 @@ run_verification() {
   echo ""
   verify_prompt_summarizer
   verify_triage_worker
-  verify_chatops
   verify_cpai
   verify_daytona
   verify_governor

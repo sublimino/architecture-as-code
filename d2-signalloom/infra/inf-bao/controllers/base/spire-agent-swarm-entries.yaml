@@ -69,7 +69,6 @@ data:
     AGENTS=(
       prompt-commit-summarizer
       triage-ci-worker
-      zulip-chat-agent
       cpai-engineer
       hosted-daytona-coder
       swarm-governor

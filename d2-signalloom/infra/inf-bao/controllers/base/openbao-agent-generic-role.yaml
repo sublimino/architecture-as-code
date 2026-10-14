@@ -35,7 +35,7 @@ data:
     # SVID resolves to that entity and the policy keys on the entity name.
     # Keep in step with the sidecar ConfigMaps' secret paths
     # (d2-signalloom/test/openbao-agent-secret-authz.bats checks both).
-    AGENT_ENTITIES="prompt-commit-summarizer triage-ci-worker zulip-chat-agent cpai-engineer prod-deploy-gate swarm-governor"
+    AGENT_ENTITIES="prompt-commit-summarizer triage-ci-worker cpai-engineer prod-deploy-gate swarm-governor"
     SPIFFE_PREFIX="spiffe://signalloom.demo/ns/fe-signalloom-agents/sa"
 
     # Aliases name an auth mount by its ACCESSOR (auth_jwt_<hex>, minted when

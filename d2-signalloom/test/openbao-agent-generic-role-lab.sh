@@ -72,8 +72,8 @@ readable() { # token kv-v2-api-path
 }
 unreadable() { ! readable "$@"; }
 
-for sa in zulip-chat-agent swarm-governor rogue-sa; do mkjwt "$PREFIX/$sa" openbao-supercredential "$L/jwt-$sa"; done
-mkjwt "$PREFIX/zulip-chat-agent" fleet-manager "$L/jwt-wrong-aud"
+for sa in triage-ci-worker swarm-governor rogue-sa; do mkjwt "$PREFIX/$sa" openbao-supercredential "$L/jwt-$sa"; done
+mkjwt "$PREFIX/triage-ci-worker" fleet-manager "$L/jwt-wrong-aud"
 
 # A login BEFORE the role Job's entities exist auto-creates an unnamed entity
 # for that SVID; the Job must fold it into the named one. (The role must
@@ -92,7 +92,7 @@ for run in 1 2; do
   rc=$?
   expect "role script run $run exits 0" test "$rc" -eq 0
 done
-expect "role script names all six entities" test "$(rg -c -e '^entity ' "$L/role-2.log" || echo 0)" -eq 6
+expect "role script names all five entities" test "$(rg -c -e '^entity ' "$L/role-2.log" || echo 0)" -eq 5
 
 echo "--- seeder"
 mkdir -p "$L/bin"
@@ -104,33 +104,33 @@ chmod +x "$L/bin/bao"
 PATH="$L/bin:$PATH" bash "$REPO/scripts/swarm-seed-secrets.sh" >"$L/seed.log" 2>&1
 expect "seeder writes every secret (no '✗')" test "$(rg -c -e '✗' "$L/seed.log" || echo 0)" -eq 0
 expect "secrets are keyed by service account, no spiffe: segment" \
-  test "$(bao kv list -format=json secret/agents 2>/dev/null | tr -d ' \n')" = '["cpai-engineer/","prod-deploy-gate/","prompt-commit-summarizer/","swarm-governor/","triage-ci-worker/","zulip-chat-agent/"]'
+  test "$(bao kv list -format=json secret/agents 2>/dev/null | tr -d ' \n')" = '["cpai-engineer/","prod-deploy-gate/","prompt-commit-summarizer/","swarm-governor/","triage-ci-worker/"]'
 
 echo "--- authn and authz"
-zt="$(login "$L/jwt-zulip-chat-agent")"
-expect "zulip-chat-agent SVID logs in" test -n "$zt"
+zt="$(login "$L/jwt-triage-ci-worker")"
+expect "triage-ci-worker SVID logs in" test -n "$zt"
 expect "wrong-audience SVID is refused" test -z "$(login "$L/jwt-wrong-aud")"
-expect "zulip-chat-agent reads its own secret" readable "$zt" secret/data/agents/zulip-chat-agent/zulip/api-key
-expect "zulip-chat-agent cannot read swarm-governor's" unreadable "$zt" secret/data/agents/swarm-governor/anthropic/api-key
+expect "triage-ci-worker reads its own secret" readable "$zt" secret/data/agents/triage-ci-worker/github/token
+expect "triage-ci-worker cannot read swarm-governor's" unreadable "$zt" secret/data/agents/swarm-governor/anthropic/api-key
 gt="$(login "$L/jwt-swarm-governor")"
 expect "swarm-governor (logged in before the Job ran) reads its own after the merge" readable "$gt" secret/data/agents/swarm-governor/anthropic/api-key
 rt="$(login "$L/jwt-rogue-sa")"
 expect "an unregistered SA in the namespace logs in (the glob admits it)" test -n "$rt"
-for p in zulip-chat-agent/zulip/api-key swarm-governor/anthropic/api-key; do
+for p in triage-ci-worker/github/token swarm-governor/anthropic/api-key; do
   expect "...but reads nothing: $p" unreadable "$rt" "secret/data/agents/$p"
 done
 
-echo "--- bao agent ($AGENT_IMG) with the repo's zulip-chat-agent agent.hcl"
+echo "--- bao agent ($AGENT_IMG) with the repo's triage-ci-worker agent.hcl"
 mkdir -p "$L/secrets" "$L/home" && chmod 777 "$L/secrets" "$L/home"
-yq 'select(.metadata.name == "zulip-chat-agent-openbao-config") | .data["agent.hcl"]' "$SIDECAR_YAML" \
+yq 'select(.metadata.name == "triage-ci-worker-openbao-config") | .data["agent.hcl"]' "$SIDECAR_YAML" \
   | sed -e "s#http://openbao.inf-bao.svc.cluster.local:8200#http://127.0.0.1:8200#" \
-        -e "s#/var/run/secrets/spiffe/jwt#$L/jwt-zulip-chat-agent#" \
+        -e "s#/var/run/secrets/spiffe/jwt#$L/jwt-triage-ci-worker#" \
         -e "s#/home/openbao/.bao-token#$L/home/.bao-token#" -e "s#/vault/secrets/#$L/secrets/#" >"$L/agent.hcl"
 "${D[@]}" run -d --name "${NAME}-agent" --network "container:${NAME}" --user "$(id -u):$(id -g)" \
-  -e HOME=/tmp -e SPIFFE_ID="$PREFIX/zulip-chat-agent" -v "$L:$L" --entrypoint bao "$AGENT_IMG" \
+  -e HOME=/tmp -e SPIFFE_ID="$PREFIX/triage-ci-worker" -v "$L:$L" --entrypoint bao "$AGENT_IMG" \
   agent -config="$L/agent.hcl" >/dev/null
 for _ in $(seq 1 150); do
-  [ -s "$L/secrets/ZULIP_API_KEY" ] && break
+  [ -s "$L/secrets/GITHUB_TOKEN" ] && break
   [ "$("${D[@]}" inspect -f '{{.State.Running}}' "${NAME}-agent" 2>/dev/null)" = true ] || break
   sleep 0.2
 done
@@ -139,11 +139,11 @@ sleep 1
 expect "agent still running" test "$("${D[@]}" inspect -f '{{.State.Running}}' "${NAME}-agent")" = true
 expect "agent logged 'authentication successful'" rg -q -e 'authentication successful' "$L/agent.log"
 expect "agent logged no template error" bash -c '! rg -q -e "template server error|runtime error" "$1"' _ "$L/agent.log"
-expect "/vault/secrets/ZULIP_API_KEY rendered the seeded value" \
-  test "$(cat "$L/secrets/ZULIP_API_KEY" 2>/dev/null | tr -d '\n')" = "demo-zulip-api-key-not-real-000000000000"
-expect "JWT file still present after the agent read it (remove_jwt_after_reading=false)" test -s "$L/jwt-zulip-chat-agent"
+expect "/vault/secrets/GITHUB_TOKEN rendered the seeded value" \
+  test "$(cat "$L/secrets/GITHUB_TOKEN" 2>/dev/null | tr -d '\n')" = "ghp_demo000000000000000000000000000000000"
+expect "JWT file still present after the agent read it (remove_jwt_after_reading=false)" test -s "$L/jwt-triage-ci-worker"
 expect "agent log carries no JWT and no token" \
-  bash -c '! rg -q -F -e "$(cut -d. -f2 "$1")" -e "$(cat "$2" 2>/dev/null || echo NO-SINK)" "$3"' _ "$L/jwt-zulip-chat-agent" "$L/home/.bao-token" "$L/agent.log"
+  bash -c '! rg -q -F -e "$(cut -d. -f2 "$1")" -e "$(cat "$2" 2>/dev/null || echo NO-SINK)" "$3"' _ "$L/jwt-triage-ci-worker" "$L/home/.bao-token" "$L/agent.log"
 
 echo
 [ "$fails" -eq 0 ] && echo "LAB PASS" || echo "LAB FAIL: $fails"

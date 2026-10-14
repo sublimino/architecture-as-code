@@ -43,7 +43,7 @@ openbao_containers() {
   all="$(openbao_containers)"
   # The eight known `bao agent` sidecars at least: agent-cardvault,
   # cpai-engineer, prod-deploy-gate, prompt-commit-summarizer,
-  # swarm-governor, triage-ci-worker, zulip-chat-agent, fleet-manager.
+  # swarm-governor, triage-ci-worker, cpai-engineer, fleet-manager.
   [ "$(jq -s '[.[] | select((.command + .args) | index("agent"))] | length' <<<"$all")" -ge 8 ] \
     || { echo "too few bao agent sidecars found:"; echo "$all"; return 1; }
   # Any own command bypasses the entrypoint (the inf-bao bootstrap Jobs run a

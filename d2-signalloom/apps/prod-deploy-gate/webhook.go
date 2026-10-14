@@ -1,6 +1,6 @@
 // prod-deploy-gate: approval card dispatch to webhook URL.
 //
-// Sends a structured approval request card to Slack/Zulip via webhook.
+// Sends a structured approval request card to a configured webhook.
 // The card contains the request details, an approve URL, and a reject URL.
 package main
 
@@ -72,4 +72,3 @@ func SendApprovalCard(ctx context.Context, webhookURL string, card ApprovalCard)
 	slog.Info("approval card sent", "request_id", card.RequestID, "webhook", trimmed)
 	return nil
 }
-

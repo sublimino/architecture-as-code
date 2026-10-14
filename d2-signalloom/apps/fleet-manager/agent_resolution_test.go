@@ -113,7 +113,7 @@ func TestResolveAgentID_UnknownIsNotFoundWithTried(t *testing.T) {
 		objects []runtime.Object
 	}{
 		"no such pod":            {id: "agent-ghost-abc123-xyz45"},
-		"pod matches no DAG id":  {id: "zulip-chat-agent-97b66db85-8dvqk", objects: []runtime.Object{livePod("zulip-chat-agent-97b66db85-8dvqk", "")}},
+		"pod matches no DAG id":  {id: "orphan-agent-97b66db85-8dvqk", objects: []runtime.Object{livePod("orphan-agent-97b66db85-8dvqk", "")}},
 		"pod name too short (c)": {id: "agent-cardvault-x", objects: []runtime.Object{livePod("agent-cardvault-x", "")}},
 	}
 	for name, tc := range cases {

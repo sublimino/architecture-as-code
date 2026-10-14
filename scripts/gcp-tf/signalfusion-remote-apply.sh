@@ -42,7 +42,21 @@ fi
 # than assert it. The pod name changes on any restart.
 dex_before="$(kubectl -n "$NS_INFRA" get pods -l app.kubernetes.io/name=dex \
 	-o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)"
-echo "dex pods BEFORE: ${dex_before:-<none>}"
+if [ -d .git ]; then
+	git add -A
+	git -c user.name="Signal Loom demo" -c user.email="demo@signalloom.local" \
+		commit -q -m "targeted apply snapshot" --no-gpg-sign --allow-empty
+fi
+
+echo "--- signal-ingest image ---"
+export CLUSTER_NAME=osramp
+export GOPATH=/tmp/gopath
+export GOCACHE=/tmp/gocache
+export GOMODCACHE=/tmp/gomodcache
+export GONOSUMDB="*"
+export PATH=/usr/local/go/bin:$PATH
+make -C d2-signalloom signal-ingest-image-publish CLUSTER_NAME=osramp
+make -C d2-signalloom signal-ingest-image-pin
 
 echo "--- manifests -> OCI artifact ---"
 # Must go through the artifact. A bare kubectl apply of the deployment env and
@@ -68,8 +82,9 @@ for target in "${NS_INFRA}/infra-configs" "${NS_APPS}/apps"; do
 	flux reconcile kustomization "$name" -n "$ns" >/dev/null 2>&1 || true
 done
 
-echo "--- roll ONLY the two workloads ---"
-kubectl -n "$NS_APPS" rollout restart deploy/supercred-demo-runner deploy/dashboard-signalloom
+echo "--- roll workloads (signal-ingest, runner, dashboard) ---"
+kubectl -n "$NS_APPS" rollout restart deploy/signal-ingest deploy/supercred-demo-runner deploy/dashboard-signalloom
+kubectl -n "$NS_APPS" rollout status deploy/signal-ingest --timeout=180s
 kubectl -n "$NS_APPS" rollout status deploy/supercred-demo-runner --timeout=180s
 kubectl -n "$NS_APPS" rollout status deploy/dashboard-signalloom --timeout=180s
 

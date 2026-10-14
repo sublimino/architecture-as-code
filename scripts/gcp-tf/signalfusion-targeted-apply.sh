@@ -37,13 +37,28 @@ REMOTE_KEYS_DIR="${REMOTE_KEYS_DIR:-/opt/signalloom/keys}"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
+if [[ -f "${repo_root}/deploy/gcp/${VM}.handoff.json" ]]; then
+	HANDOFF="${repo_root}/deploy/gcp/${VM}.handoff.json"
+	PROJECT="$(jq -r '.project_id' "$HANDOFF")"
+	ZONE="$(jq -r '.zone' "$HANDOFF")"
+	SA="$(jq -r '.operator_sa' "$HANDOFF")"
+	VM="$(jq -r '.instance_name' "$HANDOFF")"
+fi
+
 # SSH_AUTH_SOCK must be empty: gcloud hands the agent's keys to ssh, the agent
 # refuses, and the failure surfaces as a provisioning timeout rather than an
 # auth error.
 ssh_vm() {
-	SSH_AUTH_SOCK= timeout "${SSH_TIMEOUT:-900}" gcloud compute ssh "$VM" \
+	systemd-run --user --wait --collect --pipe env SSH_AUTH_SOCK='' timeout "${SSH_TIMEOUT:-900}" gcloud compute ssh "$VM" \
 		--zone "$ZONE" --project "$PROJECT" --tunnel-through-iap \
-		--impersonate-service-account="$SA" --command "$1" 2>&1 | grep -v '^WARNING'
+		--impersonate-service-account="$SA" --command "$1" 2>&1 | grep -v -E '^(Running as unit:|Finished with result:|Main processes terminated with:|Service runtime:|CPU time consumed:|Memory peak:|WARNING: This command is using service account impersonation)' || true
+}
+
+scp_vm() {
+	local src="$1" dest="$2"
+	systemd-run --user --wait --collect --pipe env SSH_AUTH_SOCK='' \
+		gcloud compute scp --zone "$ZONE" --project "$PROJECT" --tunnel-through-iap \
+		--impersonate-service-account="$SA" "$src" "${VM}:${dest}" >/dev/null 2>&1
 }
 
 # Every file this fix touches that the VM's build reads. Listed rather than
@@ -53,27 +68,32 @@ FILES=(
 	"d2-signalloom/apps/supercred-demo-runner/Dockerfile"
 	"d2-signalloom/apps/supercred-demo-runner/base/deployment.yaml"
 	"d2-signalloom/apps/supercred-demo-runner/base/networkpolicy.yaml"
-	"d2-signalloom/apps/signal-ingest/base/networkpolicy.yaml"
+	"d2-signalloom/apps/signal-ingest"
+	"d2-signalloom/pkg/obscel"
 	"d2-signalloom/apps/dashboard-signalloom/nginx.conf"
 	"d2-signalloom/apps/dashboard-signalloom/src/api/signalFusionDemo.ts"
 	"d2-signalloom/apps/fe-signalloom/src/demo_runner.py"
 	"scripts/signalfusion-demo.sh"
+	"scripts/signal-ingest-image-tag.sh"
+	"scripts/lib/source-id.sh"
+	"scripts/kind-load-verified.sh"
+	"scripts/push-local-image.sh"
 	"scripts/gcp-tf/signalfusion-remote-apply.sh"
+	"d2-signalloom/Makefile"
 )
 
 sync_files() {
-	echo "==> syncing $(( ${#FILES[@]} )) files to ${VM}:${REMOTE_DIR}"
+	echo "==> syncing $(( ${#FILES[@]} )) targets to ${VM}:${REMOTE_DIR}"
 	local f
 	for f in "${FILES[@]}"; do
-		[ -f "$repo_root/$f" ] || { echo "MISSING LOCALLY: $f" >&2; exit 1; }
+		[ -e "$repo_root/$f" ] || { echo "MISSING LOCALLY: $f" >&2; exit 1; }
 	done
-	# One tar over stdin: no per-file ssh round trip, and --no-same-owner so the
-	# extracted files belong to the login user rather than root.
-	tar -C "$repo_root" -czf - "${FILES[@]}" \
-		| SSH_AUTH_SOCK= gcloud compute ssh "$VM" --zone "$ZONE" --project "$PROJECT" \
-			--tunnel-through-iap --impersonate-service-account="$SA" \
-			--command "sudo tar -C '$REMOTE_DIR' -xzf - --no-same-owner && sudo chmod 0755 '$REMOTE_DIR/scripts/signalfusion-demo.sh'" \
-		2>&1 | grep -v '^WARNING' || true
+	local tarball
+	tarball="$(mktemp "${TMPDIR:-/tmp}/sf-sync.XXXXXX.tar.gz")"
+	tar -C "$repo_root" -czf "$tarball" "${FILES[@]}"
+	scp_vm "$tarball" "/tmp/sf-sync.tar.gz"
+	rm -f "$tarball"
+	ssh_vm "sudo tar -C '$REMOTE_DIR' -xzf /tmp/sf-sync.tar.gz --no-same-owner && sudo rm -f /tmp/sf-sync.tar.gz && sudo chmod 0755 '$REMOTE_DIR/scripts/signalfusion-demo.sh' '$REMOTE_DIR/scripts/gcp-tf/signalfusion-remote-apply.sh'"
 	echo "==> synced"
 }
 

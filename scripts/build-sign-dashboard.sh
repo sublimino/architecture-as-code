@@ -224,6 +224,19 @@ docker tag "${LOCAL_REF}" "${IMAGE_REF}"
 echo "loading ${IMAGE_REF} into kind cluster ${CLUSTER_NAME}"
 kind load docker-image --name "${CLUSTER_NAME}" "${IMAGE_REF}"
 
+# Tag with immutable source fingerprint and load into Kind so Kustomizations
+# referencing src-<hash> never hit ImagePullBackOff on the node
+source ./scripts/lib/source-id.sh
+DASH_SRC_ID="$(source_id_for "${WORKLOAD}")"
+DASH_SHORT_TAG="src-${DASH_SRC_ID:0:16}"
+SHORT_REF="${IMAGE_REF%:*}:${DASH_SHORT_TAG}"
+LOCAL_SHORT_REF="${LOCAL_REF%:*}:${DASH_SHORT_TAG}"
+docker tag "${IMAGE_REF}" "${SHORT_REF}"
+docker tag "${LOCAL_REF}" "${LOCAL_SHORT_REF}"
+docker push "${LOCAL_SHORT_REF}" 2>/dev/null || true
+echo "loading ${SHORT_REF} into kind cluster ${CLUSTER_NAME}"
+kind load docker-image --name "${CLUSTER_NAME}" "${SHORT_REF}"
+
 echo "${WORKLOAD} supply-chain evidence ready"
 echo "  image: ${IMAGE_REF}"
 echo "  local registry digest: ${LOCAL_DIGEST_REF}"

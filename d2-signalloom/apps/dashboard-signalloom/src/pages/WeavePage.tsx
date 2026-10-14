@@ -78,11 +78,14 @@ export default function WeavePage() {
     try {
       setLoading(true)
       const token = await getAccessTokenSilently()
-      const [obs, act, cov] = await Promise.all([
-        weaveApi.getObservations(token),
+      // Query observations partitioned across display layers so high-frequency feeds
+      // (like endpoint_host from warden eBPF) do not saturate page budgets and starve other layers.
+      const [layerObsResults, act, cov] = await Promise.all([
+        Promise.all(DISPLAY_LAYERS.map((layer) => weaveApi.getObservations(token, { layer, limit: 50 }))),
         weaveApi.getActors(token),
         weaveApi.getCoverage(token),
       ])
+      const obs = layerObsResults.flat()
       setObservations(obs)
       setActors(act)
       setCoverage(cov)
@@ -395,7 +398,19 @@ function SignalThread({ layer, observations }: { layer: SignalLayer; observation
       }}>
         {label}
       </div>
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, minHeight: 28 }}>
+      <div
+        data-testid={`signal-thread-${layer}`}
+        style={{
+          flex: 1,
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 8,
+          minHeight: 28,
+          minWidth: 0,
+          padding: '4px 0',
+        }}
+      >
         {observations.length === 0 ? (
           <span style={{ fontSize: 11, color: 'var(--dim)', fontStyle: 'italic' }}>No signals</span>
         ) : (

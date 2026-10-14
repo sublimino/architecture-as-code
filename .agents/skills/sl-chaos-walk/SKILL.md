@@ -48,9 +48,10 @@ flowchart LR
    - **Layout Spill Detector**: Identifies overflowing text nodes or broken flex containers.
 
 ### Phase 2: Strategy & Decision Engine Selection
-1. **Model Discovery**: Probe for `TYPESAFE_API_KEY` or `JEV_API_KEY` in environment or secret store.
+1. **Model Discovery & Resolution**: Probe for `TYPESAFE_API_KEY` or `JEV_API_KEY` in environment or secret store (`~/.andy_sync/includes/_SECRET`). When present, the runner uses the live TypeSafe Jev System One API (`https://api.typesafe.ai/v1/systemone`, default model `jev-latest`).
 2. **Offline Simulation Fallback (`--mock`)**: If uncredentialed, sandboxed, or running in an offline CI lane, activate the **Calibrated System One Simulator**. The simulator uses weighted Markov choice models and DOM heuristics to make realistic exploratory choices without network LLM calls.
-3. **Mutation Configuration**: Enable `--click-storm`, `--network-jitter`, or `--input-fuzz` when running `deep-chaos`.
+3. **Target Routing (`--local` vs Ingress)**: Auto-detect local cluster endpoints (`http://127.0.0.1:5173/` or `19080`) with `--local`, or target the canonical authenticated Tailscale ingress (`https://ftna-signalloom.taild4da3.ts.net/`).
+4. **Mutation Configuration**: Enable `--click-storm`, `--network-jitter`, or `--input-fuzz` when running `deep-chaos`.
 
 ### Phase 3: Bounded Chaos Walk Execution
 1. **Atomic DOM Snapshotting**: Each turn snapshots visible interactive controls into an indexed action space (`[1] button`, `[2] link`, `[3] textbox`).
@@ -90,17 +91,20 @@ flowchart LR
 The skill is driven via `.agents/skills/sl-chaos-walk/Tools/chaos-walk.sh` or through `make`:
 
 ```bash
-# 1. Quick route sanity walk (5 turns against Kusari agent overview)
-make chaos-walk AREA=/agents/agent-kusari-847cc7d984-mwg8c TURNS=5
+# 1. Quick route sanity walk with live Jev against local Kind cluster
+make chaos-walk LOCAL=1 AREA=/policies TURNS=5
 
-# 2. Deep exploratory chaos walk (25 turns with click storms and network jitter)
-make chaos-walk-deep TURNS=25
+# 2. Deep exploratory chaos walk with real browser against local cluster
+make chaos-walk-deep LOCAL=1 AREA=/agents TURNS=10
 
 # 3. High-concurrency API fuzzing storm (300 requests across all REST routers)
-make chaos-walk-api REQUESTS=300 CONCURRENCY=8
+make chaos-walk-api LOCAL=1 REQUESTS=300 CONCURRENCY=8
 
-# 4. Direct CLI execution with specific options
-.agents/skills/sl-chaos-walk/Tools/chaos-walk.sh --profile quick-walk --area /policies --mock --stop-on-error
+# 4. Direct CLI execution with specific options against Tailscale ingress
+.agents/skills/sl-chaos-walk/Tools/chaos-walk.sh --profile quick-walk --area /policies --stop-on-error
+
+# 5. Offline simulation mode for sandboxed environments
+.agents/skills/sl-chaos-walk/Tools/chaos-walk.sh --profile quick-walk --mock --area /agents
 ```
 
 ---

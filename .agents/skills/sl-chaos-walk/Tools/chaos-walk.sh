@@ -21,6 +21,9 @@ MOCK_MODE=0
 STOP_ON_ERROR=0
 OUT_DIR="${REPO_ROOT}/reports/chaos-walk"
 
+USE_LOCAL=0
+MOCK_EXPLICIT=0
+
 usage() {
   cat <<USAGE
 Usage: chaos-walk.sh [options]
@@ -32,6 +35,7 @@ Operational Profiles:
 
 Options:
   --url URL                Target base URL (default: https://ftna-signalloom.taild4da3.ts.net/)
+  --local                  Target local cluster endpoint (checks 5173 then 19080)
   --area PATH              Route/area prefix to scope the walk (e.g. /policies, /agents)
   --turns N                Max interaction turns (defaults: quick-walk=5, deep-chaos=25)
   --requests N             Number of requests for api-storm (default: 300)
@@ -55,6 +59,10 @@ while [[ $# -gt 0 ]]; do
       TARGET_URL="$2"
       shift 2
       ;;
+    --local)
+      USE_LOCAL=1
+      shift
+      ;;
     --area)
       AREA="$2"
       shift 2
@@ -73,6 +81,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --mock)
       MOCK_MODE=1
+      MOCK_EXPLICIT=1
       shift
       ;;
     --stop-on-error)
@@ -93,22 +102,50 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# If --local requested, auto-detect active local port
+if [[ "${USE_LOCAL}" -eq 1 ]]; then
+  if curl -sf --max-time 1 "http://127.0.0.1:5173/" >/dev/null 2>&1; then
+    TARGET_URL="http://127.0.0.1:5173/"
+  elif curl -sf --max-time 1 "http://127.0.0.1:19080/" >/dev/null 2>&1; then
+    TARGET_URL="http://127.0.0.1:19080/"
+  else
+    echo "Warning: Local endpoints (5173/19080) not responding, using http://127.0.0.1:5173/" >&2
+    TARGET_URL="http://127.0.0.1:5173/"
+  fi
+fi
+
+# Resolve TypeSafe / Jev API key if not already set in environment
+if [[ -z "${TYPESAFE_API_KEY:-}" && -z "${JEV_API_KEY:-}" ]]; then
+  RESOLVED_KEY="$(python3 -c 'import sys; sys.path.insert(0, "'"${JEV_DIR}"'"); from bot import get_jev_api_key; k = get_jev_api_key(); print(k or "")' 2>/dev/null || true)"
+  if [[ -n "${RESOLVED_KEY}" ]]; then
+    export JEV_API_KEY="${RESOLVED_KEY}"
+    export TYPESAFE_API_KEY="${RESOLVED_KEY}"
+  fi
+fi
+
+# Check for TypeSafe API key or auto-activate mock if unavailable
+if [[ -z "${TYPESAFE_API_KEY:-}" && -z "${JEV_API_KEY:-}" ]]; then
+  MOCK_MODE=1
+fi
+
+if [[ "${MOCK_MODE}" -eq 1 ]]; then
+  DECISION_ENGINE="Calibrated System One Simulator (mock/offline)"
+else
+  DECISION_ENGINE="Live TypeSafe Jev API (${TYPESAFE_MODEL:-jev-latest})"
+fi
+
 mkdir -p "${OUT_DIR}"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 RUN_REPORT="${OUT_DIR}/${TIMESTAMP}_${PROFILE}.md"
 
 echo "=================================================================="
 echo "sl-chaos-walk: Matt Pocock Exploratory Chaos Fuzzer"
-echo "  Profile:    ${PROFILE}"
-echo "  Target URL: ${TARGET_URL}"
-echo "  Scope Area: ${AREA:-<all routes>}"
-echo "  Report:     ${RUN_REPORT}"
+echo "  Profile:         ${PROFILE}"
+echo "  Target URL:      ${TARGET_URL}"
+echo "  Scope Area:      ${AREA:-<all routes>}"
+echo "  Decision Engine: ${DECISION_ENGINE}"
+echo "  Report:          ${RUN_REPORT}"
 echo "=================================================================="
-
-# Check for TypeSafe API key or auto-activate mock
-if [[ -z "${TYPESAFE_API_KEY:-}" && -z "${JEV_API_KEY:-}" ]]; then
-  MOCK_MODE=1
-fi
 
 case "${PROFILE}" in
   quick-walk)
@@ -131,12 +168,29 @@ case "${PROFILE}" in
     EFFECTIVE_TURNS="${TURNS:-25}"
     echo "==> Running deep-chaos exploratory walk (${EFFECTIVE_TURNS} turns)..."
     export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-${REPO_ROOT}/.cache/ms-playwright}"
-    CMD=(node "${JEV_DIR}/browser_driver.mjs" --base "${TARGET_URL}" --turns "${EFFECTIVE_TURNS}" --out-dir "${OUT_DIR}")
+
+    ROUTES_TMP="$(mktemp "${TMPDIR:-/tmp}/chaos_routes_XXXXXX.txt")"
+    trap 'rm -f "${ROUTES_TMP}"' EXIT
     if [[ -n "${AREA}" ]]; then
-      CMD+=(--area "${AREA}")
+      python3 "${JEV_DIR}/routes.py" 2>/dev/null | grep -E "^${AREA}" > "${ROUTES_TMP}" || true
+      if [[ ! -s "${ROUTES_TMP}" ]]; then
+        echo "${AREA}" > "${ROUTES_TMP}"
+      fi
+    else
+      python3 "${JEV_DIR}/routes.py" 2>/dev/null > "${ROUTES_TMP}" || true
+      if [[ ! -s "${ROUTES_TMP}" ]]; then
+        echo "/" > "${ROUTES_TMP}"
+      fi
     fi
+
+    CMD=(node "${JEV_DIR}/browser_driver.mjs" --base "${TARGET_URL}" --routes "${ROUTES_TMP}" --turns "${EFFECTIVE_TURNS}" --out-dir "${OUT_DIR}")
     if [[ "${MOCK_MODE}" -eq 1 ]]; then
       CMD+=(--mock)
+    else
+      CMD+=(--decider python)
+    fi
+    if [[ "${STOP_ON_ERROR}" -eq 1 ]]; then
+      CMD+=(--stop-on-error)
     fi
     "${CMD[@]}" | tee "${RUN_REPORT}"
     ;;

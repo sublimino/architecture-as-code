@@ -169,7 +169,7 @@ async def _connect(dsn):
 async def cmd_checkpoint(args) -> int:
     if args.source != "audit":
         raise AnchorError("segment checkpoint production is a Go flush-time responsibility")
-    store, store_label = store_from_env(args.require_archivista)
+    store, store_label = store_from_env()
     require_rekor_if_configured()
     private_key = load_private_key(args.private_key)
     public_key = load_public_key(args.public_key)
@@ -234,7 +234,7 @@ async def cmd_checkpoint(args) -> int:
 
 
 async def cmd_verify(args) -> int:
-    store, store_label = store_from_env(args.require_archivista)
+    store, store_label = store_from_env()
     require_rekor_if_configured()
     results = []
     if args.source in ("audit", "both"):
@@ -351,7 +351,7 @@ async def cmd_verify(args) -> int:
 
 
 async def cmd_show(args) -> int:
-    store, store_label = store_from_env(args.require_archivista)
+    store, store_label = store_from_env()
     prefixes = []
     if args.source in ("audit", "both"):
         prefixes.append("signalloom-audit-checkpoint/")
@@ -386,7 +386,6 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--source", type=_source, choices=("audit", "segments", "both"), default="audit"
     )
-    parser.add_argument("--require-archivista", action="store_true")
     parser.add_argument("--segment-journal", default=os.environ.get("AUDIT_ANCHOR_SEGMENT_JOURNAL", "segments.jsonl"))
     parser.add_argument("--segment-root", default=os.environ.get("AUDIT_ANCHOR_SEGMENT_ROOT", "."))
     parser.add_argument("--protected-high-water", default=os.environ.get("AUDIT_ANCHOR_PROTECTED_HIGH_WATER"))

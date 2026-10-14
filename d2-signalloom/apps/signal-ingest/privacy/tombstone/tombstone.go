@@ -48,9 +48,8 @@
 //
 // # Published limit: there is no external anchor
 //
-// Tombstones are signed locally by [TombstoneSigner]. Rekor anchoring is refused outright at
-// apps/fe-signalloom/src/audit_anchor/anchor.py:407 ("Rekor anchoring is not implemented; no
-// checkpoint was published to Rekor") and Archivista publication is optional. A holder of the
+// Tombstones are signed locally by [TombstoneSigner]. Rekor anchoring is refused outright and the
+// evidence corpus has no external custodian. A holder of the
 // tombstone signing key can therefore mint a tombstone for an erasure that never happened, or
 // backdate one, and no party outside the deployment can detect it. The signature proves
 // custody of the key; it does not prove the time or the fact of the erasure. Do not represent it

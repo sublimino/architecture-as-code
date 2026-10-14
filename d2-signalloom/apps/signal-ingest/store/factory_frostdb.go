@@ -14,6 +14,11 @@ import (
 // Parquet durability to SIGNAL_STORE_DIR (default /tmp/signal-store).
 // SIGNAL_FROSTDB_ACTIVE_MEMORY_MIB bounds the active block (default 64).
 func NewStoreFromEnv(storeType, storeDir string) (SignalStore, error) {
+	for _, name := range []string{"ARCHIVISTA_URL", "AUDIT_ANCHOR_REQUIRE_LOG"} {
+		if os.Getenv(name) != "" {
+			return nil, fmt.Errorf("Archivista support was removed; unset stale configuration %s", name)
+		}
+	}
 	if storeType != "frostdb" {
 		return NewMemoryStore(), nil
 	}
@@ -48,7 +53,7 @@ func NewStoreFromEnv(storeType, storeDir string) (SignalStore, error) {
 		}
 		options = append(options, WithSegmentAttestation(SegmentAttestorConfig{
 			SegmentRoot: storeDir, EvidenceDir: evidenceDir, PrivateKeyPath: keyPath, HighWaterPath: highWaterPath,
-			ArchivistaURL: os.Getenv("ARCHIVISTA_URL"), RequireArchivista: os.Getenv("AUDIT_ANCHOR_REQUIRE_LOG") == "1", QueueSize: queueSize,
+			QueueSize: queueSize,
 		}))
 	}
 	if raw := os.Getenv("SIGNAL_FROSTDB_ACTIVE_MEMORY_MIB"); raw != "" {

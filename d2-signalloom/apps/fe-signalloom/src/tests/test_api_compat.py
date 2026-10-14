@@ -1879,7 +1879,7 @@ def test_tab4_compliance_posture_is_side_effect_free(client, monkeypatch):
                         "framework_name": "EU AI Act",
                         "status": "pass",
                         "assessed_at": datetime.now(timezone.utc),
-                        "evidence_ref": "opa://assessments/lancelot/art-9",
+                        "evidence_ref": "cel://assessments/lancelot/art-9",
                     },
                     {
                         "agent_id": uuid.UUID("11111111-1111-1111-1111-111111111111"),
@@ -1888,7 +1888,7 @@ def test_tab4_compliance_posture_is_side_effect_free(client, monkeypatch):
                         "framework_name": "SOC 2",
                         "status": "fail",
                         "assessed_at": datetime.now(timezone.utc),
-                        "evidence_ref": "opa://assessments/lancelot/cc7.2",
+                        "evidence_ref": "cel://assessments/lancelot/cc7.2",
                     },
                 ]
             return []

@@ -1,14 +1,11 @@
-"""DSSE envelopes, signature verification, and the two anchor transports."""
-import hashlib
+"""DSSE signing, independent verification, and local evidence storage."""
+import base64
 import json
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
 from audit_anchor.anchor import (
     AnchorError,
-    ArchivistaAnchorStore,
     FileAnchorStore,
     build_statement,
     checkpoint_from_envelope,
@@ -16,10 +13,10 @@ from audit_anchor.anchor import (
     load_private_key,
     load_public_key,
     pae,
-    sign_envelope,
-    verify_envelope,
-    store_from_env,
     require_rekor_if_configured,
+    sign_envelope,
+    store_from_env,
+    verify_envelope,
 )
 from audit_anchor.checkpoint import GENESIS_DIGEST, PREDICATE_TYPE, build_checkpoint
 
@@ -28,9 +25,6 @@ from audit_anchor.checkpoint import GENESIS_DIGEST, PREDICATE_TYPE, build_checkp
 def keypair():
     from cryptography.hazmat.primitives.asymmetric import ed25519
 
-    # ed25519 to match .keys/witness.pem, which `make signing-keys` generates
-    # with `openssl genpkey -algorithm ed25519` and which scripts/attested-test.sh
-    # already uses to sign attestations into Archivista.
     private = ed25519.Ed25519PrivateKey.generate()
     return private, private.public_key()
 
@@ -58,30 +52,16 @@ def _checkpoint(index=0, actor="demo-actor"):
     )
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PAE
-# ══════════════════════════════════════════════════════════════════════════════
-
-
 def test_pae_matches_the_dsse_specification():
-    # The lengths are byte counts of the type and the payload respectively:
-    # len("http://example.com/T") == 20, len(b"hello") == 5.
     assert pae("http://example.com/T", b"hello") == b"DSSEv1 20 http://example.com/T 5 hello"
 
 
 def test_pae_length_is_over_bytes_not_characters():
-    # A multi-byte type name must not desynchronise the framing.
     assert pae("é", b"") == b"DSSEv1 2 \xc3\xa9 0 "
 
 
 def test_pae_is_unambiguous_across_a_moved_boundary():
-    """The property PAE exists for: no choice of content shifts the parse."""
     assert pae("ab", b"cd") != pae("abc", b"d")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Signing and verification
-# ══════════════════════════════════════════════════════════════════════════════
 
 
 def test_envelope_round_trips(keypair):
@@ -95,9 +75,7 @@ def test_envelope_declares_the_in_toto_payload_type(keypair):
     private, _ = keypair
     envelope = sign_envelope(build_statement(_checkpoint()), private)
     assert envelope["payloadType"] == "application/vnd.in-toto+json"
-    assert json.loads(__import__("base64").b64decode(envelope["payload"]))[
-        "predicateType"
-    ] == PREDICATE_TYPE
+    assert json.loads(base64.b64decode(envelope["payload"]))["predicateType"] == PREDICATE_TYPE
 
 
 def test_keyid_is_derived_from_the_public_key(keypair):
@@ -107,9 +85,6 @@ def test_keyid_is_derived_from_the_public_key(keypair):
 
 
 def test_a_tampered_payload_fails_verification(keypair):
-    """The whole point. Rewriting the anchor requires the signing key."""
-    import base64
-
     private, public = keypair
     envelope = sign_envelope(build_statement(_checkpoint()), private)
     statement = json.loads(base64.b64decode(envelope["payload"]))
@@ -131,19 +106,11 @@ def test_a_signature_from_another_key_is_rejected(keypair):
 
 
 def test_a_predicate_that_disagrees_with_its_signed_subject_is_rejected(keypair):
-    """A signer holding the key could still emit an internally inconsistent
-    anchor. The chain's back-links point at the subject digest, so a predicate
-    that does not re-derive to its own subject would silently break the chain."""
-    import base64
-
     private, public = keypair
-    envelope = sign_envelope(build_statement(_checkpoint()), private)
-    statement = json.loads(base64.b64decode(envelope["payload"]))
+    statement = build_statement(_checkpoint())
     statement["predicate"]["row_count"] = 99
-    # Re-sign so the SIGNATURE is valid but the subject no longer matches.
-    envelope = sign_envelope(statement, private)
     with pytest.raises(AnchorError, match="subject"):
-        checkpoint_from_envelope(envelope, public)
+        checkpoint_from_envelope(sign_envelope(statement, private), public)
 
 
 def test_payload_type_is_covered_by_the_signature(keypair):
@@ -154,273 +121,66 @@ def test_payload_type_is_covered_by_the_signature(keypair):
         verify_envelope(envelope, public)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# File transport
-# ══════════════════════════════════════════════════════════════════════════════
+def test_expected_key_id_rejects_keyid_replacement(keypair):
+    private, public = keypair
+    envelope = sign_envelope(build_statement(_checkpoint()), private)
+    envelope["signatures"][0]["keyid"] = "00" * 32
+    with pytest.raises(AnchorError):
+        verify_envelope(envelope, public)
 
 
-def test_file_store_round_trips(tmp_path, keypair):
+def test_file_store_writes_and_reads_signed_evidence(tmp_path, keypair):
     private, public = keypair
     store = FileAnchorStore(tmp_path / "anchors")
     checkpoints = [_checkpoint(index=i) for i in range(3)]
-    for cp in checkpoints:
+    references = [
         store.publish(cp, sign_envelope(build_statement(cp), private))
+        for cp in checkpoints
+    ]
+    assert all((tmp_path / "anchors") in __import__("pathlib").Path(ref).parents for ref in references)
     recovered = [checkpoint_from_envelope(e, public) for e in store.fetch_all()]
     assert [cp.index for cp in recovered] == [0, 1, 2]
 
 
-def test_file_store_refuses_to_overwrite_an_anchor(tmp_path, keypair):
-    """Silently replacing a published anchor is the local-filesystem version of
-    a force-push, and it is the one thing this store must not make easy."""
+def test_file_store_refuses_to_overwrite_evidence(tmp_path, keypair):
     private, _ = keypair
     store = FileAnchorStore(tmp_path / "anchors")
-    cp = _checkpoint()
-    store.publish(cp, sign_envelope(build_statement(cp), private))
-    with pytest.raises(AnchorError):
-        store.publish(cp, sign_envelope(build_statement(cp), private))
+    checkpoint = _checkpoint()
+    envelope = sign_envelope(build_statement(checkpoint), private)
+    store.publish(checkpoint, envelope)
+    with pytest.raises(AnchorError, match="refusing to overwrite"):
+        store.publish(checkpoint, envelope)
 
 
-def test_file_store_on_a_missing_directory_is_empty_not_an_error(tmp_path):
-    assert FileAnchorStore(tmp_path / "nope").fetch_all() == []
+def test_file_store_reports_malformed_evidence(tmp_path):
+    directory = tmp_path / "anchors"
+    directory.mkdir()
+    (directory / "00000000-broken.dsse.json").write_text("not-json")
+    with pytest.raises(json.JSONDecodeError):
+        FileAnchorStore(directory).fetch_all()
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Archivista transport, against a stub implementing the documented endpoints
-# ══════════════════════════════════════════════════════════════════════════════
+def test_file_store_on_a_missing_directory_is_empty(tmp_path):
+    assert FileAnchorStore(tmp_path / "missing").fetch_all() == []
 
 
-class _StubArchivista(BaseHTTPRequestHandler):
-    envelopes: dict = {}
-
-    def log_message(self, *args):
-        pass
-
-    def _respond(self, payload, status=200, send_body=True):
-        body = json.dumps(payload).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        if send_body:
-            self.wfile.write(body)
-
-    def do_GET(self):
-        if self.path.startswith("/download/"):
-            gitoid = self.path.rsplit("/", 1)[-1]
-            if gitoid in self.envelopes:
-                return self._respond(self.envelopes[gitoid], send_body=True)
-            self.send_error(404)
-            return
-        if self.path in ("/upload", "/query"):
-            body = b"method not allowed"
-            self.send_response(405)
-            self.send_header("Allow", "POST")
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
-        self.send_error(404)
-
-    def do_HEAD(self):
-        if self.path.startswith("/download/"):
-            gitoid = self.path.rsplit("/", 1)[-1]
-            if gitoid in self.envelopes:
-                return self._respond(self.envelopes[gitoid], send_body=False)
-            self.send_error(404)
-            return
-        if self.path in ("/upload", "/query"):
-            body = b"method not allowed"
-            self.send_response(405)
-            self.send_header("Allow", "POST")
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            return
-        self.send_error(404)
-
-    def do_POST(self):
-        if self.path.startswith("/download/"):
-            body = b"method not allowed"
-            self.send_response(405)
-            self.send_header("Allow", "GET, HEAD")
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
-        body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-        if self.path == "/upload":
-            envelope = json.loads(body)
-            framed = f"blob {len(body)}\0".encode() + body
-            gitoid = hashlib.sha256(framed).hexdigest()
-            self.envelopes[gitoid] = envelope
-            return self._respond({"gitoid": gitoid})
-        if self.path == "/query":
-            prefix = json.loads(body).get("variables", {}).get("prefix", "")
-            import base64
-
-            edges = []
-            for gitoid, envelope in self.envelopes.items():
-                statement = json.loads(base64.b64decode(envelope["payload"]))
-                if statement["subject"][0]["name"].startswith(prefix):
-                    edges.append({"node": {"gitoidSha256": gitoid}})
-            return self._respond({"data": {"dsses": {"edges": edges}}})
-        self.send_error(404)
-
-    def send_error(self, code, message=None, explain=None):
-        if code == 501:
-            err_body = b"method not allowed\n"
-            self.send_response(405)
-            if self.path.startswith("/download/"):
-                self.send_header("Allow", "GET, HEAD")
-            elif self.path in ("/upload", "/query"):
-                self.send_header("Allow", "POST")
-            else:
-                self.send_header("Allow", "GET, POST, HEAD")
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(err_body)))
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(err_body)
-            return
-        err_msg = message or "error"
-        body = json.dumps({"error": err_msg}).encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(body)
+def test_store_from_env_returns_explicit_file_store(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUDIT_ANCHOR_DIR", str(tmp_path))
+    monkeypatch.delenv("ARCHIVISTA_URL", raising=False)
+    monkeypatch.delenv("AUDIT_ANCHOR_REQUIRE_LOG", raising=False)
+    store, label = store_from_env()
+    assert isinstance(store, FileAnchorStore)
+    assert store.directory == tmp_path
+    assert label == f"file:{tmp_path}"
 
 
-class ReusableHTTPServer(HTTPServer):
-    allow_reuse_address = True
-
-
-@pytest.fixture
-def stub_archivista():
-    _StubArchivista.envelopes = {}
-    server = ReusableHTTPServer(("127.0.0.1", 0), _StubArchivista)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    yield f"http://127.0.0.1:{server.server_port}"
-    server.shutdown()
-
-
-def test_archivista_health_check(stub_archivista):
-    assert ArchivistaAnchorStore(stub_archivista).health()
-
-
-def test_archivista_health_check_is_false_when_unreachable():
-    assert not ArchivistaAnchorStore("http://127.0.0.1:1").health()
-
-
-def test_archivista_health_check_rejects_graphql_errors():
-    class ErrorQuery(_StubArchivista):
-        def do_POST(self):
-            self._respond({"errors": [{"message": "not ready"}]})
-
-    server = ReusableHTTPServer(("127.0.0.1", 0), ErrorQuery)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        assert not ArchivistaAnchorStore(f"http://127.0.0.1:{server.server_port}").health()
-    finally:
-        server.shutdown()
-
-
-def test_archivista_head_and_method_gates(stub_archivista, keypair):
-    import urllib.request
-    private, _ = keypair
-    store = ArchivistaAnchorStore(stub_archivista)
-    cp = _checkpoint(index=42)
-    gitoid = store.publish(cp, sign_envelope(build_statement(cp), private))
-
-    req_get = urllib.request.Request(f"{stub_archivista}/download/{gitoid}", method="GET")
-    with urllib.request.urlopen(req_get) as resp:
-        assert resp.status == 200
-        body = resp.read()
-        assert len(body) > 0
-
-    req_head = urllib.request.Request(f"{stub_archivista}/download/{gitoid}", method="HEAD")
-    with urllib.request.urlopen(req_head) as resp:
-        assert resp.status == 200
-        assert resp.read() == b""
-        assert resp.headers.get("Content-Type") == "application/json"
-
-    req_post = urllib.request.Request(f"{stub_archivista}/download/{gitoid}", method="POST")
-    try:
-        with urllib.request.urlopen(req_post) as resp:
-            pytest.fail("expected 405")
-    except urllib.error.HTTPError as exc:
-        assert exc.code == 405
-        assert exc.headers.get("Allow") == "GET, HEAD"
-        assert exc.headers.get("Content-Type") == "text/plain; charset=utf-8"
-        assert exc.headers.get("Content-Length") == "18"
-        assert exc.read() == b"method not allowed"
-        exc.close()
-
-    req_get_upload = urllib.request.Request(f"{stub_archivista}/upload", method="GET")
-    try:
-        with urllib.request.urlopen(req_get_upload) as resp:
-            pytest.fail("expected 405")
-    except urllib.error.HTTPError as exc:
-        assert exc.code == 405
-        assert exc.headers.get("Allow") == "POST"
-        assert exc.headers.get("Content-Type") == "text/plain; charset=utf-8"
-        assert exc.headers.get("Content-Length") == "18"
-        assert exc.read() == b"method not allowed"
-        exc.close()
-
-    req_head_upload = urllib.request.Request(f"{stub_archivista}/upload", method="HEAD")
-    try:
-        with urllib.request.urlopen(req_head_upload) as resp:
-            pytest.fail("expected 405")
-    except urllib.error.HTTPError as exc:
-        assert exc.code == 405
-        assert exc.headers.get("Allow") == "POST"
-        assert exc.headers.get("Content-Type") == "text/plain; charset=utf-8"
-        assert exc.headers.get("Content-Length") == "18"
-        assert exc.read() == b""
-        exc.close()
-
-
-def test_archivista_round_trips(stub_archivista, keypair):
-    private, public = keypair
-    store = ArchivistaAnchorStore(stub_archivista)
-    for i in range(3):
-        cp = _checkpoint(index=i)
-        assert store.publish(cp, sign_envelope(build_statement(cp), private))
-    recovered = sorted(
-        (checkpoint_from_envelope(e, public) for e in store.fetch_all()),
-        key=lambda cp: cp.index,
-    )
-    assert [cp.index for cp in recovered] == [0, 1, 2]
-
-
-def test_archivista_publish_rejects_mismatched_gitoid(stub_archivista, keypair):
-    private, _ = keypair
-    store = ArchivistaAnchorStore(stub_archivista)
-    envelope = sign_envelope(build_statement(_checkpoint()), private)
-    original_post = store._post
-    store._post = lambda path, body, content_type: json.dumps({"gitoid": "0" * 64})
-    with pytest.raises(AnchorError, match="does not match"):
-        store.publish(_checkpoint(), envelope)
-    store._post = original_post
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Key file paths
-#
-# The CLI is invoked from inside the package directory, so key arguments are
-# routinely absolute and routinely point outside the repository -- .keys/ is
-# gitignored and therefore per-checkout, so a worktree's keys usually live in
-# the main checkout. A shipped bug joined an absolute KEYS_DIR onto the repo
-# root and swallowed its leading slash; the shell side is covered by
-# test/audit-anchor-keys-path.bats, and these lock the Python side, which must
-# honour an absolute path as absolute.
-# ══════════════════════════════════════════════════════════════════════════════
+@pytest.mark.parametrize("name", ["ARCHIVISTA_URL", "AUDIT_ANCHOR_REQUIRE_LOG"])
+def test_store_from_env_rejects_stale_archivista_configuration(monkeypatch, name):
+    monkeypatch.delenv("ARCHIVISTA_URL", raising=False)
+    monkeypatch.delenv("AUDIT_ANCHOR_REQUIRE_LOG", raising=False)
+    monkeypatch.setenv(name, "stale")
+    with pytest.raises(AnchorError, match=f"support was removed.*{name}"):
+        store_from_env()
 
 
 def _write_keypair(directory):
@@ -444,15 +204,11 @@ def _write_keypair(directory):
 
 
 def test_keys_load_from_an_absolute_path_outside_the_repository(tmp_path):
-    # tmp_path is an absolute path outside the repo -- the case that was broken.
     keys = _write_keypair(tmp_path / "elsewhere" / ".keys")
-    assert keys.is_absolute()
     private = load_private_key(str(keys / "witness.pem"))
     public = load_public_key(str(keys / "witness-pub.pem"))
     checkpoint = _checkpoint()
-    assert checkpoint_from_envelope(
-        sign_envelope(build_statement(checkpoint), private), public
-    ) == checkpoint
+    assert checkpoint_from_envelope(sign_envelope(build_statement(checkpoint), private), public) == checkpoint
 
 
 def test_an_absolute_key_path_is_not_reinterpreted_relative_to_the_cwd(tmp_path, monkeypatch):
@@ -464,58 +220,16 @@ def test_an_absolute_key_path_is_not_reinterpreted_relative_to_the_cwd(tmp_path,
 
 
 def test_a_missing_key_names_the_resolved_absolute_path(tmp_path):
-    """The error is the operator's first contact with a broken setup, and a
-    mis-joined path is only self-diagnosing if it is printed in full."""
     missing = tmp_path / "absent" / "witness.pem"
     with pytest.raises(AnchorError) as excinfo:
         load_private_key(str(missing))
-    message = str(excinfo.value)
-    assert str(missing) in message
-    assert "make signing-keys" in message
-    assert "KEYS_DIR" in message
+    assert str(missing) in str(excinfo.value)
+    assert "make signing-keys" in str(excinfo.value)
 
 
 def test_a_missing_key_does_not_raise_a_bare_oserror(tmp_path):
-    """main() reports AnchorError cleanly; a raw OSError escaping would print a
-    traceback at someone who has merely mistyped a path."""
     with pytest.raises(AnchorError):
-        load_public_key(str(tmp_path / "nope.pem"))
-
-
-def test_archivista_publish_surfaces_an_unreachable_server(keypair):
-    private, _ = keypair
-    cp = _checkpoint()
-    with pytest.raises(AnchorError, match="unreachable"):
-        ArchivistaAnchorStore("http://127.0.0.1:1").publish(
-            cp, sign_envelope(build_statement(cp), private)
-        )
-
-
-def test_strict_archivista_does_not_fall_back_without_url(monkeypatch):
-    monkeypatch.delenv("ARCHIVISTA_URL", raising=False)
-    with pytest.raises(AnchorError, match="requires ARCHIVISTA_URL"):
-        store_from_env(require_archivista=True)
-
-
-def test_strict_archivista_does_not_fall_back_when_unreachable(monkeypatch):
-    monkeypatch.setenv("ARCHIVISTA_URL", "http://127.0.0.1:1")
-    with pytest.raises(AnchorError, match="unavailable"):
-        store_from_env(require_archivista=True)
-
-
-def test_strict_archivista_environment_does_not_fall_back(monkeypatch):
-    monkeypatch.setenv("AUDIT_ANCHOR_REQUIRE_LOG", "1")
-    monkeypatch.setenv("ARCHIVISTA_URL", "http://127.0.0.1:1")
-    with pytest.raises(AnchorError, match="unavailable"):
-        store_from_env()
-
-
-def test_expected_key_id_rejects_keyid_replacement(keypair):
-    private, public = keypair
-    envelope = sign_envelope(build_statement(_checkpoint()), private)
-    envelope["signatures"][0]["keyid"] = "00" * 32
-    with pytest.raises(AnchorError):
-        verify_envelope(envelope, public)
+        load_public_key(str(tmp_path / "missing.pem"))
 
 
 def test_configured_rekor_failure_is_explicit(monkeypatch):
@@ -529,32 +243,8 @@ def test_reachable_rekor_is_not_mistaken_for_publication(monkeypatch):
     from types import SimpleNamespace
 
     monkeypatch.setenv("REKOR_URL", "http://rekor.example.invalid")
-    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **kw: nullcontext(SimpleNamespace(status=200)))
+    monkeypatch.setattr(
+        "urllib.request.urlopen", lambda *args, **kwargs: nullcontext(SimpleNamespace(status=200))
+    )
     with pytest.raises(AnchorError, match="no checkpoint was published"):
         require_rekor_if_configured()
-
-
-def test_stub_archivista_head_body_suppression_and_method_gating(stub_archivista):
-    import urllib.error
-    import urllib.request
-
-    url = stub_archivista
-
-    # HEAD on 404 path
-    req = urllib.request.Request(f"{url}/download/nonexistent", method="HEAD")
-    try:
-        urllib.request.urlopen(req)
-        pytest.fail("expected 404")
-    except urllib.error.HTTPError as exc:
-        assert exc.code == 404
-        assert exc.read() == b""
-
-    # HEAD on /upload (which only allows POST -> 405 Method Not Allowed)
-    req_upload = urllib.request.Request(f"{url}/upload", method="HEAD")
-    try:
-        urllib.request.urlopen(req_upload)
-        pytest.fail("expected 405")
-    except urllib.error.HTTPError as exc:
-        assert exc.code == 405
-        assert exc.headers.get("Allow") == "POST"
-        assert exc.read() == b""

@@ -76,7 +76,7 @@ type DSSEEnvelope struct {
 //
 // It proves custody of the signing key at some point. It does not prove when, and it does not
 // prove the erasure happened, because there is no external transparency anchor: Rekor is refused
-// at apps/fe-signalloom/src/audit_anchor/anchor.py:407 and Archivista publication is optional. A
+// and the evidence corpus is local only. A
 // holder of this key can mint a tombstone for an erasure that never occurred, or backdate one to
 // any ErasedDay, and nothing outside the deployment can detect either. Forgery is detectable today
 // only by parties inside the deployment comparing against the erasure audit trail — which is to

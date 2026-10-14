@@ -1,26 +1,27 @@
 # Audit-log transparency anchoring
 
-Periodically commit to the contents of `public.audit_events` and publish that
-commitment somewhere the application cannot reach. Later modification or
-deletion of anchored rows is then detectable.
+Periodically commit to the contents of `public.audit_events`, sign that
+commitment, and persist it as local evidence. Later modification or deletion of
+anchored rows is detectable when an independent verifier retains trusted keys,
+evidence, and protected high-water state outside the producer's control.
 
 ## Why the anchor is the control, not the chain
 
-Hash-chaining a log does not prevent tampering. It detects it — and only if the
-chain head is published somewhere the tamperer cannot reach.
+Hash-chaining a log does not prevent tampering. It supports detection when the
+verifier has a trusted chain head or protected high-water state.
 
 Git makes this unavoidable. `git commit --amend` followed by a force-push
 rewrites history and every hash downstream of it. The result is perfectly
 self-consistent: every parent pointer checks out, every object hashes correctly.
-The only reason anyone notices is that **other people hold clones**. The chain is
-not the protection. The independent witness is.
+The only reason anyone notices is that **other people hold clones**. The chain
+alone is not the protection. Independently retained verification state is.
 
-An anchor stored in the same database as the rows is a clone held by the same
-person. It buys nothing. So the property this component preserves is narrow and
-specific:
+Evidence stored in the same database as the rows is controlled by the same
+principal. This component instead writes signed files plus protected high-water
+state, but it does not provide an external custodian.
 
-> Rewriting history must also require rewriting the anchor, and the anchor must
-> not be in the attacker's control.
+> Rewriting history is detectable only when the verifier's trusted material is
+> outside the attacker's control.
 
 Everything else here — the Merkle tree, the DSSE envelope, the CLI — is
 packaging around that one sentence.
@@ -102,30 +103,16 @@ artefact alone whether a checkpoint rests on a proof or an assumption.
 
 ## The anchor
 
-Checkpoints are published as **in-toto Statements in DSSE envelopes**, signed
-with the ed25519 key at `.keys/witness.pem`. That is the same key
-`scripts/attested-test.sh` already uses to sign attestations into Archivista.
+Checkpoints are persisted as **in-toto Statements in DSSE envelopes**, signed
+with the ed25519 key at `.keys/witness.pem`.
 
-This reuses what the repository already runs rather than adding anything.
-ControlPlane sponsors Witness and Archivista. The backend slice
-(`d2-osramp-apps/components/backend/`) deploys Archivista at
-`svc/osramp-archivista:8082` with its own MySQL and MinIO. It runs in a different
-namespace under different credentials, which the signalloom Postgres role has no
-route to. **No new dependency was added**: DSSE is a length-prefixed encoding
-plus an ed25519 signature, and `cryptography` is already present via
-`PyJWT[crypto]`.
+No new service is required: DSSE is a length-prefixed encoding plus an ed25519
+signature, and `cryptography` is already present via `PyJWT[crypto]`.
 
-Two transports, one artefact format:
-
-* `ArchivistaAnchorStore` — the intended anchor. Content-addressed, so altering a
-  stored envelope changes its address rather than its contents.
-* `FileAnchorStore` — fallback. Weaker, and it should be said plainly: its only
-  strength is the filesystem permissions on the directory. The bytes are
-  identical, so the same files upload to Archivista unchanged.
-
-Selected by `ARCHIVISTA_URL` / `AUDIT_ANCHOR_DIR`. The CLI always prints which
-store it used. A checkpoint anchored to a transparency log and one anchored to a
-local directory are not the same evidence.
+`FileAnchorStore` is the only store. `AUDIT_ANCHOR_DIR` selects its directory,
+and the CLI prints that path. Stale `ARCHIVISTA_URL` or
+`AUDIT_ANCHOR_REQUIRE_LOG` configuration fails clearly instead of silently
+claiming strict or external proof.
 
 ### Where the signing key lives
 
@@ -178,14 +165,12 @@ It does **not**:
   attribution is a well-witnessed log that says nothing about who did what. That
   work is being done separately and it is worth more than this is.
 
-### Not yet verified
+### Custody limit
 
-The Archivista transport is implemented against the documented API and exercised
-in tests against a stub implementing those endpoints. That is enough to catch our
-own wire-format bugs. It is **not** enough to prove the real server agrees with
-our reading of its API. The backend slice holding Archivista is not deployed in the cluster
-this was built against, so that path remains unexercised against the real thing.
-The file transport is the one that has actually been run end to end.
+The file store has no external custodian and no transparency-log inclusion
+proof. Signatures prove key custody, while the Merkle chain and protected
+high-water assertions detect mutation or rollback for a verifier whose trusted
+material remains independent. They do not prove publication time.
 
 ## For the row-level chaining work
 
@@ -213,9 +198,9 @@ Offers:
    at tree sizes 1–8. This is what lets a single row be proven to belong to a
    published checkpoint without shipping the window.
 2. **Checkpoint granularity as the fallback.** Row chaining localises to a row
-   but is only as trustworthy as its anchor. These checkpoints are the anchor.
-   The two compose: the chain says *which row*, the checkpoint says *and this is
-   witnessed externally*.
+   but is only as trustworthy as independently retained verifier state. The two
+   compose: the chain says *which row*, while the signed checkpoint detects
+   divergence without claiming external custody.
 
 ## Tests
 

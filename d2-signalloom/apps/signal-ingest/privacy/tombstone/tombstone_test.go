@@ -891,7 +891,7 @@ func TestTombstonePackageDocumentsTheGenerationInvariant(t *testing.T) {
 		"INVARIANT FOR SLDP-P4-1",
 		"tenant-scoped",
 		"appear in retained evidence",
-		"anchor.py:407",
+		"no external custodian",
 		"never persisted",
 	} {
 		if !strings.Contains(raw, needle) {
@@ -907,7 +907,7 @@ func TestTombstoneSignerDocumentsTheForgeryLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read source: %v", err)
 	}
-	for _, needle := range []string{"anchor.py:407", "Archivista publication is optional", "backdate"} {
+	for _, needle := range []string{"no external transparency anchor", "evidence corpus is local only", "backdate"} {
 		if !strings.Contains(raw, needle) {
 			t.Errorf("signer.go does not state %q", needle)
 		}

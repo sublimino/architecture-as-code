@@ -249,8 +249,8 @@ func AllSinkSpecs() []SinkSpec {
 			Notes: "correlation/quarantine.go; also the hold source privacy.QuarantineIncidentSource reads"},
 		{ID: "spirea_tracker_cache", Class: ClassCache, Reach: ReachInProcess, DefaultPeriod: DefaultCachePeriod, Residual: ResidualNone, P6PRERow: 22,
 			Notes: "collectors/spirea/tracker.go SPIFFE identity tracker"},
-		{ID: "archivista_external", Class: ClassBackup, Reach: ReachExternalAttestation, DefaultPeriod: DefaultEvidencePeriod, Residual: ResidualFilesystemUnlinked, P6PRERow: 23, P0Row: "Archivista",
-			Notes: "external OCI/MinIO attestation store; deletion is the operator's, not this process's"},
+		{ID: "signed_local_evidence", Class: ClassTransparency, Reach: ReachContinuityBearing, DefaultPeriod: DefaultEvidencePeriod, Residual: ResidualAttestedBytes, P6PRERow: 23, P0Row: "Signed local evidence",
+			Notes: "local DSSE corpus and checkpoints; no external custody or publication-time proof"},
 
 		// ---- SLDP-P0 rows the P6-PRE reconciliation dropped. Recorded finding; see the comment above. ----
 		{ID: "portal_audit_events", Class: ClassPrimary, Reach: ReachExternalAttestation, DefaultPeriod: DefaultIdentityPeriod, Residual: ResidualPostgresMVCC, P0Row: "Portal `audit_events` PostgreSQL",

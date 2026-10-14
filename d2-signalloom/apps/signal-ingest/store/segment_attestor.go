@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -46,17 +45,13 @@ var (
 )
 
 type SegmentAttestorConfig struct {
-	EvidenceDir        string
-	Signer             Signer
-	PrivateKeyPath     string
-	HighWaterPath      string
-	ArchivistaURL      string
-	RequireArchivista  bool
-	QueueSize          int
-	HTTPClient         *http.Client
-	SegmentRoot        string
-	ErrorQueueSize     int
-	PublicationTimeout time.Duration
+	EvidenceDir    string
+	Signer         Signer
+	PrivateKeyPath string
+	HighWaterPath  string
+	QueueSize      int
+	SegmentRoot    string
+	ErrorQueueSize int
 }
 
 type segmentUpload struct {
@@ -195,20 +190,11 @@ func NewSegmentAttestor(cfg SegmentAttestorConfig) (*SegmentAttestor, error) {
 	if cfg.Signer == nil && cfg.PrivateKeyPath == "" {
 		return nil, errors.New("segment attestor requires either Signer or PrivateKeyPath")
 	}
-	if cfg.RequireArchivista && cfg.ArchivistaURL == "" {
-		return nil, errors.New("segment attestor requires Archivista URL when publication is required")
-	}
 	if cfg.QueueSize <= 0 {
 		cfg.QueueSize = 16
 	}
 	if cfg.ErrorQueueSize <= 0 {
 		cfg.ErrorQueueSize = 128
-	}
-	if cfg.PublicationTimeout <= 0 {
-		cfg.PublicationTimeout = 10 * time.Second
-	}
-	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = &http.Client{Timeout: 10 * time.Second}
 	}
 	signer := cfg.Signer
 	if signer == nil {
@@ -683,11 +669,6 @@ func (a *SegmentAttestor) process(upload segmentUpload) error {
 	if err := atomicWrite(filepath.Join(a.cfg.EvidenceDir, attestationPath), append(envelope, '\n'), 0o640); err != nil {
 		return fmt.Errorf("persist segment attestation: %w", err)
 	}
-	if a.cfg.ArchivistaURL != "" {
-		if err := a.publishArchivista(envelope); err != nil {
-			return err
-		}
-	}
 	journalBytes, err := json.Marshal(record)
 	if err != nil {
 		return err
@@ -744,67 +725,7 @@ func (a *SegmentAttestor) checkpoint(record segmentRecord) (string, error) {
 	if err := atomicWrite(filepath.Join(a.cfg.EvidenceDir, "checkpoints", name), append(envelope, '\n'), 0o640); err != nil {
 		return "", fmt.Errorf("persist checkpoint: %w", err)
 	}
-	if a.cfg.ArchivistaURL != "" {
-		if err := a.publishArchivista(envelope); err != nil {
-			return "", err
-		}
-	}
 	return cpDigest, nil
-}
-
-func (a *SegmentAttestor) publishArchivista(envelope []byte) error {
-	url := strings.TrimRight(a.cfg.ArchivistaURL, "/") + "/upload"
-	timeout := a.cfg.PublicationTimeout
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(envelope)))
-	if err != nil {
-		return fmt.Errorf("create Archivista request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	response, err := a.cfg.HTTPClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("Archivista publication failed: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		_, _ = io.Copy(io.Discard, response.Body)
-		return fmt.Errorf("Archivista publication failed: HTTP %s", response.Status)
-	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
-	if err != nil {
-		return fmt.Errorf("read Archivista publication response: %w", err)
-	}
-	receipt := strings.TrimSpace(string(body))
-	var payload struct {
-		Gitoid string `json:"gitoid"`
-	}
-	if json.Unmarshal(body, &payload) == nil {
-		receipt = payload.Gitoid
-	}
-	receiptDigest, ok := parseGitoid(receipt)
-	if !ok {
-		return errors.New("Archivista publication failed: response does not contain a valid gitoid")
-	}
-	framed := append([]byte(fmt.Sprintf("blob %d\x00", len(envelope))), envelope...)
-	expected := sha256.Sum256(framed)
-	if receiptDigest != hexDigest(expected[:]) {
-		return errors.New("Archivista publication failed: receipt gitoid does not match uploaded envelope")
-	}
-	return nil
-}
-
-func parseGitoid(value string) (string, bool) {
-	value = strings.TrimSpace(value)
-	value = strings.TrimPrefix(value, "sha256:")
-	if len(value) != sha256.Size*2 {
-		return "", false
-	}
-	decoded, err := hex.DecodeString(value)
-	return value, err == nil && len(decoded) == sha256.Size && value == strings.ToLower(value)
 }
 
 func (a *SegmentAttestor) writeHighWater(record segmentRecord) error {

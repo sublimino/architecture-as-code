@@ -19,6 +19,19 @@ import (
 	evidenceverify "github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store/verify"
 )
 
+func TestStoreFactoryRejectsRemovedArchivistaConfiguration(t *testing.T) {
+	for _, name := range []string{"ARCHIVISTA_URL", "AUDIT_ANCHOR_REQUIRE_LOG"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("ARCHIVISTA_URL", "")
+			t.Setenv("AUDIT_ANCHOR_REQUIRE_LOG", "")
+			t.Setenv(name, "stale")
+			if _, err := NewStoreFromEnv("frostdb", t.TempDir()); err == nil || !strings.Contains(err.Error(), "support was removed") {
+				t.Fatalf("stale %s error = %v", name, err)
+			}
+		})
+	}
+}
+
 func TestFrostDBExplicitRotationsAttestRealParquetBytes(t *testing.T) {
 	dir := t.TempDir()
 	evidence := filepath.Join(dir, "evidence")
@@ -122,7 +135,7 @@ func TestGoEvidenceAcceptedThenMutationRejectedByPythonVerifier(t *testing.T) {
 		WithManualFlush(),
 		WithSegmentAttestation(SegmentAttestorConfig{
 			EvidenceDir: evidence, PrivateKeyPath: privateKey, HighWaterPath: highwater,
-			ArchivistaURL: os.Getenv("ARCHIVISTA_URL"), RequireArchivista: os.Getenv("AUDIT_ANCHOR_REQUIRE_LOG") == "1", QueueSize: 2,
+			QueueSize: 2,
 		}),
 	)
 	if err != nil {
@@ -142,9 +155,6 @@ func TestGoEvidenceAcceptedThenMutationRejectedByPythonVerifier(t *testing.T) {
 	}
 	verify := func() ([]byte, error) {
 		args := []string{"-m", "audit_anchor.cli", "--public-key", publicKey, "--expected-key-id", signer.keyID, "--source", "segments", "--segment-journal", filepath.Join(evidence, "segments.jsonl"), "--segment-root", storeDir, "--protected-high-water", highwater}
-		if os.Getenv("AUDIT_ANCHOR_REQUIRE_LOG") == "1" {
-			args = append(args, "--require-archivista")
-		}
 		args = append(args, "verify", "--json")
 		cmd := exec.Command("python3", args...)
 		cmd.Env = append(os.Environ(), "PYTHONPATH="+filepath.Clean("../../fe-signalloom/src"), "AUDIT_ANCHOR_DIR="+filepath.Join(evidence, "checkpoints"))

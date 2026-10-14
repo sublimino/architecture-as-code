@@ -12,9 +12,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,41 +22,6 @@ import (
 
 	"github.com/thanos-io/objstore"
 )
-
-type headResponseWriter struct {
-	http.ResponseWriter
-	wroteHeader bool
-}
-
-func (w *headResponseWriter) WriteHeader(status int) {
-	w.wroteHeader = true
-	w.ResponseWriter.WriteHeader(status)
-}
-
-func (w *headResponseWriter) Write(b []byte) (int, error) {
-	if !w.wroteHeader {
-		w.WriteHeader(http.StatusOK)
-	}
-	// Per RFC 9110 Section 6.4.1, responses to HEAD requests MUST NOT contain
-	// a message body, regardless of status code.
-	return len(b), nil
-}
-
-func (w *headResponseWriter) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-func headBodySuppressingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodHead {
-			next.ServeHTTP(&headResponseWriter{ResponseWriter: w}, r)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
 
 func testSigningKey(t testing.TB) string {
 	t.Helper()
@@ -76,12 +38,6 @@ func testSigningKey(t testing.TB) string {
 		t.Fatal(err)
 	}
 	return path
-}
-
-func testArchivistaGitoid(body []byte) string {
-	framed := append([]byte(fmt.Sprintf("blob %d\x00", len(body))), body...)
-	digest := sha256.Sum256(framed)
-	return hexDigest(digest[:])
 }
 
 func TestDSSESignerProducesVerifiableCanonicalEnvelope(t *testing.T) {
@@ -149,123 +105,6 @@ func TestAttestingBucketHashesExactBytesAndIsIdempotent(t *testing.T) {
 	}
 	if lines[0]["state"] != "ok" || lines[0]["checkpoint_inclusion"] == nil {
 		t.Fatalf("journal record is not checkpointed ok: %#v", lines[0])
-	}
-}
-
-func TestSlowPublicationOverflowsVisiblyWithoutBlockingUpload(t *testing.T) {
-	entered := make(chan struct{}, 1)
-	release := make(chan struct{})
-	var blockFirst sync.Once
-	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		blockFirst.Do(func() {
-			entered <- struct{}{}
-			<-release
-		})
-		body, _ := io.ReadAll(r.Body)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"gitoid":"%s"}`, testArchivistaGitoid(body))
-	})))
-	defer server.Close()
-	dir := t.TempDir()
-	a, err := NewSegmentAttestor(SegmentAttestorConfig{
-		EvidenceDir: dir, PrivateKeyPath: testSigningKey(t), HighWaterPath: filepath.Join(dir, "protected", "highwater.json"),
-		QueueSize: 1, ArchivistaURL: server.URL, HTTPClient: server.Client(),
-		// Longer than the hang guard below, so only `release` frees the worker.
-		PublicationTimeout: 10 * time.Minute,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer a.Close()
-	bucket := newAttestingBucket(objstore.NewInMemBucket(), a)
-	if err := bucket.Upload(context.Background(), "signaldb/observations/01/data.parquet", strings.NewReader("one")); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-entered:
-	case <-time.After(time.Second):
-		t.Fatal("worker did not reach slow publication")
-	}
-	if err := bucket.Upload(context.Background(), "signaldb/observations/02/data.parquet", strings.NewReader("two")); err != nil {
-		t.Fatal(err)
-	}
-	// The publication worker is held on `release`, which is closed only after
-	// these 21 uploads have all returned. An Upload that waited on the full
-	// queue could therefore never return, so completing them at all proves
-	// overflow does not block ingestion. The timeout is a hang guard, not a
-	// latency bound (the old 250ms stopwatch measured the machine).
-	uploaded := make(chan error, 1)
-	go func() {
-		for i := 3; i <= 23; i++ {
-			name := fmt.Sprintf("signaldb/observations/%02d/data.parquet", i)
-			if err := bucket.Upload(context.Background(), name, strings.NewReader(name)); err != nil {
-				uploaded <- err
-				return
-			}
-		}
-		uploaded <- nil
-	}()
-	select {
-	case err := <-uploaded:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(30 * time.Second):
-		close(release)
-		t.Fatal("overflow blocked ingestion: uploads did not return while publication was held")
-	}
-	if status := a.Status(); status.QueueOverflows != 21 || status.ErrorQueueOverflows != 0 {
-		t.Fatalf("overflow status = %+v, want 21 recorded queue overflows", status)
-	}
-	close(release)
-	if err := a.Wait(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	errors := readJSONLines(t, filepath.Join(dir, "segments.errors.jsonl"))
-	if len(errors) != 21 {
-		t.Fatalf("durable overflow errors = %d, want 21", len(errors))
-	}
-	for _, record := range errors {
-		if record["operation"] != "queue_overflow" {
-			t.Fatalf("overflow not durably explicit: %#v", record)
-		}
-	}
-}
-
-func TestArchivistaFailureIsExplicitAndDoesNotAdvanceHighwater(t *testing.T) {
-	dir := t.TempDir()
-	a, err := NewSegmentAttestor(SegmentAttestorConfig{
-		EvidenceDir: dir, PrivateKeyPath: testSigningKey(t), HighWaterPath: filepath.Join(dir, "protected", "highwater.json"),
-		QueueSize: 2, ArchivistaURL: "http://127.0.0.1:1", HTTPClient: &http.Client{Timeout: 100 * time.Millisecond},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer a.Close()
-	bucket := newAttestingBucket(objstore.NewInMemBucket(), a)
-	if err := bucket.Upload(context.Background(), "signaldb/observations/01/data.parquet", strings.NewReader("persisted")); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.Wait(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	errors := readJSONLines(t, filepath.Join(dir, "segments.errors.jsonl"))
-	if errors[0]["operation"] != "attest" || !strings.Contains(errors[0]["error"].(string), "Archivista publication failed") {
-		t.Fatalf("publication failure not explicit: %#v", errors[0])
-	}
-	if _, err := os.Stat(filepath.Join(dir, "protected", "highwater.json")); !os.IsNotExist(err) {
-		t.Fatalf("highwater advanced despite publication failure: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "segments.jsonl")); !os.IsNotExist(err) {
-		t.Fatalf("ok journal entry exists without published checkpoint: %v", err)
-	}
-	if status := a.Status(); status.ProcessingError == "" || status.DurableErrors == 0 {
-		t.Fatalf("asynchronous failure is not queryable: %+v", status)
 	}
 }
 
@@ -418,103 +257,6 @@ func TestConcurrentEnqueueAndWaitDuringCloseDoesNotPanic(t *testing.T) {
 	callers.Wait()
 	if err := a.Close(); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestArchivistaPublicationRejectsMalformedReceipt(t *testing.T) {
-	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"accepted"}`))
-	})))
-	defer server.Close()
-	a := &SegmentAttestor{cfg: SegmentAttestorConfig{ArchivistaURL: server.URL, HTTPClient: server.Client()}}
-	if err := a.publishArchivista([]byte(`{}`)); err == nil || !strings.Contains(err.Error(), "gitoid") {
-		t.Fatalf("malformed receipt error = %v", err)
-	}
-}
-
-func TestArchivistaPublicationAcceptsPlainGitBlobReceipt(t *testing.T) {
-	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		body, _ := io.ReadAll(r.Body)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, testArchivistaGitoid(body))
-	})))
-	defer server.Close()
-	a := &SegmentAttestor{cfg: SegmentAttestorConfig{ArchivistaURL: server.URL, HTTPClient: server.Client()}}
-	if err := a.publishArchivista([]byte(`{}`)); err != nil {
-		t.Fatalf("plain GitOID receipt rejected: %v", err)
-	}
-}
-
-func TestArchivistaPublicationRejectsMismatchedGitBlobReceipt(t *testing.T) {
-	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"gitoid":"%s"}`, strings.Repeat("0", 64))
-	})))
-	defer server.Close()
-	a := &SegmentAttestor{cfg: SegmentAttestorConfig{ArchivistaURL: server.URL, HTTPClient: server.Client()}}
-	if err := a.publishArchivista([]byte(`{}`)); err == nil || !strings.Contains(err.Error(), "does not match") {
-		t.Fatalf("mismatched receipt error = %v", err)
-	}
-}
-
-func TestArchivistaPublishesSegmentAndCheckpointEnvelopes(t *testing.T) {
-	var subjects []string
-	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		body, _ := io.ReadAll(r.Body)
-		var envelope dsseEnvelope
-		if err := json.Unmarshal(body, &envelope); err != nil {
-			t.Error(err)
-		}
-		payload, _ := base64.StdEncoding.DecodeString(envelope.Payload)
-		var statement struct {
-			Subject []struct {
-				Name string `json:"name"`
-			} `json:"subject"`
-		}
-		if err := json.Unmarshal(payload, &statement); err != nil {
-			t.Error(err)
-		}
-		subjects = append(subjects, statement.Subject[0].Name)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"gitoid":"%s"}`, testArchivistaGitoid(body))
-	})))
-	defer server.Close()
-	dir := t.TempDir()
-	a, err := NewSegmentAttestor(SegmentAttestorConfig{
-		EvidenceDir: dir, PrivateKeyPath: testSigningKey(t), HighWaterPath: filepath.Join(dir, "protected", "highwater.json"),
-		ArchivistaURL: server.URL, HTTPClient: server.Client(), QueueSize: 2,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer a.Close()
-	segment := "signaldb/observations/new/data.parquet"
-	if err := a.process(segmentUpload{name: segment, digest: strings.Repeat("a", 64), size: 1}); err != nil {
-		t.Fatal(err)
-	}
-	if len(subjects) != 2 || subjects[0] != segment || !strings.HasPrefix(subjects[1], "signalloom-segment-checkpoint/") {
-		t.Fatalf("published subjects = %v", subjects)
 	}
 }
 
@@ -766,41 +508,6 @@ func TestSecondaryErrorBufferIsBoundedAndLossIsProtected(t *testing.T) {
 	}
 }
 
-func TestPublicationTimeoutBoundsCustomClientWithoutTimeout(t *testing.T) {
-	release := make(chan struct{})
-	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		<-release
-	})))
-	defer func() {
-		close(release)
-		server.Close()
-	}()
-	a := &SegmentAttestor{cfg: SegmentAttestorConfig{
-		ArchivistaURL: server.URL, HTTPClient: server.Client(), PublicationTimeout: 25 * time.Millisecond,
-	}}
-	// The server never answers until the test ends, so publishArchivista
-	// returning at all, with the deadline error, is the proof that
-	// PublicationTimeout bounds a client that has no timeout of its own. The
-	// select is a hang guard, not a latency bound (the old 500ms stopwatch
-	// measured the machine).
-	published := make(chan error, 1)
-	go func() { published <- a.publishArchivista([]byte(`{}`)) }()
-	var err error
-	select {
-	case err = <-published:
-	case <-time.After(30 * time.Second):
-		t.Fatal("custom client publication was not bounded: publishArchivista never returned")
-	}
-	if err == nil || !strings.Contains(err.Error(), "context deadline exceeded") {
-		t.Fatalf("publication timeout error = %v", err)
-	}
-}
-
 func readProtectedHighWater(t *testing.T, path string) protectedHighWater {
 	t.Helper()
 	raw, err := os.ReadFile(path)
@@ -829,60 +536,4 @@ func readJSONLines(t *testing.T, path string) []map[string]any {
 		records = append(records, record)
 	}
 	return records
-}
-
-func TestArchivistaMockServerMethodGatingAndHEAD(t *testing.T) {
-	server := httptest.NewServer(headBodySuppressingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		body, _ := io.ReadAll(r.Body)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"gitoid":"%s"}`, testArchivistaGitoid(body))
-	})))
-	defer server.Close()
-
-	client := server.Client()
-
-	// 1. Mutating / non-POST methods must return 405 Method Not Allowed with Allow: POST
-	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
-		req, err := http.NewRequest(method, server.URL+"/upload", nil)
-		if err != nil {
-			t.Fatalf("NewRequest(%s): %v", method, err)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatalf("Do(%s): %v", method, err)
-		}
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusMethodNotAllowed {
-			t.Errorf("%s returned %d, want 405", method, resp.StatusCode)
-		}
-		if allow := resp.Header.Get("Allow"); allow != "POST" {
-			t.Errorf("%s Allow header = %q, want POST", method, allow)
-		}
-	}
-
-	// 2. HEAD must return 405 with empty body and Allow: POST
-	headReq, err := http.NewRequest(http.MethodHead, server.URL+"/upload", nil)
-	if err != nil {
-		t.Fatalf("NewRequest(HEAD): %v", err)
-	}
-	headResp, err := client.Do(headReq)
-	if err != nil {
-		t.Fatalf("Do(HEAD): %v", err)
-	}
-	headBody, _ := io.ReadAll(headResp.Body)
-	headResp.Body.Close()
-	if headResp.StatusCode != http.StatusMethodNotAllowed {
-		t.Errorf("HEAD returned %d, want 405", headResp.StatusCode)
-	}
-	if allow := headResp.Header.Get("Allow"); allow != "POST" {
-		t.Errorf("HEAD Allow header = %q, want POST", allow)
-	}
-	if len(headBody) != 0 {
-		t.Errorf("HEAD body length = %d, want 0", len(headBody))
-	}
 }

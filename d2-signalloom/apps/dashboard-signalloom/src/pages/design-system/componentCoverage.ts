@@ -199,6 +199,10 @@ const SOURCE_SYMBOLS: readonly SourceSymbols[] = [
   ['views/Agents.tsx', 'Agents AgentCard NHICard'],
   ['views/Settings.tsx', 'Settings SectionCard Field FrameworkToggle ApiKeyStatus'],
   ['views/AuditTrail.tsx', 'AuditTrail EventTag ToolbarField'],
+  ['components/AgentOnboardingTab.tsx', 'AgentOnboardingTab'],
+  ['components/help/HelpCardComponents.tsx', 'CopyableCodeBlock DocLinkCard'],
+  ['pages/DeploySensorHelpPage.tsx', 'DeploySensorHelpPage'],
+  ['pages/OnboardAgentHelpPage.tsx', 'OnboardAgentHelpPage'],
 ]
 
 type Representation =
@@ -276,6 +280,8 @@ const ROUTE_SOURCES: readonly [source: string, href: string, state: string][] = 
   ['views/Agents.tsx', '/agents', 'Open the legacy Agents view through the agent inventory.'],
   ['views/Settings.tsx', '/settings', 'Open Settings to view platform configuration controls.'],
   ['views/AuditTrail.tsx', '/audit', 'Open Audit Trail with demo mode enabled.'],
+  ['pages/DeploySensorHelpPage.tsx', '/settings/help/deploy-sensor', 'Open Settings and choose Deploy Sensor Help in the infrastructure guide.'],
+  ['pages/OnboardAgentHelpPage.tsx', '/settings/help/onboard-agent', 'Open Settings and choose Onboard Agent Help in the agent integration guide.'],
 ]
 
 for (const route of ROUTE_SOURCES) routeSource(...route)
@@ -294,6 +300,7 @@ routeSource('components/AgentOverviewTab.tsx', '/agents/demo-agent', 'Open the d
 routeSource('components/AgentAssessmentsTab.tsx', '/agents/demo-agent', 'Open the demo agent and choose the Assessments tab.')
 routeSource('components/AgentActivityTab.tsx', '/agents/demo-agent', 'Open the demo agent and choose the Activity tab.')
 routeSource('components/AgentAccessTab.tsx', '/agents/demo-agent', 'Open the demo agent and choose the Access tab.')
+routeSource('components/AgentOnboardingTab.tsx', '/agents/demo-agent', 'Open the demo agent and choose the Onboarding tab.')
 routeSource('components/CodingAgentsTab.tsx', '/agents/demo-agent', 'Open the demo agent and choose the Coding agents tab.')
 routeSource('components/AgentReviewQueue.tsx', '/agents', 'Open Agents; the review queue appears above the inventory after evidence loads.')
 routeSource('components/admin/EditUserModal.tsx', '/admin/users', 'Open Admin Users as a superadmin and choose Edit on a user row.')
@@ -346,6 +353,8 @@ const VERIFIED_ROUTE_SYMBOLS: readonly [source: string, symbol: string, href: st
   ['components/MetricsTopBar.tsx', 'MetricsTopBar', '/agents', 'Open the authenticated application shell on Agents to view the metrics top bar.', 'Rendered by components/TopNav.tsx.'],
   ['components/ConsentModal.tsx', 'ConsentModal', '/agents', 'Open an authenticated route when consent is enabled and the current user still requires consent.', 'Conditionally rendered by App.tsx from verified authentication and consent state.'],
   ['App.tsx', 'App', '/agents', 'Open the authenticated Agents route to render the application shell and routed page.', 'App.tsx owns the shared shell and application route tree.'],
+  ['components/help/HelpCardComponents.tsx', 'CopyableCodeBlock', '/settings/help/deploy-sensor', 'Open Deploy Sensor Help to view copyable command blocks.', 'Rendered by pages/DeploySensorHelpPage.tsx and pages/OnboardAgentHelpPage.tsx.'],
+  ['components/help/HelpCardComponents.tsx', 'DocLinkCard', '/settings/help/deploy-sensor', 'Open Deploy Sensor Help to view documentation link cards.', 'Rendered by pages/DeploySensorHelpPage.tsx and pages/OnboardAgentHelpPage.tsx.'],
 ]
 
 for (const route of VERIFIED_ROUTE_SYMBOLS) routeSymbol(...route)

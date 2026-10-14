@@ -246,8 +246,9 @@ echo ""
 # Axis C: Whole-Codebase Architectural Deepening (Pocock: improve-codebase-architecture, codebase-design, setup-ts-deep-modules)
 # ------------------------------------------------------------------------------
 echo "## Axis C: Whole-Codebase Architecture & Seam Depth (improve-codebase-architecture, codebase-design, setup-ts-deep-modules)"
-echo "  [C1] Deep-Module Seam Scan  : Ready (use codebase-design + improve-codebase-architecture)"
-echo "  [C2] TS Entry-Point Seams   : Verified (test/acceptance/harness/http-gate.ts shared seam)"
+echo "  [C1] Deep-Module Seam Scan  : UNVERIFIED (requires architectural analysis)"
+echo "  [C2] TS Entry-Point Seams   : UNVERIFIED (helper presence does not prove boundary enforcement)"
+echo "ARCHITECTURE_STATUS=UNVERIFIED"
 
 echo ""
 # ------------------------------------------------------------------------------
@@ -256,7 +257,7 @@ echo ""
 TOTAL_JOBS="${#JOBS[@]}"
 echo "## Cleanup Job Manifest ($TOTAL_JOBS job(s) via to-tickets)"
 if [ "$TOTAL_JOBS" -eq 0 ]; then
-  echo "  None — repository is clean across Standards, Spec, and Architecture axes."
+  echo "  None from the executed Standards and Spec checks; Architecture remains UNVERIFIED."
 else
   idx=1
   for job in "${JOBS[@]}"; do

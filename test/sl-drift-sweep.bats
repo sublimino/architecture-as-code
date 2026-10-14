@@ -8,6 +8,14 @@ setup() {
   TOOL="$SKILL_DIR/Tools/drift-sweep.sh"
 }
 
+@test "drift sweep cannot certify unexecuted architecture checks" {
+  run "$TOOL" --skip-docs-lint --ignore-dirty
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ARCHITECTURE_STATUS=UNVERIFIED"* ]]
+  [[ "$output" != *"TS Entry-Point Seams   : Verified"* ]]
+  [[ "$output" != *"clean across Standards, Spec, and Architecture axes"* ]]
+}
+
 @test "sl-drift-sweep skill files and executable tool exist" {
   [ -f "$SKILL_DIR/SKILL.md" ]
   [ -f "$SKILL_DIR/Workflows/Sweep.md" ]
@@ -16,8 +24,11 @@ setup() {
   grep -q "^name: sl-drift-sweep$" "$SKILL_DIR/SKILL.md"
 }
 
-@test "drift-sweep.sh defaults to PAUSE_FOR_APPROVAL and reports CLEAN on remediated repo" {
-  run "$TOOL" --skip-docs-lint --ignore-dirty
+@test "drift-sweep.sh defaults to PAUSE_FOR_APPROVAL on a clean fixture" {
+  local tmp_repo="$BATS_TEST_TMPDIR/clean-repo"
+  mkdir -p "$tmp_repo"
+  git -C "$tmp_repo" init -q
+  run "$TOOL" --repo-root "$tmp_repo" --skip-docs-lint --ignore-dirty
   [ "$status" -eq 0 ]
   [[ "$output" == *"Execution Mode : PAUSE_FOR_APPROVAL"* ]]
   [[ "$output" == *"STATUS: CLEAN (standards=0, spec=0, jobs=0,"*"mode=PAUSE_FOR_APPROVAL)"* ]]

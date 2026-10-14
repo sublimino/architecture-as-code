@@ -32,6 +32,17 @@ on:
       - "d2-signalloom/test/authz-suite-liveness.bats"
       - "d2-signalloom/test/api-route-liveness.bats"
       - "d2-signalloom/test/eap-netpol.bats"
+      - ".agents/skills/sl-architecture-audit/**"
+      - ".agents/skills/sl-security-audit/**"
+      - ".agents/skills/sl-drift-sweep/**"
+      - ".opencode/agents/sl-audit-reviewer.md"
+      - "scripts/test-scheduled-skills-parallel.sh"
+      - "scripts/lib/scheduled-skills-runner.py"
+      - "scripts/semgrep-gate.mjs"
+      - "test/scheduled-skills-parallel.bats"
+      - "test/sl-architecture-audit.bats"
+      - "test/sl-security-audit.bats"
+      - "test/sl-drift-sweep.bats"
       - "Makefile"
       - ".github/workflows/signalloom-eap-pr.yaml"
   workflow_dispatch:
@@ -174,6 +185,14 @@ jobs:
           bats test/cel-admission-image-trust.bats
           bats test/attached-mode-preflight.bats
           bats test/ed25519-keygen-interop.bats
+
+      - name: Audit harness safety contracts
+        timeout-minutes: 3
+        run: |
+          bats test/scheduled-skills-parallel.bats
+          bats test/sl-architecture-audit.bats
+          bats test/sl-security-audit.bats
+          bats test/sl-drift-sweep.bats
 
       - name: make test-eap-offline
         # The exit status of `make` is the exit status of this step. Nothing is

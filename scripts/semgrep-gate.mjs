@@ -56,7 +56,7 @@ const semgrepHome =
   process.env.SEMGREP_HOME || resolve(repoRoot, ".cache/semgrep-home");
 
 const run = spawnSync(
-  "semgrep",
+  process.env.SEMGREP_BIN || "semgrep",
   [
     `--config=${config}`,
     "--metrics=off",

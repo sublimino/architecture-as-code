@@ -587,6 +587,7 @@ test-all-offline: offline-deps ## Run all offline test suites (Go unit, Vitest, 
 	# as registered. That guard answers "is this suite named?" and not "does
 	# anything run it?" -- reported separately rather than papered over here.
 	$(MAKE) flux-coverage-test
+	$(MAKE) test-scheduled-skills-contracts
 	$(MAKE) demo-mission-honesty-test
 	$(MAKE) test-cpai-engineer-acceptance
 	$(MAKE) test-sler-multiplane-acceptance
@@ -819,9 +820,25 @@ test-kpai: ## Run KPAI runtime harness probe tests and contract validation.
 		systemd-run --user --wait --collect --pipe -p NoNewPrivileges=yes --setenv=NONO_CAP_FILE="/tmp/.nono-test.json" bash -c 'export PATH=/home/linuxbrew/.linuxbrew/bin:$$PATH && touch /tmp/.nono-test.json && cd "$(CURDIR)" && bun test test/unit/kpai-harness-contract.test.ts test/unit/kpai-harness-execution.test.ts'; \
 	fi
 
-.PHONY: test-scheduled-skills-parallel
-test-scheduled-skills-parallel: ## Execute Signal Loom scheduled-run skills concurrently in parallel.
-	./scripts/test-scheduled-skills-parallel.sh
+.PHONY: test-scheduled-skills-parallel test-scheduled-skills-contracts architecture-audit security-audit architecture-audit-test security-audit-test
+AUDIT_ARGS ?=
+test-scheduled-skills-parallel: ## Collect bounded offline audits with GNU Parallel, then send safe evidence to an agent.
+	./scripts/test-scheduled-skills-parallel.sh $(AUDIT_ARGS)
+
+architecture-audit: ## Collect architecture evidence and send it to the restricted audit reviewer.
+	./scripts/test-scheduled-skills-parallel.sh --skill sl-architecture-audit $(AUDIT_ARGS)
+
+security-audit: ## Collect offline security evidence and send it to the restricted audit reviewer.
+	./scripts/test-scheduled-skills-parallel.sh --skill sl-security-audit $(AUDIT_ARGS)
+
+architecture-audit-test: ## Run offline architecture collector fixture contracts.
+	bats test/sl-architecture-audit.bats
+
+security-audit-test: ## Run offline security collector fixture contracts.
+	bats test/sl-security-audit.bats
+
+test-scheduled-skills-contracts: ## Run bounded audit runner, collector, and honest-status contracts without model calls.
+	bats test/scheduled-skills-parallel.bats test/sl-architecture-audit.bats test/sl-security-audit.bats test/sl-drift-sweep.bats
 
 ##@ Composable demo lifecycle
 

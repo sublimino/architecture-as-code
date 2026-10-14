@@ -2030,6 +2030,17 @@ test-bot-fuzz-unit: ## Run unit and property tests for Jev chaos and fuzzing eng
 test-bot-routes: ## Print the dashboard route surface the loop derives from App.tsx.
 	@python3 scripts/jev-test-bot/routes.py $(ARGS)
 
+.PHONY: chaos-walk chaos-walk-deep chaos-walk-api
+chaos-walk: ## Run sl-chaos-walk quick route sanity walk (AREA=<path>, TURNS=<n>, URL=<url>, MOCK=true).
+	@.agents/skills/sl-chaos-walk/Tools/chaos-walk.sh --profile quick-walk $(if $(AREA),--area $(AREA),) $(if $(TURNS),--turns $(TURNS),) $(if $(URL),--url $(URL),) $(if $(filter true 1,$(MOCK)),--mock,)
+
+chaos-walk-deep: ## Run sl-chaos-walk deep exploratory chaos fuzzing (TURNS=<n>, URL=<url>, AREA=<path>).
+	@.agents/skills/sl-chaos-walk/Tools/chaos-walk.sh --profile deep-chaos $(if $(AREA),--area $(AREA),) $(if $(TURNS),--turns $(TURNS),) $(if $(URL),--url $(URL),) $(if $(filter true 1,$(MOCK)),--mock,)
+
+chaos-walk-api: ## Run sl-chaos-walk high-concurrency REST endpoint API storm (REQUESTS=<n>, CONCURRENCY=<n>, URL=<url>).
+	@.agents/skills/sl-chaos-walk/Tools/chaos-walk.sh --profile api-storm $(if $(REQUESTS),--requests $(REQUESTS),) $(if $(CONCURRENCY),--concurrency $(CONCURRENCY),) $(if $(URL),--url $(URL),)
+
+
 ##@ Remote & Public access (Tailscale)
 # SignalLoom uses a contract-first Dex single-issuer lease mechanism.
 # Only one origin (Funnel, Serve, or IAP) can publish at a time.

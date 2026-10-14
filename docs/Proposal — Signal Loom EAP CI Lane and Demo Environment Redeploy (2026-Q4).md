@@ -1115,4 +1115,91 @@ All three readings (Reading 1: Baseline; Reading 2: After Scratch Rebuild + Rest
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 <!-- kanban-check: {"card":"EAPCI-P2-5","status":"pass","commit":"5963a7ff"} -->
 
+#### Errata — EAPCI-P2-6
+**Created:** 2026-10-13 12:01:07 +0100
+**Last Updated:** 2026-10-13 12:01:07 +0100
+**Status:** Completed offline. Live verification on `kind-osramp` is outstanding and belongs to the Governor.
+**Commit:** `816603d4` on branch `segment-key-ns-f2`, base `053241da`, unsigned.
+**Governor merge:** pending Governor reconciliation
+**Decisions:** Propagate one per-cluster segment pseudonym key to every namespace that mounts it, from `scripts/signal-segment-key.sh`. Keep `actor_vars` in the SuperCred bundle.
+**Deviations:** P2-6 is the next free slot in this proposal's errata sequence. It is not a card on the board, and nobody should look for one.
+**Notes:** No `kanban-check` block is recorded below. No Governor ran this work, and a pass verdict nobody issued would be a fabricated record.
+
+**This errata lives here and not in the SuperCred Lifecycle Resilience proposal.** That proposal names `scripts/supercred-demo.sh` ten times and owns the lifecycle. It also carries no errata section at all. This proposal owns the acceptance lane the defect blocked, and carries eight errata in the house shape. Writing into one file only was a condition of the card.
+
+##### The defect as measured
+
+`scripts/signal-segment-key.sh:24` hardcoded `NS="fe-signalloom"`. Two manifests mount Secret `signal-ingest-segment-pseudonym`. They are `d2-signalloom/apps/policy-engine/base/deployment.yaml` and `d2-signalloom/apps/signal-ingest/base/deployment.yaml`.
+
+`scripts/supercred-demo.sh` step 1 applies the **same** policy-engine base into `inf-signalloom`. The Secret had never existed in that namespace. The SuperCred bundle `policy/bundles/kusari-cloud-signals` declares `actor_vars`, and `d2-signalloom/pkg/obscel` refuses to load such a bundle without a key, so the engine exited instead of starting.
+
+The rollout then timed out at 120 seconds inside the `scripts/acceptance-test.sh` preflight. Every browser acceptance spec became unrunnable. The only operator-visible text was `policy-engine deployment failed`, which names neither the namespace nor the Secret. It sent an investigator to the wrong service. The `fe-signalloom` policy-engine was never affected.
+
+##### Why the key propagates and is never re-minted per namespace
+
+Someone will later think per-namespace minting is tidier. It is not, and this is the paragraph that should stop them.
+
+The key is per **cluster**, not per namespace. The pseudonym is an HMAC over it, per section 2 of `docs/signalloom/sldp-downstream-contract.md`. Two independently generated keys therefore give one actor two different pseudonyms. Nothing crashes. Every component starts, every reply is well formed, and correlation across the estate is silently wrong.
+
+That is a correctness defect that looks like success. It is worse than the crash it would appear to fix, because the crash is at least loud. So the first namespace in `--namespace` order is the source of truth. A run reads its key and copies it to any namespace that is missing it or holds something else.
+
+**The structural guarantee is that generation sits outside the per-namespace loop.** The tests pin the behaviour, but the shape is what makes re-minting impossible. One key is generated, then one multi-document `kubectl apply` writes that same material to every pending namespace. Anyone refactoring that loop needs to know the generation is outside it on purpose.
+
+##### Why `actor_vars` was not dropped from the SuperCred bundle
+
+This is the tempting one-line fix, so it is closed off here by name. `d2-signalloom/pkg/obscel/conformance.go:136` shows why the check exists. An `obs.actor` comparison against an unpseudonymised list can never match, so a negative allow-list test becomes always-true. Removing the declaration to dodge a provisioning bug would trade a deployment defect for a security one.
+
+##### Why propagation belongs in the script and not in the caller
+
+Putting the copy in `scripts/supercred-demo.sh` would place the one-key-per-cluster invariant in the single caller that happened to break. The next caller would then repeat the defect. Meanwhile `scripts/signal-segment-key.sh` would go on claiming in its own header to own the key, without owning it.
+
+No cross-namespace Secret mechanism was available to reuse. The manifests carry no Emberstack reflector, no kubernetes-replicator, no External Secrets `ExternalSecret` or `ClusterSecretStore`, and no Kyverno generate rule. The only `kyverno` matches in the tree are prose and one Go test. The house pattern that was followed instead is `scripts/afm-importer-key.sh`, which writes identical material into two namespaces as two documents of one stdin apply.
+
+##### The guard is general, not local
+
+`test/signal-segment-key-namespaces.bats` derives the namespace set rather than asserting this one. It discovers every manifest mounting the Secret, then every namespace each is applied into, and fails if the provisioning path does not cover them all.
+
+Mutating `scripts/supercred-demo.sh` to deploy policy-engine into a brand-new `inf-elsewhere` turns the suite red and names it. That discharges the requirement to catch the next namespace somebody deploys that base into. It is the difference between fixing this bug and fixing the class, and it is the reason the guard belongs beside the script.
+
+Mutation results, each restored from an explicit backup copy and never from the index:
+
+| Mutation | Observed |
+| --- | --- |
+| `DEFAULT_NAMESPACES` collapsed to one namespace | 6 failures in the unit suite, 3 in the namespace suite |
+| `supercred-demo.sh` deploys into a new `inf-elsewhere` | namespace suite fails and prints the namespace and the fix |
+| key generated inside the per-namespace loop | 5 failures, including the identical-material and rotate tests |
+| the `test-all-offline` invocation deleted | the reachability test fails |
+
+##### The new failure message
+
+Verbatim from the fail-closed path, with `POD_NAMESPACE` set to `inf-signalloom`:
+
+```text
+obscel: bundle kusari-cloud-signals declares actor_vars but SIGNAL_SEGMENT_PSEUDONYM_KEY is not configured: Secret inf-signalloom/signal-ingest-segment-pseudonym is absent or has no SIGNAL_SEGMENT_PSEUDONYM_KEY; mint and propagate it with: make signal-segment-key CONTEXT=<kube-context>
+```
+
+An unset `POD_NAMESPACE` renders the namespace as a statement that the value is unset. Naming `fe-signalloom` as a default would point the reader at a namespace holding a healthy Secret.
+
+**The downward-API `POD_NAMESPACE` added to the policy-engine Deployment does not unblock anything.** It exists only so the message can name the namespace. Knowing which Secret it should have does not make that Secret exist. The namespace list in the script and the provisioning call before the deploy are what unblock the suite. The two changes complement, and neither substitutes for the other.
+
+`scripts/supercred-demo.sh` also gained `diagnose_policy_engine`. On a rollout timeout it now names the namespace, reports whether the Secret is absent, prints the mint command, and quotes the container's own last error line.
+
+##### The hand-copied Secret is now redundant
+
+A sibling unblocked the acceptance run by hand-copying the Secret into `inf-signalloom`, annotated `osramp.io/copied-by: W23-acceptance-run`. That copy took `fe-signalloom` material, so it already matches the source of truth. The next run reads the primary, finds the secondary holding exactly that value, reports `kept`, and writes nothing.
+
+It has not been deleted, and deleting it is not proposed here. It is currently the only thing keeping the suite runnable on that estate. If it is ever removed, the next `make signal-segment-key` recreates it with the same key. A server-side apply leaves the annotation in place, so the patch stays visibly labelled.
+
+##### Finding outside the card: the fourth unrun gate
+
+`test/signal-segment-key.bats` was executed by nothing before this commit. The root `Makefile` has no `test/*.bats` glob, only `d2-signalloom/Makefile` has one. No workflow and neither pipeline script named the suite. `scripts/ci/vm-pipeline.sh:262` calls the **script** through `make signal-segment-key`, never the suite.
+
+So that guard shipped with zero regression protection from the day it was committed. Four occurrences in one week is no longer coincidence. It is a property of how this repo registers tests, and `d2-signalloom/test/bats-registry-coverage.bats` cannot catch it, because it greps a basename against Makefile text. A target nothing calls still reads as registered. Both halves are needed, and only the second is an invocation.
+
+The fix here is a `test-signal-segment-key` target that runs both suites, invoked from `test-all-offline`. The namespace suite asserts both halves, including that the invocation sits inside that recipe.
+
+##### Interaction with EAPCI-P1-5
+
+P1-5 plans to export and restore the identity Secrets a rebuild would otherwise re-mint, and names `signal-segment-key` among them. That plan is unchanged and still needed. A rebuild now re-mints once and propagates one key, so a rebuilt cluster still has a single pseudonym domain. The data risk P1-5 guards is the stored rows pseudonymised under the previous key, and propagation does not address that.
+
 

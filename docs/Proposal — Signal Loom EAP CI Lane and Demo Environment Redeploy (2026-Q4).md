@@ -1354,10 +1354,10 @@ Evidence was read from the lanes' own reports in `demo-reports/<lane>/summary.js
 
 #### Errata — EAPCI-P2-6
 **Created:** 2026-10-13 12:01:07 +0100
-**Last Updated:** 2026-10-13 12:01:07 +0100
-**Status:** Completed offline. Live verification on `kind-osramp` is outstanding and belongs to the Governor.
-**Commit:** `816603d4` on branch `segment-key-ns-f2`, base `053241da`, unsigned.
-**Governor merge:** pending Governor reconciliation
+**Last Updated:** 2026-10-14 17:10:00 +0100
+**Status:** Completed offline. Reconciled into feature branch.
+**Commit:** `6f611cea9` on `feat/signal-loop-and-bootstrap-refactor` (canonical landing; originally `816603d4` on `segment-key-ns-f2`), unsigned.
+**Governor merge:** reconciled and merged into feature branch (commit `6f611cea9`)
 **Decisions:** Propagate one per-cluster segment pseudonym key to every namespace that mounts it, from `scripts/signal-segment-key.sh`. Keep `actor_vars` in the SuperCred bundle.
 **Deviations:** P2-6 is the next free slot in this proposal's errata sequence. It is not a card on the board, and nobody should look for one.
 **Notes:** No `kanban-check` block is recorded below. No Governor ran this work, and a pass verdict nobody issued would be a fabricated record.

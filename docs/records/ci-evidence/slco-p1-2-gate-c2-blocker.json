@@ -1,0 +1,117 @@
+{
+  "task": "SLCO-P1-2",
+  "gate": "C2",
+  "status": "fail",
+  "blocking_drift": true,
+  "observed_at": "2026-10-15T00:48:23+01:00",
+  "base_ref": "integration/slco-v0.1.0",
+  "source_commit": "758258131e9b256767fa0f6f4aa046eef4aff46b",
+  "worktree": "/home/andy/src/.worktrees/a57cd/osramp-demo",
+  "reported_pwd": "/home/andy/.cline/worktrees/a57cd/osramp-demo",
+  "integration_ancestry_exit": 0,
+  "initial_git_status": "clean",
+  "blocker": "The contracted suite does not contain the four required named tests or assertions for host_enrollment_tokens.consumed_at persistence. Certification requires reconciling the approved evidence contract, not substituting similar external-agent tests.",
+  "inspection": {
+    "method": "Python AST function-definition inventory and exact source-reference counts; independent read-only explore review",
+    "exit_code": 0,
+    "suite": "d2-signalloom/apps/fe-signalloom/src/tests/test_host_enrollment.py",
+    "test_definitions": 19,
+    "required_tests_missing": [
+      "test_expired_token_enrollment_rejected",
+      "test_token_cannot_be_reused",
+      "test_host_enrollment_auto_claims_agent",
+      "test_enrollment_token_bound_to_specific_tenant"
+    ],
+    "consumed_at_references": 0,
+    "host_enrollment_tokens_references": 0,
+    "operative_output": "19 test definitions; four required names absent; consumed_at references: 0; host_enrollment_tokens references: 0",
+    "independent_review": "Confirmed missing tests and database state assertions; pending response, enrolled response, and claimed audit event do not prove persisted host lifecycle."
+  },
+  "coverage_matrix": [
+    {
+      "requirement": "19 passed, zero failures or skips, under ten seconds",
+      "status": "not_run",
+      "evidence": "Stopped at material contract discrepancy before pytest execution. No passing test log is claimed."
+    },
+    {
+      "requirement": "Replay always returns HTTP 401/404 without second host creation",
+      "status": "not_certified",
+      "evidence": "Suite lines 207-239 allow 401 or 409; lines 651 onward include same-nonce idempotent registration. No exploit is established by this static inspection."
+    },
+    {
+      "requirement": "consumed_at is updated in the mock database",
+      "status": "coverage_gap",
+      "evidence": "Suite has no consumed_at or host_enrollment_tokens reference. Implementation at host_enrollment.py:720-736 is not test verification."
+    },
+    {
+      "requirement": "Expired token deterministic rejection",
+      "status": "not_certified",
+      "evidence": "Similar test_expired_token at suite lines 280-311 exists but required exact name is absent; not executed."
+    },
+    {
+      "requirement": "Automated registration persists the issuing tenant",
+      "status": "coverage_gap",
+      "evidence": "Request-tenant mismatch test at lines 606-649 does not assert persisted token-ledger tenant binding."
+    },
+    {
+      "requirement": "Persisted pending to enrolled to claimed host lifecycle",
+      "status": "coverage_gap",
+      "evidence": "Suite lines 104-142 assert pending/enrolled responses and a claimed event, not persisted agent_registry or agent_claims state."
+    },
+    {
+      "requirement": "Raw tokens never persisted in database tables",
+      "status": "not_certified",
+      "evidence": "SHA256 helper test exists, but no database persistence assertion is established."
+    },
+    {
+      "requirement": "Adversarial fuzzing and user-facing exception leak audit",
+      "status": "not_run",
+      "evidence": "No alternative fuzzing or runtime execution after stop condition."
+    },
+    {
+      "requirement": "Process IDs and memory utilization within defined budgets",
+      "status": "not_measured",
+      "evidence": "No pytest process launched; no memory budget value specified by the card."
+    },
+    {
+      "requirement": "Signed verification entry in runbook ledger",
+      "status": "withheld",
+      "evidence": "No passing certification or signature issued for unsupported claims."
+    },
+    {
+      "requirement": "Canonical Life OS and PAI security invariant compliance",
+      "status": "qualified",
+      "evidence": "No canonical Life OS control inventory was supplied. Isolation, source verification, runtime non-mutation and Governor merge boundaries were observed; broader compliance is not certified."
+    },
+    {
+      "requirement": "SHA256 reproducibility evidence",
+      "status": "recorded",
+      "evidence": "Source SHA256 values below bind this static inspection only; not a substitute for executed test evidence."
+    }
+  ],
+  "canonical_runbook": {
+    "path": "2. Areas/CEO/Innovation Validation/Validation Runbook — SLCO Signal Loom Customer Onboarding Flow v2 (2026-Q4).md",
+    "read_via": "obsidian-read --json",
+    "C2": "100% pass (SLOA baseline: 13 passed)",
+    "T3": "consumed_at IS NULL AND expires_at > NOW(); 401/404; no second host created",
+    "modified": false
+  },
+  "sha256": {
+    "d2-signalloom/apps/fe-signalloom/src/tests/test_host_enrollment.py": "3bac158badb9971053c29aca2f62a32b4f1ec27ddc934df648b873545114f29b",
+    "d2-signalloom/apps/fe-signalloom/src/host_enrollment.py": "efded4965e280e18a7d8f034c921b9b2855ba23e509c5f5713de9f5efd8c1601",
+    "d2-signalloom/apps/fe-signalloom/src/external_agent_registration.py": "f45d97d7926f873a0a5691d05459939d8a31da493a429c821c3df586dcbec768",
+    "d2-signalloom/apps/fe-signalloom/src/db/migrations/040_host_enrollment_tokens.sql": "be2e2d81993b104f8c7510fd06fcf0b4daf05f5e35b2225be82a6cfe318c196a",
+    "docs/records/ci-evidence/slco-p1-pre-preflight-audit.json": "344acef783c50bb963340d98c1b3ceb647c719eb2da848c71b8ed1ced4068ca4"
+  },
+  "boundaries": {
+    "application_or_tests_modified": false,
+    "live_database_accessed": false,
+    "production_tokens_minted": false,
+    "systemd_dex_or_routes_modified": false,
+    "board_or_runtime_state_modified": false,
+    "sibling_worktrees_modified": false,
+    "integration_merge_attempted": false,
+    "push_or_pr_attempted": false
+  },
+  "recommended_action": "escalate: reconcile the approved test names and required database-ledger assertions, then authorize a rerun; do not infer certification from a count of 19 external-agent tests"
+}

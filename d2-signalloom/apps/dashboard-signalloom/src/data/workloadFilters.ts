@@ -1,4 +1,5 @@
 import type { AgentResponse, DiscoveryWorkload } from '../types/api'
+import { detectGitOps } from '../utils/gitops'
 
 /**
  * Checks whether an entity (AgentResponse, DiscoveryWorkload, or raw K8s object)
@@ -6,6 +7,11 @@ import type { AgentResponse, DiscoveryWorkload } from '../types/api'
  */
 export function hasGitOpsMetadata(entity: unknown): boolean {
   if (!entity || typeof entity !== 'object') return false
+
+  // 0. Reusable GitOps detection engine
+  if (detectGitOps(entity).isGitOps) {
+    return true
+  }
 
   const e = entity as Record<string, any>
 

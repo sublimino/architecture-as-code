@@ -19,7 +19,7 @@ const BASE = config.base;
 interface NavItemSpec {
   name: string;
   href: string;
-  category: "View" | "Control" | "Design";
+  category: "View" | "Control" | "Config";
 }
 
 const PRIMARY_NAV_ITEMS: NavItemSpec[] = [
@@ -36,9 +36,9 @@ const PRIMARY_NAV_ITEMS: NavItemSpec[] = [
   { name: "Collusion & Access", href: "/collusion-access", category: "Control" },
   { name: "Audit Trail", href: "/audit", category: "Control" },
 
-  // Design Tier
-  { name: "Federated Services", href: "/federated-services", category: "Design" },
-  { name: "Settings", href: "/settings", category: "Design" },
+  // Config Tier
+  { name: "Federated Services", href: "/federated-services", category: "Config" },
+  { name: "Settings", href: "/settings", category: "Config" },
 ];
 
 const SUPERADMIN_NAV_ITEMS = [
@@ -55,13 +55,13 @@ test.describe("Surface 1: Governance Navigation & Role Gating (Desktop 1280x800)
     await login(page, { demoMode: true });
   });
 
-  test("renders 3 core tier headings (View, Control, Design) and ordered primary items", async ({ page }) => {
+  test("renders 3 core tier headings (View, Control, Config) and ordered primary items", async ({ page }) => {
     const nav = page.locator("#sl-sidebar-nav");
     await expect(nav).toBeVisible({ timeout: 15_000 });
 
     await expect(nav.getByText("View", { exact: true })).toBeVisible();
     await expect(nav.getByText("Control", { exact: true })).toBeVisible();
-    await expect(nav.getByText("Design", { exact: true })).toBeVisible();
+    await expect(nav.getByText("Config", { exact: true })).toBeVisible();
 
     for (const item of PRIMARY_NAV_ITEMS) {
       const link = nav.getByRole("link", { name: new RegExp(`^${item.name}$`, "i") });

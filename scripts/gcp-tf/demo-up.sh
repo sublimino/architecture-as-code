@@ -5330,11 +5330,7 @@ cmd_surfaces() {
 cmd_acceptance() {
   require_env acceptance
   capture_source_identity
-
-  HANDOFF_FILE="${HANDOFF_DIR}/${ENV_KEY}.handoff.json"
-  if [ -f "$HANDOFF_FILE" ]; then
-    log "reading ${HANDOFF_FILE}"
-  fi
+  load_handoff
 
   local target="${DASHBOARD_URL:-}"
   if [ -z "$target" ]; then

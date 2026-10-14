@@ -998,8 +998,18 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	# suites assert manifest CONTENT rather than manifest PRESENCE in a cluster.
 	# A backend that was never deployed passes all of them and fails only in a
 	# browser.
+	#
+	# check-deployed-staleness is deliberately NOT called here. It has its own
+	# call sites (standalone `make check-deployed-staleness`, the
+	# acceptance-test.sh preflight, and CI stage 6b in demo-pipeline.sh — see
+	# that script for why stage 6b runs it explicitly, after Flux convergence,
+	# rather than relying on this recipe tail), and
+	# test/gcp-demo-pipeline.bats derives this recipe's steps and fails if any
+	# of them is ALSO invoked directly elsewhere in demo-pipeline.sh. Adding it
+	# here (2026-10-13, 936db4d93) silently violated that guard: demo-pipeline.sh
+	# already called it directly for its own documented reason, so the step
+	# existed in two places, which the guard treats as existing in neither.
 	$(MAKE) check-backends
-	$(MAKE) check-deployed-staleness
 
 # ─── Why this target became fail-closed ──────────────────────────────────────
 #

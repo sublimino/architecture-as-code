@@ -1136,8 +1136,10 @@ PIPELINE_PHASE="estate"
 echo "==> [5/8] Bringing up the full Signal Loom estate (make demo-signalloom-up)..."
 retry 2 "$MAKE_BIN" demo-signalloom-up
 
-echo "==> Asserting every dashboard backend is deployed and reachable..."
-make check-backends
+# check-backends is NOT re-run here: it is the last step of the
+# demo-signalloom-up recipe above (see Makefile), and re-invoking it by name
+# here would be exactly the hand-copy class test/gcp-demo-pipeline.bats guards
+# against — a step that exists in two places drifts in one of them.
 
 # ── Phase: the cluster-dependent stages ──────────────────────────────────────
 PIPELINE_PHASE="tests"

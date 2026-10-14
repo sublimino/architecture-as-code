@@ -74,6 +74,7 @@ dashboard-journey.spec.ts	unwired	Targets the Estate 95 win95 console at http://
 discovery-claim.spec.ts	suite-only	Drives multi-source discovery aggregation, facet filtering, control recommendation badges, and namespace auto-claim. Requires demo-signalloom-up.
 distance-latency.spec.ts	suite-only	Drives Distance & Latency page against live API. Requires running demo cluster.
 docs.spec.ts	make:docs-render-check	Renders the four SLON-P3-1 docs pages in Chromium against a locally served build of this tree. Its precondition is a built dist on DOCS_BASE_URL, which demo-signalloom-up does not provide, so its project is gated on that variable and the make target supplies it.
+gitops-filters-and-eap-defaults.spec.ts	suite-only	Drives GitOps detection notices, workload quick filters, disclosure typography spacing, and EAP preset defaults. Requires demo-signalloom-up.
 feeds-explorer.spec.ts	suite-only	Drives Feeds & FrostDB Explorer to verify 6-layer catalog health, multidimensional slicing/dicing, FrostDB pushdown workbench, bounded streaming, and Arrow proof drawer. Requires demo-signalloom-up.
 governance-navigation.spec.ts	suite-only	Drives 3-tier sidebar hierarchy, superadmin role gating, active route highlights, rail collapse, and /activity to /weave redirect across viewports. Requires demo-signalloom-up.
 kagent-agents.spec.ts	suite-only	Drives the /agents page against the live Kagent declarative swarm; requires the kagent slice (make demo-kagent-up).

@@ -252,7 +252,7 @@ func TestHandleAuditStream_SSEStreaming(t *testing.T) {
 	ts := httptest.NewServer(s.routes())
 	defer ts.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/v1/fleet/audit/stream", nil)

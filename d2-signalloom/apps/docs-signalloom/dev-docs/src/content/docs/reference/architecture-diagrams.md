@@ -23,7 +23,9 @@ other caller. Tracked in [Current limits and roadmap](/docs/reference/roadmap/).
 
 ### Sovereign Kind, air-gapped
 
-The single-node foundation that `make up` builds. No cloud dependency.
+The single-node foundation that `make up` builds.
+The platform operates without cloud control plane dependencies.
+External audit logs and telemetry signals flow into `signal-ingest` collectors for normalization and storage in FrostDB.
 
 ![Sovereign Kind air-gapped architecture](/docs/diagrams/osramp-kind-sovereign-airgap.svg)
 

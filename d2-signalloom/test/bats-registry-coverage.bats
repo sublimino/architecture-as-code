@@ -757,6 +757,7 @@ verify-cel.bats
 http-guard-dedup-contracts.bats
 sl-drift-sweep.bats
 sl-cluster-diagnostics.bats
+sl-chaos-walk.bats
 clean-test-artifacts.bats
 local-witness-evidence.bats
 worktree-hygiene.bats

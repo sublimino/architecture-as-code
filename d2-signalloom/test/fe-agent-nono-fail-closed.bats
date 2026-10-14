@@ -26,8 +26,17 @@ setup() {
   run nono setup --check-only
   [[ "$output" == *"verified"* ]] || skip "Landlock not enforceable on this kernel (need 5.13+): $output"
   # State root must sit OUTSIDE the allow-list and OUTSIDE the CWD (/tmp), or
-  # nono refuses to start. The repo test dir satisfies both.
-  STATE_DIR="$(mktemp -d "${BATS_TEST_DIRNAME}/.nono-state.XXXXXX")"
+  # nono refuses to start. When running in a worktree under /tmp, place the state
+  # directory in the parent repository checkout.
+  local state_parent="${BATS_TEST_DIRNAME}"
+  if [[ "$state_parent" == /tmp/* ]]; then
+    local common_git
+    common_git="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+    if [ -n "$common_git" ] && [[ "$common_git" != /tmp/* ]]; then
+      state_parent="$(cd "$common_git/.." && pwd)"
+    fi
+  fi
+  STATE_DIR="$(mktemp -d "${state_parent}/.nono-state.XXXXXX")"
 }
 
 teardown() {

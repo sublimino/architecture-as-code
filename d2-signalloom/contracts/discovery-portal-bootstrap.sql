@@ -5155,7 +5155,7 @@ COMMIT;
 
 -- BEGIN 065_seed_granular_page_flags.sql
 -- ══════════════════════════════════════════════════════════════════════════════
--- 061: seed granular page feature flags for design partner (kusari) and demo
+-- 065: seed granular page feature flags for design partner (kusari) and demo
 -- ══════════════════════════════════════════════════════════════════════════════
 --
 -- Seeds granular page flags for design partner tenant 'kusari' (EAP Pilot Preset):

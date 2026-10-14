@@ -75,4 +75,3 @@ data:
     fe-signalloom-agents/prompt-commit-summarizer=controlplane
     fe-signalloom-agents/swarm-governor=controlplane
     fe-signalloom-agents/triage-ci-worker=controlplane
-    fe-signalloom-agents/zulip-chat-agent=controlplane

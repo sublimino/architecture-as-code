@@ -1,7 +1,7 @@
 # FLUX ENVSUBST: YES — registry settings AND spec.inputs below are substituted
 # by the tenants Kustomization, exactly as in tenants/base/agent-trust.yaml.
 #
-# This ResourceSet deploys the 10-agent Signal Loom swarm into the
+# This ResourceSet deploys the Signal Loom agent swarm into the
 # fe-signalloom-agents namespace. Each agent gets its own Flux Kustomization
 # so it can be individually suspended, reconciled, or removed.
 #
@@ -9,10 +9,9 @@
 # the namespace, shared RBAC, and NetworkPolicies. Each agent subdirectory
 # owns its own workload manifests.
 #
-# Agent inventory (13):
+# Agent inventory (12):
 #   Tier 1  prompt-commit-summarizer   KnativeService
 #   Tier 2  triage-ci-worker           KnativeService
-#   Tier 3  zulip-chat-agent           Deployment
 #   Tier 4A cpai-engineer              StatefulSet + PVC
 #   Tier 4B hosted-daytona-coder       Deployment + RBAC
 #   Tier 5  swarm-governor             Deployment + Service
@@ -254,45 +253,6 @@ spec:
         timeout: 5m
         sourceRef: {kind: OCIRepository, name: agent-swarm}
         path: ./triage-ci-worker
-        prune: true
-        ignore:
-          - target:
-              kind: Pod
-            paths:
-              - /metadata/labels/signalloom.io~1stunned
-              - /metadata/labels/signalloom.io~1containment-mode
-              - /metadata/annotations/signalloom.io~1stun-reason
-              - /metadata/labels/signalloom.ai~1state
-              - /metadata/annotations/signalloom.ai~1stunned-at
-              - /metadata/annotations/signalloom.ai~1stun-reason
-          - target:
-              kind: Deployment
-            paths:
-              - /metadata/labels/signalloom.io~1stunned
-              - /metadata/labels/signalloom.io~1containment-mode
-              - /metadata/annotations/signalloom.io~1stun-reason
-              - /metadata/labels/signalloom.ai~1state
-              - /metadata/annotations/signalloom.ai~1stunned-at
-              - /metadata/annotations/signalloom.ai~1stun-reason
-
-    # 3. zulip-chat-agent (Tier 3 — Deployment)
-    - apiVersion: kustomize.toolkit.fluxcd.io/v1
-      kind: Kustomization
-      metadata:
-        name: agent-zulip-chat-agent
-        namespace: fe-signalloom-agents
-        labels:
-          signalloom.ai/agent: "true"
-          signalloom.ai/agent-name: "zulip-chat-agent"
-      spec:
-        dependsOn: [{name: agent-swarm-base}]
-        serviceAccountName: agent-swarm-flux
-        interval: 30m
-        retryInterval: 5m
-        wait: true
-        timeout: 5m
-        sourceRef: {kind: OCIRepository, name: agent-swarm}
-        path: ./zulip-chat-agent
         prune: true
         ignore:
           - target:

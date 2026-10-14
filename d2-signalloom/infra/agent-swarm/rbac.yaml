@@ -1,4 +1,4 @@
-# ServiceAccounts for the ten demo agents in the agent swarm.
+# ServiceAccounts for demo agents in the agent swarm.
 #
 # Each agent type gets its own SA so SPIRE can issue a unique SPIFFE ID
 # (spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/<name>) and
@@ -26,16 +26,6 @@ metadata:
   labels:
     signalloom.ai/agent: "true"
     signalloom.ai/role: ci-worker
-    app.kubernetes.io/part-of: signalloom-swarm
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: zulip-chat-agent
-  namespace: fe-signalloom-agents
-  labels:
-    signalloom.ai/agent: "true"
-    signalloom.ai/role: chat
     app.kubernetes.io/part-of: signalloom-swarm
 ---
 apiVersion: v1

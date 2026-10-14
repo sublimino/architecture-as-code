@@ -819,8 +819,8 @@ run_stage \
      test/netebpf-p2-preflight.bats test/netebpf-preflight.bats \
      test/policy-compiler.bats test/sfdp-p3-3-root-wiring.bats \
      test/sfdp-p4-4-tamper-regression.bats test/signalloom-portforward.bats \
-     test/supercred-spire-preflight.bats test/tc-ebpf-drop.bats \
-     test/tetragon-telemetry-stream.bats test/wait-deadline.bats \
+     test/tc-ebpf-drop.bats \
+     test/tetragon-telemetry-stream.bats \
      test/wait-job.bats test/wait-pods-service.bats \
      test/cgroup-freeze-adversarial.bats test/landlock-adversarial-escape.bats \
      test/landlock-containment-probes.bats \

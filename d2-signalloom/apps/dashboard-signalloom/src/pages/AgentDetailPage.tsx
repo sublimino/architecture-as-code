@@ -916,7 +916,7 @@ export default function AgentDetailPage() {
     ? tabParam
     : defaultTab
 
-  const handleSelectTab = useCallback((tabId: DossierTabId) => {
+  const handleSelectTab = useCallback((tabId: DossierTabId | string) => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
       next.set('tab', tabId)

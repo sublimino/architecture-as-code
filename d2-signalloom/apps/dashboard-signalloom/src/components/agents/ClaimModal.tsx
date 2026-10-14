@@ -3,6 +3,7 @@ import { useAuth0 } from '../../auth/oidc'
 import { claimDiscoveredAgent, type AgentClaimRequest, type AgentClaimResponse } from '../../api/agentClaim'
 import type { AgentResponse } from '../../types/api'
 import { colors } from '../../styles/tokens'
+import { detectGitOps } from '../../utils/gitops'
 
 export type WorkloadSecurityProfile = 'nono-sandboxed' | 'standard-container' | 'custom'
 
@@ -72,6 +73,7 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
     'default'
 
   const isTenantMismatch = Boolean(workloadTenant && operatorTenant && workloadTenant !== operatorTenant)
+  const gitops = detectGitOps(agent, { tenant: operatorTenant })
 
   const [podName, setPodName] = useState(defaultPodName)
   const [namespace, setNamespace] = useState(defaultNamespace)
@@ -525,6 +527,75 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
               Workload Pre-Flight & Diagnostics
             </div>
+
+            {/* GitOps Warning Notice if GitOps is detected */}
+            {gitops.isGitOps && (
+              <div
+                data-testid="claim-modal-gitops-notice"
+                style={{
+                  padding: '10px 12px',
+                  background: 'rgba(234, 179, 8, 0.12)',
+                  border: '1px solid rgba(234, 179, 8, 0.35)',
+                  borderRadius: 6,
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <div style={{ color: 'var(--amber, #f59e0b)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>⚡</span>
+                    <span>GitOps Managed Workload</span>
+                  </div>
+                  <span
+                    data-testid="claim-modal-gitops-badge"
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: '2px 6px',
+                      borderRadius: 3,
+                      background: 'rgba(234, 179, 8, 0.2)',
+                      color: 'var(--amber, #f59e0b)',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {gitops.engine === 'flux' ? 'Flux' : gitops.engine === 'argo' ? 'ArgoCD' : 'GitOps'}
+                  </span>
+                </div>
+                <div style={{ color: 'var(--text)', lineHeight: 1.4, marginBottom: 6 }}>
+                  {gitops.recommendation}
+                </div>
+                {gitops.patchYaml && (
+                  <div style={{ marginTop: 6 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600 }}>Git Remediation Patch:</span>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        data-testid="claim-modal-copy-gitops-patch-btn"
+                        onClick={() => handleCopy(gitops.patchYaml!, 'modal-gitops-patch')}
+                        style={{ fontSize: 10, padding: '2px 6px', whiteSpace: 'nowrap' }}
+                      >
+                        {copiedCmd === 'modal-gitops-patch' ? 'Copied! ✓' : 'Copy'}
+                      </button>
+                    </div>
+                    <pre
+                      data-testid="claim-modal-gitops-patch"
+                      style={{
+                        background: 'var(--surface)',
+                        padding: '6px 8px',
+                        borderRadius: 3,
+                        color: 'var(--cyan)',
+                        fontSize: 10,
+                        fontFamily: 'monospace',
+                        margin: 0,
+                        overflowX: 'auto',
+                      }}
+                    >
+                      {gitops.patchYaml}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Tenant Boundary Pre-Flight Check */}
             {isTenantMismatch ? (

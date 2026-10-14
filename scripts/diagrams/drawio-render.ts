@@ -506,7 +506,7 @@ function arrowheadPolygon(tip: { x: number; y: number }, from: { x: number; y: n
   return `<polygon class="arrowhead" points="${tip.x.toFixed(2)},${tip.y.toFixed(2)} ${p1.x.toFixed(2)},${p1.y.toFixed(2)} ${p2.x.toFixed(2)},${p2.y.toFixed(2)}" fill="${"#000000"}" />`;
 }
 
-function renderEdge(cell: Cell, byId: Map<string, Cell>): string {
+export function getEdgePoints(cell: Cell, byId: Map<string, Cell>): { x: number; y: number }[] {
   const sourceCell = cell.source ? byId.get(cell.source) : undefined;
   const targetCell = cell.target ? byId.get(cell.target) : undefined;
   if (!cell.source || !cell.target || !sourceCell?.geometry || !targetCell?.geometry) {
@@ -528,14 +528,17 @@ function renderEdge(cell: Cell, byId: Map<string, Cell>): string {
   const start = fixedAnchor(cell.style, "exit", sBox) ?? perimeterPoint(sBox, towardForStart);
   const end = fixedAnchor(cell.style, "entry", tBox) ?? perimeterPoint(tBox, towardForEnd);
 
-  let points: { x: number; y: number }[];
   if (explicitPoints.length) {
-    points = [start, ...explicitPoints, end];
+    return [start, ...explicitPoints, end];
   } else if (cell.style.edgeStyle === "orthogonalEdgeStyle") {
-    points = orthogonalElbow(start, end);
+    return orthogonalElbow(start, end);
   } else {
-    points = [start, end];
+    return [start, end];
   }
+}
+
+function renderEdge(cell: Cell, byId: Map<string, Cell>): string {
+  const points = getEdgePoints(cell, byId);
 
   const d = points
     .map((p, idx) => `${idx === 0 ? "M" : "L"} ${p.x.toFixed(2)},${p.y.toFixed(2)}`)

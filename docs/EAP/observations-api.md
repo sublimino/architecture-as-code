@@ -52,7 +52,7 @@ The server inspects one additional row (`limit + 1`) to determine if more pages 
 | Header | Description |
 | :--- | :--- |
 | `X-Next-Cursor` | Opaque string to pass to the `cursor` query parameter on the next request. Present only when more rows exist. |
-| `Link` | Standard RFC 5988 link header with `rel="next"`, containing the full URL for the next page. |
+| `Link` | RFC 8288 link header with `rel="next"`: a relative reference (path and query, with `cursor` set) to the next page on the server that answered. Present only when `X-Next-Cursor` is. |
 | `X-Result-Truncated` | `true` if more observations exist after this page; `false` when the last page is reached. |
 
 ### Cursor format and security
@@ -75,6 +75,18 @@ If a client sends an invalid, expired, modified, or foreign-tenant cursor, the s
 ```json
 {"error":"invalid 'cursor': pass the X-Next-Cursor value from the previous response unchanged"}
 ```
+
+## Paging through the fe-signalloom gateway
+
+The dashboard reads observations through fe-signalloom at `GET /api/signals/observations`, which
+accepts `limit`, `cursor`, `layer`, `after` and `before` and forwards them to this endpoint.
+`X-Next-Cursor` and `X-Result-Truncated` are relayed unchanged.
+signal-ingest's own `Link` names `/api/v1/observations`, which gateway callers cannot reach.
+The gateway therefore drops it and sends its own `Link` to `/api/signals/observations`.
+That `Link` keeps the caller's query and sets `cursor` to the next value.
+The last page carries no `Link`.
+`X-Next-Cursor` remains the primary contract.
+A client that passes it back as `cursor` pages correctly through either surface.
 
 ## Worked curl example
 

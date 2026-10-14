@@ -49,12 +49,17 @@ TARGET_FILES=(
   "scripts/kagent-invoke.sh"
   "d2-signalloom/infra/agent-swarm/kagent-k8s-reader/modelconfig.yaml"
   "d2-signalloom/infra/kagent/base/controller.yaml"
-  "scripts/olly-llm-secret.sh"
-  "scripts/olly-pdi-secret.sh"
   "scripts/lib/env-file.sh"
   "d2-signalloom/test/no-tracked-secrets.bats"
 )
+# A missing target must fail, not pass: `git status --porcelain` on a path that
+# does not exist prints nothing, which reads exactly like "clean", so a deleted
+# file would stay on this list as a claim of coverage nothing backs.
 for target in "${TARGET_FILES[@]}"; do
+  if [ ! -f "$target" ]; then
+    echo "REFUSING: target file $target does not exist. Remove it from TARGET_FILES or restore it." >&2
+    exit 2
+  fi
   if [ -n "$(git status --porcelain "$target")" ]; then
     echo "REFUSING: target file $target is dirty. Commit first — this harness edits files in place." >&2
     exit 2

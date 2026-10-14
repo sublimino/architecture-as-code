@@ -19,21 +19,9 @@ on:
         description: "Target kernel release filter (or 'all')"
         default: "all"
         type: string
-  push:
-    branches:
-      - "main"
-      - "integration/**"
-    paths:
-      - "d2-signalloom/apps/stun-sentinel/bpf/**"
-      - "d2-signalloom/apps/stun-sentinel/pkg/ebpf/**"
-      - "d2-signalloom/apps/stun-sentinel/pkg/tc/**"
-      - ".github/workflows/warden-ebpf-multi-kernel.yaml"
-  pull_request:
-    paths:
-      - "d2-signalloom/apps/stun-sentinel/bpf/**"
-      - "d2-signalloom/apps/stun-sentinel/pkg/ebpf/**"
-      - "d2-signalloom/apps/stun-sentinel/pkg/tc/**"
-      - ".github/workflows/warden-ebpf-multi-kernel.yaml"
+  # push and pull_request triggers removed; manual workflow_dispatch only
+  # (Proposal — Signal Loom EAP CI Lane §2 / EAPCI-P1-4, asserted for every
+  # workflow by test/eap-pr-workflow.bats).
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

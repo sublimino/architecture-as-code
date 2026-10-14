@@ -60,6 +60,7 @@ type LoaderOptions struct {
 type Loader struct {
 	objs         probeObjects
 	links        []link.Link
+	attachedTPs  []string
 	reader       *ringbuf.Reader
 	pollInterval time.Duration
 	verifierLogs map[string]string
@@ -157,11 +158,22 @@ func (l *Loader) attachAndOpen(
 			return fmt.Errorf("attach tracepoint %s/%s: %w", tp.group, tp.name, err)
 		}
 		l.links = append(l.links, lk)
+		l.attachedTPs = append(l.attachedTPs, tp.name)
 	}
 	if l.reader, err = openReader(); err != nil {
 		return fmt.Errorf("open ring buffer reader: %w", err)
 	}
 	return nil
+}
+
+// AttachedTracepoints returns the names of tracepoints that were successfully attached.
+func (l *Loader) AttachedTracepoints() []string {
+	if l == nil {
+		return nil
+	}
+	out := make([]string, len(l.attachedTPs))
+	copy(out, l.attachedTPs)
+	return out
 }
 
 // selfPIDNamespace identifies the caller's PID namespace in the form
@@ -298,6 +310,7 @@ func (l *Loader) Close() error {
 			}
 		}
 		l.links = nil
+		l.attachedTPs = nil
 		if l.reader != nil {
 			if err := l.reader.Close(); err != nil {
 				errs = append(errs, fmt.Errorf("close ring buffer reader: %w", err))

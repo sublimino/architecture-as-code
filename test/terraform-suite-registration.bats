@@ -81,9 +81,11 @@ STUB
   export PATH="${STUBDIR}:${PATH}"
 }
 
-@test "terraform workflow registers GCP Terraform trigger paths" {
-  grep -Fqx '      - "scripts/gcp-tf/**"' "${WORKFLOW}"
-  grep -Fqx '      - "test/fixtures/gcp-tf-*/**"' "${WORKFLOW}"
+@test "terraform workflow is manual-only and triggers on workflow_dispatch" {
+  run yq '(.on // .true) | keys | .[]' "${WORKFLOW}"
+  [ "$status" -eq 0 ]
+  [ "$output" = "workflow_dispatch" ]
+  grep -Fq 'make gcp-tf-validate' "${WORKFLOW}"
 }
 
 # Copy the real Makefile, apply one named mutation fixture, and REFUSE to

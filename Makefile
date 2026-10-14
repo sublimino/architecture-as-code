@@ -58,6 +58,7 @@ SIGNALLOOM_INTEGRATION_BRANCH ?= integration/signalloom-d2-v2.5.0
 CPAI_CLI_ROOT ?= /home/andy/src/cp/cpai-cli
 ZOT_CACHE_DIR ?= .cache/zot
 POSTGRES_DATA_DIR ?= .cache/postgres
+LOCAL_PATH_DATA_DIR ?= .cache/local-path
 # Observability (kube-prometheus-stack + trivy-system) is OFF by default.
 # These tenants are not dependencies of any demo slice and dominate cluster
 # build time (~3 minutes of reconciliation waits). Opt in explicitly:
@@ -162,8 +163,8 @@ stress-agent-cgroups: ## Run the live adversarial cgroup-freeze and OOM battery 
 ##@ Cluster lifecycle
 
 .PHONY: cluster
-cluster: ## Create the Kind cluster with persistent host-backed Zot and Postgres caches.
-	CLUSTER_NAME="$(CLUSTER_NAME)" ZOT_CACHE_DIR="$(ZOT_CACHE_DIR)" POSTGRES_DATA_DIR="$(POSTGRES_DATA_DIR)" ./scripts/create-kind-cluster.sh
+cluster: ## Create the Kind cluster with persistent host-backed Zot, Postgres and local-path storage.
+	CLUSTER_NAME="$(CLUSTER_NAME)" ZOT_CACHE_DIR="$(ZOT_CACHE_DIR)" POSTGRES_DATA_DIR="$(POSTGRES_DATA_DIR)" LOCAL_PATH_DATA_DIR="$(LOCAL_PATH_DATA_DIR)" ./scripts/create-kind-cluster.sh
 
 .PHONY: cluster-up
 cluster-up: cluster ## Phase 2 alias: create the shared Kind cluster.
@@ -636,8 +637,7 @@ test-all-offline: offline-deps ## Run all offline test suites (Go unit, Vitest, 
 	$(MAKE) audit-anchor-test
 	$(MAKE) test-impl-agent-log
 	$(MAKE) test-signalfusion-bats
-	$(MAKE) test-tetragon-bats
-	$(MAKE) test-tetragon-stream
+	$(MAKE) test-sentinel-ebpf
 	./scripts/signalloom-api-test.sh contract
 	./scripts/signalloom-api-test.sh integration
 	bats test/test-count-floor.bats
@@ -695,7 +695,6 @@ test-all-cluster: ## Run all live Kind cluster tests across all slices.
 	$(MAKE) demo-agent-trust-network-test
 	$(MAKE) demo-bao-test
 	$(MAKE) demo-kagent-test
-	$(MAKE) test-tetragon-stream
 	@echo "=== [Cluster] All cluster test suites passed successfully! ==="
 
 test-all-browser: ## Run all Playwright browser acceptance tests across all slices.
@@ -715,7 +714,7 @@ test-all-browser: ## Run all Playwright browser acceptance tests across all slic
 # Fusion, and weaveApi test files.
 
 .PHONY: test-signal-ingest test-signal-ingest-frostdb test-dashboard-weave test-signalfusion-bats test-signal-fusion test-obscel policy-bundles-render test-kusari-e2e
-.PHONY: test-tetragon test-tetragon-bats test-tetragon-stream
+.PHONY: test-sentinel-ebpf test-sentinel-ebpf-live
 .PHONY: test-signal-segment-verifier verify-signal-segments
 .PHONY: test-identity-rls-live
 
@@ -806,22 +805,11 @@ test-dashboard-weave: offline-deps ## Run Weave, Signal Fusion, and weaveApi vit
 		src/api/weaveApi.test.ts \
 		--reporter=verbose
 
-test-tetragon: ## Run the Tetragon telemetry collector Go unit suites (offline, no cluster).
-	cd d2-signalloom/apps/signal-ingest && env GOPATH=$${GOPATH:-/tmp/gopath} GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} GONOSUMDB=* CGO_ENABLED=0 go test ./collectors/ebpf/... -v -count=1
-	@# test/mocks is a STANDALONE legacy module for Tetragon gRPC mock.
-	@# When Tetragon deploy manifests are removed, skip the legacy mock suite.
-	@if [ ! -f d2-signalloom/deploy/tetragon-agent-telemetry.yaml ]; then \
-		echo "tetragon agent deploy manifest removed in favor of in-tree ebpf probes; skipping legacy mock suite"; \
-	else \
-		cd test/mocks && env GOPATH=$${GOPATH:-/tmp/gopath} GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} GONOSUMDB=* CGO_ENABLED=0 go test ./... -v -count=1; \
-	fi
+test-sentinel-ebpf: ## Run in-sentinel eBPF probe and correlator unit suites (offline, no cluster).
+	cd d2-signalloom/apps/stun-sentinel && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./pkg/ebpf/... ./pkg/correlator/... -v -count=1
 
-test-tetragon-stream: ## Run the offline Tetragon end-to-end stream harness and write the evidence artifact.
-	./scripts/test-tetragon-stream.sh 1000
-	@git checkout -- docs/signalloom/evidence/tetragon-stream-proof.json 2>/dev/null || true
-
-test-tetragon-bats: ## Run the Tetragon enforcement-decoupling + telemetry BATS suite (no cluster required).
-	bats test/tetragon-telemetry-stream.bats
+test-sentinel-ebpf-live: ## Run live in-sentinel eBPF adversarial suite against local kind-osramp (SENTINEL_EBPF_LIVE=1).
+	SENTINEL_EBPF_LIVE=1 bats test/sentinel-ebpf-live.bats
 
 test-signalfusion-bats: ## Run Signal Fusion structural BATS tests (no cluster required).
 	bats test/signalfusion-demo.bats
@@ -2980,6 +2968,8 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 	zone="$$(v '.target_environment.value.zone')"; \
 	app_port="$$(v '.target_environment.value.app_port')"; \
 	hostname="$$(v '.target_environment.value.hostname')"; \
+	tailscale_hostname="$$(v '.target_environment.value.tailscale_hostname')"; \
+	[ -n "$$tailscale_hostname" ] || tailscale_hostname="sl-$$environment_key"; \
 	access_mode="$$(v '.access_mode.value // .integration_inputs.value.access_mode')"; \
 	kind="$$(v '.target_environment.value.kind')"; \
 	instance_name="$$(v '.instance_name.value // .instance_names.value[$$env] // .compute.value[$$env].instance_name')"; \
@@ -3039,6 +3029,14 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 			echo "ERROR: app_port resolved to '$$app_port', which is not a port number."; \
 			exit 3;; \
 	esac; \
+	prev_source_ref=''; \
+	prev_source_sha=''; \
+	prev_source_recorded_at=''; \
+	if [ -f '$(GCP_TF_HANDOFF_FILE)' ]; then \
+		prev_source_ref="$$(jq -r '.source_ref // empty' '$(GCP_TF_HANDOFF_FILE)' 2>/dev/null || true)"; \
+		prev_source_sha="$$(jq -r '.source_sha // empty' '$(GCP_TF_HANDOFF_FILE)' 2>/dev/null || true)"; \
+		prev_source_recorded_at="$$(jq -r '.source_recorded_at // empty' '$(GCP_TF_HANDOFF_FILE)' 2>/dev/null || true)"; \
+	fi; \
 	jq -n \
 		--argjson schema_version 1 \
 		--arg schema '$(GCP_TF_HANDOFF_SCHEMA)' \
@@ -3056,8 +3054,12 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 		--arg operator_sa "$$operator_sa" \
 		--arg access_mode "$$access_mode" \
 		--arg hostname "$$hostname" \
+		--arg tailscale_hostname "$$tailscale_hostname" \
 		--arg generated_at "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-		'{schema: $$schema, schema_version: $$schema_version, project_id: $$project_id, environment_key: $$environment_key, env: $$environment_key, kind: $$kind, region: $$region, zone: $$zone, instance_name: $$instance_name, internal_ip: $$internal_ip, app_port: $$app_port, state_bucket: $$state_bucket, state_prefix: $$state_prefix, deploy_sa: $$deploy_sa, operator_sa: $$operator_sa, access_mode: $$access_mode, hostname: $$hostname, generated_at: $$generated_at}' \
+		--arg prev_source_ref "$$prev_source_ref" \
+		--arg prev_source_sha "$$prev_source_sha" \
+		--arg prev_source_recorded_at "$$prev_source_recorded_at" \
+		'{schema: $$schema, schema_version: $$schema_version, project_id: $$project_id, environment_key: $$environment_key, env: $$environment_key, kind: $$kind, region: $$region, zone: $$zone, instance_name: $$instance_name, internal_ip: $$internal_ip, app_port: $$app_port, state_bucket: $$state_bucket, state_prefix: $$state_prefix, deploy_sa: $$deploy_sa, operator_sa: $$operator_sa, access_mode: $$access_mode, hostname: $$hostname, tailscale_hostname: $$tailscale_hostname, generated_at: $$generated_at} + (if $$prev_source_ref != "" then {source_ref: $$prev_source_ref} else {} end) + (if $$prev_source_sha != "" then {source_sha: $$prev_source_sha} else {} end) + (if $$prev_source_recorded_at != "" then {source_recorded_at: $$prev_source_recorded_at} else {} end)' \
 		> '$(GCP_TF_HANDOFF_FILE)'; \
 	echo "hand-off written: $(GCP_TF_HANDOFF_FILE)"; \
 	echo "The test suite reads this one file and needs no flags. It is untracked:"; \
@@ -3088,10 +3090,10 @@ GCP_TF_DEMO_SCRIPT ?= scripts/gcp-tf/demo-up.sh
 # computed default does not reach a sub-process through MAKEFLAGS, and an
 # impersonation target that silently fails to arrive is the failure this whole
 # block exists to prevent.
-GCP_TF_DEMO_ENVIRONMENT = ENV='$(ENV)' GCP_TF_DEMO_ENV='$(ENV)' GCP_TF_HANDOFF_DIR='$(GCP_TF_HANDOFF_DIR)'
+GCP_TF_DEMO_ENVIRONMENT = ENV='$(ENV)' GCP_TF_DEMO_ENV='$(ENV)' GCP_TF_HANDOFF_DIR='$(GCP_TF_HANDOFF_DIR)' GCP_TF_DEMO_REF='$(GCP_TF_DEMO_REF)'
 
 .PHONY: gcp-tf-demo-up
-gcp-tf-demo-up: ## Stand the whole demo up on the VM: deliver, build, test, collect (ENV=<key>).
+gcp-tf-demo-up: ## Stand the whole demo up on the VM: deliver, build, test, collect (ENV=<key> GCP_TF_DEMO_REF=<ref>).
 	$(gcp_tf_require_env)
 	$(gcp_tf_require_impersonation)
 	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \

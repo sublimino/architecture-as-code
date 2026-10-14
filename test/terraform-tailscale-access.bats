@@ -1223,7 +1223,9 @@ mutate() {
 	# assertion below is what closes it, and it is deliberately placed before the
 	# behavioural half so the failure names the missing mechanism rather than a
 	# missing message.
-	grep -qE '^if ! "\\\$KUBECTL" get service -n .*; then$' "${DRIVER_SRC}" || {
+	# The optional --context is EAPCI's kubeconfig/context pinning: the pre-check
+	# must ask the cluster the forward will chase, not whatever context is current.
+	grep -qE '^if ! "\\\$KUBECTL"( --context "[^"]*")? get service -n .*; then$' "${DRIVER_SRC}" || {
 		echo "the remote script no longer reads the dashboard Service before"
 		echo "writing a Restart=always unit that chases it. A missing or renamed"
 		echo "service becomes an infinite restart loop reported as 'active', with"

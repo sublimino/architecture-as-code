@@ -256,3 +256,35 @@ func TestRegistry_WorkspaceSaaS_ModeGating(t *testing.T) {
 		}
 	})
 }
+
+// TestRegistry_OnlyKnownCollectorsRegistered pins the exact collector set that
+// NewRegistryFromEnv registers. EAPCI-P1-8 removed the gRPC kernel-event
+// collector; any collector added back (under that name or any other) fails here
+// until it is named in this list on purpose. The de-Tetragoned sentinel endpoint
+// collector (collectors/ebpf, name "ebpf-endpoint") is registered from main.go,
+// not from this registry, so it is correctly absent here.
+func TestRegistry_OnlyKnownCollectorsRegistered(t *testing.T) {
+	sink := &testMockSink{}
+	reg := NewRegistryFromEnv(sink)
+
+	want := map[string]bool{
+		"gcpaudit": true, "baoaudit": true, "spirea": true, "netebpf": true,
+		"k8saudit": true, "k8saudit-kube": true, "kagent": true, "workspacesaas": true,
+		"agentnono": true, "awslogs": true, "fixtures": true,
+	}
+	got := map[string]bool{}
+	for _, c := range reg.Collectors() {
+		if !want[c.Name()] {
+			t.Errorf("registry contains unexpected collector: name=%q type=%T", c.Name(), c)
+		}
+		got[c.Name()] = true
+	}
+	for name := range want {
+		if !got[name] {
+			t.Errorf("registry is missing expected collector %q", name)
+		}
+	}
+	if c := reg.GetCollector("ebpf"); c != nil {
+		t.Errorf("expected no collector named 'ebpf', found %T", c)
+	}
+}

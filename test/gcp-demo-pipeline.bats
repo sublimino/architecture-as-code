@@ -68,7 +68,6 @@ setup() {
 	export HOME="$BATS_TEST_TMPDIR/home"
 	stubdir="$HOME/.local/bin"
 	mkdir -p "$stubdir"
-	export GCP_TF_VM_BROWSER=1
 
 	local n
 	for n in make kubectl bats bun bunx uv go node npx sudo curl nc sleep git; do
@@ -123,10 +122,17 @@ setup() {
 	# today's offender would let the next variable the driver adds reintroduce it
 	# in silence.
 	local _inherited
-	for _inherited in $(compgen -v | grep '^DEMO_' || true); do
+	for _inherited in $(compgen -v | grep -E '^(DEMO_|GCP_TF_)' || true); do
 		unset "$_inherited"
 	done
+	# AFTER the unset, never before it: GCP_TF_VM_BROWSER is in the namespace
+	# just cleared, and set ahead of the loop it was wiped, so every browser
+	# stage was skipped and the ORDER tests that need acceptance-test.sh in the
+	# call log failed. The suite drives the in-VM browser path on purpose; the
+	# BROWSER DECOUPLED test turns it off explicitly.
+	export GCP_TF_VM_BROWSER=1
 
+	export DEMO_ENV="demo-1"
 	export DEMO_WORK_DIR="$work"
 	export DEMO_REPORT_DIR="$reports"
 	export DEMO_PIPELINE_LOG="$BATS_TEST_TMPDIR/pipeline.log"
@@ -156,7 +162,11 @@ make_fake_repo() {
 		scripts/acceptance-test.sh \
 		scripts/check-flux-substitution.sh \
 		scripts/check-vacuous-assertions.sh \
+		scripts/ci/resolve-tailnet-origin.sh \
 		scripts/ci/user-surface-gate.sh \
+		scripts/dual-cluster-up.sh \
+		scripts/remote-tenant-lab.sh \
+		scripts/slaws-acceptance.sh \
 		test/guard-falsification-proof.sh \
 		d2-signalloom/test/audit-guard-reintroduction-proof.sh \
 		d2-signalloom/test/seam-guard-mutation-proof.sh; do

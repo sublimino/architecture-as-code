@@ -61,3 +61,6 @@ d2-signalloom/apps/docs-signalloom/src/content/docs/operate/detection-coverage.m
 d2-signalloom/apps/kusari-agent/README.md:stun-sentinel # kusari agent documentation for live in-kernel eBPF stream
 docs/osramp-component-flows.html:stun-sentinel # component flow diagram documenting live in-kernel eBPF stream
 test/acceptance/agent-claim.spec.ts:stun-sentinel # acceptance test asserting live in-kernel eBPF stream telemetry
+scripts/kind-data-backup.sh:stun-sentinel-fleet-key # EAPCI-P1-5: backs up the legacy caller-key Secret that scripts/fleet-manager-caller-keys.sh still mints during the warden cutover
+test/netebpf-adversarial.bats # netebpf adversarial test tests apps/stun-sentinel
+test/netebpf-preflight.bats # netebpf preflight test tests apps/stun-sentinel

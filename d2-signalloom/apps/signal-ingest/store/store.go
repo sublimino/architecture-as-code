@@ -111,6 +111,8 @@ type SignalStore interface {
 	// ignored.
 	ObservationStats(ctx context.Context, q Query) (ObservationStats, error)
 
+	QueryPage(ctx context.Context, q PageQuery) ([]model.Observation, error)
+	Stats(ctx context.Context, q StatsQuery) (StoreStats, error)
 	DropPartition(ctx context.Context, before time.Time) error
 	Close() error
 }
@@ -174,4 +176,32 @@ func (q Query) matchesIDs(id string) bool {
 		}
 	}
 	return false
+}
+
+// PageQuery specifies filters, tenant scope, and cursor for bounded, ordered observation retrieval.
+type PageQuery struct {
+	Layers          []model.Layer // filter by layer
+	After           time.Time     // start of range
+	Before          time.Time     // end of range
+	ActorID         string        // optional: filter by correlated actor
+	SubjectID       string        // optional: filter by data subject identity across pseudonymised columns
+	Tenant          string        // tenant scope (if !AllTenants)
+	AllTenants      bool          // if true, cross-tenant read
+	CursorTimestamp time.Time     // cursor timestamp (exclusive with CursorID)
+	CursorID        string        // cursor observation ID
+	Limit           int           // max results (0 = no limit, otherwise at most Limit)
+}
+
+// StoreStats contains aggregate metrics over observations.
+type StoreStats struct {
+	TotalObservations      int
+	ObservationsByLayer    map[string]int
+	ObservationsByFidelity map[string]int
+	LastIngestion          *time.Time
+}
+
+// StatsQuery specifies filters for calculating store aggregates.
+type StatsQuery struct {
+	Tenant     string
+	AllTenants bool
 }

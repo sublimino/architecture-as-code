@@ -34,7 +34,7 @@ setup() {
 }
 
 @test "netebpf preflight: signalloom-warden passes go vet" {
-  cd "$REPO_ROOT/d2-signalloom/apps/signalloom-warden"
-  run go vet ./...
+  cd "$REPO_ROOT/d2-signalloom/apps/stun-sentinel"
+  run env PATH="/home/linuxbrew/.linuxbrew/bin:/usr/bin:$PATH" GONOSUMDB="*" GOTOOLCHAIN="local" CGO_ENABLED=0 GOPATH="${GOPATH:-/tmp/gopath}" GOCACHE="${GOCACHE:-/tmp/gocache}" GOMODCACHE="${GOMODCACHE:-/tmp/gomodcache}" GOFLAGS=-buildvcs=false go vet ./...
   [ "$status" -eq 0 ]
 }

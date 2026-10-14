@@ -126,6 +126,22 @@ func (s *spyStore) ObservationStats(ctx context.Context, q store.Query) (store.O
 	return s.inner.ObservationStats(ctx, q)
 }
 
+func (s *spyStore) QueryPage(ctx context.Context, q store.PageQuery) ([]model.Observation, error) {
+	s.mu.Lock()
+	warm := s.warm
+	s.queryCalls++
+	s.mu.Unlock()
+	if warm {
+		s.t.Errorf("QueryPage called on the hot path after warm-up: stage 1 must never read the store")
+		return nil, errors.New("spyStore: QueryPage is forbidden after warm-up")
+	}
+	return s.inner.QueryPage(ctx, q)
+}
+
+func (s *spyStore) Stats(ctx context.Context, q store.StatsQuery) (store.StoreStats, error) {
+	return s.inner.Stats(ctx, q)
+}
+
 func (s *spyStore) DropPartition(ctx context.Context, before time.Time) error {
 	return s.inner.DropPartition(ctx, before)
 }

@@ -37,12 +37,14 @@ setup() {
 pipeline_output_files() {
     {
         # run_stage stdout captures: the second quoted arg after run_stage.
-        grep -A2 'run_stage' "$pipeline" \
-            | grep -oE '"stage[^"]+\.(tap|json|txt)"' | tr -d '"'
+        grep -h -A2 'run_stage' "$pipeline" \
+            | grep -oE '"stage[0-9][^"]+\.(tap|json|txt)"' | tr -d '"'
+        # CI_EAP_STAGES definitions (table rows, not run_stage calls).
+        grep -h -oE 'stage[0-9][a-zA-Z0-9_-]*\.(tap|json|txt)' "$pipeline"
         # Junit/XML outputs named in the command body.
-        grep -oP '\-\-junit-xml=\$\{REPORT_DIR\}/\K[^ "]+' "$pipeline"
-        grep -oP 'PLAYWRIGHT_JUNIT_OUTPUT_FILE=\$\{REPORT_DIR\}/\K[^ "]+' "$pipeline"
-        grep -oP '\-\-outputFile=\$\{REPORT_DIR\}/\K[^ "]+' "$pipeline"
+        grep -h -oP '\-\-junit-xml=\$\{REPORT_DIR\}/\K[^ "]+' "$pipeline" 2>/dev/null || true
+        grep -h -oP 'PLAYWRIGHT_JUNIT_OUTPUT_FILE=\$\{REPORT_DIR\}/\K[^ "]+' "$pipeline" 2>/dev/null || true
+        grep -h -oP '\-\-outputFile=\$\{REPORT_DIR\}/\K[^ "]+' "$pipeline" 2>/dev/null || true
     } | sort -u
 }
 

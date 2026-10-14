@@ -100,6 +100,125 @@ assert_cert_manager_pki() {
 	grep -Ei "TLS certificates" "$target"
 }
 
+assert_azure_architecture() {
+	local target="$1"
+	grep -i "Azure Front Door" "$target" && \
+	grep -Ei "global routing" "$target" && \
+	grep -i "Azure WAF" "$target" && \
+	grep -i "Azure DNS" "$target" && \
+	grep -Ei "Application Gateway|Application Gateways" "$target" && \
+	grep -i "Dashboard" "$target" && \
+	grep -i "FastAPI Core" "$target" && \
+	grep -i "api-signalloom" "$target" && \
+	grep -i "Fleet Manager" "$target" && \
+	grep -i "AKS" "$target" && \
+	grep -i "OpenBao" "$target" && \
+	grep -i "Azure Key Vault" "$target" && \
+	grep -i "HSM" "$target" && \
+	grep -Ei "auto-unseal|unseal" "$target" && \
+	grep -i "SPIRE" "$target" && \
+	grep -i "mTLS" "$target" && \
+	grep -Ei "mTLS mesh" "$target" && \
+	grep -i "warden" "$target" && \
+	grep -i "eBPF" "$target" && \
+	grep -Ei "cgroups? freeze" "$target" && \
+	grep -Ei "tc stun" "$target" && \
+	grep -i "KubeSec AFM" "$target" && \
+	grep -Ei "formal RBAC|RBAC analysis" "$target" && \
+	grep -i "Azure Event Hubs" "$target" && \
+	grep -i "Activity Logs" "$target" && \
+	grep -Ei "Diagnostic (streams|logs)" "$target" && \
+	grep -i "signal-ingest" "$target" && \
+	grep -Ei "collectors?" "$target" && \
+	grep -i "Azure OpenAI" "$target" && \
+	grep -i "CPAI" "$target" && \
+	grep -Ei "Azure Database for PostgreSQL Flexible Server|PostgreSQL Flexible Server" "$target" && \
+	grep -i "audit trail" "$target" && \
+	grep -i "tenant policies" "$target" && \
+	grep -Ei "Azure Blob Storage" "$target" && \
+	grep -Ei "Data Lake" "$target" && \
+	grep -i "FrostDB" "$target"
+}
+
+assert_aws_architecture() {
+	local target="$1"
+	grep -i "CloudFront" "$target" && \
+	grep -Ei "edge CDN" "$target" && \
+	grep -i "AWS WAF" "$target" && \
+	grep -i "Route 53" "$target" && \
+	grep -Ei "Application Load Balancer|Application Load Balancers" "$target" && \
+	grep -i "Dashboard" "$target" && \
+	grep -i "FastAPI Core" "$target" && \
+	grep -i "Fleet Manager" "$target" && \
+	grep -i "EKS" "$target" && \
+	grep -i "Bottlerocket" "$target" && \
+	grep -i "Nitro Enclaves" "$target" && \
+	grep -i "OpenBao" "$target" && \
+	grep -i "AWS KMS" "$target" && \
+	grep -i "CMK" "$target" && \
+	grep -Ei "auto-unseal|unseal" "$target" && \
+	grep -i "SPIRE" "$target" && \
+	grep -i "mTLS" "$target" && \
+	grep -Ei "mTLS mesh" "$target" && \
+	grep -i "warden" "$target" && \
+	grep -i "eBPF" "$target" && \
+	grep -Ei "cgroups? freeze" "$target" && \
+	grep -Ei "tc stun" "$target" && \
+	grep -i "KubeSec AFM" "$target" && \
+	grep -Ei "formal RBAC|RBAC analysis" "$target" && \
+	grep -i "Amazon SQS" "$target" && \
+	grep -i "CloudTrail" "$target" && \
+	grep -i "GuardDuty" "$target" && \
+	grep -i "EventBridge" "$target" && \
+	grep -i "signal-ingest" "$target" && \
+	grep -i "Amazon Bedrock" "$target" && \
+	grep -i "CPAI" "$target" && \
+	grep -i "Amazon Aurora PostgreSQL" "$target" && \
+	grep -i "audit events" "$target" && \
+	grep -i "tenant state" "$target" && \
+	grep -i "Amazon S3" "$target" && \
+	grep -i "Glacier Vault" "$target" && \
+	grep -Ei "WORM evidence|WORM" "$target" && \
+	grep -i "FrostDB" "$target"
+}
+
+assert_gcp_architecture() {
+	local target="$1"
+	grep -i "Cloud CDN" "$target" && \
+	grep -i "Cloud Armor" "$target" && \
+	grep -i "Cloud DNS" "$target" && \
+	grep -Ei "Global External HTTPS Load Balancer|Global External HTTPS Load Balancers" "$target" && \
+	grep -Ei "per region|across regional" "$target" && \
+	grep -i "Dashboard" "$target" && \
+	grep -i "FastAPI Core" "$target" && \
+	grep -i "Fleet Manager" "$target" && \
+	grep -i "GKE" "$target" && \
+	grep -i "Container-Optimized OS" "$target" && \
+	grep -i "gVisor" "$target" && \
+	grep -i "OpenBao" "$target" && \
+	grep -i "Cloud KMS" "$target" && \
+	grep -Ei "auto-unseal|unseal" "$target" && \
+	grep -i "SPIRE" "$target" && \
+	grep -i "mTLS" "$target" && \
+	grep -Ei "mTLS mesh" "$target" && \
+	grep -i "warden" "$target" && \
+	grep -i "eBPF" "$target" && \
+	grep -Ei "cgroups? freeze" "$target" && \
+	grep -Ei "tc stun" "$target" && \
+	grep -i "KubeSec AFM" "$target" && \
+	grep -Ei "formal RBAC|RBAC analysis" "$target" && \
+	grep -i "Cloud Pub/Sub" "$target" && \
+	grep -i "Cloud Audit Logs" "$target" && \
+	grep -i "Security Command Center" "$target" && \
+	grep -i "signal-ingest" "$target" && \
+	grep -i "Vertex AI" "$target" && \
+	grep -i "CPAI" "$target" && \
+	grep -i "Cloud SQL for PostgreSQL" "$target" && \
+	grep -i "audit events" "$target" && \
+	grep -Ei "Cloud Storage Dual-Region|Dual-Region bucket" "$target" && \
+	grep -i "FrostDB" "$target"
+}
+
 @test "architecture-diagrams.md documents sovereign ingress and zero outbound WAN egress" {
 	[ -f "$doc" ]
 	run assert_sovereign_ingress "$doc"
@@ -136,6 +255,24 @@ assert_cert_manager_pki() {
 	[ "$status" -eq 0 ]
 }
 
+@test "architecture-diagrams.md documents Microsoft Azure AKS roadmap architecture" {
+	[ -f "$doc" ]
+	run assert_azure_architecture "$doc"
+	[ "$status" -eq 0 ]
+}
+
+@test "architecture-diagrams.md documents Amazon Web Services EKS roadmap architecture" {
+	[ -f "$doc" ]
+	run assert_aws_architecture "$doc"
+	[ "$status" -eq 0 ]
+}
+
+@test "architecture-diagrams.md documents Google Cloud Platform GKE roadmap architecture" {
+	[ -f "$doc" ]
+	run assert_gcp_architecture "$doc"
+	[ "$status" -eq 0 ]
+}
+
 @test "architecture-diagrams.md contains zero prohibited terms" {
 	[ -f "$doc" ]
 	run check_prohibited_terms "$doc"
@@ -169,5 +306,47 @@ assert_cert_manager_pki() {
 	local stripped="$BATS_TEST_TMPDIR/stripped_storage.md"
 	sed 's/PostgreSQL/sqlite/g; s/FrostDB/in-memory/g' "$doc" >"$stripped"
 	run assert_dual_storage "$stripped"
+	[ "$status" -ne 0 ]
+}
+
+@test "self-test: required section check fails when Azure roadmap is missing" {
+	local stripped="$BATS_TEST_TMPDIR/stripped_azure.md"
+	sed 's/Azure Front Door/Front Door/g; s/OpenBao/Consul/g' "$doc" >"$stripped"
+	run assert_azure_architecture "$stripped"
+	[ "$status" -ne 0 ]
+}
+
+@test "self-test: required section check fails when AWS roadmap is missing" {
+	local stripped="$BATS_TEST_TMPDIR/stripped_aws.md"
+	sed 's/Bottlerocket/Amazon Linux/g; s/Bedrock/Anthropic/g' "$doc" >"$stripped"
+	run assert_aws_architecture "$stripped"
+	[ "$status" -ne 0 ]
+}
+
+@test "self-test: required section check fails when GCP roadmap is missing" {
+	local stripped="$BATS_TEST_TMPDIR/stripped_gcp.md"
+	sed 's/Cloud Armor/WAF/g; s/gVisor/runc/g' "$doc" >"$stripped"
+	run assert_gcp_architecture "$stripped"
+	[ "$status" -ne 0 ]
+}
+
+@test "self-test: required section check fails when Azure mTLS mesh or Key Vault HSM is missing" {
+	local stripped="$BATS_TEST_TMPDIR/stripped_azure_mesh.md"
+	sed 's/mTLS mesh/plain network/g; s/HSM/software/g' "$doc" >"$stripped"
+	run assert_azure_architecture "$stripped"
+	[ "$status" -ne 0 ]
+}
+
+@test "self-test: required section check fails when AWS edge CDN or SQS is missing" {
+	local stripped="$BATS_TEST_TMPDIR/stripped_aws_cdn.md"
+	sed 's/edge CDN/origin server/g; s/Amazon SQS/Kafka/g' "$doc" >"$stripped"
+	run assert_aws_architecture "$stripped"
+	[ "$status" -ne 0 ]
+}
+
+@test "self-test: required section check fails when GCP gVisor or Pub/Sub is missing" {
+	local stripped="$BATS_TEST_TMPDIR/stripped_gcp_gvisor.md"
+	sed 's/gVisor/containerd/g; s/Cloud Pub\/Sub/RabbitMQ/g' "$doc" >"$stripped"
+	run assert_gcp_architecture "$stripped"
 	[ "$status" -ne 0 ]
 }

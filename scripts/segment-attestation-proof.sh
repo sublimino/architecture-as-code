@@ -36,10 +36,6 @@ done
 EXPECTED_KEY_ID="$(jq -er '.expected_key_ids | if length == 1 then .[0] else error("expected exactly one signer") end' "${SIGNING_POLICY}")"
 [[ "${EXPECTED_KEY_ID}" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected key id in ${SIGNING_POLICY}" >&2; exit 1; }
 
-if [ -n "${ARCHIVISTA_URL:-}" ]; then
-  export AUDIT_ANCHOR_REQUIRE_LOG=1
-fi
-
 echo "segment proof directory: ${PROOF_DIR}"
 echo "running Go FrostDB integration test: ${GO_TEST}"
 SIGNAL_SEGMENT_PROOF_DIR="${PROOF_DIR}" \
@@ -66,10 +62,6 @@ done
 
 verify() {
   local output=$1
-  local -a strict=()
-  if [ -n "${ARCHIVISTA_URL:-}" ]; then
-    strict+=(--require-archivista)
-  fi
   (
     cd "${SRC}"
     AUDIT_ANCHOR_DIR="${ANCHOR_DIR}" "${PYTHON}" -m audit_anchor \
@@ -79,7 +71,7 @@ verify() {
       --segment-journal "${JOURNAL}" \
       --segment-root "${STORE_DIR}" \
       --protected-high-water "${HIGH_WATER}" \
-      "${strict[@]}" verify --json
+      verify --json
   ) >"${output}"
 }
 

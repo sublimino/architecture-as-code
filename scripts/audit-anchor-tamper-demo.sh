@@ -103,10 +103,6 @@ anchor() {
 
 verify_all() {
   local proof_dir=$1
-  local strict=()
-  if [ -n "${ARCHIVISTA_URL:-}" ]; then
-    strict+=(--require-archivista)
-  fi
   ( cd "${SRC}" && AUDIT_ANCHOR_DIR="${ANCHOR_DIR}" "${PYTHON}" -m audit_anchor \
       --dsn "${DSN}" \
       --public-key "${KEYS_ABS}/witness-pub.pem" \
@@ -116,12 +112,12 @@ verify_all() {
       --segment-journal "${proof_dir}/evidence/segments.jsonl" \
       --segment-root "${proof_dir}/store" \
       --protected-high-water "${proof_dir}/protected/highwater.json" \
-      "${strict[@]}" verify --json )
+      verify --json )
 }
 
 # ── Signing key ───────────────────────────────────────────────────────────────
-# The same ed25519 key scripts/attested-test.sh signs Archivista attestations
-# with, generated the same way `make signing-keys` generates it.
+# The same Ed25519 key scripts/attested-test.sh uses for local evidence,
+# generated the same way `make signing-keys` generates it.
 if [ ! -f "${KEYS_ABS}/witness.pem" ]; then
   banner "generating ${KEYS_ABS}/witness.pem"
   mkdir -p "${KEYS_ABS}"

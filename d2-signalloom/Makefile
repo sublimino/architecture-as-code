@@ -267,16 +267,13 @@ test-openbao-agent-role-lab: ## Behavioural proof of the agent-swarm OpenBao gen
 
 # --- Swarm interactive agent images ---
 
-swarm-zulip-image: ## Build zulip-chat-agent image
-	docker build -t zulip-chat-agent:latest apps/zulip-chat-agent
-
 swarm-governor-image: ## Build swarm-governor image
 	docker build -t swarm-governor:latest apps/swarm-governor
 
 swarm-deploy-gate-image: ## Build prod-deploy-gate image
 	docker build -t prod-deploy-gate:latest apps/prod-deploy-gate
 
-swarm-interactive-images: swarm-zulip-image swarm-governor-image swarm-deploy-gate-image ## Build all swarm interactive agent images
+swarm-interactive-images: swarm-governor-image swarm-deploy-gate-image ## Build all swarm interactive agent images
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Agent Swarm — Security, Identity & Containment Validation Fleet

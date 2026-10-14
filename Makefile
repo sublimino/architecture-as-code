@@ -1,7 +1,7 @@
 # Acme Co. OSRAMP demo: one-shot local environment.
 #
 # Prerequisites: docker, kind, kubectl, kustomize, flux, helm, cosign, jq,
-# bats (tests), syft/grype/govulncheck/vexctl/witness (VEX demo). On Windows,
+# bats (tests), syft/grype/govulncheck/vexctl/witness. On Windows,
 # run from WSL2 or Git Bash.
 #
 # `make up` creates only the shared cluster foundation. It does not start a
@@ -371,8 +371,18 @@ signalloom-dashboard-image: ## Build, sign, and load the dashboard workload imag
 	./scripts/build-sign-dashboard.sh
 
 .PHONY: signalloom-docs-image
-signalloom-docs-image: ## Build, sign, and load the user documentation image.
+signalloom-docs-image: ## Build, sign, and load the user and engineering documentation image.
 	./scripts/build-sign-docs.sh
+
+.PHONY: demo-signalloom-docs-up
+demo-signalloom-docs-up: signalloom-dashboard-image signalloom-docs-image ## Publish both docs portals and their dashboard proxy in the local demo, then restore Tailnet access.
+	@set -e; \
+	source ./scripts/lib/wait.sh; \
+	[ "$$(kubectl config current-context)" = "kind-$(CLUSTER_NAME)" ] || { echo "ERROR: select kind-$(CLUSTER_NAME) before docs rollout" >&2; exit 1; }; \
+	kubectl -n fe-signalloom rollout restart deployment/dashboard-signalloom deployment/docs-signalloom; \
+	wait_rollout dashboard-signalloom -n fe-signalloom 300; \
+	wait_rollout docs-signalloom -n fe-signalloom 300
+	$(MAKE) serve ORIGIN="$(ORIGIN)"
 
 .PHONY: preload-foundation-images preload-snapshot
 preload-foundation-images: ## kind-load foundation base images already in host Docker (parallel); missing ones fall back to the pull-through mirror.
@@ -433,7 +443,19 @@ signalloom-images: ## Build and persist local Signal Loom workload images in Zot
 	# signalloom-apps never reconciles, fe-signalloom stays EMPTY, and CI \
 	# stages 6-8 fail together naming no image at all. Masked on a warm VM \
 	# because the node's image cache survives; fatal on every cold run. \
-	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh fake-integration-proxy:dev netassert-controller:dev
+	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh fake-integration-proxy:dev netassert-controller:dev; \
+	if kubectl get namespace fe-signalloom >/dev/null 2>&1; then \
+		for dep in dashboard-signalloom docs-signalloom fe-signalloom; do \
+			if kubectl -n fe-signalloom get deployment "$$dep" >/dev/null 2>&1; then \
+				kubectl -n fe-signalloom rollout restart deployment/"$$dep"; \
+			fi; \
+		done; \
+		for dep in dashboard-signalloom docs-signalloom fe-signalloom; do \
+			if kubectl -n fe-signalloom get deployment "$$dep" >/dev/null 2>&1; then \
+				kubectl -n fe-signalloom rollout status deployment/"$$dep" --timeout=300s; \
+			fi; \
+		done; \
+	fi
 
 .PHONY: cpai-images
 cpai-images: ## Build CPAI runtime image from cpai-cli, push to Zot, and cosign sign.
@@ -820,7 +842,7 @@ test-kpai: ## Run KPAI runtime harness probe tests and contract validation.
 		systemd-run --user --wait --collect --pipe -p NoNewPrivileges=yes --setenv=NONO_CAP_FILE="/tmp/.nono-test.json" bash -c 'export PATH=/home/linuxbrew/.linuxbrew/bin:$$PATH && touch /tmp/.nono-test.json && cd "$(CURDIR)" && bun test test/unit/kpai-harness-contract.test.ts test/unit/kpai-harness-execution.test.ts'; \
 	fi
 
-.PHONY: test-scheduled-skills-parallel test-scheduled-skills-contracts architecture-audit security-audit architecture-audit-test security-audit-test
+.PHONY: test-scheduled-skills-parallel test-scheduled-skills-contracts architecture-audit security-audit architecture-audit-test security-audit-test clean-test-artifacts clean
 AUDIT_ARGS ?=
 test-scheduled-skills-parallel: ## Collect bounded offline audits with GNU Parallel, then send safe evidence to an agent.
 	./scripts/test-scheduled-skills-parallel.sh $(AUDIT_ARGS)
@@ -839,6 +861,11 @@ security-audit-test: ## Run offline security collector fixture contracts.
 
 test-scheduled-skills-contracts: ## Run bounded audit runner, collector, and honest-status contracts without model calls.
 	bats test/scheduled-skills-parallel.bats test/sl-architecture-audit.bats test/sl-security-audit.bats test/sl-drift-sweep.bats
+
+clean-test-artifacts: ## Clean leaked test artifacts from the cluster and /tmp without tearing down the foundation.
+	./scripts/clean-test-artifacts.sh
+
+clean: clean-test-artifacts ## Alias for clean-test-artifacts.
 
 ##@ Composable demo lifecycle
 
@@ -1076,17 +1103,33 @@ docs-render-check: ## Build the docs portal, serve it locally, and render-check 
 	# OCIRepository with no git revision, so a probe of the gateway is evidence
 	# about a deployed artifact and never about the checked-out tree. This
 	# target therefore serves the tree's own build.
-	./scripts/docs-render-check.sh docs.spec.ts
+	PW_CHANNEL="$(if $(filter environment command line,$(origin PW_CHANNEL)),$(PW_CHANNEL),)" ./scripts/docs-render-check.sh docs.spec.ts
 
 .PHONY: docs-lint docs-lint-test docs-rewrite-guard test-alignment
 docs-lint: ## Check every tracked doc by tier: links, anchors, paths, make targets, diagrams, index, and STE rules. No cluster.
 	./scripts/docs-lint.sh
+	$(MAKE) docs-dev-lint
+
+.PHONY: docs-dev-build docs-dev-lint docs-dev-test docs-dev-render-check
+docs-dev-build: ## Build Signal Loom Engineering at /dev-docs/ with the adapted STE-Code gate. No cluster.
+	bun run --cwd d2-signalloom/apps/docs-signalloom build:dev-docs
+
+docs-dev-lint: ## Check engineering prose against adapted STE-Code rules, including new files. No cluster.
+	bun run --cwd d2-signalloom/apps/docs-signalloom lint:dev-docs
+	@bash -c 'shopt -s globstar nullglob; files=(d2-signalloom/apps/docs-signalloom/dev-docs/src/content/docs/**/*.md); test "$${#files[@]}" -gt 0; ./scripts/docs-lint.sh "$${files[@]}"'
+
+docs-dev-test: ## Test the adapted STE-Code gate used by the engineering build. No cluster.
+	bun run --cwd d2-signalloom/apps/docs-signalloom test:ste
+
+docs-dev-render-check: ## Build both portals and check engineering pages and architecture redirects in Chromium. No cluster.
+	PW_CHANNEL="$(if $(filter environment command line,$(origin PW_CHANNEL)),$(PW_CHANNEL),)" ./scripts/docs-render-check.sh docs.spec.ts --grep 'engineering|architecture'
 
 test-alignment: ## Check that what the docs CLAIM about the tests is true: Go test names, bats and spec files, make targets, walkthrough shell commands and flags, and the walkthrough-to-spec map. No cluster.
 	./scripts/docs-tests-alignment.sh
 
 docs-lint-test: ## Run the BATS suites for docs-lint, the index sync, the rewrite guard, and the docs-to-tests alignment gate. No cluster.
 	bats test/docs-lint.bats test/docs-index-sync.bats test/docs-rewrite-guard.bats test/docs-tests-alignment.bats
+	$(MAKE) docs-dev-test
 
 docs-rewrite-guard: ## Check that a doc rewrite kept every fact-bearing token: make docs-rewrite-guard FILES='a.md b.md'. No cluster.
 	./scripts/docs-rewrite-guard.sh $(FILES)
@@ -1756,8 +1799,8 @@ attested-test: signing-keys ## Run audit tests or the real FrostDB segment proof
 
 # ── Audit-trail transparency anchoring ────────────────────────────────────────
 # Checkpoints over public.audit_events, signed with the same .keys/witness.pem
-# attested-test.sh uses, published to Archivista when ARCHIVISTA_URL is set and
-# answering, otherwise to AUDIT_ANCHOR_DIR. Read-only against the audit table.
+# attested-test.sh uses and retained under AUDIT_ANCHOR_DIR. Read-only against
+# the audit table.
 # See d2-signalloom/apps/fe-signalloom/src/audit_anchor/README.md for what this
 # proves and, more to the point, what it does not.
 AUDIT_ANCHOR_SRC := d2-signalloom/apps/fe-signalloom/src
@@ -1774,26 +1817,20 @@ AUDIT_ANCHOR_KEYS = $(abspath $(KEYS_DIR))
 
 .PHONY: audit-anchor-checkpoint
 audit-anchor-checkpoint: signing-keys ## Publish a signed checkpoint over the audit trail.
-	strict="$${AUDIT_ANCHOR_REQUIRE_LOG:-}"; \
-		[ -z "$${ARCHIVISTA_URL:-}" ] || strict=1; \
-		cd $(AUDIT_ANCHOR_SRC) && AUDIT_ANCHOR_REQUIRE_LOG="$$strict" $(AUDIT_ANCHOR_PY) -m audit_anchor \
+	cd $(AUDIT_ANCHOR_SRC) && AUDIT_ANCHOR_REQUIRE_LOG="$${AUDIT_ANCHOR_REQUIRE_LOG:-}" $(AUDIT_ANCHOR_PY) -m audit_anchor \
 		--private-key $(AUDIT_ANCHOR_KEYS)/witness.pem \
 		--public-key $(AUDIT_ANCHOR_KEYS)/witness-pub.pem $(ARGS) checkpoint $(COMMAND_ARGS)
 
 .PHONY: audit-anchor-verify
 audit-anchor-verify: signing-keys ## Verify the audit trail against its anchors (exit 2 = DIVERGED).
 	expected=$$(jq -er '.expected_key_ids | if length == 1 then .[0] else error("expected exactly one signer") end' $(AUDIT_ANCHOR_KEYS)/segment-signing-policy.json); \
-		strict="$${AUDIT_ANCHOR_REQUIRE_LOG:-}"; \
-		[ -z "$${ARCHIVISTA_URL:-}" ] || strict=1; \
-		cd $(AUDIT_ANCHOR_SRC) && AUDIT_ANCHOR_REQUIRE_LOG="$$strict" $(AUDIT_ANCHOR_PY) -m audit_anchor \
+		cd $(AUDIT_ANCHOR_SRC) && AUDIT_ANCHOR_REQUIRE_LOG="$${AUDIT_ANCHOR_REQUIRE_LOG:-}" $(AUDIT_ANCHOR_PY) -m audit_anchor \
 		--public-key $(AUDIT_ANCHOR_KEYS)/witness-pub.pem \
 		--expected-key-id "$$expected" $(ARGS) verify $(COMMAND_ARGS)
 
 .PHONY: audit-anchor-show
 audit-anchor-show: ## List the published audit-trail anchors.
-	strict="$${AUDIT_ANCHOR_REQUIRE_LOG:-}"; \
-		[ -z "$${ARCHIVISTA_URL:-}" ] || strict=1; \
-		cd $(AUDIT_ANCHOR_SRC) && AUDIT_ANCHOR_REQUIRE_LOG="$$strict" $(AUDIT_ANCHOR_PY) -m audit_anchor \
+	cd $(AUDIT_ANCHOR_SRC) && AUDIT_ANCHOR_REQUIRE_LOG="$${AUDIT_ANCHOR_REQUIRE_LOG:-}" $(AUDIT_ANCHOR_PY) -m audit_anchor \
 		--public-key $(AUDIT_ANCHOR_KEYS)/witness-pub.pem $(ARGS) show $(COMMAND_ARGS)
 
 .PHONY: audit-anchor-tamper-demo
@@ -1803,6 +1840,7 @@ audit-anchor-tamper-demo: signing-keys ## Prove real audit or FrostDB tamper det
 .PHONY: test-sfdp-p3-3-root-wiring
 test-sfdp-p3-3-root-wiring: ## Verify local SFDP-P3-3 root script gates without cluster access.
 	bats test/sfdp-p3-3-root-wiring.bats
+	bats test/local-witness-evidence.bats
 
 .PHONY: test-sfdp-p4-4-tamper-regression
 test-sfdp-p4-4-tamper-regression: signing-keys ## Verify SFDP-P4-4 witness verify and tamper regression suite.
@@ -1831,11 +1869,11 @@ test-impl-agent-log: ## Run the impl-agent-log multi-agent shared log BATS test 
 	bats test/impl-agent-log.bats
 
 .PHONY: witness-policy
-witness-policy: ## Generate and sign the witness promotion policy.
-	./scripts/gen-witness-policy.sh
+witness-policy: ## Generate and sign the generic-artifact promotion policy.
+	./scripts/gen-witness-policy.sh artifact-build
 
 .PHONY: promotion-demo
-promotion-demo: ## Gate promotion on the witness policy: one approved, one rejected.
+promotion-demo: signing-keys ## Gate a temporary generic artifact: original approved, modified rejected.
 	./scripts/promotion-demo.sh
 
 .PHONY: admission-demo

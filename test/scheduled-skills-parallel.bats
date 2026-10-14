@@ -15,6 +15,14 @@ setup() {
 	git -C "$FIXTURE" add README
 	git -C "$FIXTURE" commit --no-gpg-sign -qm fixture
 	export CAPTURE="$BATS_TEST_TMPDIR/capture"
+	cat >"$BIN/unshare" <<'EOF'
+#!/usr/bin/env bash
+while [[ "$1" == --* ]]; do shift; done
+[[ "${1:-}" == "--" ]] && shift
+exec "$@"
+EOF
+	chmod +x "$BIN/unshare"
+	export PATH="$BIN:$PATH"
 	# shellcheck source=scripts/lib/wait.sh
 	source "$ROOT/scripts/lib/wait.sh"
 	export WAIT_STATS_FILE="$BATS_TEST_TMPDIR/wait-stats.jsonl"

@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "qualified_id": "SLCO-P1-GOV",
+  "status": "fail",
+  "proceed": false,
+  "blocking_drift": true,
+  "evaluated_commit": "0a509afb47f5dce5c967626bc513c4648fe10cb8",
+  "integration_ref": "refs/heads/integration/slco-v0.1.0",
+  "worktree": "/home/andy/src/.worktrees/osramp-demo/slco-v0.1.0/governor",
+  "created": "2026-10-15T01:10:11+01:00",
+  "acceptance_command": "make test-eap-offline && make test-kusari-e2e && make docs-lint",
+  "acceptance_runs": [
+    {
+      "run": 1,
+      "log": "run-1-matrix.log",
+      "sha256": "932a174d73e835555da5015567985d697adee965f0ad766d870a868d319805d0",
+      "started": "2026-10-15T01:05:15.123479+01:00",
+      "ended": "2026-10-15T01:06:31.127448+01:00",
+      "pid": 3998332,
+      "observer_pid": 3998312,
+      "exit_code": 0,
+      "elapsed_seconds": 76.0039880159311,
+      "peak_child_rss_kib": 645496,
+      "eap_pytest_passed": 274,
+      "eap_pytest_warnings": 28,
+      "eap_bats_passed": 18,
+      "eap_cli_assertions_passed": 33,
+      "kusari_default_top_level_passed": 36,
+      "kusari_frostdb_top_level_passed": 42,
+      "kusari_default_nested_pass_events": 18,
+      "kusari_frostdb_nested_pass_events": 18,
+      "counted_passes_excluding_nested_go_events": 403,
+      "skips": 0,
+      "failures": 0,
+      "docs_files_clean": 785,
+      "docs_editorial_subset_files_clean": 10,
+      "matrix_traceback_signature_matches": 0
+    },
+    {
+      "run": 2,
+      "log": "run-2-matrix.log",
+      "sha256": "472516d53593da63a5257e6cfa62bc65e74db409183fc6c2434b41ba00698b64",
+      "started": "2026-10-15T01:06:43.346054+01:00",
+      "ended": "2026-10-15T01:07:59.899107+01:00",
+      "pid": 4136142,
+      "observer_pid": 4136123,
+      "exit_code": 0,
+      "elapsed_seconds": 76.55303903308231,
+      "peak_child_rss_kib": 644108,
+      "eap_pytest_passed": 274,
+      "eap_pytest_warnings": 28,
+      "eap_bats_passed": 18,
+      "eap_cli_assertions_passed": 33,
+      "kusari_default_top_level_passed": 36,
+      "kusari_frostdb_top_level_passed": 42,
+      "kusari_default_nested_pass_events": 18,
+      "kusari_frostdb_nested_pass_events": 18,
+      "counted_passes_excluding_nested_go_events": 403,
+      "skips": 0,
+      "failures": 0,
+      "docs_files_clean": 785,
+      "docs_editorial_subset_files_clean": 10,
+      "matrix_traceback_signature_matches": 0
+    }
+  ],
+  "comparison": {
+    "counts_identical": true,
+    "return_codes_identical": true,
+    "normalized_named_pass_events_identical": true,
+    "normalized_named_pass_events_count": 165,
+    "normalized_named_pass_events_sha256": "0268cdd5eb858cdca923c7031852a24149f6bb1c6c37442dd65ad22bdddc05dc",
+    "normalization": "Ordered TAP ok lines, shell [PASS] lines and Go PASS lines; strip surrounding whitespace and terminal Go duration. Pytest identities are not emitted by -q and are not included.",
+    "raw_logs_identical": false,
+    "universal_determinism_proven": false,
+    "historical_docs_target": 784,
+    "observed_docs_count": 785,
+    "docs_count_note": "The ignored local PRD exists before both runs. Report actual count, not the card's historical 784 target."
+  },
+  "doctor": {
+    "log": "doctor.log",
+    "exit_code": 1,
+    "status": "UNHEALTHY",
+    "exceptions": [
+      {"code": "DOC-3", "finding": "Principal proposal is modified by another actor."},
+      {"code": "DOC-5", "finding": "Orphan worktree /tmp/slsi-sync-main."}
+    ],
+    "initial_observation": "Initial doctor reported eight orphans; seven principal .claude worktrees disappeared from subsequent output without action by this governor.",
+    "graph": {"log": "link-check.log", "exit_code": 0, "rules_passed": 6, "critical": 0, "fail": 0, "warn": 0},
+    "foreign_worktrees_modified_by_this_governor": false
+  },
+  "prerequisites": [
+    {"id": "SLCO-P1-1", "evidence_commit": "86a4bdb556cbb11f2eed4b0fcf29cacf1b307506", "ancestor_rc": 0, "done_check_corroborated": true, "qualified_verdict": "fail", "reason": "Current external pass errata reports 226 passed and 1 skipped. Earlier committed evidence reports a certification blocker. Per-card execution PID, memory and duration are not supplied by that pass errata."},
+    {"id": "SLCO-P1-2", "evidence_commit": "69256c857bb6d12462400c2a846c98ef0f91e200", "ancestor_rc": 0, "done_check_corroborated": true, "qualified_verdict": "unverified", "reason": "External errata reports 23 passed; committed evidence reports coverage drift. Alias commit ef239c7d00184d3e57cc62f2e2158b81e44ee0a5 is integrated. Governor matrix does not execute this file."},
+    {"id": "SLCO-P1-3", "evidence_commit": "11ea9f5daccaf37f84949a867bc2510ebe6b30e2", "ancestor_rc": 0, "done_check_corroborated": true, "qualified_verdict": "fail", "reason": "Forged-header tests in test_negative_security.py:395-413 raise a local test exception without exercising production code. Integrated selector commit is the evaluated HEAD."},
+    {"id": "SLCO-P1-4", "evidence_commit": "99d190b6cba2e0ead44f7ff6061def7b8ba21698", "ancestor_rc": 0, "done_check_corroborated": true, "qualified_verdict": "fail", "reason": "Passing external prose does not resolve committed RLS/perimeter drift or the HMAC versus salted-concatenation contract mismatch."}
+  ],
+  "predecessor_governors": {"earlier_numbered_phase_governors": [], "note": "Phase 1 has no Pk-GOV with 1 <= k < 1. P0 baseline and P1-PRE are reported corroborated by done-check, but their prose is not a replacement for required security evidence."},
+  "compliance_matrix": [
+    {"id": "C1", "status": "fail", "evidence": "External P1-1 pass errata explicitly records one live-cluster skip; exact governor matrix does not include the full Kusari/EAP tenant-isolation trio."},
+    {"id": "C2", "status": "unverified", "evidence": "Host-enrollment file is outside both required make matrices; prerequisite prose and aliases do not establish real database persistence."},
+    {"id": "C3", "status": "fail", "evidence": "Self-contained test-local header exception is insensitive to production header enforcement."},
+    {"id": "T1", "status": "unverified", "evidence": "006_tenant_isolation_rls.sql:232-266 enables and forces identity-graph RLS; it does not prove customer-table RLS through signalloom_app. No live database used."},
+    {"id": "T2", "status": "unverified", "evidence": "External errata reports registration suite 8 passed; that suite is outside the two governor matrices and no new live claim probe was run."},
+    {"id": "T3", "status": "unverified", "evidence": "Replay and expiry tests exist in test_host_enrollment.py; durable real database token consumption is not established by the matrix."},
+    {"id": "T4", "status": "fail", "evidence": "test_negative_security.py:395-413 does not invoke production telemetry handling; no live mismatch probe was run."},
+    {"id": "T5", "status": "unverified", "evidence": "Committed PRE reports warden-ingest forwarding authenticated /api/v1 rather than only /enroll and /telemetry. No live perimeter test authorized for this phase."},
+    {"id": "T6", "status": "unverified", "evidence": "Offline suite does not establish live tailnet and Dex exposure controls."},
+    {"id": "salted_hash", "status": "fail", "evidence": "scripts/derive_tenant_hash.py:4-8,160 explicitly implements sha256(salt + colon + tenant), not HMAC-SHA256."},
+    {"id": "PAI_isolated_worktree", "status": "pass", "evidence": "pwd, git toplevel and symbolic ref agree with dedicated-governor contract. No pushes or sibling edits performed."},
+    {"id": "PAI_evidence_honesty", "status": "pass", "evidence": "Fixture, static and live claims are separated. No signed security certificate is issued."},
+    {"id": "Life_OS_canonical_compliance", "status": "unverified", "evidence": "No independently supplied canonical Life OS invariant specification was available; no broad compliance assertion is made."}
+  ],
+  "negative_boundary_evidence": {
+    "source": "scripts/eap/test_tailscale_eap_env.sh:68-90,143-148",
+    "observed_in_each_matrix": "Quote injection, SQL-style quote injection, empty/whitespace company names and malformed hash assert exit 2. All 33 CLI assertions pass.",
+    "scope": "Existing deterministic invalid-input corpus in mock mode; not a new randomized fuzz campaign, HTTP-boundary proof or live tenant security certification."
+  },
+  "resource_budget": {
+    "wall_clock_limit_seconds": 10800,
+    "acceptance_elapsed_seconds": 152.5570270490134,
+    "memory_limit_kib": null,
+    "pid_limit": null,
+    "verdict": "unverified",
+    "reason": "No numeric memory or PID ceiling is defined by the card. Observed child max RSS is not concurrent aggregate process-tree RSS. Missing /usr/bin/time attempt is retained separately and is not counted as an acceptance run."
+  },
+  "error_output_audit": {
+    "matrix_traceback_signature_matches": 0,
+    "signature_scope": "Python traceback header, panic:, UnhandledPromiseRejection, uncaught exception",
+    "user_facing_runtime_verdict": "unverified",
+    "reason": "Test logs are not independent observation of live user-facing error channels."
+  },
+  "proposal_boundary": {
+    "named_path": "/home/andy/src/cp/osramp-demo/docs/Proposal — Signal Loom Customer Onboarding Flow Validation (2026-Q4).md",
+    "observed_kind": "regular file in principal checkout, not symlink",
+    "vault_exact_search_matches": 0,
+    "vault_bridge_status": "ok",
+    "principal_proposal_sha256_observed": "75b90100e0345ed679d0cdf06a2af436843e1c3474dd2683836a33275d944091",
+    "integration_proposal_sha256": "9a63fb4a81f38170c94f4b975e4159b104d8a0492160f311d641e755ca782bd6",
+    "concurrent_change": "An external SLCO-P1-GOV pass block with timestamps 01:05 and 01:06 appeared during this governor's executions. It claims zero doctor exceptions and omits EAP from its Run 2 listing. This governor did not author that block.",
+    "errata_applied": false,
+    "pending_errata": "errata-pending.txt",
+    "reason": "Do not overwrite concurrent shared-file changes or edit the protected principal checkout. Do not substitute the older integration proposal for the named proposal. Principal must resolve the authorized destination and conflicting verdict."
+  },
+  "cost_accounting": {
+    "log": "cost-dry-run.log",
+    "exit_code": 0,
+    "rows_would_update": 0,
+    "values": "unavailable, not zero",
+    "apply_executed": false,
+    "reason": "Exact --apply would write the protected principal proposal. Dry run reports zero row updates and unavailable telemetry."
+  },
+  "advancement": {
+    "authorized": false,
+    "performed": false,
+    "certificate_issued": false,
+    "reason": "Technical gates fail and the task contract lifecycle boundary is create-only. No raw runtime mutations, task approvals, phase starts or schedules were performed."
+  },
+  "required_external_resolution": [
+    "Resolve principal proposal ownership/path mismatch and concurrent conflicting governor pass record.",
+    "Have the owner reconcile /tmp/slsi-sync-main and the principal's dirty proposal; this governor cannot delete or edit foreign worktrees.",
+    "Obtain approved implementation or explicit reviewed contract reconciliation for zero-skip C1, production-sensitive header tests and architecture drift. Do not weaken assertions or redefine invariants here.",
+    "Supply numeric resource ceilings and canonical Life OS evidence if those certifications remain required."
+  ]
+}

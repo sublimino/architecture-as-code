@@ -16,7 +16,7 @@ const BASE = config.base;
 interface NavItemSpec {
   name: string;
   href: string;
-  category: "View" | "Control" | "Design";
+  category: "View" | "Control" | "Config";
 }
 
 const PRIMARY_NAV_ITEMS: NavItemSpec[] = [
@@ -33,9 +33,9 @@ const PRIMARY_NAV_ITEMS: NavItemSpec[] = [
   { name: "Collusion & Access", href: "/collusion-access", category: "Control" },
   { name: "Audit Trail", href: "/audit", category: "Control" },
 
-  // Design Tier
-  { name: "Federated Services", href: "/federated-services", category: "Design" },
-  { name: "Settings", href: "/settings", category: "Design" },
+  // Config Tier
+  { name: "Federated Services", href: "/federated-services", category: "Config" },
+  { name: "Settings", href: "/settings", category: "Config" },
 ];
 
 test.describe("3-Tier Navigation Hierarchy & Structure", () => {
@@ -43,13 +43,13 @@ test.describe("3-Tier Navigation Hierarchy & Structure", () => {
     await login(page, { demoMode: true });
   });
 
-  test("renders all 3 tier headings (View, Control, Design) in the sidebar", async ({ page }) => {
+  test("renders all 3 tier headings (View, Control, Config) in the sidebar", async ({ page }) => {
     const nav = page.locator("#sl-sidebar-nav");
     await expect(nav).toBeVisible({ timeout: 15_000 });
 
     await expect(nav.getByText("View", { exact: true })).toBeVisible();
     await expect(nav.getByText("Control", { exact: true })).toBeVisible();
-    await expect(nav.getByText("Design", { exact: true })).toBeVisible();
+    await expect(nav.getByText("Config", { exact: true })).toBeVisible();
   });
 
   test("renders every primary navigation link within its expected tier in order", async ({ page }) => {

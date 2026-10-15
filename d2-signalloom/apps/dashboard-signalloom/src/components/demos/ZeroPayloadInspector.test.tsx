@@ -262,4 +262,30 @@ describe('simulateAllowlistFilter helper', () => {
     expect(result.preservedCount).toBe(5)
     expect(result.dropCount).toBe(0)
   })
+
+  // jev browser loop, /design-system: LAYOUT_OVERFLOW 1789px on the
+  // ConfinementTelemetryPanel specimen. The dashboard has no Tailwind, so a
+  // chip row whose wrapping lives only in `className="flex flex-wrap"` is a
+  // block of adjacent inline spans with no break opportunity. jsdom does no
+  // layout, so the contract pinned here is the one the browser honours: each
+  // chip row declares its wrapping layout as an inline style.
+  it('declares wrapping flex layout inline on every key-chip row (no Tailwind in the dashboard)', () => {
+    render(<ZeroPayloadInspector />)
+    const rows = [
+      'dropped-keys-list',
+      'preserved-keys-list',
+      'allowlist-process-attributes',
+      'allowlist-envelope-fields',
+      'prohibited-keys-list',
+    ]
+    for (const id of rows) {
+      const el = screen.getByTestId(id)
+      expect(el.children.length, id).toBeGreaterThan(0)
+      expect({ id, display: el.style.display, flexWrap: el.style.flexWrap }).toEqual({
+        id,
+        display: 'flex',
+        flexWrap: 'wrap',
+      })
+    }
+  })
 })

@@ -1,6 +1,20 @@
 import React, { useState, useMemo, useCallback } from 'react'
 import defaultManifestJson from '../../data/agentmaxxing-allowlist-manifest.json'
 
+/**
+ * The dashboard ships no Tailwind, so the `flex flex-wrap` utility classes on
+ * the key-chip rows below are inert: the chips render as adjacent inline
+ * spans with no whitespace between them, i.e. one unbreakable run that
+ * overspills its card by ~2000px. The wrapping layout is therefore declared
+ * inline, where it actually applies.
+ */
+export const KEY_CHIP_ROW_STYLE: React.CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 6,
+  minWidth: 0,
+}
+
 export interface AllowlistManifest {
   readonly schema_version: string
   readonly source_file: string
@@ -327,6 +341,7 @@ export function ZeroPayloadInspector({
             <div
               data-testid="dropped-keys-list"
               className="flex flex-wrap gap-1.5 pt-1"
+              style={KEY_CHIP_ROW_STYLE}
             >
               {filterResult.droppedDetails.map((item) => (
                 <span
@@ -358,6 +373,7 @@ export function ZeroPayloadInspector({
             <div
               data-testid="preserved-keys-list"
               className="flex flex-wrap gap-1.5 pt-1"
+              style={KEY_CHIP_ROW_STYLE}
             >
               {filterResult.preservedKeys.map((key) => (
                 <span
@@ -406,6 +422,7 @@ export function ZeroPayloadInspector({
             <div
               data-testid="allowlist-process-attributes"
               className="flex flex-wrap gap-1.5"
+              style={KEY_CHIP_ROW_STYLE}
             >
               {manifest.allowlisted_process_attributes.map((attr) => (
                 <span
@@ -432,6 +449,7 @@ export function ZeroPayloadInspector({
             <div
               data-testid="allowlist-envelope-fields"
               className="flex flex-wrap gap-1.5"
+              style={KEY_CHIP_ROW_STYLE}
             >
               {manifest.allowlisted_envelope_fields.map((field) => (
                 <span
@@ -458,6 +476,7 @@ export function ZeroPayloadInspector({
             <div
               data-testid="prohibited-keys-list"
               className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-2 bg-[var(--bg)] rounded border border-[var(--border)]"
+              style={KEY_CHIP_ROW_STYLE}
             >
               {manifest.prohibited_export_keys.map((key) => (
                 <span

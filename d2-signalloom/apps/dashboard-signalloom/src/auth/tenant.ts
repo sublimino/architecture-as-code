@@ -7,7 +7,9 @@ export function getTenantIdFromToken(token: string): string | null {
     const payload = JSON.parse(atob(b64)) as Record<string, unknown>
     return (
       (payload['https://signalloom.ai/tenant_id'] as string | undefined) ??
+      (payload['https://signalloom.ai/tenant'] as string | undefined) ??
       (payload['tenant_id'] as string | undefined) ??
+      (payload['tenant'] as string | undefined) ??
       (payload['tenantId'] as string | undefined) ??
       null
     )

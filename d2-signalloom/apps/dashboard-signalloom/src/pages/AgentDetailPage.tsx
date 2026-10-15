@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, useContext } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { QueryClientContext } from '@tanstack/react-query'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
@@ -900,6 +900,7 @@ export default function AgentDetailPage() {
   const [showClaimModal, setShowClaimModal] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [lastScanTimestamp, setLastScanTimestamp] = useState<string | null>(null)
+  const [scanError, setScanError] = useState<string | null>(null)
   const [claiming, setClaiming] = useState(false)
   const urlClaimError = searchParams.get('claim_error') || searchParams.get('error')
   const [claimError, setClaimError] = useState<string | null>(() => urlClaimError)
@@ -1035,22 +1036,38 @@ export default function AgentDetailPage() {
   }
 
   const handleComplianceScan = useCallback(async () => {
+    if (!agent) return
     setScanning(true)
+    setScanError(null)
     try {
       const token = await getAccessTokenSilently()
       const result = await api.compliancePolicy.scan(token, {
-        namespace: 'default',
+        namespace: agent.namespace || agent.runtime?.namespace || 'default',
         policyVersion: 'v2.0',
-        frameworks: ['eu-ai-act', 'nist-800-53'],
+        frameworks: [],
+        agentIds: [agent.id],
       })
-      setLastScanTimestamp(result.summary.scanTimestamp)
+      if (
+        result.agentsFailed?.includes(agent.id) ||
+        (result.checks.length === 0 && (result.engineInvoked === false || result.agentsScanned === 0))
+      ) {
+        setScanError('Assessment scan failed: Upstream policy engine unavailable or agent failed evaluation')
+        return
+      }
+      setScanError(null)
+      setLastScanTimestamp(result.summary?.scanTimestamp || new Date().toISOString())
       await load()
     } catch (e) {
       console.error('Compliance scan failed:', e)
+      setScanError(
+        e instanceof Error
+          ? e.message
+          : 'Assessment scan failed: Upstream policy engine unavailable or agent failed evaluation'
+      )
     } finally {
       setScanning(false)
     }
-  }, [getAccessTokenSilently, load])
+  }, [agent, getAccessTokenSilently, load])
 
   const refreshClaimedDossier = useCallback(async (
     token: string,
@@ -1250,28 +1267,62 @@ export default function AgentDetailPage() {
         </div>
       )}
 
+      {scanError && (
+        <div
+          role="alert"
+          data-testid="compliance-scan-error"
+          className="card"
+          style={{
+            marginBottom: 16,
+            padding: '12px 16px',
+            backgroundColor: 'rgba(239, 68, 68, 0.12)',
+            borderColor: 'var(--error)',
+            color: 'var(--error)',
+            fontSize: 13,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 16, fontWeight: 700 }}>⚠️</span>
+            <span>{scanError}</span>
+          </div>
+          <button
+            type="button"
+            aria-label="Dismiss scan error"
+            onClick={() => setScanError(null)}
+            style={{ background: 'none', border: 0, color: 'inherit', cursor: 'pointer', padding: 0 }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* ─── Back Nav ────────────────────────────────────────────────────────── */}
-      <button
+      <Link
+        to="/agents"
         data-testid="dossier-back-btn"
-        onClick={() => navigate('/agents')}
         style={{
           background: 'none',
           border: 'none',
           color: 'var(--muted)',
           fontSize: 13,
           cursor: 'pointer',
-          display: 'flex',
+          display: 'inline-flex',
           alignItems: 'center',
           gap: 6,
           marginBottom: 16,
           padding: 0,
           fontFamily: 'inherit',
+          textDecoration: 'none',
         }}
         onMouseEnter={e => (e.currentTarget.style.color = 'var(--text)')}
         onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
       >
         ← Agents
-      </button>
+      </Link>
 
       {/* ─── Active Target Instance Banner ───────────────────────────────────── */}
       {(searchParams.get('instance') || searchParams.get('selector')) && (
@@ -1429,8 +1480,9 @@ export default function AgentDetailPage() {
         {DOSSIER_TABS.map((tab) => {
           const isActive = activeTab === tab.id
           return (
-            <button
+            <Link
               key={tab.id}
+              to={`/agents/${id}?tab=${tab.id}`}
               role="tab"
               id={`dossier-tab-${tab.id}`}
               aria-selected={isActive}
@@ -1438,6 +1490,7 @@ export default function AgentDetailPage() {
               data-testid={tab.testId}
               onClick={() => handleSelectTab(tab.id)}
               style={{
+                textDecoration: 'none',
                 background: 'none',
                 border: 'none',
                 borderBottom: isActive ? '2px solid var(--cyan)' : '2px solid transparent',
@@ -1448,6 +1501,7 @@ export default function AgentDetailPage() {
                 cursor: 'pointer',
                 transition: 'color 0.15s, border-color 0.15s',
                 whiteSpace: 'nowrap',
+                display: 'inline-block',
               }}
               onMouseEnter={e => {
                 if (!isActive) e.currentTarget.style.color = 'var(--text)'
@@ -1457,7 +1511,7 @@ export default function AgentDetailPage() {
               }}
             >
               {tab.label}
-            </button>
+            </Link>
           )
         })}
       </div>
@@ -1509,6 +1563,7 @@ export default function AgentDetailPage() {
           onScanCompliance={handleComplianceScan}
           isScanning={scanning}
           lastScanTimestamp={lastScanTimestamp || lastAssessed}
+          scanError={scanError}
         />
       )}
 

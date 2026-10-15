@@ -316,4 +316,40 @@ describe('AgentAssessmentsTab — Tab 4 (Assessments & Control Ratios)', () => {
     expect(screen.getByTestId('control-row-soc2:cc7.2')).toBeInTheDocument()
     expect(screen.queryByTestId('control-row-eu-ai-act:art-9')).not.toBeInTheDocument()
   })
+
+  it('renders scanError banner when scanError prop is provided', () => {
+    const agent = makeTestAgent()
+    renderComponent(
+      <AgentAssessmentsTab
+        agent={agent}
+        complianceResults={MOCK_RESULTS}
+        onReassess={mockReassess}
+        onScanCompliance={mockScanCompliance}
+        scanError="Upstream policy engine unavailable or agent failed evaluation"
+      />
+    )
+
+    const errorBanner = screen.getByTestId('assessments-scan-error')
+    expect(errorBanner).toBeInTheDocument()
+    expect(errorBanner).toHaveTextContent(/Upstream policy engine unavailable or agent failed evaluation/i)
+  })
+
+  it('renders scanError banner when onScanCompliance rejects with error', async () => {
+    const agent = makeTestAgent()
+    mockScanCompliance.mockRejectedValue(new Error('Policy engine connection refused'))
+    renderComponent(
+      <AgentAssessmentsTab
+        agent={agent}
+        complianceResults={MOCK_RESULTS}
+        onReassess={mockReassess}
+        onScanCompliance={mockScanCompliance}
+      />
+    )
+
+    const scanBtn = screen.getByTestId('assessments-scan-button')
+    await userEvent.click(scanBtn)
+
+    expect(await screen.findByTestId('assessments-scan-error')).toBeInTheDocument()
+    expect(screen.getByTestId('assessments-scan-error')).toHaveTextContent(/Policy engine connection refused/i)
+  })
 })

@@ -87,6 +87,15 @@ vi.mock('../api/client', () => {
       },
       audit: vi.fn().mockResolvedValue({ events: [], total: 0, page: 1, limit: 50 }),
       compliance: { posture: vi.fn().mockResolvedValue({ agents: [] }) },
+      compliancePolicy: {
+        scan: vi.fn().mockResolvedValue({
+          checks: [],
+          summary: { scanTimestamp: '2026-10-15T12:00:00Z' },
+          engineInvoked: true,
+          agentsScanned: 1,
+          agentsFailed: [],
+        }),
+      },
       support: vi.fn().mockResolvedValue({
         id: 'req-1', subject: 's', urgency: 'normal',
         submitted_at: '2026-06-11T00:00:00Z', clickup_task_id: 'CU-1',
@@ -1186,6 +1195,113 @@ describe('AgentDetailPage — Reactive Workload Reload & Error Clearing', () => 
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['discovery'] })
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['workloads'] })
       expect(screen.getByTestId('location-search').textContent).not.toContain('claim_error')
+    })
+  })
+
+  describe('Compliance Policy Scan Scoping & Failure Handling', () => {
+    it('calls api.compliancePolicy.scan with agentIds: [agent.id] and frameworks: [] when scan button is clicked', async () => {
+      const testAgent = makeAgent({ id: 'agent-scan-test', namespace: 'custom-ns' })
+      vi.mocked(api.agents.get).mockResolvedValue(testAgent)
+      vi.mocked(api.compliancePolicy.scan).mockResolvedValue({
+        checks: [
+          {
+            framework: 'eu-ai-act',
+            controlSet: 'art-9',
+            control: 'risk-management',
+            check: 'risk-check-1',
+            passed: true,
+            policyVersion: 'v2.0',
+            ale: { amount: 0, currency: 'GBP' },
+            var95: { amount: 0, currency: 'GBP' },
+            tvar: { amount: 0, currency: 'GBP' },
+            carried: { amount: 0, currency: 'GBP' },
+            scanTimestamp: '2026-10-15T12:00:00Z',
+            calibrationSource: 'engine',
+          },
+        ],
+        summary: {
+          totalChecks: 1,
+          passed: 1,
+          failed: 0,
+          currency: 'GBP',
+          totalAle: null,
+          totalVar95: null,
+          totalTvar: null,
+          totalCarried: null,
+          scanTimestamp: '2026-10-15T12:00:00Z',
+          frameworks: [],
+        },
+        engineInvoked: true,
+        agentsScanned: 1,
+        agentsFailed: [],
+      })
+
+      renderPage('/agents/agent-scan-test')
+      expect(await screen.findByTestId('dossier-agent-name')).toBeInTheDocument()
+
+      const scanBtn = screen.getByTestId('dossier-scan-compliance')
+      await userEvent.click(scanBtn)
+
+      await waitFor(() => {
+        expect(api.compliancePolicy.scan).toHaveBeenCalledWith('test-token', {
+          namespace: 'custom-ns',
+          policyVersion: 'v2.0',
+          frameworks: [],
+          agentIds: ['agent-scan-test'],
+        })
+      })
+      expect(screen.queryByTestId('compliance-scan-error')).not.toBeInTheDocument()
+    })
+
+    it('displays error banner when api.compliancePolicy.scan returns agentsFailed containing agent id', async () => {
+      const testAgent = makeAgent({ id: 'agent-failed-scan' })
+      vi.mocked(api.agents.get).mockResolvedValue(testAgent)
+      vi.mocked(api.compliancePolicy.scan).mockResolvedValue({
+        checks: [],
+        summary: {
+          totalChecks: 0,
+          passed: 0,
+          failed: 0,
+          currency: 'GBP',
+          totalAle: null,
+          totalVar95: null,
+          totalTvar: null,
+          totalCarried: null,
+          scanTimestamp: '2026-10-15T12:00:00Z',
+          frameworks: [],
+        },
+        engineInvoked: true,
+        agentsScanned: 0,
+        agentsFailed: ['agent-failed-scan'],
+      })
+
+      renderPage('/agents/agent-failed-scan')
+      expect(await screen.findByTestId('dossier-agent-name')).toBeInTheDocument()
+
+      const scanBtn = screen.getByTestId('dossier-scan-compliance')
+      await userEvent.click(scanBtn)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('compliance-scan-error')).toBeInTheDocument()
+      })
+      expect(screen.getByTestId('compliance-scan-error')).toHaveTextContent(/Assessment scan failed/i)
+    })
+
+    it('displays error banner when compliance scan rejects with an error', async () => {
+      const testAgent = makeAgent({ id: 'agent-err-scan' })
+      vi.mocked(api.agents.get).mockResolvedValue(testAgent)
+      vi.mocked(api.compliancePolicy.scan).mockRejectedValue(new Error('Network error: policy engine timed out'))
+
+      renderPage('/agents/agent-err-scan')
+      expect(await screen.findByTestId('dossier-agent-name')).toBeInTheDocument()
+
+      const scanBtn = screen.getByTestId('dossier-scan-compliance')
+      await userEvent.click(scanBtn)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('compliance-scan-error')).toBeInTheDocument()
+      })
+      expect(screen.getByTestId('compliance-scan-error')).toHaveTextContent(/policy engine timed out/i)
     })
   })
 })

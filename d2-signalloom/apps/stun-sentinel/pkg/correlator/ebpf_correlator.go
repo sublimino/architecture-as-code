@@ -877,6 +877,9 @@ func isAgentPod(pod *corev1.Pod) bool {
 	if pod == nil || pod.Labels == nil {
 		return false
 	}
+	if pod.Labels["signalloom.ai/agent"] == "false" || pod.Labels["signalloom.ai/role"] == "rbac-exporter" {
+		return false
+	}
 	if pod.Labels["signalloom.ai/agent"] == "true" ||
 		pod.Labels["signalloom.ai/agent-name"] != "" ||
 		pod.Labels["tenant"] != "" ||

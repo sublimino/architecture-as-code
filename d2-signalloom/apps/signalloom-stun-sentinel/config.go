@@ -216,6 +216,12 @@ func parseConfig(args []string) (*Config, error) {
 	}
 
 	cfg.ClusterID = strings.TrimSpace(os.Getenv("SIGNAL_CLUSTER_ID"))
+	if cfg.ClusterID == "" {
+		cfg.ClusterID = strings.TrimSpace(os.Getenv("CLUSTER_NAME"))
+	}
+	if cfg.ClusterID == "" {
+		cfg.ClusterID = strings.TrimSpace(os.Getenv("AFM_CLUSTER_ID"))
+	}
 	cfg.NodeName = strings.TrimSpace(os.Getenv("NODE_NAME"))
 
 	cfg.FleetReportInterval = DefaultFleetReportInterval

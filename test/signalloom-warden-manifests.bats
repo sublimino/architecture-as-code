@@ -267,7 +267,7 @@ setup() {
   fm_warden_key="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "fleet-manager") | .spec.template.spec.containers[0].env[] | select(.name == "FLEET_MANAGER_KEY_SIGNALLOOM_WARDEN") | .valueFrom.secretKeyRef.key' "${TMP_FM}")"
   fm_warden_scopes="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "fleet-manager") | .spec.template.spec.containers[0].env[] | select(.name == "FLEET_MANAGER_KEY_SIGNALLOOM_WARDEN_SCOPES") | .value' "${TMP_FM}")"
   [ "${fm_warden_key}" = "signalloom-warden" ]
-  [ "${fm_warden_scopes}" = "stun" ]
+  [ "${fm_warden_scopes}" = "stun,report" ]
 
   # 3. SENTINEL_TENANT_MAP mounted in DaemonSet and parses
   local tenant_map

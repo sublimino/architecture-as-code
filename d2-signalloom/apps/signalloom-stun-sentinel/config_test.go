@@ -379,3 +379,38 @@ func TestIsTruthy(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigClusterIDFallback(t *testing.T) {
+	// 1. SIGNAL_CLUSTER_ID takes precedence
+	t.Setenv("SIGNAL_CLUSTER_ID", "explicit-cluster")
+	t.Setenv("CLUSTER_NAME", "fallback-cluster")
+	t.Setenv("AFM_CLUSTER_ID", "afm-cluster")
+	cfg, err := parseConfig([]string{})
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
+	if cfg.ClusterID != "explicit-cluster" {
+		t.Errorf("ClusterID = %q, want explicit-cluster", cfg.ClusterID)
+	}
+
+	// 2. Fall back to CLUSTER_NAME
+	os.Unsetenv("SIGNAL_CLUSTER_ID")
+	cfg, err = parseConfig([]string{})
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
+	if cfg.ClusterID != "fallback-cluster" {
+		t.Errorf("ClusterID = %q, want fallback-cluster", cfg.ClusterID)
+	}
+
+	// 3. Fall back to AFM_CLUSTER_ID
+	os.Unsetenv("CLUSTER_NAME")
+	cfg, err = parseConfig([]string{})
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
+	if cfg.ClusterID != "afm-cluster" {
+		t.Errorf("ClusterID = %q, want afm-cluster", cfg.ClusterID)
+	}
+}
+

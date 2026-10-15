@@ -93,7 +93,7 @@ spec:
                   key: signalloom-warden
                   optional: true
             - name: FLEET_MANAGER_KEY_SIGNALLOOM_WARDEN_SCOPES
-              value: "stun"
+              value: "stun,report"
             # A REMOTE cluster's warden (docs/EAP/remote-contract.md). It posts
             # POST /api/v1/fleet/workloads/report, reads
             # GET /api/v1/fleet/stun-state and acknowledges with

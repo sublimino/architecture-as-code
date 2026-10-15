@@ -713,7 +713,7 @@ spec:
         name: signalloom-rbac-exporter
         labels:
           app.kubernetes.io/name: signalloom-rbac-exporter
-          signalloom.ai/agent: "true"
+          signalloom.ai/agent: "false"
           signalloom.ai/role: "rbac-exporter"
       rules:
         - apiGroups: ["rbac.authorization.k8s.io"]
@@ -729,7 +729,7 @@ spec:
         name: signalloom-rbac-exporter
         labels:
           app.kubernetes.io/name: signalloom-rbac-exporter
-          signalloom.ai/agent: "true"
+          signalloom.ai/agent: "false"
           signalloom.ai/role: "rbac-exporter"
       roleRef:
         apiGroup: rbac.authorization.k8s.io

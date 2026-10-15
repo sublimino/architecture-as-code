@@ -300,7 +300,7 @@ pid_on_port() {
 }
 
 port_forward_healthy() {
-  grep -q ":${LOCAL_PORT} " <<<"$(ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null)"
+  curl -sf --max-time 1 "http://127.0.0.1:${LOCAL_PORT}${TS_HEALTH_PATH}" >/dev/null 2>&1
 }
 
 pid_alive() {
@@ -330,7 +330,7 @@ kill_pid_file() {
 }
 
 spawn_port_forward() {
-  kubectl port-forward -n "$DASHBOARD_NAMESPACE" \
+  kubectl port-forward --address 127.0.0.1 -n "$DASHBOARD_NAMESPACE" \
     "svc/${DASHBOARD_SERVICE}" "${LOCAL_PORT}:${DASHBOARD_PORT}" &>>"$PF_LOG_FILE" &
   echo $! > "$PF_PID_FILE"
 }

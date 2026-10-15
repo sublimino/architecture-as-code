@@ -50,6 +50,7 @@ data:
   SIGNAL_INGEST_URL: "http://signal-ingest.fe-signalloom.svc.cluster.local:8082"
   # fleet-manager's stun cascade, same FQDN rule as SIGNAL_INGEST_URL.
   FLEET_MANAGER_URL: "http://fleet-manager.fe-signalloom.svc.cluster.local:8082"
+  SIGNAL_CLUSTER_ID: "kind-osramp"
   # One entry per swarm agent's namespace/serviceAccount, mapped to the tenant
   # its manifest declares in signalloom.ai/tenant. kusari-agent's SA runs
   # kusari-agent/deployment.yaml. test/agent-swarm-tenancy.bats fails if an agent

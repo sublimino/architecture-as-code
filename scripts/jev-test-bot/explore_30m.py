@@ -106,7 +106,7 @@ class ExplorationRunner:
             "/v1/federation/events",
             "/v1/telemetry/coding-agents",
             "/health/crypto",
-            "/dex/auth",
+            "/dex/auth?client_id=signalloom-dashboard&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A5173%2Fcallback&scope=openid+profile+email",
             "/dex/.well-known/openid-configuration",
             "/api/v1/discovery/workloads",
             "/api/v1/policies",
@@ -215,7 +215,7 @@ class ExplorationRunner:
         if status_code >= 500:
             is_error = True
             cat = "SERVER_5XX"
-        elif status_code == 404 and not any(ep_key.startswith(p) for p in ["/help/connectors/"]):
+        elif status_code == 404 and not any(ep_key.startswith(p) for p in ["/help/connectors/", "/dex/auth"]):
             # Missing resource / endpoint
             is_error = True
             cat = "NOT_FOUND_404"

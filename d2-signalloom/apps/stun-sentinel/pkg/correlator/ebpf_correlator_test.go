@@ -20,6 +20,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // TestLookupPodByPID verifies that reading /proc/<pid>/cgroup correctly correlates
@@ -454,5 +455,36 @@ func TestDispatchWorkerLogsEveryObservationIndependentlyOfIngestReachability(t *
 	}
 	if events[0] != "ebpf_detection" || events[1] != "ebpf_detection_dispatch_failed" {
 		t.Errorf("events = %v, want [ebpf_detection, ebpf_detection_dispatch_failed] in that order", events)
+	}
+}
+
+func TestIsAgentPod(t *testing.T) {
+	tests := []struct {
+		name string
+		pod  *corev1.Pod
+		want bool
+	}{
+		{"nil pod", nil, false},
+		{"pod with no labels", &corev1.Pod{}, false},
+		{"agent true", &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"signalloom.ai/agent": "true"}}}, true},
+		{"agent name set", &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"signalloom.ai/agent-name": "kusari"}}}, true},
+		{"tenant set", &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"tenant": "kusari"}}}, true},
+		{"kusari label set", &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"kusari": "true"}}}, true},
+		{"agent false explicitly", &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"signalloom.ai/agent": "false"}}}, false},
+		{"rbac-exporter role exempted even if agent true", &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{
+			"signalloom.ai/agent": "true",
+			"signalloom.ai/role":  "rbac-exporter",
+		}}}, false},
+		{"rbac-exporter role alone", &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{
+			"signalloom.ai/role": "rbac-exporter",
+		}}}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isAgentPod(tt.pod); got != tt.want {
+				t.Errorf("isAgentPod() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

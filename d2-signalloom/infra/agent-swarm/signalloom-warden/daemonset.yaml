@@ -180,6 +180,12 @@ spec:
                   name: signalloom-warden-fleet-key
                   key: token
                   optional: true
+            - name: SIGNAL_CLUSTER_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: signalloom-warden-config
+                  key: SIGNAL_CLUSTER_ID
+                  optional: true
             - name: STUN_FREEZE_TOKEN
               valueFrom:
                 secretKeyRef:

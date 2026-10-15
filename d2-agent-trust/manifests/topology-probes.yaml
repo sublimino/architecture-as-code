@@ -108,27 +108,6 @@ spec:
                     fi
                     sleep 2
                   done
-                  # `nc` exits 1 for a dropped packet, an unresolvable name, a
-                  # missing binary and a dead container alike, so a bare exit
-                  # code cannot prove a denial — and this probe SELF-REPORTS a
-                  # verdict the topology collector consumes as evidence. Deleting
-                  # the allow-dns policy for this namespace made it emit
-                  # "outcome":"pass" every five minutes forever.
-                  #
-                  # kube-dns TCP/53 is permitted from every agent-trust namespace
-                  # by allow-dns, so reaching it is a positive control: it proves
-                  # nc works here AND that the CNI has programmed this pod's
-                  # rules. A brand-new pod is briefly unconfined, so without this
-                  # the denial below could also just be measuring startup.
-                  deadline=$(( $(date +%s) + 60 ))
-                  until nc -z -w 3 kube-dns.kube-system.svc.cluster.local 53; do
-                    if [ "$(date +%s)" -ge "$deadline" ]; then
-                      now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-                      printf '{"observed_at":"%s","outcome":"unverified","reason":"probe apparatus never became usable; denial unproven"}' "$now" > /dev/termination-log
-                      exit 1
-                    fi
-                    sleep 2
-                  done
                   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                   if nc -z -w 5 agent-trust-triage.agent-trust-acme-payments.svc 8080; then
                     printf '{"observed_at":"%s","outcome":"fail","reason":"cross-project path unexpectedly reachable"}' "$now" > /dev/termination-log

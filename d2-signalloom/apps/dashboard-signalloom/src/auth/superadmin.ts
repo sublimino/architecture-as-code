@@ -97,6 +97,44 @@ export function useServerSuperadmin(
     : { superadmin: server, resolved: true }
 }
 
+/**
+ * The session tenant as the server decided it (`GET /api/v1/me`, from the
+ * server-side subject map), or null until it has answered.
+ *
+ * There is deliberately no client-side fallback: the tenant is an
+ * authorisation decision (kusari-operator@signalloom.local maps to `kusari`,
+ * not to whatever its email domain suggests), so a caller that has no answer
+ * yet must treat the tenant as unknown rather than guess one. A failed request
+ * also yields null.
+ */
+export function useServerTenant(
+  getToken: (() => Promise<string>) | null | undefined,
+): string | null {
+  const [tenant, setTenant] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!getToken) {
+      setTenant(null)
+      return
+    }
+    let live = true
+    Promise.resolve()
+      .then(() => getToken())
+      .then((token) => (token ? fetchMe(token) : null))
+      .then((me) => {
+        if (live) setTenant(me && typeof me.tenant === 'string' && me.tenant.trim() ? me.tenant.trim() : null)
+      })
+      .catch(() => {
+        if (live) setTenant(null)
+      })
+    return () => {
+      live = false
+    }
+  }, [getToken])
+
+  return tenant
+}
+
 export function readSuperadmin(): boolean {
   try {
     return localStorage.getItem(SUPERADMIN_STORAGE_KEY) === 'true'

@@ -6,7 +6,6 @@ import type {
   UpdateSingleFeaturePayload,
   UpdateTenantFeaturesPayload,
 } from '../types/features'
-import { DEFAULT_SYSTEM_FLAGS } from '../types/features'
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 
@@ -24,6 +23,11 @@ export const FEATURE_PRESETS_QUERY_KEY = (): [string] => ['featurePresets']
 
 /**
  * Fetch feature flag configuration for the active tenant from /api/v1/features.
+ *
+ * Rejects on any failure. It used to resolve with DEFAULT_SYSTEM_FLAGS stamped
+ * with the tenant's id, which the provider could not tell apart from a real
+ * answer and cached as that tenant's flags; the server is the only authority
+ * on them, so a failed request is reported as one (FeatureFlagProvider retries).
  */
 export async function fetchFeatures(
   token?: string | null,
@@ -33,28 +37,17 @@ export async function fetchFeatures(
   const qs = tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''
   const url = `${BASE}/api/v1/features${qs}`
 
-  try {
-    const headers: Record<string, string> = {}
-    if (token) {
-      headers.Authorization = `Bearer ${token}`
-    }
-
-    const response = await axios.get<FeaturesResponse>(url, {
-      headers,
-      signal,
-    })
-
-    return response.data
-  } catch (err) {
-    if (axios.isCancel(err) || (err instanceof Error && err.name === 'AbortError')) {
-      throw err
-    }
-    // Fall back to default system flags on network or server error
-    return {
-      tenant_id: tenantId ?? 'fallback',
-      flags: { ...DEFAULT_SYSTEM_FLAGS },
-    }
+  const headers: Record<string, string> = {}
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
   }
+
+  const response = await axios.get<FeaturesResponse>(url, {
+    headers,
+    signal,
+  })
+
+  return response.data
 }
 
 /**

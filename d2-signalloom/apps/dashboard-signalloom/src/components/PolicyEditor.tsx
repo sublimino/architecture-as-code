@@ -282,7 +282,7 @@ export default function PolicyEditor({
   }
 
   const handleExpressionChange = (val: string) => {
-    if (readOnly) return
+    if (readOnly || currentRule.catalogue_only) return
     const updated = [...rules]
     updated[selectedRuleIndex] = {
       ...currentRule,
@@ -311,7 +311,7 @@ export default function PolicyEditor({
 
   const handleSave = async () => {
     if (readOnly || !onSave) return
-    if (!diagnostic.valid) {
+    if (!currentRule.catalogue_only && !diagnostic.valid) {
       setSaveError(`Cannot save invalid CEL syntax: ${diagnostic.message}`)
       return
     }
@@ -327,7 +327,8 @@ export default function PolicyEditor({
       const updatedBundle: PolicyBundle = {
         ...effectiveBundle,
         version: nextVersion,
-        rules,
+        // Catalogue-only rules are reference material the engine never evaluated: never publish them.
+        rules: rules.filter((r) => !r.catalogue_only),
         created_at: new Date().toISOString(),
       }
 
@@ -681,6 +682,15 @@ export default function PolicyEditor({
                         <span title="Manual / Cluster Attestation Control" style={{ fontSize: 11 }}>📋</span>
                       ) : null}
                       <span>{rule.id}</span>
+                      {rule.catalogue_only && (
+                        <span
+                          data-testid={`rule-catalogue-only-${rule.id}`}
+                          title="Catalogue reference: not evaluated by the engine, not saved"
+                          style={{ fontSize: 9, textTransform: 'uppercase', color: 'var(--muted)' }}
+                        >
+                          ref
+                        </span>
+                      )}
                       {!isManual && !ruleDiag.valid && (
                         <span
                           title={ruleDiag.message}
@@ -723,6 +733,24 @@ export default function PolicyEditor({
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {currentRule.catalogue_only && (
+                    <span
+                      data-testid="catalogue-only-badge"
+                      title="Regulatory catalogue reference. The policy engine has not evaluated this rule and it is not included when saving."
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                        background: 'var(--surface2)',
+                        color: 'var(--muted)',
+                        border: '1px dashed var(--border)',
+                      }}
+                    >
+                      Catalogue reference · not evaluated by engine
+                    </span>
+                  )}
                   {isManualAttestation ? (
                     <span
                       data-testid="manual-attestation-badge"
@@ -742,8 +770,9 @@ export default function PolicyEditor({
                     >
                       📋 Manual Attestation
                     </span>
-                  ) : (
+                  ) : currentRule.catalogue_only ? null : (
                     <span
+                      data-testid="cel-evaluated-badge"
                       style={{
                         fontSize: 10,
                         fontWeight: 700,
@@ -903,7 +932,7 @@ export default function PolicyEditor({
                     aria-label="CEL Expression Editor"
                     value={currentRule.cel_expression || ''}
                     onChange={(e) => handleExpressionChange(e.target.value)}
-                    readOnly={readOnly}
+                    readOnly={readOnly || Boolean(currentRule.catalogue_only)}
                     spellCheck={false}
                     autoCapitalize="off"
                     autoComplete="off"

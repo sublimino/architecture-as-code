@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import type { ReactNode } from 'react'
-import App, { routeLoadingLabel, SuperadminRoute } from './App'
+import App, { routeLoadingLabel, SuperadminRoute, EXTRA_ROUTE_LABELS } from './App'
 import { NAV } from './components/Sidebar'
 import { FeatureFlagProvider, clearFeatureFlagCache } from './providers/FeatureFlagProvider'
 import * as featuresApi from './api/featuresApi'
@@ -140,6 +140,21 @@ describe('routeLoadingLabel', () => {
 
     expect(routeLoadingLabel('/fleet')).toBe('Loading Fleet Demo')
     expect(routeLoadingLabel('/fleet/audience')).toBe('Loading Fleet Demo Audience')
+  })
+
+  it('holds no extra label that a NAV entry already supplies', () => {
+    // NAV is walked first, so a duplicate here is dead code, and twelve of
+    // them carried different wording from the label the user actually saw.
+    const navPaths = new Set(NAV.map((item) => item.to))
+    const shadowed = Object.keys(EXTRA_ROUTE_LABELS).filter((pattern) => navPaths.has(pattern))
+    expect(shadowed).toEqual([])
+  })
+
+  it('names every page of a feature the same way, root or nested', () => {
+    expect(routeLoadingLabel('/demos/agentmaxxing/run/7')).toBe(routeLoadingLabel('/demos/agentmaxxing'))
+    expect(routeLoadingLabel('/demos/agentmaxxing')).toBe('Loading AgentMaxxing Demo')
+    expect(routeLoadingLabel('/demos/fleet')).toBe(routeLoadingLabel('/fleet'))
+    expect(routeLoadingLabel('/demos/fleet/audience')).toBe(routeLoadingLabel('/fleet/audience'))
   })
 
   it('labels the detail routes that are not in the nav', () => {
@@ -413,6 +428,62 @@ describe('FeatureGate route guards and NotFound fallback', () => {
     await waitFor(async () => {
       resolveFetch!({ tenant_id: 'slow-tenant', flags: { page_discovery: true } })
     })
+
+    fetchFeaturesMock.mockRestore()
+  })
+
+  // A flag fetch that never succeeds says nothing about whether the page is
+  // enabled. "Page Not Found … disabled for your tenant" would be a claim the
+  // server never made, and it used to stick for the whole session.
+  it('shows a retryable error, not 404, when the flags cannot be fetched', async () => {
+    auth.user = { name: 'demo-user', email: 'demo-user@signalloom.local' }
+    auth.getAccessTokenSilently = () => Promise.resolve('test-token')
+
+    const fetchFeaturesMock = vi
+      .spyOn(featuresApi, 'fetchFeatures')
+      .mockRejectedValue(new Error('Request failed with status code 502'))
+
+    render(
+      <FeatureFlagProvider tenantId="blip-tenant" retryDelaysMs={[0, 0]}>
+        <MemoryRouter initialEntries={['/fleet']}>
+          <App />
+        </MemoryRouter>
+      </FeatureFlagProvider>,
+    )
+
+    await waitFor(() => expect(screen.getByTestId('feature-gate-error')).toBeInTheDocument())
+    expect(screen.queryByTestId('not-found')).toBeNull()
+    expect(screen.queryByTestId('fleet-demo-page')).toBeNull()
+    expect(fetchFeaturesMock).toHaveBeenCalledTimes(3)
+
+    fetchFeaturesMock.mockResolvedValue({ tenant_id: 'blip-tenant', flags: { demos_fleet: true } })
+    fireEvent.click(screen.getByTestId('error-retry'))
+
+    await waitFor(() => expect(screen.getByTestId('fleet-demo-page')).toBeInTheDocument())
+    expect(screen.queryByTestId('feature-gate-error')).toBeNull()
+    expect(screen.queryByTestId('not-found')).toBeNull()
+
+    fetchFeaturesMock.mockRestore()
+  })
+
+  it('still shows 404 when the server resolves the flag to false', async () => {
+    auth.user = { name: 'demo-user', email: 'demo-user@signalloom.local' }
+    auth.getAccessTokenSilently = () => Promise.resolve('test-token')
+
+    const fetchFeaturesMock = vi
+      .spyOn(featuresApi, 'fetchFeatures')
+      .mockResolvedValue({ tenant_id: 'off-tenant', flags: { demos_fleet: false } })
+
+    render(
+      <FeatureFlagProvider tenantId="off-tenant" retryDelaysMs={[0, 0]}>
+        <MemoryRouter initialEntries={['/fleet']}>
+          <App />
+        </MemoryRouter>
+      </FeatureFlagProvider>,
+    )
+
+    await waitFor(() => expect(screen.getByTestId('not-found')).toBeInTheDocument())
+    expect(screen.queryByTestId('feature-gate-error')).toBeNull()
 
     fetchFeaturesMock.mockRestore()
   })

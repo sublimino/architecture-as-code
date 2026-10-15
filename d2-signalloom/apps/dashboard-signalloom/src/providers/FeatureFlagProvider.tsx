@@ -28,6 +28,12 @@ export interface FeatureFlagContextValue {
   isLoading: boolean
   isFetching: boolean
   error: Error | null
+  /**
+   * True once the server (or its cache) has answered for the active tenant.
+   * While false, `flags` are client defaults and say nothing about what the
+   * tenant has enabled; with `error` set that means the fetch failed.
+   */
+  isResolved: boolean
   tenantId: string | null
   refetch: () => Promise<void>
   setFlagOverride: (flagKey: string, value: boolean) => void
@@ -47,6 +53,7 @@ export const FeatureFlagContext = createContext<FeatureFlagContextValue>({
   isLoading: false,
   isFetching: false,
   error: null,
+  isResolved: true,
   tenantId: null,
   refetch: async () => {},
   setFlagOverride: () => {},
@@ -85,7 +92,15 @@ export interface FeatureFlagProviderProps {
   disableAutoFetch?: boolean
   customProvider?: SignalLoomFeatureProvider
   client?: Client
+  /**
+   * Delay before each retry of a failed fetch; its length is the retry count.
+   * Bounded on purpose: after the last attempt the failure is surfaced as
+   * `error` and the user retries from the gate's error state.
+   */
+  retryDelaysMs?: readonly number[]
 }
+
+export const DEFAULT_RETRY_DELAYS_MS: readonly number[] = [500, 1500]
 
 /**
  * FeatureFlagProvider
@@ -102,6 +117,7 @@ export function FeatureFlagProvider({
   disableAutoFetch = false,
   customProvider,
   client: explicitClient,
+  retryDelaysMs = DEFAULT_RETRY_DELAYS_MS,
 }: FeatureFlagProviderProps): React.JSX.Element {
   // Safe auth resolution (works whether AuthProvider is present or in headless tests)
   let auth: ReturnType<typeof useAuth0> | null = null
@@ -181,6 +197,26 @@ export function FeatureFlagProvider({
   const targetTenant = explicitTenantId ?? inferredTenantId
   const activeTenantKey = targetTenant ?? 'default'
 
+  // Which tenant's flags came from the server (or its cache). Until it equals
+  // activeTenantKey the flags in state are client defaults, not an answer.
+  const [resolvedTenantKey, setResolvedTenantKey] = useState<string | null>(null)
+  const resolvedTenantKeyRef = useRef<string | null>(null)
+  resolvedTenantKeyRef.current = resolvedTenantKey
+  const isResolved = disableAutoFetch || resolvedTenantKey === activeTenantKey
+
+  // Read through a ref so an inline array literal does not change
+  // performFetch's identity (and re-trigger the fetch effect) on every render.
+  const retryDelaysRef = useRef<readonly number[]>(retryDelaysMs)
+  retryDelaysRef.current = retryDelaysMs
+  const fetchGenerationRef = useRef(0)
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
   // Fetch flags implementation
   const performFetch = useCallback(
     async (forceFresh = false) => {
@@ -193,41 +229,74 @@ export function FeatureFlagProvider({
       const cached = flagCache.get(activeTenantKey)
 
       if (!forceFresh && cached && now - cached.timestamp < staleTimeMs) {
+        fetchGenerationRef.current += 1 // supersede any in-flight fetch
         setFlags(cached.response.flags)
         if (cached.response.details) {
           setDetails(cached.response.details)
         }
         provider.setFlags(cached.response.flags)
+        setResolvedTenantKey(activeTenantKey)
+        setError(null)
         setIsLoading(false)
+        setIsFetching(false)
         return
       }
 
+      // A newer fetch (tenant/token change, manual retry) or an unmount makes
+      // this one stale: it must neither keep retrying nor write its result.
+      const generation = ++fetchGenerationRef.current
+      const isCurrent = () => mountedRef.current && generation === fetchGenerationRef.current
+
       setIsFetching(true)
       try {
-        const data = await fetchFeatures(token, targetTenant)
-        if (data.tenant_id !== 'fallback') {
+        let data: FeaturesResponse | null = null
+        let lastError: unknown = null
+        const delays = retryDelaysRef.current
+        for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+          if (attempt > 0) {
+            await new Promise((resolve) => setTimeout(resolve, delays[attempt - 1]))
+            if (!isCurrent()) return
+          }
+          try {
+            data = await fetchFeatures(token, targetTenant)
+            break
+          } catch (err) {
+            lastError = err
+          }
+        }
+        if (!isCurrent()) return
+
+        if (data) {
+          // Only a real server answer is ever cached.
           flagCache.set(activeTenantKey, {
             response: data,
             timestamp: Date.now(),
           })
+          setFlags(data.flags)
+          if (data.details) {
+            setDetails(data.details)
+          }
+          provider.setFlags(data.flags)
+          setResolvedTenantKey(activeTenantKey)
+          setError(null)
+          setIsReady(true)
+        } else {
+          const errorObj =
+            lastError instanceof Error ? lastError : new Error(String(lastError))
+          setError(errorObj)
+          provider.setError(errorObj.message)
+          // Never resolved for this tenant: the OpenFeature provider has nothing
+          // better than the system defaults. Once resolved, a failed refetch
+          // keeps the last server answer rather than clobbering it.
+          if (resolvedTenantKeyRef.current !== activeTenantKey) {
+            provider.setFlags(DEFAULT_SYSTEM_FLAGS)
+          }
         }
-
-        setFlags(data.flags)
-        if (data.details) {
-          setDetails(data.details)
-        }
-        provider.setFlags(data.flags)
-        setError(null)
-        setIsReady(true)
-      } catch (err) {
-        const errorObj = err instanceof Error ? err : new Error(String(err))
-        setError(errorObj)
-        provider.setError(errorObj.message)
-        // Fall back gracefully to system defaults without breaking UI
-        provider.setFlags(DEFAULT_SYSTEM_FLAGS)
       } finally {
-        setIsLoading(false)
-        setIsFetching(false)
+        if (isCurrent()) {
+          setIsLoading(false)
+          setIsFetching(false)
+        }
       }
     },
     [activeTenantKey, disableAutoFetch, provider, staleTimeMs, targetTenant, token],
@@ -265,8 +334,12 @@ export function FeatureFlagProvider({
   }, [auth?.isAuthenticated, auth?.isLoading, disableAutoFetch, performFetch, token])
 
   const refetch = useCallback(async () => {
+    // A retry from the unresolved state goes back to "resolving", so gates show
+    // their loader rather than a stale error while it runs. A background
+    // refetch of resolved flags leaves the page alone.
+    if (!isResolved) setIsLoading(true)
     await performFetch(true)
-  }, [performFetch])
+  }, [isResolved, performFetch])
 
   const setFlagOverride = useCallback(
     (flagKey: string, value: boolean) => {
@@ -286,6 +359,7 @@ export function FeatureFlagProvider({
       isLoading,
       isFetching,
       error,
+      isResolved,
       tenantId: targetTenant,
       refetch,
       setFlagOverride,
@@ -297,6 +371,7 @@ export function FeatureFlagProvider({
       isLoading,
       isFetching,
       error,
+      isResolved,
       targetTenant,
       refetch,
       setFlagOverride,

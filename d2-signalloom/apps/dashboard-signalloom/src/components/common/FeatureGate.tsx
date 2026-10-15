@@ -1,5 +1,7 @@
 import React, { Component, type ErrorInfo, type ReactNode } from 'react'
 import { useFeatureFlag } from '../../hooks/useFeatureFlag'
+import { useFeatureFlagContext } from '../../providers/FeatureFlagProvider'
+import ErrorState from '../ErrorState'
 
 // ─── Error Boundary ─────────────────────────────────────────────────────────
 
@@ -47,14 +49,19 @@ export interface FeatureGateProps {
   flag: string
 
   /**
-   * Optional fallback node to render when the flag is disabled or encounters an error.
-   * Defaults to null.
+   * Optional node to render when the flag is disabled, or when the gated
+   * children crash during render. Defaults to null.
+   *
+   * It is never rendered while the flag is unknown (resolving, or the fetch
+   * failed): a fallback such as a 404 states that the feature is off, which
+   * only the server can say.
    */
   fallback?: ReactNode
 
   /**
    * Optional placeholder or skeleton node to render during flag resolution.
-   * If omitted, renders `fallback ?? null` to eliminate Cumulative Layout Shift (CLS).
+   * If omitted, nothing is rendered while resolving (never `fallback`, so a
+   * gated route cannot flash its 404).
    */
   loadingFallback?: ReactNode
 
@@ -73,8 +80,15 @@ export interface FeatureGateProps {
  * FeatureGate
  *
  * Declarative component for feature-flag gated UI sections.
- * Evaluates the specified flag with OpenFeature React SDK and renders children
- * when enabled, or fallback / null when disabled or during loading.
+ * Evaluates the specified flag with OpenFeature React SDK and renders:
+ * - while resolving: `loadingFallback`, or nothing;
+ * - enabled: children;
+ * - disabled: `fallback`, or nothing;
+ * - flags could not be fetched for this tenant (FeatureFlagProvider gave up
+ *   after its retries): with a `fallback`, an ErrorState with Retry, because
+ *   the "disabled" screen would be a guess presented as fact; without one
+ *   (e.g. Sidebar nav links), the client default for the flag, so navigation
+ *   survives a blip and each gated page then shows its own error and Retry.
  *
  * Usage examples:
  *   <FeatureGate flag="demos_fleet">
@@ -93,8 +107,9 @@ export function FeatureGate({
   children,
 }: FeatureGateProps): React.JSX.Element {
   const { enabled, isLoading, error } = useFeatureFlag(flag)
+  const { isResolved, refetch } = useFeatureFlagContext()
 
-  // During loading, render dedicated loading fallback or default fallback/null to avoid CLS
+  // While resolving: the dedicated loading node, or nothing. Never `fallback`.
   if (isLoading) {
     if (loadingFallback !== undefined) {
       return <>{loadingFallback}</>
@@ -102,10 +117,21 @@ export function FeatureGate({
     return <></>
   }
 
-
-  // If evaluation threw an error, gracefully render fallback
-  if (error && !enabled) {
-    return <>{fallback ?? null}</>
+  // The fetch failed and the server never answered for this tenant, so
+  // `enabled` is only the client default. A gate with a "disabled" fallback
+  // must not show it, nor show children the tenant may have switched off.
+  // Fallback-less gates fall through to the client default (see above).
+  if (error && !isResolved && fallback !== null && fallback !== undefined) {
+    return (
+      <div data-testid="feature-gate-error">
+        <ErrorState
+          message={`Could not load feature settings: ${error.message}`}
+          onRetry={() => {
+            void refetch()
+          }}
+        />
+      </div>
+    )
   }
 
   const shouldRender = invert ? !enabled : enabled

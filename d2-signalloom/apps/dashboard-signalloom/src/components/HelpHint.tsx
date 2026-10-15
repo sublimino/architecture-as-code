@@ -1,8 +1,8 @@
-import { useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 
 interface Props {
   label: string
-  children: string
+  children: ReactNode
   testId?: string
   /**
    * CSS colour for the "?" affordance, so a hint can be tied visually to the

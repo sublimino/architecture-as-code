@@ -16,6 +16,7 @@ import {
   getBundleForFramework,
   getCanonicalFrameworkOptions,
   normalizeFrameworkId,
+  harmonizeBundleRules,
   CANONICAL_BUNDLES,
   REGULATORY_FRAMEWORKS,
 } from '../data/regulatoryFrameworks'
@@ -183,22 +184,38 @@ export default function CompliancePolicyPage() {
     )
   }, [policySummaries, selectedFrameworkId])
 
-  // Returns bundle if available from policy service or fallback to built-in regulatory catalogue
+  // Returns bundle if available from policy service, harmonized with built-in regulatory catalogue
   const currentBundle: PolicyBundle = useMemo(() => {
-    if (activeBundleSummary?.active_bundle) {
-      return activeBundleSummary.active_bundle
+    const canonicalId = normalizeFrameworkId(selectedFrameworkId)
+    const template = getBundleForFramework(canonicalId)
+    const active = activeBundleSummary?.active_bundle
+
+    if (active) {
+      const templateRules = template?.rules || []
+      const activeRules = active.rules || []
+      const mergedRules = harmonizeBundleRules(templateRules, activeRules)
+
+      return {
+        ...active,
+        id: active.id || `${canonicalId}-${active.version || 'v1.0.0'}`,
+        framework_id: canonicalId,
+        description: active.description || template?.description || `Policy bundle for ${canonicalId}`,
+        official_docs_url: active.official_docs_url || template?.official_docs_url,
+        rules: mergedRules,
+      }
     }
-    const template = getBundleForFramework(selectedFrameworkId)
+
     if (template) {
       return template
     }
+
     // Return empty bundle stub rather than null to preserve navigation and framework selector
     return {
-      id: `${selectedFrameworkId}-bundle`,
-      framework_id: selectedFrameworkId,
+      id: `${canonicalId}-bundle`,
+      framework_id: canonicalId,
       version: 'v0.0.0',
       author: 'system',
-      description: `Unregistered bundle for ${selectedFrameworkId}`,
+      description: `Unregistered bundle for ${canonicalId}`,
       created_at: new Date().toISOString(),
       checksum: '',
       rules: [],

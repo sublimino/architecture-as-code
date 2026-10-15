@@ -554,6 +554,7 @@ export const FRAMEWORK_ALIASES: Record<string, string> = {
   'cis-kubernetes': 'k8s-cis-benchmark',
   'k8s-cis': 'k8s-cis-benchmark',
   'cis': 'k8s-cis-benchmark',
+  'k8s-cis-benchmark': 'k8s-cis-benchmark',
   'f0000000-0000-0000-0000-000000000003': 'k8s-cis-benchmark',
   'cis kubernetes benchmark': 'k8s-cis-benchmark',
 
@@ -569,19 +570,26 @@ export const FRAMEWORK_ALIASES: Record<string, string> = {
   'soc-2': 'soc2-type-2',
   'soc 2 type ii': 'soc2-type-2',
   'soc2-type-ii': 'soc2-type-2',
+  'soc2-type-2': 'soc2-type-2',
   'f0000000-0000-0000-0000-000000000002': 'soc2-type-2',
 
   // FINOS
-  'finos': 'finos-ai-governance-framework',
-  'finos-ai-governance-framework': 'finos-ai-governance-framework',
-  'finos ai governance framework': 'finos-ai-governance-framework',
-  'f0000000-0000-0000-0000-000000000004': 'finos-ai-governance-framework',
+  'finos': 'finos-aigf',
+  'finos-aigf': 'finos-aigf',
+  'finos-ai-governance-framework': 'finos-aigf',
+  'finos ai governance framework': 'finos-aigf',
+  'f0000000-0000-0000-0000-000000000004': 'finos-aigf',
 
   // NIST SP 800-53
-  'nist': 'nist-sp-800-53',
-  'nist-800-53': 'nist-sp-800-53',
-  'nist-sp-800-53': 'nist-sp-800-53',
-  'nist sp 800-53': 'nist-sp-800-53',
+  'nist': 'nist-800-53',
+  'nist-800-53': 'nist-800-53',
+  'nist-sp-800-53': 'nist-800-53',
+  'nist sp 800-53': 'nist-800-53',
+
+  // CRA
+  'cra': 'cra',
+  'cyber-resilience-act': 'cra',
+  'cyber resilience act': 'cra',
 
   // NIST AI RMF
   'nist-ai-rmf': 'nist-ai-rmf-1.0',
@@ -604,8 +612,9 @@ export function normalizeFrameworkId(id: string | null | undefined, name?: strin
   if (trimmedName.includes('cis') || trimmedId.includes('cis')) return 'k8s-cis-benchmark'
   if (trimmedName.includes('eu ai') || trimmedId.includes('eu-ai')) return 'eu-ai-act'
   if (trimmedName.includes('soc 2') || trimmedId.includes('soc2')) return 'soc2-type-2'
-  if (trimmedName.includes('finos') || trimmedId.includes('finos')) return 'finos-ai-governance-framework'
-  if (trimmedName.includes('800-53') || trimmedId.includes('800-53')) return 'nist-sp-800-53'
+  if (trimmedName.includes('finos') || trimmedId.includes('finos')) return 'finos-aigf'
+  if (trimmedName.includes('800-53') || trimmedId.includes('800-53')) return 'nist-800-53'
+  if (trimmedName.includes('cra') || trimmedName.includes('cyber resilience') || trimmedId.includes('cra')) return 'cra'
   if (trimmedName.includes('ai rmf') || trimmedId.includes('ai-rmf')) return 'nist-ai-rmf-1.0'
 
   return trimmedId || trimmedName || 'eu-ai-act'
@@ -657,6 +666,96 @@ export function getCanonicalFrameworkOptions(): Array<{ id: string; name: string
   }
 
   return options
+}
+
+/**
+ * Harmonizes rules between an active backend bundle (e.g. from Go CEL policy-engine)
+ * and the rich regulatory catalog (e.g. from regulatoryFrameworks).
+ *
+ * Rules are merged so that:
+ * 1. Active backend rules (which contain evaluated CEL expressions and engine statuses) are kept.
+ * 2. Static catalog controls (including manual attestations, cluster audits, or controls not
+ *    yet evaluated in CEL) are preserved so deep linking and regulatory views never drop rules.
+ * 3. Matched rules preserve metadata from the static catalog (manual_attestation, attestation_type, docs_url).
+ */
+export function harmonizeBundleRules(
+  templateRules: PolicyRule[] = [],
+  activeRules: PolicyRule[] = []
+): PolicyRule[] {
+  if (!activeRules || activeRules.length === 0) {
+    return templateRules || []
+  }
+  if (!templateRules || templateRules.length === 0) {
+    return activeRules || []
+  }
+
+  const result: PolicyRule[] = []
+  const matchedTemplateIndices = new Set<number>()
+
+  // Helper to match active rule with template rule
+  const findMatchingTemplateIndex = (activeRule: PolicyRule): number => {
+    const aId = activeRule.id.toLowerCase()
+    const aName = activeRule.name.toLowerCase()
+
+    // 1. Exact ID match
+    let idx = templateRules.findIndex((t) => t.id.toLowerCase() === aId)
+    if (idx !== -1) return idx
+
+    // 2. Control prefix in name (e.g. CIS 5.4.1 or CIS-5.4.1)
+    const match = aName.match(/(?:cis|art|cc|ac|ia)[\s.-]*(\d+(?:[.-]\d+)*)/i)
+    if (match) {
+      const numPattern = match[1].replace(/[-]/g, '.')
+      idx = templateRules.findIndex((t) => {
+        const tId = t.id.toLowerCase()
+        const tName = t.name.toLowerCase()
+        return tId.includes(numPattern) || tName.includes(numPattern)
+      })
+      if (idx !== -1) return idx
+    }
+
+    // 3. Name or substring match
+    idx = templateRules.findIndex((t) => {
+      const tName = t.name.toLowerCase()
+      const tId = t.id.toLowerCase()
+      return (
+        tId === aId ||
+        tName === aName ||
+        (aName.length > 5 && tName.includes(aName)) ||
+        (tName.length > 5 && aName.includes(tName))
+      )
+    })
+    return idx
+  }
+
+  // First pass: add all active rules, enriching with template metadata if matched
+  for (const active of activeRules) {
+    const tIdx = findMatchingTemplateIndex(active)
+    if (tIdx !== -1) {
+      matchedTemplateIndices.add(tIdx)
+      const template = templateRules[tIdx]
+      result.push({
+        ...template,
+        ...active,
+        // Ensure attestation metadata from catalog is preserved if active rule doesn't define it
+        attestation_type: active.attestation_type || template.attestation_type || 'cel',
+        manual_attestation: active.manual_attestation ?? template.manual_attestation ?? false,
+        manual_attestation_note: active.manual_attestation_note || template.manual_attestation_note,
+        docs_url: active.docs_url || template.docs_url,
+      })
+    } else {
+      result.push(active)
+    }
+  }
+
+  // Second pass: append any template rules that were NOT in the active rules
+  // (e.g. cis-5.4.1 ResourceQuotas, manual attestation rules, etc.)
+  for (let i = 0; i < templateRules.length; i++) {
+    if (!matchedTemplateIndices.has(i)) {
+      result.push(templateRules[i])
+    }
+  }
+
+  return result
 }
 
 /**

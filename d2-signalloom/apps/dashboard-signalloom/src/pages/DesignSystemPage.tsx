@@ -71,6 +71,7 @@ import { CompactInventorySpecimen } from './design-system/CompactInventorySpecim
 import { ExtraSpecimens } from './design-system/ExtraSpecimens'
 import { WorkflowSpecimens } from './design-system/WorkflowSpecimens'
 import { ContextSpecimens } from './design-system/ContextSpecimens'
+import { PagePatternSpecimen } from './design-system/PagePatternSpecimen'
 import { CurrencyContext } from '../money/CurrencyContext'
 import { FIXTURE_CURRENCY_CONTEXT_VALUE } from './design-system/fixtureCurrency'
 import { COMPONENT_COVERAGE, coverageKey } from './design-system/componentCoverage'
@@ -576,6 +577,7 @@ export const DESIGN_SYSTEM_SECTIONS: readonly TocEntry[] = [
   { id: 'loading-state', title: 'LoadingState' },
   { id: 'error-state', title: 'ErrorState' },
   { id: 'error-pages', title: 'Error pages' },
+  { id: 'page-patterns', title: 'Page patterns' },
   { id: 'empty-state', title: 'EmptyState' },
 
   { id: 'status-badge', title: 'StatusBadge' },
@@ -1201,6 +1203,19 @@ export default function DesignSystemPage() {
         <div style={rowStyle}>
           <div data-testid="ds-errorpages-notfound" style={{ ...cardStyle, flex: '1 1 100%' }}>
             <NotFoundPage />
+          </div>
+        </div>
+      </Group>
+
+      {/* ── Page patterns ───────────────────────────────────────────────────── */}
+      <Group
+        id="page-patterns"
+        title="Page patterns"
+        when="The canonical full-page lifecycle contract across all pages: route & feature-flag gating that displays the configured PixelLoader (respecting user loadTimes settings) and NEVER flashes 404 prematurely during resolution; in-page data loading with LoadingState; error resilience with ErrorState (retry & auth recovery); empty state guidance with EmptyState; and deterministic terminal fallback with NotFoundPage."
+      >
+        <div style={rowStyle}>
+          <div style={{ ...cardStyle, flex: '1 1 100%' }}>
+            <PagePatternSpecimen />
           </div>
         </div>
       </Group>

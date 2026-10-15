@@ -381,6 +381,16 @@ describe('DesignSystemPage', () => {
     expect(within(section).getByText('Back to Agents')).toBeInTheDocument()
   })
 
+  // ── Page patterns ─────────────────────────────────────────────────────────
+
+  it('renders the Page patterns specimen with lifecycle switcher and healthy state', () => {
+    render(<DesignSystemPage />)
+    const section = screen.getByTestId('ds-section-page-patterns')
+    expect(within(section).getByTestId('ds-page-patterns-specimen')).toBeInTheDocument()
+    expect(within(section).getByTestId('pattern-state-healthy')).toBeInTheDocument()
+    expect(within(section).getByTestId('pattern-demo-content')).toBeInTheDocument()
+  })
+
   // ── Component sections ────────────────────────────────────────────────────
 
   const SECTIONS = [
@@ -390,6 +400,7 @@ describe('DesignSystemPage', () => {
     'loading-state',
     'error-state',
     'error-pages',
+    'page-patterns',
     'empty-state',
 
     'status-badge',

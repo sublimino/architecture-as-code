@@ -3,7 +3,7 @@ import { parse } from '@marcbachmann/cel-js'
 import type { PolicyBundle, PolicyRule, VersionHistoryItem } from '../types/policies'
 import ConfirmDialog from './ConfirmDialog'
 import { prettifyCel } from '../utils/celFormatter'
-import { getBundleForFramework } from '../data/regulatoryFrameworks'
+import { getBundleForFramework, normalizeFrameworkId } from '../data/regulatoryFrameworks'
 
 export interface PolicyEditorProps {
   bundle: PolicyBundle | null
@@ -300,7 +300,8 @@ export default function PolicyEditor({
 
   const handleCopyLink = () => {
     const origin = typeof window !== 'undefined' ? window.location.origin : ''
-    const url = `${origin}/policies?framework=${effectiveBundle.framework_id}&rule=${encodeURIComponent(currentRule.id)}`
+    const canonicalFw = normalizeFrameworkId(effectiveBundle.framework_id)
+    const url = `${origin}/policies?framework=${encodeURIComponent(canonicalFw)}&rule=${encodeURIComponent(currentRule.id)}`
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(url).catch(() => {})
       setCopiedLink(true)
@@ -420,7 +421,7 @@ export default function PolicyEditor({
           {availableFrameworks.length > 0 && onSelectFramework ? (
             <select
               data-testid="framework-selector"
-              value={effectiveBundle.framework_id}
+              value={normalizeFrameworkId(effectiveBundle.framework_id)}
               onChange={(e) => onSelectFramework(e.target.value)}
               style={{
                 background: 'var(--bg)',
@@ -773,7 +774,10 @@ export default function PolicyEditor({
                 </div>
               </div>
 
-              <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginTop: 2 }}>
+              <div
+                data-testid="selected-rule-name"
+                style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginTop: 2 }}
+              >
                 {currentRule.name}
               </div>
 

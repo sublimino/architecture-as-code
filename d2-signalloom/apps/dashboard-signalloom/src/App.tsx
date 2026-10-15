@@ -14,6 +14,7 @@ import { api } from './api/client'
 import { connectorsApi } from './api/connectorsClient'
 import { onboardingApi } from './api/onboardingClient'
 import FeatureGate from './components/common/FeatureGate'
+import { PageLoader as AppLoader } from './components/common/PagePattern'
 import NotFoundPage from './pages/NotFoundPage'
 import type { CookiePreferences } from './types/api'
 
@@ -212,6 +213,20 @@ const EXTRA_ROUTE_LABELS: Record<string, string> = {
   '/design-system/css': 'CSS Lab',
   '/evaluations': 'Policy Evaluation',
   '/compliance/evaluation': 'Policy Evaluation',
+  '/supercred': 'SuperCred Demo',
+  '/fleet': 'Fleet Demo',
+  '/demos/fleet': 'Fleet Demo',
+  '/demos/agentmaxxing': 'AgentMaxxing Console',
+  '/demos/agentmaxxing/*': 'AgentMaxxing Console',
+  '/network-tests': 'Network Tests',
+  '/signal-fusion': 'Signal Fusion',
+  '/distance-latency': 'Distance & Latency',
+  '/signal-store': 'Signal Store',
+  '/feeds': 'Feeds Explorer',
+  '/design-system': 'Design System',
+  '/design-system/headers': 'Design System Headers',
+  '/settings': 'Settings',
+  '/users': 'Users',
 }
 
 /**
@@ -242,39 +257,6 @@ export function routeLoadingLabel(pathname: string): string {
     if (matchPath(pattern, pathname)) return `Loading ${label}`
   }
   return 'Loading'
-}
-
-/**
- * The brand mark, centred, for a surface that is doing nothing else yet.
- *
- * One live region, and it is PixelLoader's own (`announce` defaults true):
- * this wrapper adds none. Announcing on navigation is the deliberate choice
- * rather than an accident of the default: a client-side route change is
- * otherwise completely silent to a screen reader, so "Loading Compliance" is
- * the only confirmation that the click did anything. It is polite, so it
- * queues rather than interrupts, and it only ever fires when the chunk is not
- * already cached, which is exactly when there is something worth saying.
- *
- * `minHeight` rather than a height: the box must never be taller than the
- * space it sits in, or the scrollbar appears while loading and vanishes when
- * the page swaps in, and the whole column shifts sideways twice. The ring this
- * replaces asked for `height: 100vh` inside a container already carrying 28px
- * of padding, and did exactly that.
- */
-function AppLoader({ label, minHeight, testId }: { label: string; minHeight: string; testId: string }) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight,
-        background: 'var(--bg)',
-      }}
-    >
-      <PixelLoader label={label} testId={testId} />
-    </div>
-  )
 }
 
 /**

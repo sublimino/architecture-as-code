@@ -7,6 +7,10 @@ description: "Six-phase codebase drift, architectural deepening, and code-smell 
 
 Whole-codebase drift auditor, architectural deepening scanner, and parallel worktree remediation orchestrator for the **Signal Loom** (`#partner-signal-loom`) platform.
 
+### Separation from Sibling Skills
+- **`sl-drift-sweep` (this skill)**: Audits static codebase health, Fowler code smells, multi-agent file churn, and micro-proposal sprawl across git commit history.
+- **`sl-drift-reconcile`**: Audits live in-cluster Kubernetes state and Flux reconciliation against committed git artifacts (`git rev-parse HEAD`).
+
 ## Loop Lens & Execution Contract
 
 - **Cadence**: `0 4 * * *` (Daily post-sprint sweep, or on demand after a multi-agent commit wave).
@@ -71,3 +75,10 @@ Whole-codebase drift auditor, architectural deepening scanner, and parallel work
 - **Three-Axis & Deep-Module Reference**: [`References/DriftAndSmellBaseline.md`](References/DriftAndSmellBaseline.md)
 - **Executable Drift Scanner**: [`Tools/drift-sweep.sh`](Tools/drift-sweep.sh)
 - **Bundled Upstream Notice**: [`vendor/pocock-skills/THIRD_PARTY_NOTICES.md`](vendor/pocock-skills/THIRD_PARTY_NOTICES.md)
+
+---
+
+## Completion Criteria
+
+- **Clarity**: Emit the scanner verdict line (`STATUS: CLEAN` or `STATUS: DRIFT_DETECTED`) with its Standards, Spec, and job counts. Report Axis C as `ARCHITECTURE_STATUS=UNVERIFIED` until a human or agent review covers it.
+- **Demand**: In `PAUSE_FOR_APPROVAL` mode, stop after the Cleanup Job Manifest. In approved `--auto` mode, every job carries a mutation proof (Green, Mutate-Red, Restore-Green), a sequential fast-forward merge, and worktree teardown.

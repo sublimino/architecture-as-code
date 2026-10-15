@@ -24,8 +24,8 @@ Reporting `## Axis A: Standards`, `## Axis B: Spec`, and `## Axis C: Architectur
    - Inline backtick paths resembling repo paths must exist on disk (or describe historical deleted components in prose without dead path spans).
    - Zero `<!-- docs-lint:` `off -->` markers outside `docs/documentation-style.md`.
 2. **Worktree Hygiene (`scripts/check-worktree-hygiene.sh` + [`git-guardrails-claude-code`](../vendor/pocock-skills/git-guardrails-claude-code/SKILL.md))**:
-   - Secondary worktrees must live under `~/src/.worktrees/sl-platform/`, never inside `$REPO_ROOT/` or under an ad hoc `/tmp` root.
-   - Pruning policy: only prune external worktrees when they are strictly **> 21 days old**, of **`sl-platform` type**, and have **zero uncommitted changes**.
+   - Secondary worktrees must live under `~/src/.worktrees/osramp-demo/`, never inside `$REPO_ROOT/` or under an ad hoc `/tmp` root.
+   - Pruning policy: only prune external worktrees when they are strictly **> 21 days old**, of **`osramp` type**, and have **zero uncommitted changes**.
 3. **Containment Preservation**:
    - Static drift remediation must never resume, restart, reconcile, replace, or otherwise mutate a stunned or contained workload.
 

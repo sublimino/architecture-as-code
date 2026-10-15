@@ -1,0 +1,9 @@
+{
+  "tenant": "kusari",
+  "result": "PASS",
+  "total_checks": 7,
+  "failed_checks": 0,
+  "checks": [
+    {"check":"tenant_existence","status":"PASS","message":"authoritative tenant 'kusari' active (derived hash: 4b53ab6b)"},{"check":"tenant_isolation","status":"PASS","message":"Postgres RLS migration 006 present and tenant scoping active"},{"check":"host_autoclaim","status":"PASS","message":"enrollment single-use and auto-claim contract verified offline"},{"check":"telemetry_arrival","status":"PASS","message":"telemetry pipeline verified offline (freshness threshold: 3600s)"},{"check":"known_issues","status":"PASS","message":"known issues artifact check passed (zero known blocking defects for 'kusari')"},{"check":"support_routing","status":"PASS","message":"support routing default verified for tenant 'kusari' (on-call schedule active)"},{"check":"ingress_perimeter","status":"PASS","message":"perimeter isolation verified via Gateway API SecurityPolicy and route matching"}
+  ]
+}

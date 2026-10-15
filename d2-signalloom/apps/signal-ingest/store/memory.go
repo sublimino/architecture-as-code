@@ -24,7 +24,38 @@ func NewMemoryStore() *MemoryStore {
 func (m *MemoryStore) Append(_ context.Context, observations []model.Observation) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.data = append(m.data, observations...)
+	toAppend := make([]model.Observation, len(observations))
+	copy(toAppend, observations)
+	if p, err := NewSegmentPseudonymiserFromEnv(); err == nil && p != nil {
+		for i := range toAppend {
+			if toAppend[i].ActorHint != "" {
+				if pseudo, err := p.Pseudonym(toAppend[i].ActorHint); err == nil && pseudo != "" {
+					toAppend[i].ActorHint = pseudo
+				}
+			}
+			if toAppend[i].ActorID != "" {
+				if pseudo, err := p.Pseudonym(toAppend[i].ActorID); err == nil && pseudo != "" {
+					toAppend[i].ActorID = pseudo
+				}
+			}
+			if toAppend[i].PrincipalID != "" {
+				if pseudo, err := p.Pseudonym(toAppend[i].PrincipalID); err == nil && pseudo != "" {
+					toAppend[i].PrincipalID = pseudo
+				}
+			}
+			if toAppend[i].SessionID != "" {
+				if pseudo, err := p.Pseudonym(toAppend[i].SessionID); err == nil && pseudo != "" {
+					toAppend[i].SessionID = pseudo
+				}
+			}
+			if toAppend[i].ImpersonatedUser != "" {
+				if pseudo, err := p.Pseudonym(toAppend[i].ImpersonatedUser); err == nil && pseudo != "" {
+					toAppend[i].ImpersonatedUser = pseudo
+				}
+			}
+		}
+	}
+	m.data = append(m.data, toAppend...)
 	return nil
 }
 

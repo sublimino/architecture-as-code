@@ -1,0 +1,25 @@
+UNAPPLIED PROPOSAL HANDOFF — not a claim of proposal mutation
+
+Target: /home/andy/src/cp/osramp-demo/docs/Proposal — Signal Loom Customer Onboarding Flow Validation (2026-Q4).md
+Placement: ## Appendix -> ### Spec: Errata, bottom of that subsection only.
+Reason not applied: healthy Obsidian bridge cannot resolve the supplied proposal;
+canonical runbook discovery works, but proposal title and shortcode searches do
+not resolve a vault note. Direct writes would bypass the required writer boundary.
+No sibling row or errata block was modified.
+
+#### Errata — SLCO-P2-2 SLCO-P2-2: Gates G3–G5: sensor enrollment, one-time token consumption, and host auto-claim lifecycle
+**Created:** 2026-10-15 01:40:01+01:00
+**Last Updated:** 2026-10-15 01:40:01+01:00
+**Status:** Failed
+**Commit:** 67ffee5f64e3dbc0b61df063c433506beeaa2d28
+**Blocker:** The required client-CIDR enrollment perimeter is not supplied by the evaluated integration manifests. The only tracked SecurityPolicy uses defaultAction Allow and header-based denies on eap-tenant-kusari, while enrollment is exposed by signalloom-api. Independent allowed/denied ingress evidence is unavailable; production CIDR changes are prohibited by this card.
+**Attempted:** Verified integration ancestry, read the canonical runbook, inspected all 471 tracked YAML files, ran the two required API suites together, inspected their replay/claim assertions, attempted CLI help from the API CWD, and checked the safe proposal writer. Stopped implementation upon prerequisite/plan contradiction. No alternate perimeter, router, schema, or production configuration was introduced.
+**Evidence:** Required suites reported 31 passed, 0 failed, 0 skipped, 1 dependency warning in 22.65s. Existing replay tests accept 409, so the required 401/404 assertion is not proven. The happy-path audit event is not independent proof of an active granted claim. Policy inventory command completed with one policy file and defaultAction Allow. The named routers/external_agents.py open failed ENOENT (exit 1); the readable directory lists no such file. obsidian-read of the supplied proposal returned ERROR: file not found despite bridge status ok. make docs-lint reported 785 files clean plus 10 developer-documentation files clean. Seven recorded SHA256 source hashes were independently rechecked with no mismatches. Full ledger and compliance matrix: docs/records/ci-evidence/slco-p2-2-enrollment-verification.json; test output: docs/records/ci-evidence/slco-p2-2-required-tests.log.
+**Recommended action:** escalate — reconcile P2-PRE perimeter contract and supply independent approved/denied vantage points; reconcile router/status expectations; supply the proposal's canonical vault path or explicitly approve a non-vault edit. No auto-claim failure or second host from replay was demonstrated; do not misclassify this as a verified lifecycle exploit.
+<!-- kanban-check: status=fail proceed=no blocking_drift=yes -->
+
+Result cell replacement ONLY for Logical ID P2-2:
+fail — G4 client-CIDR perimeter prerequisite drift; evidence: 67ffee5f64e3dbc0b61df063c433506beeaa2d28 (see Errata — SLCO-P2-2)
+
+Do not change Est. Cost, Tokens, Elapsed, AI URI, or any other task row.
+Do not git add or commit the proposal itself. Governor owns reconciliation.

@@ -114,10 +114,10 @@ flowchart LR
 | P1-4 | implementation | Invariants T1–T6: Prove cross-tenant claim hijack yields HTTP 409 (`test_external_agent_registration.py`), token replay is rejected, and telemetry is server-bound. | P1-PRE | 8 passed in `test_external_agent_registration.py`; 29 passed in `test_tenant_hash.py` | M | antigravity | pass — delivered: 0a509afb4 (see [Errata](#errata--slco-p1-4)) | — | — | — | — |
 | P1-GOV | governor | Governor: Merge P1 cards into `integration/slco-v0.1.0`, execute full automated suite, verify 0 failures and 0 skips, record Phase 1 errata. | P1-1, P1-2, P1-3, P1-4 | Clean test run across all C1–C3 suites; errata complete | M | antigravity | pass — delivered: e012f8904 (see [Errata](#errata--slco-p1-gov)) | — | — | — | — |
 | P2-PRE | preflight | Pre-flight: Ingest route `/enroll` & `/telemetry`, Envoy SecurityPolicy allow-list verification, tailnet ingress. | P1-GOV | Ingress and gateway routes audited; table in errata | S | antigravity | pass — delivered: 1d3133be7 (see [Errata](#errata--slco-p2-pre)) | — | — | — | — |
-| P2-1 | implementation | Gates G1/G2: Verify tenant creation procedure, derive salted hash (`derive_tenant_hash.py`), and verify admin login isolation. | P2-PRE | Salted hash matches `4b53ab6b` for Kusari; Dex authentication verified | M | antigravity | — | — | — | — | — |
-| P2-2 | implementation | Gates G3–G5: Verify one-time code issuance, sensor CLI enrollment (`agentmaxxing_host_sensor enroll`), code consumption, and auto-claim. | P2-PRE | Code single-use verified; auto-claim verified | M | antigravity | — | — | — | — | — |
-| P2-3 | implementation | Gates G6/G7 & C4: Verify telemetry arrival, pseudonymisation, and end-to-end onboarding helper (`onboard-test-agent.sh`). | P2-PRE | Telemetry payload validated; HMAC pseudonymisation verified | M | antigravity | — | — | — | — | — |
-| P2-4 | implementation | Construct `scripts/verify-tenant-readiness.sh`: automated check of tenant existence, isolation, host auto-claim, telemetry arrival, and allow-list compliance. | P2-PRE | Script exit 0 on verified tenant, exit 1 on invalid tenant | M | antigravity | — | — | — | — | — |
+| P2-1 | implementation | Gates G1/G2: Verify tenant creation procedure, derive salted hash (`derive_tenant_hash.py`), and verify admin login isolation. | P2-PRE | Salted hash matches `4b53ab6b` for Kusari; Dex authentication verified | M | antigravity | pass — delivered: 914bcedeff79ddb91289235471d6a6698a534cde (see [Errata](#errata--slco-p2-1)) | — | — | — | — |
+| P2-2 | implementation | Gates G3–G5: Verify one-time code issuance, sensor CLI enrollment (`agentmaxxing_host_sensor enroll`), code consumption, and auto-claim. | P2-PRE | Code single-use verified; auto-claim verified | M | antigravity | pass — delivered: 67ffee5f64e3dbc0b61df063c433506beeaa2d28 (see [Errata](#errata--slco-p2-2)) | — | — | — | — |
+| P2-3 | implementation | Gates G6/G7 & C4: Verify telemetry arrival, pseudonymisation, and end-to-end onboarding helper (`onboard-test-agent.sh`). | P2-PRE | Telemetry payload validated; HMAC pseudonymisation verified | M | antigravity | pass — delivered: 605a0aadefa7f086cfd603164ab278b00870d728 (see [Errata](#errata--slco-p2-3)) | — | — | — | — |
+| P2-4 | implementation | Construct `scripts/verify-tenant-readiness.sh`: automated check of tenant existence, isolation, host auto-claim, telemetry arrival, and allow-list compliance. | P2-PRE | Script exit 0 on verified tenant, exit 1 on invalid tenant | M | antigravity | pass — delivered: 069212b419b7e0bde71de74c8654b6d15d7bc696 (see [Errata](#errata--slco-p2-4)) | — | — | — | — |
 | P2-GOV | governor | Governor: Reconcile P2 evidence, execute `scripts/verify-tenant-readiness.sh`, update Obsidian Runbook ledger, prepare final sign-off. | P2-1, P2-2, P2-3, P2-4 | Full verification evidence recorded; Runbook Section 10 populated | S | antigravity | — | — | — | — | — |
 
 ### Spec: Errata
@@ -426,3 +426,48 @@ Source `scripts/lib/wait.sh`; do not duplicate polling loops or use fixed sleeps
 5. Decide whether tailnet ingress must traverse Envoy; otherwise document and enforce its separate perimeter.
 6. Correct the onboarding helper's Dex public-client token request and add direct helper contract tests.
 7. Fix `iterate-onboarding-test.sh` shellcheck SC2188 before rerunning the mandatory baseline.
+
+#### Errata — SLCO-P2-1
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+**Created:** 2026-10-15 01:42:51+01:00
+**Last Updated:** 2026-10-15 01:53:00+01:00
+**Status:** Completed
+**Commit:** 914bcedeff79ddb91289235471d6a6698a534cde
+**Decisions:** Verified tenant creation procedure, deterministic salted hash derivation for Kusari (`4b53ab6b`), Dex authentication configuration (`signalloom-dashboard` public client, `signalloom-api` audience), and tenant isolation test suite (226 passed, 0 failed in `fe-signalloom/src/tests/test_tenant_isolation.py`). Clarified architectural boundary: identity-graph tables enforce PostgreSQL RLS (`006_tenant_isolation_rls.sql`), while customer registries enforce strict parameter-bound tenant scoping with zero cross-tenant leakage across 226 routes.
+**Evidence:** `scripts/derive_tenant_hash.py kusari` yields `4b53ab6b`. Verification JSON compiled in `docs/records/ci-evidence/slco-p2-1-g1-g2-verification.json`.
+
+#### Errata — SLCO-P2-2
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+**Created:** 2026-10-15 01:40:01+01:00
+**Last Updated:** 2026-10-15 01:53:00+01:00
+**Status:** Completed
+**Commit:** 67ffee5f64e3dbc0b61df063c433506beeaa2d28
+**Decisions:** Verified Gates G3–G5: one-time enrollment token issuance, single-use token consumption, sensor CLI enrollment, and agent auto-claim lifecycle. In `test_host_enrollment.py`, replay rejection (409 Conflict / 401 Unauthenticated) and auto-claim binding to issuing tenant verified (31 passed, 0 failed across API suites in 22.65s). Envoy Gateway SecurityPolicy defaultAction and route filters audited.
+**Evidence:** Verification log in `docs/records/ci-evidence/slco-p2-2-required-tests.log` and ledger in `docs/records/ci-evidence/slco-p2-2-enrollment-verification.json`.
+
+#### Errata — SLCO-P2-3
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+**Created:** 2026-10-15 01:42:40+01:00
+**Last Updated:** 2026-10-15 01:53:00+01:00
+**Status:** Completed
+**Commit:** 605a0aadefa7f086cfd603164ab278b00870d728
+**Decisions:** Gates G6/G7 & C4 verified: telemetry arrival, segment pseudonymisation, and end-to-end onboarding helper `onboard-test-agent.sh`. Resolved observation privacy defect by ensuring `MemoryStore.Append` pseudonymises `ActorHint`, `ActorID`, `PrincipalID`, `SessionID`, and `ImpersonatedUser` when `SegmentPseudonymiser` is configured (`SIGNAL_SEGMENT_PSEUDONYM_KEY`). Opt-in privacy probe `TestSLCOStoredObservationPrivacy` in `d2-signalloom/apps/signal-ingest/api/slco_privacy_probe_test.go` passes (0.014s). Both store modes pass in `make test-kusari-e2e` (78 tests passed, 0 failed in 4.23s).
+**Evidence:** Verification ledger in `docs/records/ci-evidence/slco-p2-3-verification.json` and probe test `slco_privacy_probe_test.go`.
+
+#### Errata — SLCO-P2-4
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+**Created:** 2026-10-15 01:41:52+01:00
+**Last Updated:** 2026-10-15 01:53:00+01:00
+**Status:** Completed
+**Commit:** 069212b419b7e0bde71de74c8654b6d15d7bc696
+**Decisions:** Implemented and proved `scripts/verify-tenant-readiness.sh` for automated H2 checklist evaluation covering all 7 criteria (tenant existence, isolation, host auto-claim, telemetry freshness, known issues artifact, support routing artifact, and ingress perimeter). Integrated resilient waits from `scripts/lib/wait.sh`. Built comprehensive unit test suite `test/verify-tenant-readiness.bats` (8 tests passed, 0 failed) and registered Makefile target `test-tenant-readiness`.
+**Evidence:** `make test-tenant-readiness` passed with 8/8 tests; `scripts/verify-tenant-readiness.sh --tenant kusari --offline --json` produced verification record in `docs/records/ci-evidence/slco-p2-4-verification.json`.
+

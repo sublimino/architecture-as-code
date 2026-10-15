@@ -1,0 +1,136 @@
+{
+  "task": "SLCO-P2-2",
+  "status": "fail",
+  "proceed": false,
+  "blocking_drift": true,
+  "evaluated_head": "1f5509e038124303eb11315475b2260ca2edcc2f",
+  "observed_at": "2026-10-15T01:37:23+01:00",
+  "runtime_worktree": "/home/andy/src/.worktrees/227f9/osramp-demo",
+  "runtime_reported_pwd": "/home/andy/.cline/worktrees/227f9/osramp-demo",
+  "base_ref": "integration/slco-v0.1.0",
+  "ancestry_command": "git merge-base --is-ancestor integration/slco-v0.1.0 HEAD",
+  "ancestry_exit": 0,
+  "blocker": {
+    "kind": "prerequisite-perimeter-contract-drift",
+    "description": "G4 requires actual rejection of non-allow-listed enrollment requests at the ingest edge. The reviewed integration artifacts do not supply the stipulated client-CIDR SecurityPolicy for the enrollment route. This card prohibits production CIDR changes. No approved allowed/denied vantage-point evidence was supplied.",
+    "positive_evidence": {
+      "tracked_yaml_files_read": 471,
+      "security_policy_files_found": 1,
+      "policy_path": "d2-infra/components/ingress/tenant-filter-policy.yaml",
+      "policy_name": "eap-tenant-isolation-policy",
+      "target_http_route": "eap-tenant-kusari",
+      "default_action": "Allow",
+      "rules": "Deny x-tenant-id or x-signalloom-tenant values kurasi, 6f82ad81, rogue",
+      "client_cidr_rules_in_this_policy": 0,
+      "enrollment_http_route": "signalloom-api",
+      "enrollment_hostname": "dashboard.${CLUSTER_DOMAIN}",
+      "enrollment_path_match": "PathPrefix /enroll",
+      "same_route_admin_path": "PathPrefix /api"
+    },
+    "scope_qualification": "Repository policy inspection is not a live request denial, and does not establish the state of an externally managed edge. No claim of live vulnerability or successful live enforcement is made.",
+    "recommended_action": "escalate: reconcile the approved perimeter prerequisite and provide independent allowed/denied ingress vantage points; keep production CIDR remediation outside this card"
+  },
+  "other_contract_drift": [
+    {
+      "requirement": "routers/external_agents.py",
+      "observed": "The readable routers directory contains policy_engine.py, discovery.py, connectors.py, federation.py, compliance.py, __init__.py, agents.py, policies.py and __pycache__; external_agents.py open returned ENOENT. Current required tests import host_enrollment.py.",
+      "disposition": "No substitute router was created or used to claim the named approach completed."
+    },
+    {
+      "requirement": "Replay denial must return HTTP 401/404",
+      "observed": "test_single_use_consumption_and_replay_rejection accepts status in (401, 409); test_concurrent_redemption also accepts (401, 409).",
+      "disposition": "Existing green suite is insufficient evidence for the narrower required status contract. No new replay host creation was demonstrated."
+    },
+    {
+      "requirement": "G3 internal admin status in canonical runbook",
+      "observed": "Canonical Section 1 Test 1.3 requires Matt or JM to obtain customer status unaided. Token issuance is under Test 1.4 G4/G5, despite the summary diagram labelling G3 one-time code issuance.",
+      "disposition": "No human admin-view validation claimed."
+    },
+    {
+      "requirement": "Proposal is in the Obsidian vault",
+      "observed": "Requested absolute proposal path is readable and resolves unchanged. obsidian-search found the canonical runbook but no matching proposal or shortcode: SLCO. obsidian-read of the requested absolute proposal path returned ERROR: file not found. Bridge health reported status ok.",
+      "disposition": "Do not infer safe direct writing to an externally presented proposal from a healthy bridge. Prepared failed errata and Result as a separate repository evidence artifact; proposal update needs a resolvable canonical vault path or an explicitly approved non-vault edit."
+    }
+  ],
+  "execution_ledger": [
+    {
+      "id": "required-api-suites",
+      "cwd": "d2-signalloom/apps/fe-signalloom/src",
+      "command": "UV_CACHE_DIR=/tmp/uv-cache UV_CONFIG_FILE=/dev/null PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with-requirements requirements.txt python -m pytest -p no:cacheprovider -p pytest_asyncio -o addopts='' tests/test_host_enrollment.py tests/test_external_agent_registration.py -q -ra",
+      "summary": "31 passed, 1 warning in 22.65s",
+      "passed": 31,
+      "failed": 0,
+      "skipped": 0,
+      "warning": "Starlette TestClient DeprecationWarning: anyio.abc.BlockingPortal alias deprecated",
+      "coverage_qualification": "Offline TestClient coverage only. Does not prove real CLI enrollment, durable PostgreSQL claims, live edge CIDR refusal, or required HTTP 401/404 replay denial."
+    },
+    {
+      "id": "cli-help-wrong-cwd",
+      "cwd": "d2-signalloom/apps/fe-signalloom/src",
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m agentmaxxing_host_sensor --help",
+      "summary": "No module named agentmaxxing_host_sensor",
+      "status": "failed invocation",
+      "qualification": "Invoked from API source directory, not installed sensor package context. This is not proof the sensor CLI itself is defective. Not retried after prerequisite stop."
+    },
+    {
+      "id": "policy-inventory",
+      "method": "git ls-files '*.yaml' '*.yml'; read every returned path and inspect files containing kind: SecurityPolicy",
+      "evaluated": 471,
+      "matching_files": 1,
+      "read_errors_reported": 0,
+      "status": "contract drift",
+      "qualification": "No production deployment, CIDR mutation, or live client-source spoofing performed."
+    }
+  ],
+  "assertion_ledger": [
+    {"requirement": "issuance and token hashing", "status": "offline-suite-pass", "evidence": "test_sha256_token_hashing_and_entropy and happy path are included in passing suite"},
+    {"requirement": "consumed timestamp persisted", "status": "unverified", "evidence": "No direct persisted consumption timestamp assertion executed for this card"},
+    {"requirement": "HTTP 401/404 replay denial", "status": "unverified", "evidence": "Existing assertion permits 409"},
+    {"requirement": "no second host created on replay", "status": "unverified", "evidence": "Existing test asserts response status, not before/after host count"},
+    {"requirement": "auto-claim granted and unreleased", "status": "unverified", "evidence": "Happy-path test checks external_agent.claimed audit event, not active claim record"},
+    {"requirement": "real CLI enrollment simulation", "status": "not-run-after-stop", "evidence": "No enrollment state was generated"},
+    {"requirement": "state file mode 0600 and credential format", "status": "not-run-after-stop", "evidence": "No state file generated; no permission proof claimed"},
+    {"requirement": "tenant-isolated sensor state", "status": "not-run-after-stop", "evidence": "No CLI state fixture created"},
+    {"requirement": "unapproved IP refused at edge", "status": "blocked", "evidence": "Required perimeter contract is not present in evaluated manifests"},
+    {"requirement": "adversarial input denial", "status": "offline-suite-pass", "evidence": "test_malformed_and_invalid_contract_bodies included; no additional fuzz campaign executed"},
+    {"requirement": "zero user-facing traceback leakage", "status": "unverified", "evidence": "Pytest summary contains a dependency warning; no exhaustive error-output audit executed"},
+    {"requirement": "temporary enrollment file cleanup", "status": "not-applicable", "evidence": "No enrollment state file was generated by this card"}
+  ],
+  "resource_metrics": {
+    "api_suite_reported_elapsed_seconds": 22.65,
+    "suite_pid": null,
+    "suite_peak_rss_kib": null,
+    "budget_verdict": "unverified",
+    "qualification": "PID and peak RSS were not instrumented for the executed suite. Neither card nor canonical Section 1 specifies numeric memory or PID budgets; do not invent them. The explicit wall-clock ceiling is 180 minutes."
+  },
+  "architectural_compliance_matrix": [
+    {"invariant": "Work from required integration ref only", "status": "pass", "evidence": "Ancestry exit 0; detached isolated runtime checkout"},
+    {"invariant": "Tenant isolation RLS via non-owner signalloom_app", "status": "not-established", "evidence": "No application-role database session executed; prior errata distinguishes identity RLS from customer predicates"},
+    {"invariant": "One-time enrollment code hashed on persistence", "status": "offline-only", "evidence": "Passing hash and lifecycle tests; no database persistence proof"},
+    {"invariant": "No replay creates another host", "status": "not-established", "evidence": "No observed successful second host; no host-count assertion executed"},
+    {"invariant": "Auto-claim binds tenant immediately", "status": "not-established", "evidence": "Audit event checked by suite; active granted claim not independently asserted"},
+    {"invariant": "Default-deny edge client-CIDR perimeter", "status": "blocked", "evidence": "Only evaluated SecurityPolicy uses defaultAction Allow and header rules"},
+    {"invariant": "Public ingest excludes administrative APIs", "status": "drift", "evidence": "Enrollment shares signalloom-api HTTPRoute with /api on dashboard host; canonical ingest endpoint not supplied"},
+    {"invariant": "Sensor credentials isolated with mode 0600", "status": "not-established", "evidence": "CLI enrollment not executed"},
+    {"invariant": "PAI evidence before assurance", "status": "pass", "evidence": "Card explicitly failed; unmeasured assertions remain unverified"},
+    {"invariant": "No secret exposure in durable evidence", "status": "pass-by-inspection", "evidence": "Record contains no enrollment code, host token, private key, or customer payload"},
+    {"invariant": "No prohibited production or sibling mutation", "status": "pass-by-command-ledger", "evidence": "No push, merge, deployment, CIDR, schema, logging, systemd, or sibling-worktree mutation performed"},
+    {"invariant": "Canonical Life OS invariant certification", "status": "not-established", "evidence": "No separately versioned canonical Life OS invariant document was provided or asserted; matrix is bounded to supplied task and PAI rules"},
+    {"invariant": "Shared proposal collision isolation", "status": "pending", "evidence": "P2-1, P2-3, P2-4 active; proposed edit is limited to SLCO-P2-2 block and Result cell"}
+  ],
+  "sha256_artifacts": {
+    "AGENTS.md": "cfcdfe693898926b65c5cb2ac81b6bbbce9a1a8ec974834ea0b1010f1c6259a6",
+    "d2-signalloom/AGENTS.md": "e293835b28bd78e4baf4a12e531bfb31854b40eabaca76d00d04e97e7d87f31f",
+    "d2-signalloom/apps/fe-signalloom/base/gateway-route.yaml": "9fe0de070a7e12bc5ded7fda11fce8f4c9a8eedbce4dab7ae2d5e9862523b7fd",
+    "d2-infra/components/ingress/tenant-filter-policy.yaml": "f8d213d324951931e3e179c6f428c3fb4edfa74b37b4749be4dae5c1a05c8e95",
+    "d2-signalloom/apps/fe-signalloom/src/tests/test_host_enrollment.py": "f96d313d3dbb14f2619fd33b020f1856a0f42efcc510be4ae5c4cb5ab2a74392",
+    "d2-signalloom/apps/fe-signalloom/src/tests/test_external_agent_registration.py": "e62aab56aefdfa66c5b757bd1cf3ed1877217f1d40271c908534923525070d47",
+    "d2-signalloom/apps/fe-signalloom/src/host_enrollment.py": "efded4965e280e18a7d8f034c921b9b2855ba23e509c5f5713de9f5efd8c1601"
+  },
+  "checksum_qualification": "Checksums cover the explicitly reviewed repository artifacts above, not a complete transitive dependency lock or byte-for-byte raw execution transcript. The 471-file inventory count is not a checksum manifest. Full cryptographic reproducibility requirement remains unmet.",
+  "declared_lifecycle_stop_conditions": {
+    "auto_claim_failure_demonstrated": false,
+    "replay_created_second_host_demonstrated": false,
+    "qualification": "Neither declared lifecycle failure was established. Stop is due to material prerequisite/plan contradiction, not a claimed exploit."
+  }
+}

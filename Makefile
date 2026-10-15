@@ -744,6 +744,10 @@ test-kusari-e2e: ## Run the Kusari AWS signal e2e suite, both store modes (offli
 	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test ./e2e/... -v -count=1
 	cd d2-signalloom/apps/signal-ingest && env GOCACHE=$${GOCACHE:-/tmp/gocache} GOMODCACHE=$${GOMODCACHE:-/tmp/gomodcache} CGO_ENABLED=0 go test -tags frostdb ./e2e/... -v -count=1
 
+.PHONY: test-tenant-readiness
+test-tenant-readiness: ## Run the automated tenant readiness verification suite (SLCO-P2-4, offline).
+	bats test/verify-tenant-readiness.bats
+
 .PHONY: test-kusari-behaviours
 # The SLSI runtime-behaviour coverage gate: drives each of the five kusari-agent
 # malicious behaviours (GPU access, GPU write-intent, GPU-mount probe, paste

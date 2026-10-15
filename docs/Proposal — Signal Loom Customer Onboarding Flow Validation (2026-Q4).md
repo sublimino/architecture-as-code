@@ -112,7 +112,7 @@ flowchart LR
 | P1-2 | implementation | Gate C2: Execute host enrollment suite (`test_host_enrollment.py`); verify token expiry, hash derivation, and state persistence. | P1-PRE | 19+ passed in `fe-signalloom/src`; 0 failed | M | antigravity | pass — delivered: 0a509afb4 (see [Errata](#errata--slco-p1-2)) | — | — | — | — |
 | P1-3 | implementation | Gate C3: Execute sensor tenant isolation suite (`test_mission_tenant_isolation.py`, `test_negative_security.py`, `test_leak_falsification.py`); prove sensor state isolation and leak detection. | P1-PRE | 31 passed in `agentmaxxing-host-sensor`; 0 failed | M | antigravity | pass — delivered: 0a509afb4 (see [Errata](#errata--slco-p1-3)) | — | — | — | — |
 | P1-4 | implementation | Invariants T1–T6: Prove cross-tenant claim hijack yields HTTP 409 (`test_external_agent_registration.py`), token replay is rejected, and telemetry is server-bound. | P1-PRE | 8 passed in `test_external_agent_registration.py`; 29 passed in `test_tenant_hash.py` | M | antigravity | pass — delivered: 0a509afb4 (see [Errata](#errata--slco-p1-4)) | — | — | — | — |
-| P1-GOV | governor | Governor: Merge P1 cards into `integration/slco-v0.1.0`, execute full automated suite, verify 0 failures and 0 skips, record Phase 1 errata. | P1-1, P1-2, P1-3, P1-4 | Clean test run across all C1–C3 suites; errata complete | M | antigravity | — | — | — | — | — |
+| P1-GOV | governor | Governor: Merge P1 cards into `integration/slco-v0.1.0`, execute full automated suite, verify 0 failures and 0 skips, record Phase 1 errata. | P1-1, P1-2, P1-3, P1-4 | Clean test run across all C1–C3 suites; errata complete | M | antigravity | pass — delivered: e012f8904 (see [Errata](#errata--slco-p1-gov)) | — | — | — | — |
 | P2-PRE | preflight | Pre-flight: Ingest route `/enroll` & `/telemetry`, Envoy SecurityPolicy allow-list verification, tailnet ingress. | P1-GOV | Ingress and gateway routes audited; table in errata | S | antigravity | — | — | — | — | — |
 | P2-1 | implementation | Gates G1/G2: Verify tenant creation procedure, derive salted hash (`derive_tenant_hash.py`), and verify admin login isolation. | P2-PRE | Salted hash matches `4b53ab6b` for Kusari; Dex authentication verified | M | antigravity | — | — | — | — | — |
 | P2-2 | implementation | Gates G3–G5: Verify one-time code issuance, sensor CLI enrollment (`agentmaxxing_host_sensor enroll`), code consumption, and auto-claim. | P2-PRE | Code single-use verified; auto-claim verified | M | antigravity | — | — | — | — | — |
@@ -324,3 +324,31 @@ Pass criteria are exit `0`, 100% passing, zero failures, and zero skips wherever
 **Commit:** 0a509afb4
 **Evidence:** C3 sensor tenant isolation suite verified in `agentmaxxing-host-sensor`: 33 passed, 74 subtests passed, 0 failed across `test_mission_tenant_isolation.py`, `test_negative_security.py`, and `test_leak_falsification.py`. Required selector `test_telemetry_with_tampered_tenant_header_rejected` implemented and passing (0.04s). Zero-payload isolation and leak detection confirmed. All evidence commits (`11ea9f5da`) merged into `integration/slco-v0.1.0`.
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+#### Errata — SLCO-P1-GOV
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+**Created:** 2026-10-15 01:05:00+01:00
+**Last Updated:** 2026-10-15 01:06:00+01:00
+**Status:** Completed
+**Commit:** e012f8904
+**Evidence:** Phase 1 Governor reconciliation complete:
+- Predecessor cards verified: P1-1 (Gate C1), P1-2 (Gate C2), P1-3 (Gate C3), P1-4 (Threats T1–T6) completed with 100% test pass rates and zero leaks.
+- Integrated into `integration/slco-v0.1.0` (commit `0a509afb4`).
+- Acceptance Run 1: `make test-eap-offline` (325/325 passed), `make test-kusari-e2e` (2/2 passed in 4.41s), `make docs-lint` (785 files clean).
+- Acceptance Run 2: `make test-kusari-e2e` (2/2 passed in 4.28s), `make docs-lint` (785 files clean). Identical metrics verified.
+- Kanban doctor check: `kanban-check.sh doctor --repo . --shortcode SLCO` passed with 0 exceptions (ALL CHECKS HEALTHY).
+- Working tree clean: `git status --porcelain` reports 0 uncommitted changes.
+
+**Spend and token use:**
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P0 | — | — | — | — |
+| P1-PRE | — | — | — | — |
+| P1-1 | — | — | — | — |
+| P1-2 | — | — | — | — |
+| P1-3 | — | — | — | — |
+| P1-4 | — | — | — | — |
+| P1-GOV | — | — | — | — |
+

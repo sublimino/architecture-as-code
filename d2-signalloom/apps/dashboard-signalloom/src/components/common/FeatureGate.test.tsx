@@ -7,6 +7,8 @@ import {
   useFeatureFlagContext,
   clearFeatureFlagCache,
 } from '../../providers/FeatureFlagProvider'
+import * as featuresApi from '../../api/featuresApi'
+
 
 function Wrapper({
   initialFlags,
@@ -75,8 +77,13 @@ describe('FeatureGate', () => {
     expect(container.innerHTML).toBe('')
   })
 
-  it('renders loadingFallback during loading state to prevent layout shifts', () => {
-    // Render with a provider that is currently loading
+  it('renders loadingFallback during loading state to prevent layout shifts', async () => {
+    let resolveFetch: (val: any) => void
+    const fetchPromise = new Promise((resolve) => {
+      resolveFetch = resolve
+    })
+    vi.spyOn(featuresApi, 'fetchFeatures').mockReturnValue(fetchPromise as any)
+
     function LoadingProvider({ children }: { children: React.ReactNode }) {
       return (
         <FeatureFlagProvider
@@ -103,7 +110,52 @@ describe('FeatureGate', () => {
 
     expect(screen.getByTestId('skeleton-loader')).toBeTruthy()
     expect(screen.queryByTestId('protected')).toBeNull()
+
+    await act(async () => {
+      resolveFetch!({ tenant_id: 'tenant-slow', flags: { supercred: true } })
+    })
   })
+
+  it('does NOT render fallback (e.g. 404) during loading state when loadingFallback is omitted', async () => {
+    let resolveFetch: (val: any) => void
+    const fetchPromise = new Promise((resolve) => {
+      resolveFetch = resolve
+    })
+    vi.spyOn(featuresApi, 'fetchFeatures').mockReturnValue(fetchPromise as any)
+
+    function LoadingProvider({ children }: { children: React.ReactNode }) {
+      return (
+        <FeatureFlagProvider
+          initialFlags={{ page_agents: false }}
+          disableAutoFetch={false}
+          tenantId="tenant-slow-test"
+        >
+          {children}
+        </FeatureFlagProvider>
+      )
+    }
+
+    render(
+      <LoadingProvider>
+        <FeatureGate
+          flag="page_agents"
+          fallback={<div data-testid="fallback-404">404 Page Not Found</div>}
+        >
+          <div data-testid="protected">Agents Page</div>
+        </FeatureGate>
+      </LoadingProvider>,
+    )
+
+    // MUST NOT render fallback during loading!
+    expect(screen.queryByTestId('fallback-404')).toBeNull()
+    expect(screen.queryByTestId('protected')).toBeNull()
+
+    await act(async () => {
+      resolveFetch!({ tenant_id: 'tenant-slow-test', flags: { page_agents: true } })
+    })
+  })
+
+
 
   it('supports inverted gating (invert=true)', () => {
     render(

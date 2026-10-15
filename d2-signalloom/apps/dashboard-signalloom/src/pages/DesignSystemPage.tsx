@@ -41,7 +41,9 @@ import PixelLoader, { type PixelLoaderVariant } from '../components/PixelLoader'
 import { LONG_WAIT_MS, type LoadTimesSetting } from '../api/loadTimes'
 import LoadingState from '../components/LoadingState'
 import ErrorState from '../components/ErrorState'
+import NotFoundPage from './NotFoundPage'
 import EmptyState from '../components/EmptyState'
+
 import StatusBadge from '../components/StatusBadge'
 import HelpHint from '../components/HelpHint'
 import DataTable, { type Column } from '../components/DataTable'
@@ -573,7 +575,9 @@ export const DESIGN_SYSTEM_SECTIONS: readonly TocEntry[] = [
   { id: 'button-wait', title: 'ButtonWait' },
   { id: 'loading-state', title: 'LoadingState' },
   { id: 'error-state', title: 'ErrorState' },
+  { id: 'error-pages', title: 'Error pages' },
   { id: 'empty-state', title: 'EmptyState' },
+
   { id: 'status-badge', title: 'StatusBadge' },
   { id: 'help-hint', title: 'HelpHint' },
   { id: 'data-table', title: 'DataTable' },
@@ -1188,7 +1192,21 @@ export default function DesignSystemPage() {
         </div>
       </Group>
 
+      {/* ── Error pages ─────────────────────────────────────────────────────── */}
+      <Group
+        id="error-pages"
+        title="Error pages"
+        when="Full-page terminal error displays when a route does not exist, a feature flag is disabled, or a whole view cannot load. Rendered via NotFoundPage with SafeLink fallback."
+      >
+        <div style={rowStyle}>
+          <div data-testid="ds-errorpages-notfound" style={{ ...cardStyle, flex: '1 1 100%' }}>
+            <NotFoundPage />
+          </div>
+        </div>
+      </Group>
+
       {/* ── EmptyState ─────────────────────────────────────────────────────── */}
+
       <Group
         id="empty-state"
         title="EmptyState"

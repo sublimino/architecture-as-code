@@ -298,9 +298,10 @@ describe('visual symbol AST inventory', () => {
       kind: 'route', href: '/design-system/css',
     })
     expect(COMPONENT_COVERAGE.find((entry) => coverageKey(entry) === 'pages/NotFoundPage.tsx#NotFoundPage')).toMatchObject({
-      kind: 'route', state: expect.stringMatching(/feature gate/i), reason: expect.stringMatching(/wildcard.*redirects/i),
+      kind: 'specimen', href: '/design-system#error-pages',
     })
   })
+
 
   it('registers safe contextual fixtures without counting fixture helpers as shared', () => {
     for (const key of [

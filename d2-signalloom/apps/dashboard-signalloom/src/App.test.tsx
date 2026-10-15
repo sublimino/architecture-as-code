@@ -5,6 +5,8 @@ import type { ReactNode } from 'react'
 import App, { routeLoadingLabel, SuperadminRoute } from './App'
 import { NAV } from './components/Sidebar'
 import { FeatureFlagProvider, clearFeatureFlagCache } from './providers/FeatureFlagProvider'
+import * as featuresApi from './api/featuresApi'
+
 
 // The bug this file pins: clicking Compliance showed a rotating ring (App's
 // own private `Spinner`) while the route chunk downloaded, and only then the
@@ -383,5 +385,37 @@ describe('FeatureGate route guards and NotFound fallback', () => {
     await waitFor(() => expect(screen.getByTestId('discovery-page')).toBeInTheDocument())
     expect(screen.queryByTestId('not-found')).toBeNull()
   })
+
+  it('renders AppLoader and does NOT render 404 while feature flags are resolving', async () => {
+    auth.user = { name: 'demo-user', email: 'demo-user@signalloom.local' }
+    auth.getAccessTokenSilently = () => Promise.resolve('test-token')
+
+    let resolveFetch: (val: any) => void
+    const pendingFetch = new Promise((resolve) => {
+      resolveFetch = resolve
+    })
+
+    const fetchFeaturesMock = vi.spyOn(featuresApi, 'fetchFeatures').mockReturnValue(pendingFetch as any)
+
+    render(
+      <FeatureFlagProvider initialFlags={{ page_discovery: false }} disableAutoFetch={false} tenantId="slow-tenant">
+        <MemoryRouter initialEntries={['/discovery']}>
+          <App />
+        </MemoryRouter>
+      </FeatureFlagProvider>,
+    )
+
+    // While features are loading, AppLoader must be visible, NOT 404!
+    expect(screen.getByTestId('route-loading')).toBeInTheDocument()
+    expect(screen.queryByTestId('not-found')).toBeNull()
+
+    // Resolve fetch before test teardown
+    await waitFor(async () => {
+      resolveFetch!({ tenant_id: 'slow-tenant', flags: { page_discovery: true } })
+    })
+
+    fetchFeaturesMock.mockRestore()
+  })
 })
+
 

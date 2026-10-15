@@ -194,8 +194,9 @@ const SOURCE_SYMBOLS: readonly SourceSymbols[] = [
   ['auth/ProtectedRoute.tsx', 'ProtectedRoute'],
   ['auth/oidc.tsx', 'OidcProvider'],
   ['money/CurrencyContext.tsx', 'CurrencyProvider'],
-  ['App.tsx', 'SuperadminRoute AdminRoute App'],
+  ['App.tsx', 'SuperadminRoute AdminRoute GatedRoute App'],
   ['views/Compliance.tsx', 'Compliance PostureBar'],
+
   ['views/Agents.tsx', 'Agents AgentCard NHICard'],
   ['views/Settings.tsx', 'Settings SectionCard Field FrameworkToggle ApiKeyStatus'],
   ['views/AuditTrail.tsx', 'AuditTrail EventTag ToolbarField'],
@@ -377,7 +378,9 @@ const DIRECT_SPECIMENS: readonly [source: string, symbols: string, href: string]
   ['components/PixelLoader.tsx', 'PixelLoader', '/design-system#pixel-loader'],
   ['components/LoadingState.tsx', 'LoadingState', '/design-system#loading-state'],
   ['components/ErrorState.tsx', 'ErrorState', '/design-system#error-state'],
+  ['pages/NotFoundPage.tsx', 'NotFoundPage', '/design-system#error-pages'],
   ['components/EmptyState.tsx', 'EmptyState', '/design-system#empty-state'],
+
   ['components/StatusBadge.tsx', 'StatusBadge', '/design-system#status-badge'],
   ['components/HelpHint.tsx', 'HelpHint', '/design-system#help-hint'],
   ['components/DataTable.tsx', 'DataTable', '/design-system#data-table'],
@@ -426,12 +429,7 @@ represent('pages/DesignSystemCssLabPage.tsx', 'DesignSystemCssLabPage', {
   state: 'Open the CSS Lab as a superadmin to inspect the isolated stylesheet experiments.',
   reason: 'The CSS lab is a separately routed design-system page rather than a fixed-prop specimen.',
 })
-represent('pages/NotFoundPage.tsx', 'NotFoundPage', {
-  kind: 'route',
-  href: '/collusion-access',
-  state: 'Open a feature gate route while its feature flag is disabled to render the NotFoundPage fallback.',
-  reason: 'The application wildcard redirects to /agents; NotFoundPage is used by feature-gate fallbacks.',
-})
+
 
 represent('components/AuditDetailDrawer.tsx', 'renderSyntaxHighlightedJson', {
   kind: 'internal',
@@ -449,10 +447,11 @@ represent('auth/ProtectedRoute.tsx', 'ProtectedRoute', {
   kind: 'guard',
   reason: 'Authentication and onboarding guard that returns application routes or redirects, not an independent specimen.',
 })
-represent('App.tsx', 'SuperadminRoute AdminRoute', {
+represent('App.tsx', 'SuperadminRoute AdminRoute GatedRoute', {
   kind: 'guard',
-  reason: 'Authorization guards that render children or redirect to /agents; they are not visual specimens.',
+  reason: 'Authorization and feature-gate route guards that render children, loaders, or redirect; they are not visual specimens.',
 })
+
 for (const [source, symbol, reason] of [
   ['providers/FeatureFlagProvider.tsx', 'FeatureFlagProvider', 'Application feature-flag context provider with no independent visual output.'],
   ['auth/oidc.tsx', 'OidcProvider', 'OIDC context provider that supplies authentication state without an independent visual output.'],

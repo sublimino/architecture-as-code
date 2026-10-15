@@ -99,8 +99,9 @@ export function FeatureGate({
     if (loadingFallback !== undefined) {
       return <>{loadingFallback}</>
     }
-    return <>{fallback ?? null}</>
+    return <></>
   }
+
 
   // If evaluation threw an error, gracefully render fallback
   if (error && !enabled) {

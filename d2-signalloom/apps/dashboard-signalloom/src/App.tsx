@@ -277,7 +277,34 @@ function AppLoader({ label, minHeight, testId }: { label: string; minHeight: str
   )
 }
 
+/**
+ * Route-level wrapper for feature-flag gated pages.
+ * While feature flags are resolving, renders AppLoader with the route-specific
+ * label and PixelLoader (honoring the operator's loadTimes settings) so that
+ * the user never experiences a flash of 404. If the flag evaluates to false,
+ * renders NotFoundPage as terminal fallback.
+ */
+export function GatedRoute({ flag, children }: { flag: string; children: React.ReactNode }) {
+  const location = useLocation()
+  return (
+    <FeatureGate
+      flag={flag}
+      fallback={<NotFoundPage />}
+      loadingFallback={
+        <AppLoader
+          label={routeLoadingLabel(location.pathname)}
+          minHeight="60vh"
+          testId="route-loading"
+        />
+      }
+    >
+      {children}
+    </FeatureGate>
+  )
+}
+
 export default function App() {
+
   const { isAuthenticated, isLoading, getAccessTokenSilently } = useAuth0()
   const location = useLocation()
   const [failingControls, setFailingControls] = useState(0)
@@ -462,41 +489,41 @@ export default function App() {
 
                 <Route path="/" element={<Navigate to="/agents" replace />} />
                 <Route path="/overview" element={<Navigate to="/discovery" replace />} />
-                <Route path="/discovery" element={<ProtectedRoute><FeatureGate flag="page_discovery" fallback={<NotFoundPage />}><DiscoveryPage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/discovery/accounts/:accountId" element={<ProtectedRoute><FeatureGate flag="page_discovery" fallback={<NotFoundPage />}><DiscoveryAccountDetailPage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/agents" element={<ProtectedRoute><FeatureGate flag="page_agents" fallback={<NotFoundPage />}><AgentsPage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/agents/:id" element={<ProtectedRoute><FeatureGate flag="page_agents" fallback={<NotFoundPage />}><AgentDetailPage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/topology" element={<ProtectedRoute><FeatureGate flag="page_topology" fallback={<NotFoundPage />}><AgentTrustTopologyPage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/agent-trust-topology" element={<ProtectedRoute><FeatureGate flag="page_topology" fallback={<NotFoundPage />}><AgentTrustTopologyPage /></FeatureGate></ProtectedRoute>} />
+                <Route path="/discovery" element={<ProtectedRoute><GatedRoute flag="page_discovery"><DiscoveryPage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/discovery/accounts/:accountId" element={<ProtectedRoute><GatedRoute flag="page_discovery"><DiscoveryAccountDetailPage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/agents" element={<ProtectedRoute><GatedRoute flag="page_agents"><AgentsPage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/agents/:id" element={<ProtectedRoute><GatedRoute flag="page_agents"><AgentDetailPage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/topology" element={<ProtectedRoute><GatedRoute flag="page_topology"><AgentTrustTopologyPage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/agent-trust-topology" element={<ProtectedRoute><GatedRoute flag="page_topology"><AgentTrustTopologyPage /></GatedRoute></ProtectedRoute>} />
                 <Route path="/activity" element={<Navigate to="/weave" replace />} />
-                <Route path="/weave" element={<ProtectedRoute><FeatureGate flag="page_weave" fallback={<NotFoundPage />}><WeavePage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/signals" element={<ProtectedRoute><FeatureGate flag="page_signals" fallback={<NotFoundPage />}><SignalsPage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/risk" element={<ProtectedRoute><FeatureGate flag="page_risk" fallback={<NotFoundPage />}><RiskExposurePage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/compliance/risk" element={<ProtectedRoute><FeatureGate flag="page_risk" fallback={<NotFoundPage />}><RiskExposurePage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/policies" element={<ProtectedRoute><FeatureGate flag="page_policies" fallback={<NotFoundPage />}><CompliancePolicyPage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/compliance/policies" element={<ProtectedRoute><FeatureGate flag="page_policies" fallback={<NotFoundPage />}><CompliancePolicyPage /></FeatureGate></ProtectedRoute>} />
+                <Route path="/weave" element={<ProtectedRoute><GatedRoute flag="page_weave"><WeavePage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/signals" element={<ProtectedRoute><GatedRoute flag="page_signals"><SignalsPage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/risk" element={<ProtectedRoute><GatedRoute flag="page_risk"><RiskExposurePage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/compliance/risk" element={<ProtectedRoute><GatedRoute flag="page_risk"><RiskExposurePage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/policies" element={<ProtectedRoute><GatedRoute flag="page_policies"><CompliancePolicyPage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/compliance/policies" element={<ProtectedRoute><GatedRoute flag="page_policies"><CompliancePolicyPage /></GatedRoute></ProtectedRoute>} />
                 <Route path="/containment" element={<Navigate to="/compliance" replace />} />
-                <Route path="/compliance" element={<ProtectedRoute><FeatureGate flag="page_compliance" fallback={<NotFoundPage />}><CompliancePage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/compliance/posture" element={<ProtectedRoute><FeatureGate flag="page_compliance" fallback={<NotFoundPage />}><AgentPosturePage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/compliance/:frameworkId" element={<ProtectedRoute><FeatureGate flag="page_compliance" fallback={<NotFoundPage />}><FrameworkDetailPage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/evaluations" element={<ProtectedRoute><FeatureGate flag="page_compliance" fallback={<NotFoundPage />}><PolicyEvaluationPage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/compliance/evaluation" element={<ProtectedRoute><FeatureGate flag="page_compliance" fallback={<NotFoundPage />}><PolicyEvaluationPage /></FeatureGate></ProtectedRoute>} />
+                <Route path="/compliance" element={<ProtectedRoute><GatedRoute flag="page_compliance"><CompliancePage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/compliance/posture" element={<ProtectedRoute><GatedRoute flag="page_compliance"><AgentPosturePage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/compliance/:frameworkId" element={<ProtectedRoute><GatedRoute flag="page_compliance"><FrameworkDetailPage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/evaluations" element={<ProtectedRoute><GatedRoute flag="page_compliance"><PolicyEvaluationPage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/compliance/evaluation" element={<ProtectedRoute><GatedRoute flag="page_compliance"><PolicyEvaluationPage /></GatedRoute></ProtectedRoute>} />
                 <Route path="/eval" element={<Navigate to="/evaluations" replace />} />
                 <Route path="/approvals" element={<Navigate to="/collusion-access" replace />} />
-                <Route path="/collusion-access" element={<ProtectedRoute><FeatureGate flag="collusion_access" fallback={<NotFoundPage />}><CollusionAccessPage /></FeatureGate></ProtectedRoute>} />
+                <Route path="/collusion-access" element={<ProtectedRoute><GatedRoute flag="collusion_access"><CollusionAccessPage /></GatedRoute></ProtectedRoute>} />
                 <Route path="/users" element={<ProtectedRoute><UsersPage /></ProtectedRoute>} />
-                <Route path="/audit" element={<ProtectedRoute><FeatureGate flag="page_audit" fallback={<NotFoundPage />}><AuditTrailPage /></FeatureGate></ProtectedRoute>} />
+                <Route path="/audit" element={<ProtectedRoute><GatedRoute flag="page_audit"><AuditTrailPage /></GatedRoute></ProtectedRoute>} />
                 <Route path="/workspaces" element={<Navigate to="/discovery" replace />} />
                 <Route path="/connectors" element={<Navigate to="/federated-services" replace />} />
-                <Route path="/federated-services" element={<ProtectedRoute><FeatureGate flag="page_federated_services" fallback={<NotFoundPage />}><FederatedServicesPage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/cryptography" element={<ProtectedRoute><FeatureGate flag="page_cryptography" fallback={<NotFoundPage />}><CryptographyPage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/credential-inventory" element={<ProtectedRoute><FeatureGate flag="page_credential_inventory" fallback={<NotFoundPage />}><CredentialInventoryPage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/rbac-analysis" element={<ProtectedRoute><FeatureGate flag="rbac_analysis" fallback={<NotFoundPage />}><RbacAnalysisPage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/rbac-explorer" element={<ProtectedRoute><FeatureGate flag="rbac_analysis" fallback={<NotFoundPage />}><RbacExplorerPage /></FeatureGate></ProtectedRoute>} />
+                <Route path="/federated-services" element={<ProtectedRoute><GatedRoute flag="page_federated_services"><FederatedServicesPage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/cryptography" element={<ProtectedRoute><GatedRoute flag="page_cryptography"><CryptographyPage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/credential-inventory" element={<ProtectedRoute><GatedRoute flag="page_credential_inventory"><CredentialInventoryPage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/rbac-analysis" element={<ProtectedRoute><GatedRoute flag="rbac_analysis"><RbacAnalysisPage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/rbac-explorer" element={<ProtectedRoute><GatedRoute flag="rbac_analysis"><RbacExplorerPage /></GatedRoute></ProtectedRoute>} />
                 <Route path="/signal-fusion" element={<ProtectedRoute><SuperadminRoute><SignalFusionPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/distance-latency" element={<ProtectedRoute><SuperadminRoute><DistanceLatencyPage /></SuperadminRoute></ProtectedRoute>} />
-                <Route path="/signal-store" element={<ProtectedRoute><FeatureGate flag="page_signal_store" fallback={<NotFoundPage />}><SignalStorePage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/feeds" element={<ProtectedRoute><FeatureGate flag="page_feeds" fallback={<NotFoundPage />}><FeedsExplorerPage /></FeatureGate></ProtectedRoute>} />
+                <Route path="/signal-store" element={<ProtectedRoute><GatedRoute flag="page_signal_store"><SignalStorePage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/feeds" element={<ProtectedRoute><GatedRoute flag="page_feeds"><FeedsExplorerPage /></GatedRoute></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
                 <Route path="/settings/help/deploy-sensor" element={<ProtectedRoute exemptFromOnboardingGate><DeploySensorHelpPage /></ProtectedRoute>} />
                 <Route path="/settings/help/onboard-agent" element={<ProtectedRoute exemptFromOnboardingGate><OnboardAgentHelpPage /></ProtectedRoute>} />
@@ -504,14 +531,15 @@ export default function App() {
                 <Route path="/settings/onboard-agent" element={<Navigate to="/settings/help/onboard-agent" replace />} />
                 <Route path="/onboarding" element={<ProtectedRoute exemptFromOnboardingGate><OnboardingWizardPage /></ProtectedRoute>} />
                 <Route path="/help/connectors/:provider" element={<ProtectedRoute exemptFromOnboardingGate><ConnectorHelpPage /></ProtectedRoute>} />
-                <Route path="/network-tests" element={<ProtectedRoute><FeatureGate flag="page_network_tests" fallback={<NotFoundPage />}><NetworkTestsPage /></FeatureGate></ProtectedRoute>} />
-                <Route path="/supercred" element={<ProtectedRoute><SuperadminRoute><FeatureGate flag="supercred" fallback={<NotFoundPage />}><SuperCredPage /></FeatureGate></SuperadminRoute></ProtectedRoute>} />
-                <Route path="/fleet" element={<ProtectedRoute><SuperadminRoute><FeatureGate flag="demos_fleet" fallback={<NotFoundPage />}><FleetDemoPage /></FeatureGate></SuperadminRoute></ProtectedRoute>} />
-                <Route path="/demos/fleet" element={<ProtectedRoute><SuperadminRoute><FeatureGate flag="demos_fleet" fallback={<NotFoundPage />}><FleetDemoPage /></FeatureGate></SuperadminRoute></ProtectedRoute>} />
-                <Route path="/fleet/audience" element={<ProtectedRoute><SuperadminRoute><FeatureGate flag="demos_fleet" fallback={<NotFoundPage />}><FleetAudiencePage /></FeatureGate></SuperadminRoute></ProtectedRoute>} />
-                <Route path="/demos/fleet/audience" element={<ProtectedRoute><SuperadminRoute><FeatureGate flag="demos_fleet" fallback={<NotFoundPage />}><FleetAudiencePage /></FeatureGate></SuperadminRoute></ProtectedRoute>} />
-                <Route path={'/demos/agentmaxxing'} element={<ProtectedRoute><SuperadminRoute><FeatureGate flag="page_agentmaxxing" fallback={<NotFoundPage />}><AgentMaxxingDemoPage /></FeatureGate></SuperadminRoute></ProtectedRoute>} />
-                <Route path={'/demos/agentmaxxing/*'} element={<ProtectedRoute><SuperadminRoute><FeatureGate flag="page_agentmaxxing" fallback={<NotFoundPage />}><AgentMaxxingDemoPage /></FeatureGate></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/network-tests" element={<ProtectedRoute><GatedRoute flag="page_network_tests"><NetworkTestsPage /></GatedRoute></ProtectedRoute>} />
+                <Route path="/supercred" element={<ProtectedRoute><SuperadminRoute><GatedRoute flag="supercred"><SuperCredPage /></GatedRoute></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/fleet" element={<ProtectedRoute><SuperadminRoute><GatedRoute flag="demos_fleet"><FleetDemoPage /></GatedRoute></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/demos/fleet" element={<ProtectedRoute><SuperadminRoute><GatedRoute flag="demos_fleet"><FleetDemoPage /></GatedRoute></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/fleet/audience" element={<ProtectedRoute><SuperadminRoute><GatedRoute flag="demos_fleet"><FleetAudiencePage /></GatedRoute></SuperadminRoute></ProtectedRoute>} />
+                <Route path="/demos/fleet/audience" element={<ProtectedRoute><SuperadminRoute><GatedRoute flag="demos_fleet"><FleetAudiencePage /></GatedRoute></SuperadminRoute></ProtectedRoute>} />
+                <Route path={'/demos/agentmaxxing'} element={<ProtectedRoute><SuperadminRoute><GatedRoute flag="page_agentmaxxing"><AgentMaxxingDemoPage /></GatedRoute></SuperadminRoute></ProtectedRoute>} />
+                <Route path={'/demos/agentmaxxing/*'} element={<ProtectedRoute><SuperadminRoute><GatedRoute flag="page_agentmaxxing"><AgentMaxxingDemoPage /></GatedRoute></SuperadminRoute></ProtectedRoute>} />
+
                 <Route path="/design-system" element={<ProtectedRoute><SuperadminRoute><DesignSystemPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/design-system/headers" element={<ProtectedRoute><SuperadminRoute><DesignSystemHeadersPage /></SuperadminRoute></ProtectedRoute>} />
                 <Route path="/design-system/css" element={<ProtectedRoute><SuperadminRoute><DesignSystemCssLabPage /></SuperadminRoute></ProtectedRoute>} />

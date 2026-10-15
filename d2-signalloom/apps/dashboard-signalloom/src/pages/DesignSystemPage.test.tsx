@@ -371,6 +371,16 @@ describe('DesignSystemPage', () => {
     expect(within(authFailure).queryByTestId('error-retry')).not.toBeInTheDocument()
   })
 
+  // ── Error pages ───────────────────────────────────────────────────────────
+
+  it('renders the Error pages specimen with NotFoundPage and router-resilient link', () => {
+    render(<DesignSystemPage />)
+    const section = screen.getByTestId('ds-section-error-pages')
+    expect(within(section).getByText('404')).toBeInTheDocument()
+    expect(within(section).getByText('Page Not Found')).toBeInTheDocument()
+    expect(within(section).getByText('Back to Agents')).toBeInTheDocument()
+  })
+
   // ── Component sections ────────────────────────────────────────────────────
 
   const SECTIONS = [
@@ -379,7 +389,9 @@ describe('DesignSystemPage', () => {
     'button-wait',
     'loading-state',
     'error-state',
+    'error-pages',
     'empty-state',
+
     'status-badge',
     'help-hint',
     'data-table',

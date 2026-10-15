@@ -1,5 +1,5 @@
 import React from 'react'
-import { Link } from 'react-router-dom'
+import SafeLink from '../components/SafeLink'
 
 export function NotFoundPage(): React.JSX.Element {
   return (
@@ -49,12 +49,13 @@ export function NotFoundPage(): React.JSX.Element {
         The page you requested does not exist, has been moved, or is disabled for your tenant.
       </p>
       <div style={{ marginTop: 8 }}>
-        <Link to="/agents" className="btn btn-primary" style={{ textDecoration: 'none' }}>
+        <SafeLink to="/agents" className="btn btn-primary" style={{ textDecoration: 'none' }}>
           Back to Agents
-        </Link>
+        </SafeLink>
       </div>
     </div>
   )
 }
+
 
 export default NotFoundPage

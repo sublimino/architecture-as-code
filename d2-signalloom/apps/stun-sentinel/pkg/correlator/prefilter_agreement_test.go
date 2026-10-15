@@ -161,6 +161,31 @@ func TestKernelPrefilterDropsTheOrdinaryFirehose(t *testing.T) {
 	}
 }
 
+// Every container start reads /proc/sys/kernel/cap_last_cap (runc init, inside
+// the pod's cgroup) and many workloads read /proc/sys/kernel/random/uuid. With
+// the whole /proc/sys/kernel directory in the table the warden froze every new
+// pod in its first second on kind-osramp (2026-10-15: correlator_freeze_held
+// "sys_enter_openat /proc/sys/kernel/cap_last_cap" for every agent and every
+// sentinel-ebpf-live attack pod, so no attack ever ran). Only the escape
+// primitive itself is sensitive, in both the kernel and userspace copies.
+func TestContainerStartupProcfsReadsAreNotSensitive(t *testing.T) {
+	m := NewSentinelProbeManager(nil, "", nil)
+	benign := []string{"/proc/sys/kernel/cap_last_cap", "/proc/sys/kernel/random/uuid",
+		"/proc/sys/kernel/random/boot_id", "/proc/sys/kernel/hostname", "/proc/sys/kernel/ngroups_max"}
+	for i, emitted := range kernelDecisions(t, benign) {
+		if emitted {
+			t.Errorf("kernel emits %q, a read every container start makes", benign[i])
+		}
+		if m.IsSensitivePath(benign[i]) {
+			t.Errorf("userspace flags %q, a read every container start makes", benign[i])
+		}
+	}
+	escape := "/proc/sys/kernel/core_pattern"
+	if !kernelDecisions(t, []string{escape})[0] || !m.IsSensitivePath(escape) {
+		t.Errorf("%q must stay sensitive in both the kernel and userspace tables", escape)
+	}
+}
+
 func TestSensitivePrefixesHeaderIsGeneratedFromTheGoTable(t *testing.T) {
 	want, err := RenderSensitivePrefixesHeader(DefaultSensitivePrefixes)
 	if err != nil {

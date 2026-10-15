@@ -72,11 +72,14 @@ var DefaultSensitivePrefixes = []string{
 
 	// Container-escape and host reconnaissance. Each is a deliberately narrow
 	// component so ordinary workload opens are not swept in: /proc/1/root is the
-	// init mount namespace, /proc/sys/kernel holds core_pattern (an escape
-	// primitive), /proc/self/environ leaks injected secrets, and
-	// /etc/kubernetes is the node's control-plane credential directory.
+	// init mount namespace, core_pattern is an escape primitive,
+	// /proc/self/environ leaks injected secrets, and /etc/kubernetes is the
+	// node's control-plane credential directory. core_pattern is named exactly,
+	// never its /proc/sys/kernel parent: runc init reads
+	// /proc/sys/kernel/cap_last_cap inside every new pod's cgroup, so the
+	// directory froze every pod at birth (TestContainerStartupProcfsReadsAreNotSensitive).
 	"/proc/1/root",
-	"/proc/sys/kernel",
+	"/proc/sys/kernel/core_pattern",
 	"/proc/self/environ",
 	"/etc/kubernetes",
 }

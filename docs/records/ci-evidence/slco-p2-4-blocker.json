@@ -1,0 +1,120 @@
+{
+  "task": "SLCO-P2-4",
+  "status": "fail",
+  "proceed": false,
+  "blocking_drift": true,
+  "observed_at": "2026-10-15T01:37:38+01:00",
+  "source_commit": "1f5509e038124303eb11315475b2260ca2edcc2f",
+  "worktree": "/home/andy/src/.worktrees/2f909/osramp-demo",
+  "reported_pwd": "/home/andy/.cline/worktrees/2f909/osramp-demo",
+  "base_ref": "integration/slco-v0.1.0",
+  "integration_ancestry_exit": 0,
+  "blocker": "Available platform APIs do not deterministically prove authoritative durable active-tenant existence. The card explicitly requires stopping rather than substituting another approach.",
+  "qualification": "This is an API contract gap, not a claim that no durable tenant data exists. tenant_settings.status exists in PostgreSQL; its authority and a supported read-only application-role verification contract require explicit reconciliation. No live database or lane readiness verdict was attempted.",
+  "findings": [
+    {
+      "requirement": "Authoritative durable active tenant existence",
+      "source": "d2-signalloom/apps/fe-signalloom/src/tenant_isolation.py",
+      "lines": "405-409, 438, 503-515, 570-587",
+      "observed": "EAP tenant GET/list read the global manager's process-local dictionary. This is not durable evidence."
+    },
+    {
+      "requirement": "Read-only tenant status verification",
+      "source": "d2-signalloom/apps/fe-signalloom/src/api_compat.py",
+      "lines": "1629-1658, 3610-3633, 9133-9195",
+      "observed": "TenantSettingsResponse omits tenant lifecycle status; GET settings may return fixtures or insert a missing tenant_settings row. HTTP 200 cannot independently establish prior durable active existence."
+    },
+    {
+      "requirement": "Do not confuse configuration with authoritative lifecycle",
+      "source": "d2-signalloom/apps/fe-signalloom/src/db/migrations/004_agent_governance_schema.sql",
+      "lines": "281-310",
+      "observed": "tenant_settings has durable status values and an active default; schema describes it as demo configuration. Direct SQL is a possible future evidence source, not proof supplied by the current APIs."
+    },
+    {
+      "requirement": "Do not confuse membership with tenant activation",
+      "source": "d2-signalloom/apps/fe-signalloom/src/db/migrations/053_invites_and_subject_tenants.sql",
+      "lines": "44-49",
+      "observed": "subject_tenants stores membership, not a tenant lifecycle status."
+    },
+    {
+      "requirement": "Do not confuse onboarding wizard state with activation",
+      "source": "d2-signalloom/apps/fe-signalloom/src/onboarding.py",
+      "lines": "21-25, 129-153, 236-244",
+      "observed": "Onboarding status reports pending/completed/skipped and also ensures settings existence."
+    },
+    {
+      "requirement": "Specified application-role customer-table RLS",
+      "source": "d2-signalloom/apps/signal-ingest/identity/migrations/006_tenant_isolation_rls.sql",
+      "lines": "170-205, 221-266",
+      "observed": "Implemented identity RLS uses signal_identity_app and identity tables; this does not establish the requested signalloom_app customer-table path. No role or policy was changed."
+    },
+    {
+      "requirement": "Actual-route source-CIDR enforcement",
+      "source": "d2-infra/components/ingress/tenant-filter-policy.yaml",
+      "lines": "68-101",
+      "observed": "Standalone policy targets eap-tenant-kusari, uses defaultAction Allow and header-based denials. It cannot prove source-CIDR enforcement on signalloom-api. No live edge probe or infrastructure modification was performed."
+    }
+  ],
+  "runbook": {
+    "path": "2. Areas/CEO/Innovation Validation/Validation Runbook — SLCO Signal Loom Customer Onboarding Flow v2 (2026-Q4).md",
+    "read_via": "obsidian-read",
+    "h2": "Verify tenant live/isolation T1-T4, at least one tenant-bound enrolled auto-claimed host, fresh telemetry, and both approved-IP acceptance and other-IP refusal.",
+    "q9": "Owner and timing of verify-tenant-readiness remain a stakeholder decision; no completion was written.",
+    "live_evidence_caveat": "Runbook explicitly distinguishes fixture C1-C3 success from live lane T1-T4 verification."
+  },
+  "architecture_compliance": [
+    {"invariant": "Fail closed; no false readiness green-lights", "result": "preserved", "evidence": "Stopped before implementing a substitute verifier or claiming PASS."},
+    {"invariant": "Tenant lifecycle authority", "result": "blocked", "evidence": "Process-local tenant API and side-effecting settings GET do not meet the required durable read contract."},
+    {"invariant": "Non-owner non-bypass app.current_tenant RLS", "result": "unverified", "evidence": "Existing identity role is not the specified customer-table role."},
+    {"invariant": "Salted tenant derivation", "result": "not executed", "evidence": "Existing helper retained unchanged; no alternative algorithm introduced."},
+    {"invariant": "Single-use enrollment and tenant-bound auto-claim", "result": "not executed", "evidence": "No enrollment, replay, claim or production data mutation performed after blocker."},
+    {"invariant": "Tenant-bound fresh telemetry", "result": "not executed", "evidence": "No arbitrary freshness default or fabricated observation accepted."},
+    {"invariant": "Perimeter allow-list on actual ingress path", "result": "unverified", "evidence": "Standalone header policy cannot prove source-CIDR enforcement."},
+    {"invariant": "No secrets in argv, logs or evidence", "result": "preserved", "evidence": "Source-level review only; no credentials or payloads collected."},
+    {"invariant": "No production data modifications", "result": "preserved", "evidence": "No live API writes, SQL writes, deployment or cloud commands executed."},
+    {"invariant": "Integration-derived isolated checkout", "result": "passed", "evidence": "Required ancestry command exited zero; no merge, rebase, checkout, push or PR."},
+    {"invariant": "No sibling or runtime-state mutation", "result": "preserved", "evidence": "One read-only board inspection; P2-1/P2-2/P2-3 active. No board mutation or sibling edits."},
+    {"invariant": "Live Obsidian buffer safety", "result": "qualified", "evidence": "Runbook read through wrapper; bridge status ok. Supplied proposal is a regular tracked principal-repository file, not a vault symlink. Only explicitly authorized external errata/Result edits are permitted; it is never staged here."},
+    {"invariant": "Canonical Life OS and PAI security claims", "result": "limited", "evidence": "Matrix covers explicit card and loaded PAI invariants only; it is not certification of unspecified Life OS controls."}
+  ],
+  "deliverable_audit": [
+    {"deliverable": "scripts/verify-tenant-readiness.sh", "status": "not implemented: mandatory hard stop"},
+    {"deliverable": "test/verify-tenant-readiness.bats", "status": "not implemented: no fixture-only substitute"},
+    {"deliverable": "test-tenant-readiness and test-all-offline registration", "status": "not changed: no absent verifier target registered"},
+    {"deliverable": "CLI help and worked examples", "status": "not produced: no misleading executable usage"},
+    {"deliverable": "BATS all-positive/all-negative coverage", "status": "not run: implementation stopped"},
+    {"deliverable": "shellcheck production script", "status": "not run: production script not implemented"},
+    {"deliverable": "Mutation sensitivity proof", "status": "not run: implementation stopped"},
+    {"deliverable": "Adversarial malformed-input fuzzing", "status": "not run: implementation stopped"},
+    {"deliverable": "Runtime PID, memory and timestamp budget proof", "status": "not measured: no readiness executable; no numeric per-command budget supplied"},
+    {"deliverable": "User-facing error-log leak audit", "status": "not run: no executable user-facing channels to evaluate"},
+    {"deliverable": "make docs-lint", "status": "passed: exit 0; 785 files clean plus 10-file STE subset; 8.419 seconds"},
+    {"deliverable": "Committed local evidence SHA", "status": "reported in external errata and final response"},
+    {"deliverable": "External proposal errata and Result", "status": "failure block required; only SLCO-P2-4 Result cell may change"},
+    {"deliverable": "Integration merge", "status": "Governor-owned; no worker merge authorized"}
+  ],
+  "independent_reviews": [
+    {"role": "explore", "result": "API lifecycle authority, requested RLS path and actual-route CIDR prerequisites are unresolved."},
+    {"role": "general", "result": "API-only hard stop supported; corrected overbroad claim because durable tenant_settings.status does exist and SQL remains a possible explicitly reconciled path."}
+  ],
+  "verification_ledger": [
+    {"command": "git merge-base --is-ancestor integration/slco-v0.1.0 HEAD", "exit": 0, "result": "passed"},
+    {"command": "static source assertions over tenant_isolation.py, api_compat.py and migration 004", "exit": 0, "result": "dictionary storage, manager-backed GET, durable status existence, response omission and settings insertion each confirmed"},
+    {"command": "recompute evaluated_artifact_sha256", "exit": 0, "result": "11 hashes matched, zero mismatches"},
+    {"command": "make docs-lint", "exit": 0, "started": "2026-10-15T01:41:02.078+01:00", "ended": "2026-10-15T01:41:10.497+01:00", "elapsed_ms": 8419, "result": "785 files clean; STE subset 10 files, zero findings"}
+  ],
+  "recommendation": "Escalate contract drift to the principal/Governor: approve a durable lifecycle read API or explicitly authorize and define SQL authority, reconcile the RLS role/table boundary and perimeter evidence, then reissue P2-4. Do not retry unchanged fixtures as readiness proof.",
+  "evaluated_artifact_sha256": {
+    "d2-signalloom/apps/fe-signalloom/src/tenant_isolation.py": "e4c3099e3a3fa83983f68c67ffd69aa8b5e998956fde8d850b966f69f086f95f",
+    "d2-signalloom/apps/fe-signalloom/src/api_compat.py": "98701a215b7fb8103478a67bfbfede17751a882338fb9c5236cf3c50ecaf9533",
+    "d2-signalloom/apps/fe-signalloom/src/onboarding.py": "cb65d346825ce6c76c08065da11d3bd0a773d73898aef912fe21f2733731a40d",
+    "d2-signalloom/apps/fe-signalloom/src/db/migrations/004_agent_governance_schema.sql": "bd08b2c86eff0f96535cec7243f646e4a36e4db24eb1069291f25a9f631a91c8",
+    "d2-signalloom/apps/fe-signalloom/src/db/migrations/053_invites_and_subject_tenants.sql": "a72356aa472f6e5a3aa45d99db443fb3d571d362d7101f6b719c835dfd29657e",
+    "d2-signalloom/apps/signal-ingest/identity/migrations/006_tenant_isolation_rls.sql": "c332dac1c4cac919f0500841bb4f95e11ce2b9880b9e98e2494348739a4aa80a",
+    "d2-signalloom/apps/fe-signalloom/base/gateway-route.yaml": "9fe0de070a7e12bc5ded7fda11fce8f4c9a8eedbce4dab7ae2d5e9862523b7fd",
+    "d2-infra/components/ingress/tenant-filter-policy.yaml": "f8d213d324951931e3e179c6f428c3fb4edfa74b37b4749be4dae5c1a05c8e95",
+    "scripts/derive_tenant_hash.py": "dfdf23f9d3536c8473d8c1882aef646817d1df4e29795d4c85a34d14a5499388",
+    "scripts/lib/wait.sh": "0ea2952b62d7d3360a1e62b3574cffec173617ad7dadba3e6e49fc297beec713",
+    "Makefile": "cf9baa4dfa21a2e0783454718f18118e7c96ac6cea9bddad33e1f00abe0f0b01"
+  }
+}

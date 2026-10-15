@@ -554,3 +554,24 @@ rs_warden_ns() {
   run grep -qx inf-signalloom-warden <<<"${names}"
   [ "${status}" -eq 1 ]
 }
+
+# A tenant ServiceAccount without `bind` can only create a RoleBinding if the
+# referenced Role already exists (the RBAC escalation check reads it). Flux
+# dry-runs the Role and its RoleBinding in one batch, so on a fresh
+# inf-signalloom-warden the binding fails "rolebindings ... not found" forever
+# (observed live 2026-10-15). The ResourceSet therefore grants `bind` on
+# exactly the Roles the reconciled overlay binds, and nothing wider.
+@test "T9 agent-swarm-flux may bind exactly the Roles the reconciled warden overlay binds" {
+  local out roles role grant
+  out="$(remote_render kind-osramp)"
+  roles="$(yq -r 'select(.kind == "RoleBinding" and .metadata.namespace == "inf-signalloom-warden" and .roleRef.kind == "Role") | .roleRef.name' "${out}" | sort -u)"
+  [ -n "${roles}" ]
+  grant="$(yq -o=json -I=0 '.spec.resources[] | select(.kind == "Role" and .metadata.namespace == "inf-signalloom-warden")' "${RS}" \
+    | jq -r 'select(any(.rules[]; (.apiGroups|index("rbac.authorization.k8s.io")) and (.resources == ["roles"]) and (.verbs == ["bind"]))) | .metadata.name + " " + ([.rules[] | select(.verbs == ["bind"]) | .resourceNames[]] | sort | join(","))')"
+  [ -n "${grant}" ] || { echo "no bind-only Role in inf-signalloom-warden" >&2; return 1; }
+  # bind is scoped to precisely the bound Roles
+  [ "${grant#* }" = "$(paste -sd, <<<"${roles}")" ] || { echo "bind scope '${grant#* }' != bound roles '${roles}'" >&2; return 1; }
+  # and the grant reaches the tenant ServiceAccount
+  yq -o=json -I=0 '.spec.resources[] | select(.kind == "RoleBinding" and .metadata.namespace == "inf-signalloom-warden")' "${RS}" \
+    | jq -e --arg r "${grant%% *}" 'select(.roleRef.kind == "Role" and .roleRef.name == $r and any(.subjects[]; .name == "agent-swarm-flux" and .namespace == "fe-signalloom-agents"))' >/dev/null
+}

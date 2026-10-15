@@ -145,6 +145,25 @@ spec:
       roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-swarm-flux-workloads}
       subjects: [{kind: ServiceAccount, name: agent-swarm-flux, namespace: fe-signalloom-agents}]
 
+    # ── bind on the warden's own Role, and only that Role ─────────────
+    # Without `bind`, creating a RoleBinding makes the API server read the
+    # referenced Role to check for escalation. Flux dry-runs the Role and its
+    # binding together, so on a fresh namespace the Role does not exist yet and
+    # the binding fails "rolebindings ... not found" on every retry.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata: {name: agent-swarm-flux-bind-warden, namespace: inf-signalloom-warden}
+      rules:
+        - apiGroups: [rbac.authorization.k8s.io]
+          resources: [roles]
+          resourceNames: [signalloom-warden]
+          verbs: [bind]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata: {name: agent-swarm-flux-bind-warden, namespace: inf-signalloom-warden}
+      roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: agent-swarm-flux-bind-warden}
+      subjects: [{kind: ServiceAccount, name: agent-swarm-flux, namespace: fe-signalloom-agents}]
+
     # ── ClusterRole + Binding "agent-swarm-flux-cluster-rbac": REMOVED ──
     # They granted agent-swarm-flux create/update/delete on clusterroles and
     # clusterrolebindings, plus nodes get/list, solely so Flux could apply the

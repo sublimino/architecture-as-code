@@ -11,6 +11,10 @@ export default defineConfig({
       '/dex': 'http://127.0.0.1:5173',
       '/fleet-api': 'http://127.0.0.1:5173',
       '/afm': 'http://127.0.0.1:5173',
+      // nginx.conf `location /demo-api/` (SuperCred, Signal Fusion, Distance
+      // Latency demo runner). Without it vite answers POST /demo-api/... with
+      // its own 404, which is not what the deployed dashboard does.
+      '/demo-api': 'http://127.0.0.1:5173',
     },
   },
   build: {

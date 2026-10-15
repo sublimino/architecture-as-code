@@ -346,18 +346,27 @@ func main() {
 		if err := store.LoadFrameworks(policyRoot); err != nil {
 			slog.Warn("loading frameworks into policy store", "error", err)
 		}
-		ch, err := newComplianceHandler(policyRoot, celEngine)
-		if err != nil {
-			slog.Warn("compliance handler disabled", "error", err)
-		} else {
-			mux.HandleFunc("/api/v1/compliance/scan", ch.handleScan)
-			mux.HandleFunc("/api/v1/compliance/frameworks", ch.handleFrameworks)
-			mux.HandleFunc("/api/v1/compliance/frameworks/", ch.handleFrameworks)
-			mux.HandleFunc("/api/v1/compliance/summary", ch.handleSummary)
-			slog.Info("compliance scanner enabled", "policyRoot", policyRoot)
-		}
 	} else {
 		slog.Warn("compliance scanner running in embedded fallback mode: policy/ directory not found (set POLICY_ROOT)")
+	}
+
+	ch, err := newComplianceHandler(policyRoot, celEngine)
+	if err != nil && policyRoot != "" {
+		slog.Warn("failed initializing compliance handler from policyRoot, falling back to embedded mode", "policyRoot", policyRoot, "error", err)
+		ch, err = newComplianceHandler("", celEngine)
+	}
+	if err != nil {
+		slog.Warn("compliance handler disabled", "error", err)
+	} else {
+		mux.HandleFunc("/api/v1/compliance/scan", ch.handleScan)
+		mux.HandleFunc("/api/v1/compliance/frameworks", ch.handleFrameworks)
+		mux.HandleFunc("/api/v1/compliance/frameworks/", ch.handleFrameworks)
+		mux.HandleFunc("/api/v1/compliance/summary", ch.handleSummary)
+		if ch.policyRoot != "" {
+			slog.Info("compliance scanner enabled", "policyRoot", ch.policyRoot)
+		} else {
+			slog.Info("compliance scanner enabled in embedded mode")
+		}
 	}
 
 	// Always load embedded frameworks if policy store has 0 bundles (e.g. running in distroless container without POLICY_ROOT)

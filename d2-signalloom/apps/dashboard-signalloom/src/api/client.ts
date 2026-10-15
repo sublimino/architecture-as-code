@@ -66,6 +66,7 @@ import type { FeaturesResponse } from '../types/features'
 import type {
   ComplianceCheck,
   ComplianceScanRequest,
+  ComplianceScanResponse,
   FrameworkSummary,
   PostureSummary,
 } from '../types/compliance'
@@ -813,8 +814,16 @@ export const api = {
       return normalizePostureSummary(res)
     },
 
-    scan: async (token: string, body: ComplianceScanRequest, signal?: AbortSignal) => {
-      const res = await req<{ checks: ComplianceCheck[]; summary: PostureSummary }>(
+    scan: async (token: string, body: ComplianceScanRequest, signal?: AbortSignal): Promise<ComplianceScanResponse> => {
+      const res = await req<{
+        checks: ComplianceCheck[]
+        summary: PostureSummary
+        engineInvoked?: boolean
+        agentsScanned?: number
+        agentsFailed?: string[]
+        agentsNotFound?: string[]
+        controlGaps?: unknown[]
+      }>(
         '/compliance/policy/scan',
         token,
         { method: 'POST', data: body, signal },
@@ -823,6 +832,11 @@ export const api = {
       return {
         checks: normalizeComplianceChecks(res?.checks, docCurrency),
         summary: normalizePostureSummary(res?.summary),
+        engineInvoked: res?.engineInvoked,
+        agentsScanned: res?.agentsScanned,
+        agentsFailed: res?.agentsFailed ?? [],
+        agentsNotFound: res?.agentsNotFound ?? [],
+        controlGaps: res?.controlGaps ?? [],
       }
     },
   },

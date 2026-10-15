@@ -301,23 +301,29 @@ export default function AgentEvidenceDrawer({
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {onOpenFullRecord && (
-                <button
-                  type="button"
+                <a
+                  href={`/agents/${agent.id}?tab=overview`}
                   className="btn btn-secondary"
                   data-testid="drawer-header-full-record"
-                  onClick={() => onOpenFullRecord(agent.id)}
+                  onClick={(e) => {
+                    if (!e.metaKey && !e.ctrlKey && !e.shiftKey) {
+                      e.preventDefault()
+                      onOpenFullRecord(agent.id)
+                    }
+                  }}
                   style={{
                     fontSize: 11,
                     padding: '3px 8px',
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: 4,
+                    textDecoration: 'none',
                   }}
                   title="Open full agent dossier"
                 >
                   <span>Full Dossier</span>
                   <span style={{ fontSize: 10 }}>&rarr;</span>
-                </button>
+                </a>
               )}
               <button
                 onClick={onClose}
@@ -804,15 +810,26 @@ export default function AgentEvidenceDrawer({
             )}
           </div>
           {onOpenFullRecord && (
-            <button
-              type="button"
+            <a
+              href={`/agents/${agent.id}?tab=overview`}
               className="btn btn-primary"
               data-testid="drawer-open-full-record"
-              onClick={() => onOpenFullRecord(agent.id)}
-              style={{ fontSize: 12, padding: '6px 16px' }}
+              onClick={(e) => {
+                if (!e.metaKey && !e.ctrlKey && !e.shiftKey) {
+                  e.preventDefault()
+                  onOpenFullRecord(agent.id)
+                }
+              }}
+              style={{
+                fontSize: 12,
+                padding: '6px 16px',
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
             >
               Open Full Record &rarr;
-            </button>
+            </a>
           )}
         </div>
       </div>

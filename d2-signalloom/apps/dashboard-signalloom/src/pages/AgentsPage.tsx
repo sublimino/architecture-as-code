@@ -1901,8 +1901,8 @@ export default function AgentsPage() {
           marginBottom: 20,
         }}
       >
-        <button
-          type="button"
+        <Link
+          to="/agents"
           role="tab"
           aria-selected={activeMainTab === 'governed'}
           data-testid="tab-governed-agents"
@@ -1919,13 +1919,16 @@ export default function AgentsPage() {
             borderBottom: activeMainTab === 'governed' ? '2px solid var(--cyan)' : 'none',
             fontSize: 12,
             padding: '6px 14px',
+            textDecoration: 'none',
+            display: 'inline-flex',
+            alignItems: 'center',
           }}
         >
           Governed Workloads ({agents.length})
-        </button>
+        </Link>
 
-        <button
-          type="button"
+        <Link
+          to="/agents?tab=coding-agents"
           role="tab"
           aria-selected={activeMainTab === 'coding-agents'}
           data-testid="tab-coding-agents"
@@ -1942,10 +1945,13 @@ export default function AgentsPage() {
             borderBottom: activeMainTab === 'coding-agents' ? '2px solid var(--cyan)' : 'none',
             fontSize: 12,
             padding: '6px 14px',
+            textDecoration: 'none',
+            display: 'inline-flex',
+            alignItems: 'center',
           }}
         >
           Detected Coding Agents (Host Detective)
-        </button>
+        </Link>
       </div>
 
       {activeMainTab === 'coding-agents' ? (

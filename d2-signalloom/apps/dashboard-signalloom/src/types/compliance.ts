@@ -84,6 +84,17 @@ export interface ComplianceScanRequest {
   namespace: string
   policyVersion: string
   frameworks: string[]
+  agentIds?: string[]
+}
+
+export interface ComplianceScanResponse {
+  checks: ComplianceCheck[]
+  summary: PostureSummary
+  engineInvoked?: boolean
+  agentsScanned?: number
+  agentsFailed?: string[]
+  agentsNotFound?: string[]
+  controlGaps?: unknown[]
 }
 
 export interface PostureSummary {

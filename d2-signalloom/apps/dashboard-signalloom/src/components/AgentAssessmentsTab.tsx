@@ -32,6 +32,7 @@ export interface AgentAssessmentsTabProps {
   lastScanTimestamp?: string | null
   sourceHealth?: 'healthy' | 'degraded' | 'unavailable' | null
   sourceHealthDetail?: SourceHealthMap | null
+  scanError?: string | null
 }
 
 interface FrameworkGroup {
@@ -91,6 +92,7 @@ export default function AgentAssessmentsTab({
   lastScanTimestamp,
   sourceHealth,
   sourceHealthDetail,
+  scanError: propScanError,
 }: AgentAssessmentsTabProps) {
   const [searchParams, setSearchParams] = useSearchParams()
   const initialFramework = searchParams.get('framework') || 'all'
@@ -102,6 +104,21 @@ export default function AgentAssessmentsTab({
   const [searchQuery, setSearchQuery] = useState<string>(initialSearch)
   const [requestingId, setRequestingId] = useState<string | null>(null)
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set())
+  const [localScanError, setLocalScanError] = useState<string | null>(null)
+
+  const effectiveScanError = propScanError || localScanError
+
+  const handleScanCompliance = useCallback(async () => {
+    if (!onScanCompliance) return
+    setLocalScanError(null)
+    try {
+      await onScanCompliance()
+    } catch (err) {
+      setLocalScanError(
+        err instanceof Error ? err.message : 'Assessment scan failed: Upstream policy engine unavailable or agent failed evaluation'
+      )
+    }
+  }, [onScanCompliance])
 
   useEffect(() => {
     const fw = searchParams.get('framework') || 'all'
@@ -348,6 +365,41 @@ export default function AgentAssessmentsTab({
         </div>
       )}
 
+      {/* ─── Compliance Scan Error Banner ────────────────────────────────────────── */}
+      {effectiveScanError && (
+        <div
+          role="alert"
+          data-testid="assessments-scan-error"
+          style={{
+            padding: '12px 16px',
+            borderRadius: 6,
+            background: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            color: 'var(--error)',
+            fontSize: 13,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 16, fontWeight: 700 }}>⚠️</span>
+            <div>
+              <strong>Assessment scan failed:</strong> {effectiveScanError}
+            </div>
+          </div>
+          <button
+            type="button"
+            aria-label="Dismiss scan error"
+            onClick={() => setLocalScanError(null)}
+            style={{ background: 'none', border: 0, color: 'inherit', cursor: 'pointer', padding: 0 }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* ─── 4 StatCards / Assessment Summary Grid ──────────────────────────────── */}
       <div
         style={{
@@ -541,7 +593,7 @@ export default function AgentAssessmentsTab({
                 data-testid="assessments-scan-button"
                 style={{ width: '100%', fontSize: 11, padding: '5px 10px', justifyContent: 'center' }}
                 disabled={isScanning || isSourceUnavailable}
-                onClick={() => onScanCompliance()}
+                onClick={handleScanCompliance}
               >
                 {isScanning ? 'Scanning Compliance…' : '⚡ Run Assessment Scan'}
               </button>

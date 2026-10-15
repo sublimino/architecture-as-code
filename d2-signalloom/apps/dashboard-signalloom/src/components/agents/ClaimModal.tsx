@@ -162,6 +162,35 @@ export default function ClaimModal({
     ''
   const tokenTenant = userToken ? getTenantIdFromToken(userToken) : null
 
+  const [asyncTenant, setAsyncTenant] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const resolveAsyncTenant = async () => {
+      try {
+        const token = await getAccessTokenSilently()
+        if (cancelled) return
+        const tid = getTenantIdFromToken(token)
+        if (tid) {
+          setAsyncTenant(tid)
+          return
+        }
+        if (token && typeof api?.me === 'function') {
+          const me = await api.me(token)
+          if (!cancelled && me?.tenant) {
+            setAsyncTenant(me.tenant)
+          }
+        }
+      } catch {
+        // ignore background tenant resolution errors
+      }
+    }
+    resolveAsyncTenant()
+    return () => {
+      cancelled = true
+    }
+  }, [getAccessTokenSilently])
+
   const workloadTenant =
     currentAgent.labels?.['signalloom.ai/tenant'] ||
     currentAgent.tenant ||
@@ -174,6 +203,7 @@ export default function ClaimModal({
     user?.name === 'demo-user'
 
   const operatorTenant =
+    asyncTenant ||
     tokenTenant ||
     (user as { tenant?: string; 'https://signalloom.ai/tenant'?: string; tenant_id?: string })?.tenant ||
     (user as { tenant_id?: string })?.tenant_id ||

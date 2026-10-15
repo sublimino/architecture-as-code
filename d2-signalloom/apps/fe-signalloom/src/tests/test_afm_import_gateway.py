@@ -616,3 +616,26 @@ def test_operator_path_needs_no_importer_key_configuration(outbound, eap_jwt_env
     )
     assert resp.status_code == 200, resp.text
     assert len(outbound) == 1
+
+
+def test_missing_optional_secondary_key_allows_available_key_to_import(key_env, outbound, monkeypatch):
+    """When multiple keys are configured and one file is absent on disk, the present key still loads."""
+    key_spec = [
+        {"name": DEFAULT_KEY_NAME, "scopes": ["afm:import"], "cluster": DEFAULT_CLUSTER},
+        {"name": "afm-importer-remote", "scopes": ["afm:import"], "cluster": "kusari-prod"},
+    ]
+    monkeypatch.setenv("AFM_IMPORT_KEYS", json.dumps(key_spec))
+
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.post(
+        "/api/v1/afm/clusters/import",
+        content=_valid_body(),
+        headers={
+            "Authorization": f"Bearer {key_env['token']}",
+            "Content-Type": "application/json",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(outbound) == 1
+    assert outbound[0].url.path == "/clusters/import"
+

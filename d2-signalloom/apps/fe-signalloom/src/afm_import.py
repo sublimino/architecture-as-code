@@ -96,12 +96,12 @@ def _load_keys() -> list[tuple[dict[str, Any], str]]:
                 token = fh.read()
         except OSError:
             logger.error("AFM importer key %s file is missing or unreadable at %s", name, key_path)
-            raise APIError(503, "afm_importer_credential_unavailable", f"AFM importer key {name} file is unavailable") from None
+            continue
 
         token = token[:-1] if token.endswith("\n") else token
         if len(token) < _MIN_KEY_BYTES or any(c.isspace() for c in token):
             logger.error("AFM importer key %s is too short (<%d bytes) or contains whitespace", name, _MIN_KEY_BYTES)
-            raise APIError(503, "afm_importer_credential_unavailable", f"AFM importer key {name} is unusable")
+            continue
 
         # Read expires file
         expires_path = os.path.join(key_dir, f"{name}.expires")
@@ -110,26 +110,29 @@ def _load_keys() -> list[tuple[dict[str, Any], str]]:
                 expires_str = fh.read().strip()
         except OSError:
             logger.error("AFM importer key %s expiration file is missing at %s", name, expires_path)
-            raise APIError(503, "afm_importer_credential_unavailable", f"AFM importer key {name} expiration is missing") from None
+            continue
 
         try:
             expires_dt = datetime.fromisoformat(expires_str.replace("Z", "+00:00"))
         except Exception:
             logger.error("AFM importer key %s expiration timestamp %r is unparseable", name, expires_str)
-            raise APIError(503, "afm_importer_credential_unavailable", f"AFM importer key {name} expiration is invalid") from None
+            continue
 
         if expires_dt.tzinfo is None:
             expires_dt = expires_dt.replace(tzinfo=timezone.utc)
 
         if expires_dt < now:
             logger.error("AFM importer key %s expired at %s", name, expires_str)
-            raise APIError(503, "afm_importer_credential_unavailable", f"AFM importer key {name} has expired")
+            continue
 
         if expires_dt > max_future:
             logger.error("AFM importer key %s expiration %s exceeds maximum 90 days", name, expires_str)
-            raise APIError(503, "afm_importer_credential_unavailable", f"AFM importer key {name} expiration exceeds 90 days")
+            continue
 
         loaded_keys.append((spec, token))
+
+    if not loaded_keys:
+        raise APIError(503, "afm_importer_credential_unavailable", "AFM importer keys are unavailable")
 
     return loaded_keys
 

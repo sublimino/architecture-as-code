@@ -2875,6 +2875,7 @@ if [ ! -r "\$KUBECONFIG_PATH" ]; then
   echo "NO_KUBECONFIG:\${KUBECONFIG_PATH}" >&2
   exit 4
 fi
+export KUBECONFIG="\${KUBECONFIG_PATH}"
 RUN_USER="\$(id -un)"
 
 # The Service is asserted to EXIST before anything is forwarded, and under

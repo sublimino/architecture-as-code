@@ -38,7 +38,7 @@ spec:
         - name: agent
           image: cardvault-agent:local
           imagePullPolicy: IfNotPresent
-          args: ["-mode", "run"]
+          args: ["-mode", "run", "-claim-url="]
           env:
             - name: BAO_ADDR
               value: http://openbao.inf-bao.svc.cluster.local:8200
@@ -46,6 +46,8 @@ spec:
               value: signalloom-cardvault-agent
             - name: CARDVAULT_URL
               value: http://cardvault.inf-signalloom.svc.cluster.local:8080
+            - name: CLAIM_URL
+              value: ""
           volumeMounts:
             - name: spire-agent-socket
               mountPath: /run/spire/sockets

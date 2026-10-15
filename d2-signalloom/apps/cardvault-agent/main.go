@@ -122,7 +122,7 @@ func combinedOutput(name string, args ...string) ([]byte, error) {
 }
 
 func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
+	if v, ok := os.LookupEnv(key); ok {
 		return v
 	}
 	return fallback
@@ -136,7 +136,7 @@ func entry(args []string, stdout, stderr io.Writer) int {
 	baoAddr := fs.String("bao-addr", envOr("BAO_ADDR", "http://openbao.inf-bao.svc.cluster.local:8200"), "OpenBao address")
 	baoRole := fs.String("bao-role", envOr("BAO_ROLE", "signalloom-cardvault-agent"), "OpenBao JWT role")
 	cardvaultURL := fs.String("cardvault-url", envOr("CARDVAULT_URL", "http://cardvault.inf-signalloom.svc.cluster.local:8080"), "Cardvault service URL")
-	claimURL := fs.String("claim-url", envOr("CLAIM_URL", "http://fe-signalloom.inf-signalloom.svc.cluster.local:3000"), "Signal Loom claim API base URL")
+	claimURL := fs.String("claim-url", envOr("CLAIM_URL", ""), "Signal Loom claim API base URL")
 	socket := fs.String("socket", "/run/spire/sockets/agent.sock", "SPIRE agent socket path")
 	audience := fs.String("audience", "openbao", "JWT-SVID audience")
 	var defaultInterval time.Duration
@@ -298,6 +298,18 @@ func (a *agent) exchangeForBaoToken(jwt string) (string, error) {
 	return token, err
 }
 
+func (a *agent) sleep(d time.Duration) {
+	if a.pause != nil {
+		a.pause(d)
+	} else {
+		time.Sleep(d)
+	}
+}
+
+func isTransientHTTPStatus(code int) bool {
+	return code == http.StatusBadGateway || code == http.StatusServiceUnavailable || code == http.StatusGatewayTimeout
+}
+
 // login is exchangeForBaoToken that also returns the token's lease (0 when
 // OpenBao reports none).
 func (a *agent) login(jwt string) (string, time.Duration, error) {
@@ -310,25 +322,45 @@ func (a *agent) login(jwt string) (string, time.Duration, error) {
 	if err := validateEndpointURL(urlStr, "OpenBao login endpoint"); err != nil {
 		return "", 0, err
 	}
-	req, err := http.NewRequest(http.MethodPost, urlStr, bytes.NewReader(payload))
-	if err != nil {
-		return "", 0, fmt.Errorf("create login request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return "", 0, fmt.Errorf("OpenBao login: %w", err)
-	}
-	defer func() {
+	var resp *http.Response
+	var body []byte
+	const maxRetries = 3
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		req, reqErr := http.NewRequest(http.MethodPost, urlStr, bytes.NewReader(payload))
+		if reqErr != nil {
+			return "", 0, fmt.Errorf("create login request: %w", reqErr)
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err = a.client.Do(req)
+		if err != nil {
+			if attempt < maxRetries {
+				a.sleep(500 * time.Millisecond)
+				continue
+			}
+			return "", 0, fmt.Errorf("OpenBao login: %w", err)
+		}
+
+		body, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		_ = resp.Body.Close()
-	}()
+		if err != nil {
+			if attempt < maxRetries {
+				a.sleep(500 * time.Millisecond)
+				continue
+			}
+			return "", 0, fmt.Errorf("read OpenBao response: %w", err)
+		}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return "", 0, fmt.Errorf("read OpenBao response: %w", err)
+		if isTransientHTTPStatus(resp.StatusCode) && attempt < maxRetries {
+			a.sleep(500 * time.Millisecond)
+			continue
+		}
+		break
 	}
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", 0, fmt.Errorf("OpenBao login returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
@@ -354,25 +386,46 @@ func (a *agent) readCredentials(token string) (string, string, error) {
 	if err := validateEndpointURL(urlStr, "OpenBao KV endpoint"); err != nil {
 		return "", "", err
 	}
-	req, err := http.NewRequest(http.MethodGet, urlStr, nil)
-	if err != nil {
-		return "", "", fmt.Errorf("create KV request: %w", err)
-	}
-	req.Header.Set("X-Vault-Token", token)
 
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return "", "", fmt.Errorf("OpenBao KV read: %w", err)
-	}
-	defer func() {
+	var resp *http.Response
+	var body []byte
+	var err error
+	const maxRetries = 3
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		req, reqErr := http.NewRequest(http.MethodGet, urlStr, nil)
+		if reqErr != nil {
+			return "", "", fmt.Errorf("create KV request: %w", reqErr)
+		}
+		req.Header.Set("X-Vault-Token", token)
+
+		resp, err = a.client.Do(req)
+		if err != nil {
+			if attempt < maxRetries {
+				a.sleep(500 * time.Millisecond)
+				continue
+			}
+			return "", "", fmt.Errorf("OpenBao KV read: %w", err)
+		}
+
+		body, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		_ = resp.Body.Close()
-	}()
+		if err != nil {
+			if attempt < maxRetries {
+				a.sleep(500 * time.Millisecond)
+				continue
+			}
+			return "", "", fmt.Errorf("read KV response: %w", err)
+		}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return "", "", fmt.Errorf("read KV response: %w", err)
+		if isTransientHTTPStatus(resp.StatusCode) && attempt < maxRetries {
+			a.sleep(500 * time.Millisecond)
+			continue
+		}
+		break
 	}
+
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return "", "", fmt.Errorf("%w: OpenBao KV returned %d: %s", errBaoDenied, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
@@ -403,25 +456,46 @@ func (a *agent) accessCardvault(username, password string) ([]card, error) {
 	if err := validateEndpointURL(urlStr, "Cardvault endpoint"); err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodGet, urlStr, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create cardvault request: %w", err)
-	}
-	req.SetBasicAuth(username, password)
 
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("cardvault request: %w", err)
-	}
-	defer func() {
+	var resp *http.Response
+	var body []byte
+	var err error
+	const maxRetries = 3
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		req, reqErr := http.NewRequest(http.MethodGet, urlStr, nil)
+		if reqErr != nil {
+			return nil, fmt.Errorf("create cardvault request: %w", reqErr)
+		}
+		req.SetBasicAuth(username, password)
+
+		resp, err = a.client.Do(req)
+		if err != nil {
+			if attempt < maxRetries {
+				a.sleep(500 * time.Millisecond)
+				continue
+			}
+			return nil, fmt.Errorf("cardvault request: %w", err)
+		}
+
+		body, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		_ = resp.Body.Close()
-	}()
+		if err != nil {
+			if attempt < maxRetries {
+				a.sleep(500 * time.Millisecond)
+				continue
+			}
+			return nil, fmt.Errorf("read cardvault response: %w", err)
+		}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, fmt.Errorf("read cardvault response: %w", err)
+		if isTransientHTTPStatus(resp.StatusCode) && attempt < maxRetries {
+			a.sleep(500 * time.Millisecond)
+			continue
+		}
+		break
 	}
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("cardvault returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}

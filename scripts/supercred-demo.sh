@@ -176,13 +176,14 @@ preflight_images() {
 
 preflight_step1_deployed() {
   log "preflight: verifying step 1 resources"
-  wait_k8s_exists deployment cardvault -n "$NAMESPACE_INFRA" 10 \
+  local preflight_timeout="${SUPERCRED_PREFLIGHT_TIMEOUT:-30}"
+  wait_k8s_exists deployment cardvault -n "$NAMESPACE_INFRA" "$preflight_timeout" \
     || fail "cardvault not deployed — run step 1 first"
-  wait_k8s_exists deployment policy-engine -n "$NAMESPACE_INFRA" 10 \
+  wait_k8s_exists deployment policy-engine -n "$NAMESPACE_INFRA" "$preflight_timeout" \
     || fail "policy-engine not deployed — run step 1 first"
   resolve_agent_pod_namespace \
     || fail "agent-cardvault pod not found in ${AGENT_NAMESPACE_CANDIDATES[*]} — run step 1 first"
-  wait_k8s_exists pod agent-cardvault -n "$AGENT_POD_NAMESPACE" 10 \
+  wait_k8s_exists pod agent-cardvault -n "$AGENT_POD_NAMESPACE" "$preflight_timeout" \
     || fail "agent-cardvault pod not found — run step 1 first"
   ok "step 1 resources present (agent pod in $AGENT_POD_NAMESPACE)"
 }
@@ -238,7 +239,9 @@ demo_1() {
     kustomize.toolkit.fluxcd.io/prune=disabled --overwrite 2>/dev/null || true
 
   # Clean previous runs (idempotent)
-  kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=true >/dev/null 2>&1 || true
+  kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --cascade=foreground --ignore-not-found --wait=true >/dev/null 2>&1 || true
+  kubectl delete pod -l job-name=supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl wait --for=delete pod -l job-name=supercred-agent-run -n "$NAMESPACE_AGENTS" --timeout=15s 2>/dev/null || true
   kubectl delete job openbao-supercred-bootstrap -n "$NAMESPACE_BAO" --ignore-not-found --wait=true >/dev/null 2>&1 || true
   resolve_agent_pod_namespace || true
   kubectl delete pod agent-cardvault -n "$AGENT_POD_NAMESPACE" --ignore-not-found --wait=true >/dev/null 2>&1 || true
@@ -301,13 +304,21 @@ $(rollout_failure_detail policy-engine "$NAMESPACE_INFRA")"
 
   # Register SPIRE entry
   log "registering SPIRE entry"
-  kubectl -n "$NAMESPACE_BAO" exec "$spire_pod" -c spire-server -- \
-    /opt/spire/bin/spire-server entry create \
-      -spiffeID "$SPIFFE_ID" \
-      -parentID "$PARENT_ID" \
-      -selector "k8s:ns:fe-signalloom-agents" \
-      -selector "k8s:sa:cardvault-agent" \
-      -dns cardvault-agent 2>/dev/null || true
+  local current_spire_pod
+  current_spire_pod="$(spire_pod)"
+  [ -n "$current_spire_pod" ] || fail "spire-server pod not found in $NAMESPACE_BAO"
+  local entry_check
+  entry_check="$(kubectl -n "$NAMESPACE_BAO" exec "$current_spire_pod" -c spire-server -- \
+    /opt/spire/bin/spire-server entry show -spiffeID "$SPIFFE_ID" 2>/dev/null || true)"
+  if ! grep -q "Entry ID" <<<"$entry_check"; then
+    kubectl -n "$NAMESPACE_BAO" exec "$current_spire_pod" -c spire-server -- \
+      /opt/spire/bin/spire-server entry create \
+        -spiffeID "$SPIFFE_ID" \
+        -parentID "$PARENT_ID" \
+        -selector "k8s:ns:fe-signalloom-agents" \
+        -selector "k8s:sa:cardvault-agent" \
+        -dns cardvault-agent >/dev/null || fail "failed to register SPIRE entry for cardvault-agent"
+  fi
 
   ok "step 1 complete — services deployed, secrets seeded, SPIRE registered"
 }
@@ -347,13 +358,24 @@ demo_2() {
     seed_openbao_secrets
   fi
 
-  kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=true >/dev/null 2>&1 || true
+  kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --cascade=foreground --ignore-not-found --wait=true >/dev/null 2>&1 || true
+  kubectl delete pod -l job-name=supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl wait --for=delete pod -l job-name=supercred-agent-run -n "$NAMESPACE_AGENTS" --timeout=15s 2>/dev/null || true
   kubectl apply -f d2-signalloom/apps/fe-signalloom/base/agents-cardvault-job.yaml
 
   log "waiting for agent job to complete..."
-  if ! wait_job supercred-agent-run -n "$NAMESPACE_AGENTS" --fail-fast 60; then
+  local job_timeout="${SUPERCRED_JOB_TIMEOUT:-180}"
+  if ! wait_job supercred-agent-run -n "$NAMESPACE_AGENTS" --fail-fast "$job_timeout"; then
     log "agent job output:"
-    get_job_logs supercred-agent-run -n "$NAMESPACE_AGENTS" || true
+    local logs
+    logs="$(get_job_logs supercred-agent-run -n "$NAMESPACE_AGENTS" 2>/dev/null || true)"
+    if [ -n "$logs" ]; then
+      printf '%s\n' "$logs"
+    else
+      log "no container logs produced; pod status & events:"
+      kubectl -n "$NAMESPACE_AGENTS" get pods -l job-name=supercred-agent-run -o wide 2>/dev/null || true
+      kubectl -n "$NAMESPACE_AGENTS" describe pods -l job-name=supercred-agent-run 2>/dev/null | grep -E '(State:|Reason:|Message:|Warning|Failed)' | head -n 20 || true
+    fi
     kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
     fail "agent credential chain failed"
   fi
@@ -377,7 +399,7 @@ demo_3() {
 
   kubectl -n "$NAMESPACE_INFRA" port-forward svc/policy-engine 18081:8081 >/dev/null 2>&1 &
   local pf_pid=$!
-  trap 'kill "${pf_pid:-}" 2>/dev/null || true' RETURN
+  trap 'kill "${pf_pid:-}" 2>/dev/null || true' RETURN EXIT INT TERM
 
   wait_reachable http://localhost:18081/healthz 30 || fail "policy-engine port-forward not reachable"
 
@@ -387,7 +409,7 @@ demo_3() {
     -d "{\"agent_id\":\"cardvault\",\"namespace\":\"$AGENT_POD_NAMESPACE\",\"pod_spec\":$pod_spec,\"checks\":[\"security-context-present\",\"run-as-non-root\",\"drop-capabilities\"]}") \
     || fail "policy-engine evaluate call failed"
   kill "$pf_pid" 2>/dev/null || true
-  trap - RETURN
+  trap - RETURN EXIT INT TERM
 
   python3 -c "
 import json
@@ -565,7 +587,9 @@ $(printf '%s' "$role_delete_out" | indent)"
     --overwrite
 
   log "verifying revocation end-to-end: re-running the agent's credential chain"
-  kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=true >/dev/null 2>&1 || true
+  kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --cascade=foreground --ignore-not-found --wait=true >/dev/null 2>&1 || true
+  kubectl delete pod -l job-name=supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl wait --for=delete pod -l job-name=supercred-agent-run -n "$NAMESPACE_AGENTS" --timeout=15s 2>/dev/null || true
   kubectl apply -f d2-signalloom/apps/fe-signalloom/base/agents-cardvault-job.yaml
   log "agent verification job dispatched — polling pod for workload attestation & credential rejection..."
 
@@ -625,16 +649,22 @@ $(printf '%s' "$role_delete_out" | indent)"
     sleep 1
   done
 
-  # Clean up the failing verification job promptly
-  kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
-
   if [ -z "$agent_log" ]; then
     local evidence_capture_log
     evidence_capture_log="$(get_job_logs supercred-agent-run -n "$NAMESPACE_AGENTS" 2>/dev/null || true)"
     [[ "$evidence_capture_log" == *"[step-"* ]] && agent_log="$evidence_capture_log"
   fi
 
+  local job_is_complete="false"
   if [ "$(job_condition Complete)" = "True" ] || grep -qF '[complete]' <<<"$agent_log"; then
+    job_is_complete="true"
+  fi
+
+  # Clean up the failing verification job promptly
+  kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --cascade=foreground --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl delete pod -l job-name=supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+
+  if [ "$job_is_complete" = "true" ]; then
     fail "agent job COMPLETED after the stun — credentials were NOT revoked.
        Agent output:
 $(printf '%s' "$agent_log" | indent)"
@@ -698,7 +728,9 @@ demo_5() {
   # idempotent, and --ignore-not-found makes the empty cases free.
   local ns
   for ns in "${AGENT_NAMESPACE_CANDIDATES[@]}"; do
-    kubectl delete job supercred-agent-run -n "$ns" --ignore-not-found --wait=true 2>/dev/null || true
+    kubectl delete job supercred-agent-run -n "$ns" --cascade=foreground --ignore-not-found --wait=true 2>/dev/null || true
+    kubectl delete pod -l job-name=supercred-agent-run -n "$ns" --ignore-not-found --wait=false 2>/dev/null || true
+    kubectl wait --for=delete pod -l job-name=supercred-agent-run -n "$ns" --timeout=15s 2>/dev/null || true
     kubectl delete pod agent-cardvault -n "$ns" --ignore-not-found --wait=true 2>/dev/null || true
     kubectl delete sa cardvault-agent -n "$ns" --ignore-not-found 2>/dev/null || true
   done

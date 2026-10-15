@@ -74,6 +74,9 @@ REQUIRED_DEMO_CONFIG_ENV = {
     "SIGNAL_INGEST_KEY_FILE": (
         "path of the mounted signalfusion-demo key; every signal-ingest route is authenticated"
     ),
+    "SUPERCRED_JOB_TIMEOUT": "timeout in seconds for supercred agent job completion",
+    "SUPERCRED_STUN_EVIDENCE_TIMEOUT": "timeout in seconds for capturing credential rejection evidence",
+    "SUPERCRED_PREFLIGHT_TIMEOUT": "timeout in seconds for preflight resources readiness wait",
 }
 
 # Keys the child must NEVER receive. The allowlist is a security boundary, and
@@ -99,6 +102,9 @@ def pod_like_environ(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
         "AGENT_NAMESPACE_CANDIDATES": "fe-signalloom-agents fe-signalloom",
         "SIGNAL_INGEST_URL": "http://signal-ingest:8082",
         "SIGNAL_INGEST_KEY_FILE": "/etc/signalfusion-demo/ingest-key/token",
+        "SUPERCRED_JOB_TIMEOUT": "180",
+        "SUPERCRED_STUN_EVIDENCE_TIMEOUT": "120",
+        "SUPERCRED_PREFLIGHT_TIMEOUT": "30",
     }
     for key, value in injected.items():
         monkeypatch.setenv(key, value)

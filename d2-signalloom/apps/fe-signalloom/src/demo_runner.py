@@ -134,6 +134,10 @@ _ENV_ALLOWLIST = (
     # signal-ingest route is authenticated; without the path the script would try to read the
     # issuer Secret through kubectl, which this ServiceAccount is deliberately not granted.
     "SIGNAL_INGEST_KEY_FILE",
+    # SuperCred demo timeouts and parameters
+    "SUPERCRED_JOB_TIMEOUT",
+    "SUPERCRED_STUN_EVIDENCE_TIMEOUT",
+    "SUPERCRED_PREFLIGHT_TIMEOUT",
 )
 
 # Constants the runner SETS for the child, as opposed to values it forwards from

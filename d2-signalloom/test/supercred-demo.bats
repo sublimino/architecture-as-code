@@ -38,6 +38,10 @@ teardown() {
   fi
 }
 
+setup_file() {
+  "${BATS_TEST_DIRNAME}/../../scripts/supercred-demo.sh" 1
+}
+
 # ─── Step 1 validation ───────────────────────────────────────────────────────
 
 @test "SUPERCRED cardvault deployment is available" {
@@ -165,3 +169,55 @@ teardown() {
   echo "$RESULT"
   [[ "$RESULT" == *'"compliant":true'* ]]
 }
+
+# ─── Live lifecycle execution & idempotency (steps 2 → 5) ────────────────────
+
+@test "SUPERCRED step 2 executes credential chain and marks agent active" {
+  run "${BATS_TEST_DIRNAME}/../../scripts/supercred-demo.sh" 2
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"step 2 complete — credential chain verified, agent marked active"* ]]
+  [[ "$output" == *"[complete] SuperCred identity chain verified"* ]]
+
+  local state
+  state="$(kubectl -n "$NAMESPACE_AGENTS" get pod agent-cardvault -o jsonpath='{.metadata.labels.signalloom\.ai/state}' 2>/dev/null || true)"
+  [ "$state" = "active" ]
+}
+
+@test "SUPERCRED step 2 is idempotent and succeeds on immediate re-run" {
+  run "${BATS_TEST_DIRNAME}/../../scripts/supercred-demo.sh" 2
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"step 2 complete — credential chain verified, agent marked active"* ]]
+}
+
+@test "SUPERCRED step 3 compliance scan marks agent non-compliant" {
+  run "${BATS_TEST_DIRNAME}/../../scripts/supercred-demo.sh" 3
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"step 3 complete — agent is OUT OF COMPLIANCE"* ]]
+
+  local state
+  state="$(kubectl -n "$NAMESPACE_AGENTS" get pod agent-cardvault -o jsonpath='{.metadata.labels.signalloom\.ai/state}' 2>/dev/null || true)"
+  [ "$state" = "non-compliant" ]
+}
+
+@test "SUPERCRED step 4 stun revokes credentials and verifies denial" {
+  run "${BATS_TEST_DIRNAME}/../../scripts/supercred-demo.sh" 4
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"step 4 complete — agent stunned"* ]]
+
+  local state
+  state="$(kubectl -n "$NAMESPACE_AGENTS" get pod agent-cardvault -o jsonpath='{.metadata.labels.signalloom\.ai/state}' 2>/dev/null || true)"
+  [ "$state" = "stunned" ]
+}
+
+@test "SUPERCRED step 5 teardown cleans up resources" {
+  run "${BATS_TEST_DIRNAME}/../../scripts/supercred-demo.sh" 5
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"step 5 complete — teardown verified"* ]]
+}
+
+@test "SUPERCRED re-deploys step 1 ready for demonstration" {
+  run "${BATS_TEST_DIRNAME}/../../scripts/supercred-demo.sh" 1
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"step 1 complete"* ]]
+}
+

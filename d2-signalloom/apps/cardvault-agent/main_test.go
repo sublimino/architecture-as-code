@@ -416,3 +416,149 @@ func TestEndpointURLValidationAndEntryFlags(t *testing.T) {
 		t.Errorf("expected error on autoClaim with bad claimURL, got nil")
 	}
 }
+
+func TestIsTransientHTTPStatus(t *testing.T) {
+	transients := []int{
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout,
+	}
+	for _, code := range transients {
+		if !isTransientHTTPStatus(code) {
+			t.Errorf("expected status %d to be transient, got false", code)
+		}
+	}
+
+	nonTransients := []int{
+		http.StatusOK,
+		http.StatusBadRequest,
+		http.StatusUnauthorized,
+		http.StatusForbidden,
+		http.StatusNotFound,
+		http.StatusInternalServerError,
+	}
+	for _, code := range nonTransients {
+		if isTransientHTTPStatus(code) {
+			t.Errorf("expected status %d to be non-transient, got true", code)
+		}
+	}
+}
+
+func TestEnvOr(t *testing.T) {
+	key := "TEST_ENV_OR_VAR"
+	t.Setenv(key, "custom-value")
+	if v := envOr(key, "fallback"); v != "custom-value" {
+		t.Errorf("expected custom-value, got %s", v)
+	}
+
+	t.Setenv(key, "")
+	if v := envOr(key, "fallback"); v != "" {
+		t.Errorf("expected empty string when env var is explicitly empty, got %s", v)
+	}
+
+	unsetKey := "TEST_ENV_OR_UNSET_VAR_XYZ"
+	if v := envOr(unsetKey, "fallback"); v != "fallback" {
+		t.Errorf("expected fallback when env var is unset, got %s", v)
+	}
+}
+
+func TestLoginRetryOnTransientError(t *testing.T) {
+	var attempts int
+	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("503 Service Unavailable"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"auth":{"client_token":"s.retry-success-token","lease_duration":3600}}`))
+	}))
+	defer bao.Close()
+
+	app := &agent{
+		baoAddr: bao.URL,
+		baoRole: "signalloom-cardvault-agent",
+		client:  bao.Client(),
+		pause:   func(time.Duration) {},
+	}
+
+	token, lease, err := app.login("jwt")
+	if err != nil {
+		t.Fatalf("expected login to succeed after retry, got error: %v", err)
+	}
+	if token != "s.retry-success-token" {
+		t.Errorf("expected s.retry-success-token, got %s", token)
+	}
+	if lease != 3600*time.Second {
+		t.Errorf("expected 3600s lease, got %v", lease)
+	}
+	if attempts != 2 {
+		t.Errorf("expected exactly 2 attempts, got %d", attempts)
+	}
+}
+
+func TestReadCredentialsRetryOnTransientError(t *testing.T) {
+	var attempts int
+	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			w.Write([]byte("502 Bad Gateway"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"data":{"data":{"username":"alice","password":"secret"}}}`))
+	}))
+	defer bao.Close()
+
+	app := &agent{
+		baoAddr: bao.URL,
+		client:  bao.Client(),
+		pause:   func(time.Duration) {},
+	}
+
+	u, p, err := app.readCredentials("token")
+	if err != nil {
+		t.Fatalf("expected readCredentials to succeed after retry, got: %v", err)
+	}
+	if u != "alice" || p != "secret" {
+		t.Errorf("expected alice/secret, got %s/%s", u, p)
+	}
+	if attempts != 2 {
+		t.Errorf("expected exactly 2 attempts, got %d", attempts)
+	}
+}
+
+func TestAccessCardvaultRetryOnTransientError(t *testing.T) {
+	var attempts int
+	cv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.WriteHeader(http.StatusGatewayTimeout)
+			w.Write([]byte("504 Gateway Timeout"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`[{"cardholder":"Alice Smith","pan_masked":"****1234","expiry":"12/28"}]`))
+	}))
+	defer cv.Close()
+
+	app := &agent{
+		cardvaultURL: cv.URL,
+		client:       cv.Client(),
+		pause:        func(time.Duration) {},
+	}
+
+	cards, err := app.accessCardvault("u", "p")
+	if err != nil {
+		t.Fatalf("expected accessCardvault to succeed after retry, got: %v", err)
+	}
+	if len(cards) != 1 || cards[0].Cardholder != "Alice Smith" {
+		t.Errorf("unexpected cards: %+v", cards)
+	}
+	if attempts != 2 {
+		t.Errorf("expected exactly 2 attempts, got %d", attempts)
+	}
+}
+

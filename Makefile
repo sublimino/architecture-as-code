@@ -695,6 +695,7 @@ test-all-cluster: ## Run all live Kind cluster tests across all slices.
 	$(MAKE) demo-agent-trust-network-test
 	$(MAKE) demo-bao-test
 	$(MAKE) demo-kagent-test
+	$(MAKE) test-supercred-demo
 	@echo "=== [Cluster] All cluster test suites passed successfully! ==="
 
 test-all-browser: ## Run all Playwright browser acceptance tests across all slices.

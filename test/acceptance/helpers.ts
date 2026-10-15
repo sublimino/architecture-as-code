@@ -274,13 +274,23 @@ export async function login(page: Page, opts?: { demoMode?: boolean; skipOnboard
     { demo: demoMode, skip: skipOnboarding },
   );
 
-  try {
-    await page.goto(config.base, { waitUntil: "domcontentloaded" });
-  } catch (err: any) {
-    if (err?.message?.includes("ERR_CONNECTION_REFUSED") || err?.message?.includes("ECONNREFUSED")) {
-      await page.waitForTimeout(1000);
+  const transientNetworkErrors = [
+    "ERR_CONNECTION_REFUSED",
+    "ECONNREFUSED",
+    "ERR_CONNECTION_RESET",
+    "ECONNRESET",
+    "ERR_FAILED",
+  ];
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
       await page.goto(config.base, { waitUntil: "domcontentloaded" });
-    } else {
+      break;
+    } catch (err: any) {
+      const isTransient = transientNetworkErrors.some((code) => err?.message?.includes(code));
+      if (isTransient && attempt < 2) {
+        await page.waitForTimeout(1000 * (attempt + 1));
+        continue;
+      }
       throw err;
     }
   }

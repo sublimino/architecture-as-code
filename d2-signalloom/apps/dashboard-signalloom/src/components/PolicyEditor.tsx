@@ -189,6 +189,80 @@ export function validateCelExpression(code: string): CelDiagnostic {
   }
 }
 
+export function findMatchingRuleIndex(rules: PolicyRule[], selectedRuleId: string): number {
+  if (!selectedRuleId || rules.length === 0) return 0
+
+  // 1. Exact match on r.id
+  let idx = rules.findIndex((r) => r.id === selectedRuleId)
+  if (idx !== -1) return idx
+
+  const clean = selectedRuleId.trim().toLowerCase()
+
+  // 2. Case-insensitive match on r.id
+  idx = rules.findIndex((r) => r.id.toLowerCase() === clean)
+  if (idx !== -1) return idx
+
+  // 3. Matching normalized section number:
+  // e.g. if selectedRuleId is "cis-5.2.6" or "5.2.6", and r.name starts with "CIS-5.2.6:" or "CIS 5.2.6:"
+  const secMatch = clean.match(/^(?:cis[-_.\s]*)?(\d+(?:\.\d+)+)$/i)
+  if (secMatch) {
+    const sec = secMatch[1].replace(/\./g, '\\.')
+    const secRegex = new RegExp(`(^|\\b)cis[-_\\s]*${sec}(?:[:\\s-]|$)`, 'i')
+    const directSecRegex = new RegExp(`(^|\\b)${sec}(?:[:\\s-]|$)`, 'i')
+
+    idx = rules.findIndex(
+      (r) =>
+        secRegex.test(r.name) ||
+        secRegex.test(r.id) ||
+        directSecRegex.test(r.name) ||
+        directSecRegex.test(r.id),
+    )
+    if (idx !== -1) return idx
+  }
+
+  // Also support general cis- prefix stripping for section matching
+  const cisPrefixStripped = clean.replace(/^cis[-_.\s]*/i, '').trim()
+  if (cisPrefixStripped) {
+    const escaped = cisPrefixStripped.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')
+    const cisPattern = new RegExp(`(^|\\b)cis[-_\\s]*${escaped}(?:[:\\s-]|$)`, 'i')
+    idx = rules.findIndex((r) => cisPattern.test(r.name) || cisPattern.test(r.id))
+    if (idx !== -1) return idx
+  }
+
+
+
+  // 4. Matching if clean is contained in r.id or r.name (normalized)
+  // Direct substring check
+  idx = rules.findIndex(
+    (r) => r.id.toLowerCase().includes(clean) || r.name.toLowerCase().includes(clean),
+  )
+  if (idx !== -1) return idx
+
+  // Normalized substring check (collapsing spaces, hyphens, underscores)
+  const normClean = clean.replace(/[-_.\s]+/g, ' ').trim()
+  if (normClean) {
+    idx = rules.findIndex((r) => {
+      const normId = r.id.toLowerCase().replace(/[-_.\s]+/g, ' ')
+      const normName = r.name.toLowerCase().replace(/[-_.\s]+/g, ' ')
+      return normId.includes(normClean) || normName.includes(normClean)
+    })
+    if (idx !== -1) return idx
+  }
+
+  // Alphanumeric-only fallback
+  const alphaClean = clean.replace(/[^a-z0-9]/g, '')
+  if (alphaClean.length >= 3) {
+    idx = rules.findIndex((r) => {
+      const alphaId = r.id.toLowerCase().replace(/[^a-z0-9]/g, '')
+      const alphaName = r.name.toLowerCase().replace(/[^a-z0-9]/g, '')
+      return alphaId.includes(alphaClean) || alphaName.includes(alphaClean)
+    })
+    if (idx !== -1) return idx
+  }
+
+  return 0
+}
+
 export default function PolicyEditor({
   bundle,
   versionHistory = [],
@@ -231,16 +305,7 @@ export default function PolicyEditor({
     const bRules = effectiveBundle.rules || []
     setRules(bRules)
     if (selectedRuleId) {
-      let idx = bRules.findIndex((r) => r.id === selectedRuleId)
-      if (idx === -1) {
-        const clean = selectedRuleId.toLowerCase()
-        idx = bRules.findIndex(
-          (r) =>
-            r.id.toLowerCase() === clean ||
-            r.id.toLowerCase().includes(clean) ||
-            r.name.toLowerCase().includes(clean),
-        )
-      }
+      const idx = findMatchingRuleIndex(bRules, selectedRuleId)
       setSelectedRuleIndex(idx >= 0 ? idx : 0)
     } else {
       setSelectedRuleIndex(0)

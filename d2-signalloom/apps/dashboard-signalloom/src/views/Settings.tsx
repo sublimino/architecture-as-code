@@ -1160,6 +1160,7 @@ export default function Settings() {
                           frameworkActive={active}
                           disabledPolicyIds={disabledPolicies}
                           onTogglePolicy={handleTogglePolicy}
+                          onClickRow={(_fwId, ruleId) => navigate(`/policies?framework=${encodeURIComponent(canonicalId)}&rule=${encodeURIComponent(ruleId)}`)}
                           onEditPolicy={(_fwId, ruleId) => navigate(`/policies?framework=${encodeURIComponent(canonicalId)}&rule=${encodeURIComponent(ruleId)}`)}
                           renderToggle={(rule, isRuleActive) => (
                             <FrameworkToggle

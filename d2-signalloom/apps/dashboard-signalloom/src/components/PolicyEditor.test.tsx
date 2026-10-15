@@ -368,5 +368,64 @@ describe('PolicyEditor Component', () => {
     await user.click(shareBtn)
     expect(screen.getByText('✓ Copied')).toBeInTheDocument()
   })
+
+  describe('Rule alias resolution & deep linking', () => {
+    const cisAliasBundle: PolicyBundle = {
+      id: 'k8s-cis-benchmark-v1.8.0',
+      framework_id: 'k8s-cis-benchmark',
+      version: 'v1.8.0',
+      author: 'system',
+      description: 'CIS Benchmark',
+      created_at: '2026-10-15T12:00:00Z',
+      checksum: 'a1b2c3d4e5f6',
+      rules: [
+        {
+          id: 'cis-5.2.60-prefix-test',
+          name: 'CIS-5.2.60: Unrelated high-index control',
+          description: 'Control 5.2.60 should not falsely match 5.2.6 prefix',
+          cel_expression: 'true',
+          severity: 'low',
+        },
+        {
+          id: 'no-privilege-escalation',
+          name: 'CIS-5.2.6: Minimize admission of containers with allowPrivilegeEscalation',
+          description: 'Prohibits privilege escalation.',
+          cel_expression: 'object.spec.containers.all(c, c.securityContext.allowPrivilegeEscalation == false)',
+          severity: 'critical',
+        },
+        {
+          id: 'no-root-containers',
+          name: 'CIS 5.2.7: Minimize the admission of root containers',
+          description: 'Containers must run as non-root user.',
+          cel_expression: 'object.spec.containers.all(c, c.securityContext.runAsNonRoot == true)',
+          severity: 'high',
+        },
+      ],
+    }
+
+    it('selects the rule with name containing CIS-5.2.6 / no-privilege-escalation when selectedRuleId="cis-5.2.6"', () => {
+      render(<PolicyEditor bundle={cisAliasBundle} selectedRuleId="cis-5.2.6" />)
+      expect(screen.getByTestId('selected-rule-name')).toHaveTextContent(/CIS-5\.2\.6/)
+      expect(screen.getByTestId('policy-name-header')).toHaveTextContent('no-privilege-escalation')
+    })
+
+    it('selects no-root-containers when selectedRuleId="no-root-containers"', () => {
+      render(<PolicyEditor bundle={cisAliasBundle} selectedRuleId="no-root-containers" />)
+      expect(screen.getByTestId('selected-rule-name')).toHaveTextContent(/CIS 5\.2\.7|no-root-containers/)
+      expect(screen.getByTestId('policy-name-header')).toHaveTextContent('no-root-containers')
+    })
+
+    it('selects no-privilege-escalation when selectedRuleId="alation"', () => {
+      render(<PolicyEditor bundle={cisAliasBundle} selectedRuleId="alation" />)
+      expect(screen.getByTestId('selected-rule-name')).toHaveTextContent(/CIS-5\.2\.6/)
+      expect(screen.getByTestId('policy-name-header')).toHaveTextContent('no-privilege-escalation')
+    })
+
+    it('selects no-root-containers when selectedRuleId="cis-5.2.7"', () => {
+      render(<PolicyEditor bundle={cisAliasBundle} selectedRuleId="cis-5.2.7" />)
+      expect(screen.getByTestId('selected-rule-name')).toHaveTextContent(/CIS 5\.2\.7/)
+      expect(screen.getByTestId('policy-name-header')).toHaveTextContent('no-root-containers')
+    })
+  })
 })
 

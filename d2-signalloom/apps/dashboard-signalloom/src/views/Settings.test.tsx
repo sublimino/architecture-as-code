@@ -698,6 +698,41 @@ describe('Settings: Governance Frameworks & Child Policies Expansion', () => {
     const editLink = card.querySelector('a[href="/policies?framework=k8s-cis-benchmark"]')
     expect(editLink).toBeInTheDocument()
   })
+
+  it('navigates to policy editor with canonical framework and rule ID when clicking a CIS benchmark child policy edit button', async () => {
+    vi.mocked(api.settings).mockResolvedValue(
+      makeSettings({ selected_frameworks: ['k8s-cis-benchmark'] }),
+    )
+    vi.mocked(api.compliance.frameworks).mockResolvedValue([
+      {
+        id: 'k8s-cis-benchmark',
+        name: 'CIS Kubernetes Benchmark',
+        version: '1.8.0',
+        regulatory_body: 'Center for Internet Security (CIS)',
+        compliance_deadline: '2026-12-31',
+        control_count: 8,
+        controls: [
+          { id: 'cis-5.2.6', name: 'Minimize admission of root containers', description: 'Containers must run as non-root user.', control_order: 1 },
+        ],
+      },
+    ])
+
+    renderSettings(['/settings?tab=governance'])
+
+    const card = await screen.findByTestId('framework-card-k8s-cis-benchmark')
+    expect(card).toBeInTheDocument()
+
+    const row = await screen.findByTestId('policy-row-cis-5.2.6')
+    expect(row).toBeInTheDocument()
+
+    const editBtn = row.querySelector('.governance-policy-table__edit-btn')
+    expect(editBtn).not.toBeNull()
+    await userEvent.click(editBtn!)
+
+    expect(mockNavigate).toHaveBeenCalledWith(
+      '/policies?framework=k8s-cis-benchmark&rule=cis-5.2.6',
+    )
+  })
 })
 
 

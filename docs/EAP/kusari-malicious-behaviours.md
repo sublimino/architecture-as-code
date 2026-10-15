@@ -27,7 +27,7 @@ the `stun-sentinel` correlator emits for the kernel signal the action produces.
 | `/act/gpu-probe` | `openat("/proc/driver/nvidia/version", ...)` | GPU-mount discovery (`gpu_mount_probe`) |
 | `/act/exfil` | `connect(<paste-service IP>:443)` | egress connect to an off-cluster destination (`exfil_egress`) |
 | `/act/kube-enum` | `openat(<SA token>)` + `connect(kubernetes.default.svc:443)` | service-account token read (`kube_sa_token_read`) + apiserver egress (`kube_api_egress`) |
-| `/act/recon` | `openat("/proc/1/root/...", "/proc/sys/kernel/...", "/etc/kubernetes/...")` | container-escape / host recon (`proc_etc_recon`) |
+| `/act/recon` | `openat("/proc/1/root/...", "/proc/sys/kernel/core_pattern", "/etc/kubernetes/...")` | container-escape / host recon (`proc_etc_recon`) |
 
 Five behaviours produce seven distinct detections. The GPU behaviour yields
 access, write, and mount-probe, while the kube behaviour yields token-read and

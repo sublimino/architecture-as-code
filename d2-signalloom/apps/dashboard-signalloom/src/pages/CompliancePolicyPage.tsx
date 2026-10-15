@@ -17,6 +17,8 @@ import {
   getCanonicalFrameworkOptions,
   normalizeFrameworkId,
   harmonizeBundleRules,
+  buildEngineSavePayload,
+  selectEngineSummary,
   CANONICAL_BUNDLES,
   REGULATORY_FRAMEWORKS,
 } from '../data/regulatoryFrameworks'
@@ -177,12 +179,10 @@ export default function CompliancePolicyPage() {
     }
   }
 
-  const activeBundleSummary = useMemo(() => {
-    const canonical = normalizeFrameworkId(selectedFrameworkId)
-    return policySummaries.find(
-      (s) => normalizeFrameworkId(s.framework_id) === canonical,
-    )
-  }, [policySummaries, selectedFrameworkId])
+  const activeBundleSummary = useMemo(
+    () => selectEngineSummary(policySummaries, normalizeFrameworkId(selectedFrameworkId)),
+    [policySummaries, selectedFrameworkId],
+  )
 
   // Returns bundle if available from policy service, harmonized with built-in regulatory catalogue
   const currentBundle: PolicyBundle = useMemo(() => {
@@ -260,7 +260,12 @@ export default function CompliancePolicyPage() {
   const handleSaveBundle = async (updatedBundle: PolicyBundle) => {
     const token = await getAccessTokenSilently()
     if (api.policies?.registerBundle) {
-      await api.policies.registerBundle(token, updatedBundle)
+      // The engine is the authority: send only its own rules under its own framework id.
+      const engineBundle = activeBundleSummary?.active_bundle
+      const payload = engineBundle && activeBundleSummary
+        ? buildEngineSavePayload(updatedBundle, engineBundle, activeBundleSummary.framework_id)
+        : updatedBundle
+      await api.policies.registerBundle(token, payload)
       await load()
     }
   }
@@ -269,7 +274,8 @@ export default function CompliancePolicyPage() {
     const token = await getAccessTokenSilently()
     if (api.policies?.rollback) {
       await api.policies.rollback(token, {
-        framework_id: frameworkId,
+        // Roll back under the id whose history is displayed; the engine does not resolve aliases.
+        framework_id: activeBundleSummary?.framework_id ?? frameworkId,
         target_version: targetVersion,
       })
       await load()

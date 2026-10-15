@@ -1,6 +1,6 @@
 import React from 'react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import CompliancePolicyPage from './CompliancePolicyPage'
@@ -346,6 +346,137 @@ describe('Policy Compliance Normalization, Harmonization, and Deep Linking', () 
       await waitFor(() => {
         expect(screen.getByText(/Art\. 9: Workload container execution as non-root/i)).toBeInTheDocument()
       })
+    })
+  })
+})
+
+describe('Writes carry only the engine bundle (engine is the authority)', () => {
+  // Engine rules as policy-engine serves cis-kubernetes/v1.8: unprefixed names and
+  // fields (risk_triple) that the dashboard type does not declare.
+  const engineRules = [
+    {
+      id: 'no-root-containers',
+      name: 'Containers do not run as root',
+      cel_expression: 'object.spec.containers.all(c, c.securityContext.runAsNonRoot == true)',
+      severity: 'high',
+      risk_triple: { min: 1, mode: 2, max: 3 },
+    },
+    {
+      id: 'no-privilege-escalation',
+      name: 'Privilege escalation disallowed',
+      cel_expression: 'object.spec.containers.all(c, c.securityContext.allowPrivilegeEscalation == false)',
+      severity: 'high',
+    },
+    {
+      // Matches catalogue cis-5.4.1 one-to-one, so the display gains its description and docs_url.
+      id: 'resource-quotas',
+      name: 'CIS 5.4.1 ResourceQuotas present',
+      cel_expression: 'has(object.spec.hard)',
+      severity: 'medium',
+    },
+  ]
+  const summaryFor = (frameworkId: string, history: string[]) => ({
+    framework_id: frameworkId,
+    active_version: 'v1.8',
+    latest_version: 'v1.8',
+    active_bundle: {
+      id: `${frameworkId}-v1.8`,
+      framework_id: frameworkId,
+      version: 'v1.8',
+      author: 'system',
+      description: 'Built-in regulatory framework bundle',
+      created_at: '2026-10-01T00:00:00Z',
+      checksum: 'abc',
+      rules: engineRules,
+    },
+    version_history: history.map((v) => ({
+      version: v,
+      author: 'system',
+      description: `bundle ${v}`,
+      created_at: '2026-10-01T00:00:00Z',
+      rule_count: 2,
+      checksum: v,
+    })),
+  })
+
+  let originalList: unknown
+  beforeEach(async () => {
+    const { api } = await import('../api/client')
+    originalList = vi.mocked(api.policies.list).getMockImplementation()
+    vi.mocked(api.policies.registerBundle).mockClear()
+    vi.mocked(api.policies.rollback).mockClear()
+  })
+  afterEach(async () => {
+    const { api } = await import('../api/client')
+    vi.mocked(api.policies.list).mockImplementation(originalList as never)
+  })
+
+  const renderCis = () =>
+    render(
+      <MemoryRouter initialEntries={['/policies?framework=k8s-cis-benchmark']}>
+        <Routes>
+          <Route path="/policies" element={<CompliancePolicyPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+  it('save sends the engine rules only, with the edited CEL, under the engine framework id', async () => {
+    const { api } = await import('../api/client')
+    vi.mocked(api.policies.list).mockResolvedValue([summaryFor('cis-kubernetes', ['v1.8'])] as never)
+    const user = userEvent.setup()
+    renderCis()
+
+    await screen.findByTestId('rule-tab-no-root-containers')
+    // Catalogue rules stay visible, marked as reference material.
+    expect(screen.getByTestId('rule-catalogue-only-cis-5.2.6')).toBeInTheDocument()
+
+    const edited = 'object.spec.containers.all(c, c.securityContext.runAsUser != 0)'
+    fireEvent.change(screen.getByTestId('cel-code-textarea'), { target: { value: edited } })
+    await user.click(screen.getByTestId('save-policy-btn'))
+
+    await waitFor(() => expect(api.policies.registerBundle).toHaveBeenCalledTimes(1))
+    const payload = vi.mocked(api.policies.registerBundle).mock.calls[0][1]
+    expect(payload.framework_id).toBe('cis-kubernetes')
+    expect(payload.version).toBe('v1.8.1')
+    // Exactly the engine's rules: no catalogue rules, no catalogue text written back.
+    expect(payload.rules).toEqual([{ ...engineRules[0], cel_expression: edited }, engineRules[1], engineRules[2]])
+  })
+
+  it.each([
+    ['cis-kubernetes first', ['cis-kubernetes', 'k8s-cis-benchmark']],
+    ['k8s-cis-benchmark first', ['k8s-cis-benchmark', 'cis-kubernetes']],
+  ])('selects the same engine summary for an alias pair regardless of list order (%s)', async (_label, order) => {
+    const { api } = await import('../api/client')
+    const histories: Record<string, string[]> = {
+      'cis-kubernetes': ['v1.8'],
+      'k8s-cis-benchmark': ['v1.7', 'v1.8'],
+    }
+    vi.mocked(api.policies.list).mockResolvedValue(order.map((id) => summaryFor(id, histories[id])) as never)
+    const user = userEvent.setup()
+    renderCis()
+
+    await screen.findByTestId('rule-tab-no-root-containers')
+    await user.click(screen.getByTestId('toggle-version-history-btn'))
+    expect(screen.getByTestId('version-item-v1.7')).toBeInTheDocument()
+  })
+
+  it('rollback targets the framework id whose history is displayed', async () => {
+    const { api } = await import('../api/client')
+    vi.mocked(api.policies.list).mockResolvedValue([summaryFor('cis-kubernetes', ['v1.7', 'v1.8'])] as never)
+    const user = userEvent.setup()
+    renderCis()
+
+    await screen.findByTestId('rule-tab-no-root-containers')
+    await user.click(screen.getByTestId('toggle-version-history-btn'))
+    await user.click(screen.getByTestId('version-item-v1.7'))
+    await user.click(screen.getByTestId('rollback-btn'))
+    const confirm = screen.getAllByRole('button', { name: /Rollback to v1.7/i })
+    await user.click(confirm[confirm.length - 1])
+
+    await waitFor(() => expect(api.policies.rollback).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(api.policies.rollback).mock.calls[0][1]).toEqual({
+      framework_id: 'cis-kubernetes',
+      target_version: 'v1.7',
     })
   })
 })

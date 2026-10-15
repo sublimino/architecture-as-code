@@ -192,6 +192,32 @@ describe('PolicyEditor Component', () => {
     })
   })
 
+  it('never publishes catalogue-only rules, and never labels them engine-evaluated', async () => {
+    const user = userEvent.setup()
+    const handleSave = vi.fn().mockResolvedValue(undefined)
+    const catalogueRule = {
+      id: 'cis-5.4.1',
+      name: 'CIS 5.4.1: ResourceQuotas',
+      cel_expression: 'has(object.spec.hard)',
+      catalogue_only: true,
+    }
+    render(
+      <PolicyEditor
+        bundle={{ ...mockBundle, rules: [catalogueRule, ...mockBundle.rules] }}
+        onSave={handleSave}
+      />,
+    )
+
+    // The catalogue rule is selected first: shown as reference, not as evaluated, not editable.
+    expect(screen.getByTestId('catalogue-only-badge')).toBeInTheDocument()
+    expect(screen.queryByTestId('cel-evaluated-badge')).toBeNull()
+    expect(screen.getByTestId('cel-code-textarea')).toHaveAttribute('readonly')
+
+    await user.click(screen.getByTestId('save-policy-btn'))
+    await waitFor(() => expect(handleSave).toHaveBeenCalledTimes(1))
+    expect(handleSave.mock.calls[0][0].rules).toEqual(mockBundle.rules)
+  })
+
   it('disables save button when expression has syntax error', async () => {
     const user = userEvent.setup()
     const handleSave = vi.fn()

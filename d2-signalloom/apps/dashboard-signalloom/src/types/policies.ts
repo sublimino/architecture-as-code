@@ -12,6 +12,12 @@ export interface PolicyRule {
   attestation_type?: 'cel' | 'manual' | 'cluster' | string
   manual_attestation?: boolean
   manual_attestation_note?: string
+  /**
+   * Client-only display marker: the rule comes from the static regulatory
+   * catalogue, not from the policy engine, so the engine has not evaluated it.
+   * Such rules are reference material and are never sent on save.
+   */
+  catalogue_only?: boolean
 }
 
 export interface PolicyBundle {

@@ -597,6 +597,8 @@ export const FRAMEWORK_ALIASES: Record<string, string> = {
   'nist-ai-rmf-1.0': 'nist-ai-rmf-1.0',
 }
 
+const CRA_TOKEN = /(?:^|[^a-z0-9])cra(?:[^a-z0-9]|$)/
+
 /**
  * Normalizes any framework ID string or name to its canonical ID.
  */
@@ -614,7 +616,8 @@ export function normalizeFrameworkId(id: string | null | undefined, name?: strin
   if (trimmedName.includes('soc 2') || trimmedId.includes('soc2')) return 'soc2-type-2'
   if (trimmedName.includes('finos') || trimmedId.includes('finos')) return 'finos-aigf'
   if (trimmedName.includes('800-53') || trimmedId.includes('800-53')) return 'nist-800-53'
-  if (trimmedName.includes('cra') || trimmedName.includes('cyber resilience') || trimmedId.includes('cra')) return 'cra'
+  // `cra` only as a whole token: "democracy", "scra" and "craft-ai-standard" are not the CRA.
+  if (CRA_TOKEN.test(trimmedName) || trimmedName.includes('cyber resilience') || CRA_TOKEN.test(trimmedId)) return 'cra'
   if (trimmedName.includes('ai rmf') || trimmedId.includes('ai-rmf')) return 'nist-ai-rmf-1.0'
 
   return trimmedId || trimmedName || 'eu-ai-act'
@@ -669,14 +672,38 @@ export function getCanonicalFrameworkOptions(): Array<{ id: string; name: string
 }
 
 /**
- * Harmonizes rules between an active backend bundle (e.g. from Go CEL policy-engine)
- * and the rich regulatory catalog (e.g. from regulatoryFrameworks).
+ * Control-identifier families recognised in rule ids and names, e.g. `CIS 5.4.1`,
+ * `cis-5.4.1`, `Art. 10`, `AC-2`, `IA-2`, `CC6.1`. The family is part of the key, so
+ * `IA-2` never matches `AC-2`, and the number is taken whole, so `5.4` never matches
+ * `5.4.1` and `1` never matches `10`.
+ */
+const CONTROL_KEY_PATTERN =
+  /(?:^|[^a-z0-9])(cis|article|art|ac|ia|au|sc|si|ps|ca|cp|cm|cc)[\s.-]*(\d+(?:\.\d+)*)(?!\.?\d)/g
+
+/** Extracts every control key (`family:number`) from a rule's id and name. */
+export function controlKeys(rule: Pick<PolicyRule, 'id' | 'name'>): Set<string> {
+  const keys = new Set<string>()
+  for (const text of [rule.id, rule.name]) {
+    if (!text) continue
+    for (const m of text.toLowerCase().matchAll(CONTROL_KEY_PATTERN)) {
+      keys.add(`${m[1] === 'article' ? 'art' : m[1]}:${m[2]}`)
+    }
+  }
+  return keys
+}
+
+/**
+ * Harmonizes rules between an active backend bundle (from the Go CEL policy-engine)
+ * and the static regulatory catalogue.
  *
- * Rules are merged so that:
- * 1. Active backend rules (which contain evaluated CEL expressions and engine statuses) are kept.
- * 2. Static catalog controls (including manual attestations, cluster audits, or controls not
- *    yet evaluated in CEL) are preserved so deep linking and regulatory views never drop rules.
- * 3. Matched rules preserve metadata from the static catalog (manual_attestation, attestation_type, docs_url).
+ * The engine is the authority. The result is:
+ * 1. Every engine rule with its own fields intact; a one-to-one catalogue match only
+ *    fills display-only reference text (description, docs_url).
+ * 2. Every unmatched catalogue rule, appended with `catalogue_only: true`: shown as
+ *    regulatory context, never presented as evaluated, never saved.
+ *
+ * Matching prefers correctness over recall: exact id, then a control key that is
+ * unambiguous on both sides, then exact name. A catalogue rule is claimed at most once.
  */
 export function harmonizeBundleRules(
   templateRules: PolicyRule[] = [],
@@ -689,73 +716,104 @@ export function harmonizeBundleRules(
     return activeRules || []
   }
 
-  const result: PolicyRule[] = []
-  const matchedTemplateIndices = new Set<number>()
-
-  // Helper to match active rule with template rule
-  const findMatchingTemplateIndex = (activeRule: PolicyRule): number => {
-    const aId = activeRule.id.toLowerCase()
-    const aName = activeRule.name.toLowerCase()
-
-    // 1. Exact ID match
-    let idx = templateRules.findIndex((t) => t.id.toLowerCase() === aId)
-    if (idx !== -1) return idx
-
-    // 2. Control prefix in name (e.g. CIS 5.4.1 or CIS-5.4.1)
-    const match = aName.match(/(?:cis|art|cc|ac|ia)[\s.-]*(\d+(?:[.-]\d+)*)/i)
-    if (match) {
-      const numPattern = match[1].replace(/[-]/g, '.')
-      idx = templateRules.findIndex((t) => {
-        const tId = t.id.toLowerCase()
-        const tName = t.name.toLowerCase()
-        return tId.includes(numPattern) || tName.includes(numPattern)
-      })
-      if (idx !== -1) return idx
-    }
-
-    // 3. Name or substring match
-    idx = templateRules.findIndex((t) => {
-      const tName = t.name.toLowerCase()
-      const tId = t.id.toLowerCase()
-      return (
-        tId === aId ||
-        tName === aName ||
-        (aName.length > 5 && tName.includes(aName)) ||
-        (tName.length > 5 && aName.includes(tName))
-      )
-    })
-    return idx
+  const templates = templateRules
+  const matchOf = new Map<number, number>() // active index -> template index
+  const claimed = new Set<number>()
+  const claim = (a: number, t: number) => {
+    matchOf.set(a, t)
+    claimed.add(t)
   }
 
-  // First pass: add all active rules, enriching with template metadata if matched
-  for (const active of activeRules) {
-    const tIdx = findMatchingTemplateIndex(active)
-    if (tIdx !== -1) {
-      matchedTemplateIndices.add(tIdx)
-      const template = templateRules[tIdx]
-      result.push({
-        ...template,
-        ...active,
-        // Ensure attestation metadata from catalog is preserved if active rule doesn't define it
-        attestation_type: active.attestation_type || template.attestation_type || 'cel',
-        manual_attestation: active.manual_attestation ?? template.manual_attestation ?? false,
-        manual_attestation_note: active.manual_attestation_note || template.manual_attestation_note,
-        docs_url: active.docs_url || template.docs_url,
-      })
-    } else {
-      result.push(active)
-    }
-  }
+  // 1. Exact id.
+  activeRules.forEach((active, a) => {
+    const aId = active.id.toLowerCase()
+    const t = templates.findIndex((tr, i) => !claimed.has(i) && tr.id.toLowerCase() === aId)
+    if (t !== -1) claim(a, t)
+  })
 
-  // Second pass: append any template rules that were NOT in the active rules
-  // (e.g. cis-5.4.1 ResourceQuotas, manual attestation rules, etc.)
-  for (let i = 0; i < templateRules.length; i++) {
-    if (!matchedTemplateIndices.has(i)) {
-      result.push(templateRules[i])
+  // 2. Control key, only when it identifies exactly one catalogue rule and no other
+  //    unmatched engine rule competes for it.
+  const templateKeys = templates.map((t) => controlKeys(t))
+  const activeKeys = activeRules.map((r) => controlKeys(r))
+  const shares = (x: Set<string>, y: Set<string>) => [...x].some((k) => y.has(k))
+  activeRules.forEach((_active, a) => {
+    if (matchOf.has(a) || activeKeys[a].size === 0) return
+    const candidates = templates.map((_t, i) => i).filter((i) => shares(activeKeys[a], templateKeys[i]))
+    if (candidates.length !== 1 || claimed.has(candidates[0])) return
+    const rival = activeRules.some(
+      (_r, other) => other !== a && !matchOf.has(other) && shares(activeKeys[other], templateKeys[candidates[0]]),
+    )
+    if (!rival) claim(a, candidates[0])
+  })
+
+  // 3. Exact name.
+  activeRules.forEach((active, a) => {
+    if (matchOf.has(a)) return
+    const aName = active.name.trim().toLowerCase()
+    const t = templates.findIndex((tr, i) => !claimed.has(i) && tr.name.trim().toLowerCase() === aName)
+    if (t !== -1) claim(a, t)
+  })
+
+  // Engine rules keep their own fields; a match only fills display-only reference text.
+  const result: PolicyRule[] = activeRules.map((active, a) => {
+    const t = matchOf.get(a)
+    if (t === undefined) return active
+    const template = templates[t]
+    return {
+      ...active,
+      description: active.description || template.description,
+      docs_url: active.docs_url || template.docs_url,
     }
-  }
+  })
+
+  // Unmatched catalogue rules are regulatory context only: the engine never evaluated them.
+  templates.forEach((template, i) => {
+    if (!claimed.has(i)) result.push({ ...template, catalogue_only: true })
+  })
 
   return result
+}
+
+/**
+ * Builds the registerBundle payload from an edited bundle. Only the engine's own rules
+ * and the engine's own framework id are sent: catalogue-only rules are dropped, catalogue
+ * enrichment is not written back, and the only edit carried is each engine rule's CEL.
+ */
+export function buildEngineSavePayload(
+  edited: PolicyBundle,
+  engineBundle: PolicyBundle,
+  engineFrameworkId: string,
+): PolicyBundle {
+  const editedById = new Map(
+    (edited.rules || []).filter((r) => !r.catalogue_only).map((r) => [r.id, r] as const),
+  )
+  return {
+    ...engineBundle,
+    framework_id: engineFrameworkId,
+    version: edited.version,
+    created_at: edited.created_at,
+    rules: (engineBundle.rules || []).map((rule) => {
+      const e = editedById.get(rule.id)
+      return e ? { ...rule, cel_expression: e.cel_expression } : rule
+    }),
+  }
+}
+
+/**
+ * Picks the engine summary for a canonical framework. The engine registers some
+ * frameworks under two ids (`cis-kubernetes` and `k8s-cis-benchmark`) and lists them in
+ * random map order, so prefer the summary whose id is the canonical id, then the lexically
+ * first alias. Writes must use the chosen summary's own framework_id.
+ */
+export function selectEngineSummary<T extends { framework_id: string }>(
+  summaries: T[],
+  canonicalId: string,
+): T | undefined {
+  const candidates = summaries.filter((s) => normalizeFrameworkId(s.framework_id) === canonicalId)
+  return (
+    candidates.find((s) => s.framework_id === canonicalId) ??
+    [...candidates].sort((x, y) => x.framework_id.localeCompare(y.framework_id))[0]
+  )
 }
 
 /**

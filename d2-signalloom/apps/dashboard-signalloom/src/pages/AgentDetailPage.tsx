@@ -1212,14 +1212,14 @@ export default function AgentDetailPage() {
   if (error || !agent) {
     return (
       <div>
-        <button
+        <Link
+          to="/agents"
           data-testid="dossier-back-btn"
-          onClick={() => navigate('/agents')}
           className="btn btn-secondary"
-          style={{ fontSize: 12, padding: '5px 12px', marginBottom: 20 }}
+          style={{ fontSize: 12, padding: '5px 12px', marginBottom: 20, textDecoration: 'none', display: 'inline-block' }}
         >
           ← Back to Agents
-        </button>
+        </Link>
         <LoadingState
           variant="block"
           status="error"

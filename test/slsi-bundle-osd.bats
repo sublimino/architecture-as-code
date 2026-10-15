@@ -135,7 +135,7 @@ setup() {
 @test "OSD-2: exactly the four deferred references carry reason dev-deferred-pin" {
 	diff <(jq -r '.coverageExclusions[] | select(.reason == "dev-deferred-pin") | .ref' "$MANIFEST" | LC_ALL=C sort) \
 		<(printf '%s\n' \
-			'ghcr.io/controlplaneio-in-toto/signalloom-warden:src-658205ce034f' \
+			'ghcr.io/controlplaneio-in-toto/signalloom-warden:src-6057090062a5' \
 			'ghcr.io/stefanprodan/podinfo:6.7.1' \
 			'python:3.12-slim' \
 			'registry.k8s.io/coredns/coredns:v1.14.2' | LC_ALL=C sort)

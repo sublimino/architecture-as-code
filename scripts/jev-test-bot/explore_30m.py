@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import re
 import signal
 import ssl
@@ -38,6 +39,8 @@ class ExplorationRunner:
         out_dir: str = "",
         turns_per_route: int = 6,
         request_delay: float = 0.03,
+        reverse: bool = False,
+        seed: Optional[int] = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.duration_seconds = duration_seconds
@@ -52,6 +55,10 @@ class ExplorationRunner:
         os.makedirs(self.out_dir, exist_ok=True)
 
         self.routes_surface = derive_from_file(default_app_tsx())
+        if seed is not None:
+            random.Random(seed).shuffle(self.routes_surface)
+        elif reverse:
+            self.routes_surface.reverse()
         self.api_endpoints: List[str] = []
 
         # Metrics & Tracking
@@ -407,6 +414,8 @@ def main():
     parser.add_argument("--turns", type=int, default=6, help="Max turns per route (default: 6)")
     parser.add_argument("--delay", type=float, default=0.03, help="Inter-request delay in seconds (default: 0.03)")
     parser.add_argument("--out-dir", default="", help="Custom output directory")
+    parser.add_argument("--reverse", action="store_true", help="Traverse routes in reverse order")
+    parser.add_argument("--seed", type=int, default=None, help="Random seed to shuffle route traversal order")
     args = parser.parse_args()
 
     runner = ExplorationRunner(
@@ -415,6 +424,8 @@ def main():
         out_dir=args.out_dir,
         turns_per_route=args.turns,
         request_delay=args.delay,
+        reverse=args.reverse,
+        seed=args.seed,
     )
     report = runner.run()
     sys.exit(0 if len(report.get("unique_defects", [])) == 0 else 1)

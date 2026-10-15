@@ -14,6 +14,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AgentDetailPage from './AgentDetailPage'
 import { api } from '../api/client'
 import { claimDiscoveredAgent } from '../api/agentClaim'
@@ -171,7 +172,12 @@ function makeAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
 function renderPage(initialEntry = '/agents/agent-abc-123') {
   function LocationProbe() {
     const location = useLocation()
-    return <output data-testid="location-pathname">{location.pathname}</output>
+    return (
+      <>
+        <output data-testid="location-pathname">{location.pathname}</output>
+        <output data-testid="location-search">{location.search}</output>
+      </>
+    )
   }
 
   return render(
@@ -1010,5 +1016,168 @@ describe('AgentDetailPage — Tab 4 (Assessments & Control Ratios)', () => {
 
     expect(await screen.findByTestId('dossier-owner-header')).toHaveTextContent('Owner: responsibility-owner@acme.test')
     expect(screen.getByTestId('overview-responsibility-owner')).toHaveTextContent('responsibility-owner@acme.test')
+  })
+})
+
+describe('AgentDetailPage — Reactive Workload Reload & Error Clearing', () => {
+  it('clearClaimError removes query params and resets claim error state', async () => {
+    const mockAgent = makeAgent({
+      id: 'agent-err-test',
+      name: 'Error Test Agent',
+      tenant: 'default',
+      tenant_id: 'default',
+      record_class: 'discovered',
+      is_registry_linked: false,
+      runtime: {
+        cluster_id: 'cluster-local',
+        namespace: 'fe-signalloom-agents',
+        pod_name: 'err-test-pod',
+        service_account: 'sa-err',
+        framework: 'custom',
+        model: '',
+        execution_mode: 'autonomous',
+        node: 'kind-worker-1',
+        phase: 'Running',
+      },
+    })
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(mockAgent)
+
+    renderPage('/agents/agent-err-test?tab=onboarding&claim_error=Workload%20declares%20no%20signalloom.ai%2Fmodel')
+
+    expect(await screen.findByTestId('onboarding-objection-banner')).toBeInTheDocument()
+    expect(screen.getByTestId('location-search')).toHaveTextContent('claim_error=Workload%20declares%20no%20signalloom.ai%2Fmodel')
+
+    // Mock next get to have declared model
+    const mockAgentWithModel = {
+      ...mockAgent,
+      runtime: { ...mockAgent.runtime, model: 'claude-3-5-sonnet' },
+    }
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(mockAgentWithModel)
+
+    const refreshBtn = screen.getAllByTestId('onboarding-refresh-btn')[0]
+    await userEvent.click(refreshBtn)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location-search').textContent).not.toContain('claim_error')
+    })
+  })
+
+  it('opening the claim modal reloads agent data', async () => {
+    const initialDiscoveredAgent = makeAgent({
+      id: 'agent-fresh-test',
+      name: 'Fresh Test Agent',
+      record_class: 'discovered',
+      is_registry_linked: false,
+    })
+    const updatedAgentData = makeAgent({
+      id: 'agent-fresh-test',
+      name: 'Fresh Test Agent Updated',
+      record_class: 'discovered',
+      is_registry_linked: false,
+      runtime: {
+        cluster_id: 'cluster-local',
+        namespace: 'fe-signalloom-agents',
+        pod_name: 'fresh-pod-updated',
+        service_account: 'sa-fresh',
+        framework: 'custom',
+        model: 'claude-3-7-sonnet',
+        execution_mode: 'autonomous',
+        node: 'kind-worker-1',
+        phase: 'Running',
+      },
+    })
+
+    const getSpy = api.agents.get as ReturnType<typeof vi.fn>
+    getSpy
+      .mockResolvedValueOnce(initialDiscoveredAgent)
+      .mockResolvedValueOnce(updatedAgentData)
+
+    renderPage('/agents/agent-fresh-test')
+
+    // Wait for initial load
+    expect(await screen.findByTestId('dossier-agent-name')).toHaveTextContent('Fresh Test Agent')
+    expect(getSpy).toHaveBeenCalledTimes(1)
+
+    // Open claim modal via Claim button in header
+    const claimBtn = screen.getByTestId('dossier-claim-btn')
+    await userEvent.click(claimBtn)
+
+    // Verify modal is displayed and get was called to reload fresh agent workload
+    expect(await screen.findByTestId('claim-modal')).toBeInTheDocument()
+    expect(getSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('ClaimModal onSuccess clears error, reloads agent, and invalidates queryClient caches', async () => {
+    const queryClient = new QueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const mockDiscovered = makeAgent({
+      id: 'agent-success-claim',
+      name: 'Success Claim Agent',
+      record_class: 'discovered',
+      is_registry_linked: false,
+      tenant: 'default',
+      tenant_id: 'default',
+      runtime: {
+        cluster_id: 'cluster-local',
+        namespace: 'fe-signalloom-agents',
+        pod_name: 'agent-success-pod',
+        service_account: 'agent-success-sa',
+        framework: 'claude-code',
+        model: 'claude-3-5-sonnet',
+        execution_mode: 'autonomous',
+        node: 'kind-worker-1',
+        phase: 'Running',
+      },
+    })
+    const getSpy = api.agents.get as ReturnType<typeof vi.fn>
+    getSpy.mockResolvedValue(mockDiscovered)
+
+    function LocationProbe() {
+      const location = useLocation()
+      return <output data-testid="location-search">{location.search}</output>
+    }
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/agents/agent-success-claim?claim_error=some_error']}>
+          <LocationProbe />
+          <Routes>
+            <Route path="/agents/:id" element={<AgentDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+
+    expect(await screen.findByTestId('dossier-agent-name')).toBeInTheDocument()
+    expect(screen.getByTestId('location-search')).toHaveTextContent('claim_error=some_error')
+
+    // Open claim modal
+    const claimBtn = screen.getByTestId('dossier-claim-btn')
+    await userEvent.click(claimBtn)
+
+    expect(await screen.findByTestId('claim-modal')).toBeInTheDocument()
+
+    // Mock claim endpoint
+    claimDiscoveredAgentMock.mockResolvedValueOnce({
+      agent_id: 'agent-success-claim',
+      status: 'granted',
+      token_budget: 250000,
+    })
+
+    // Click Re-check Workload so modal clears error and is claimable
+    const recheckBtn = screen.getByTestId('claim-modal-refresh-workload-btn')
+    await userEvent.click(recheckBtn)
+
+    // Now submit claim modal
+    const submitBtn = screen.getByTestId('claim-modal-submit-btn')
+    await userEvent.click(submitBtn)
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['agents'] })
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['discovery'] })
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['workloads'] })
+      expect(screen.getByTestId('location-search').textContent).not.toContain('claim_error')
+    })
   })
 })

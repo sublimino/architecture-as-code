@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import AgentOnboardingTab from './AgentOnboardingTab'
 import type { AgentResponse } from '../types/api'
@@ -243,6 +243,124 @@ describe('AgentOnboardingTab', () => {
 
     expect(screen.getByTestId('onboarding-objection-banner')).toBeInTheDocument()
     expect(screen.getByText(/Missing AI Model Declaration \(signalloom\.ai\/model\)/)).toBeInTheDocument()
+  })
+
+  it('renders onboarding-refresh-btn and invokes onRefresh callback', async () => {
+    const onRefresh = vi.fn().mockResolvedValue(undefined)
+    const agent = createMockAgent()
+    renderTab(<AgentOnboardingTab agent={agent} onRefresh={onRefresh} />)
+
+    const refreshButtons = screen.getAllByTestId('onboarding-refresh-btn')
+    expect(refreshButtons.length).toBeGreaterThanOrEqual(2)
+
+    // Click hero action bar refresh button
+    await act(async () => {
+      fireEvent.click(refreshButtons[0])
+    })
+    expect(onRefresh).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(refreshButtons[0]).not.toBeDisabled())
+
+    // Click matrix header refresh button
+    await act(async () => {
+      fireEvent.click(refreshButtons[1])
+    })
+    expect(onRefresh).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows spinning icon and disabled state while refreshing', async () => {
+    let resolveRefresh!: () => void
+    const refreshPromise = new Promise<void>((resolve) => {
+      resolveRefresh = resolve
+    })
+    const onRefresh = vi.fn().mockImplementation(() => refreshPromise)
+    const agent = createMockAgent()
+    renderTab(<AgentOnboardingTab agent={agent} onRefresh={onRefresh} />)
+
+    const refreshBtn = screen.getAllByTestId('onboarding-refresh-btn')[0]
+    expect(refreshBtn).not.toBeDisabled()
+
+    fireEvent.click(refreshBtn)
+    expect(refreshBtn).toBeDisabled()
+    expect(refreshBtn).toHaveTextContent('Refreshing…')
+    const spinner = screen.getByTestId('onboarding-refresh-spinner')
+    expect(spinner).toHaveStyle({ animation: 'spin 1s linear infinite' })
+
+    resolveRefresh()
+    await waitFor(() => {
+      expect(refreshBtn).not.toBeDisabled()
+      expect(refreshBtn).toHaveTextContent('Refresh')
+    })
+  })
+
+  it('reflects verified model and clears claim error when refreshed with a declared model', async () => {
+    const agentWithoutModel = createMockAgent({
+      id: 'agent-no-model',
+      name: 'agent-no-model',
+      tenant: 'default',
+      tenant_id: 'default',
+      runtime: {
+        cluster_id: 'osramp',
+        namespace: 'fe-signalloom-agents',
+        pod_name: 'agent-no-model-pod',
+        service_account: 'test-sa',
+        framework: 'custom',
+        model: '' as any,
+        node: 'kind-control-plane',
+        phase: 'Running',
+      },
+    })
+
+    const agentWithModel = {
+      ...agentWithoutModel,
+      runtime: {
+        ...agentWithoutModel.runtime,
+        model: 'claude-3-5-sonnet',
+      },
+    }
+
+    const onClearClaimError = vi.fn()
+    const onRefresh = vi.fn().mockImplementation(async () => agentWithModel)
+
+    const { rerender } = renderTab(
+      <AgentOnboardingTab
+        agent={agentWithoutModel}
+        claimError="Workload declares no signalloom.ai/model"
+        onRefresh={onRefresh}
+        onClearClaimError={onClearClaimError}
+      />
+    )
+
+    // Pre-flight check shows UNDECLARED
+    const modelDiag = screen.getByTestId('onboarding-diag-model')
+    expect(modelDiag).toHaveTextContent('UNDECLARED')
+    expect(modelDiag).toHaveTextContent('Missing signalloom.ai/model')
+
+    // Click refresh button
+    const refreshBtn = screen.getAllByTestId('onboarding-refresh-btn')[0]
+    await act(async () => {
+      fireEvent.click(refreshBtn)
+    })
+
+    await waitFor(() => {
+      expect(onRefresh).toHaveBeenCalledTimes(1)
+      expect(onClearClaimError).toHaveBeenCalledTimes(1)
+    })
+
+    // Rerender with the refreshed agent
+    rerender(
+      <MemoryRouter initialEntries={['/']}>
+        <AgentOnboardingTab
+          agent={agentWithModel}
+          onRefresh={onRefresh}
+          onClearClaimError={onClearClaimError}
+        />
+      </MemoryRouter>
+    )
+
+    const updatedModelDiag = screen.getByTestId('onboarding-diag-model')
+    expect(updatedModelDiag).toHaveTextContent('VERIFIED')
+    expect(updatedModelDiag).toHaveTextContent('Model: claude-3-5-sonnet')
+    expect(screen.queryByTestId('onboarding-objection-banner')).not.toBeInTheDocument()
   })
 })
 

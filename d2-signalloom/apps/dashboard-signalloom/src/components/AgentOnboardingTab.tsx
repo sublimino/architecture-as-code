@@ -10,6 +10,8 @@ export interface AgentOnboardingTabProps {
   agent: AgentResponse
   claimError?: string | null
   onOpenClaim?: () => void
+  onRefresh?: () => Promise<void> | void
+  onClearClaimError?: () => void
 }
 
 export type ClaimObjectionType =
@@ -29,11 +31,42 @@ function extractWorkloadName(podName: string): string {
   return podName
 }
 
-export default function AgentOnboardingTab({ agent, claimError, onOpenClaim }: AgentOnboardingTabProps) {
+export default function AgentOnboardingTab({
+  agent,
+  claimError,
+  onOpenClaim,
+  onRefresh,
+  onClearClaimError,
+}: AgentOnboardingTabProps) {
   const { user } = useAuth0()
   const [searchParams] = useSearchParams()
   const errorFromQuery = searchParams.get('claim_error') || searchParams.get('error')
   const effectiveError = claimError || errorFromQuery || null
+
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true)
+    try {
+      const updated = await onRefresh?.()
+      const resolvedAgent = (updated as AgentResponse | undefined) || agent
+      const hasModel = Boolean(
+        resolvedAgent.runtime?.model ||
+        (resolvedAgent as any).model ||
+        resolvedAgent.model_name ||
+        (resolvedAgent.labels && resolvedAgent.labels['signalloom.ai/model'])
+      )
+      const hasTenant = Boolean(
+        resolvedAgent.tenant ||
+        (resolvedAgent.tenant_id && resolvedAgent.tenant_id !== 'undeclared')
+      )
+      if (hasModel || hasTenant) {
+        onClearClaimError?.()
+      }
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
 
   const secProfile = getAgentWorkloadSecurityProfile(agent)
 
@@ -41,7 +74,12 @@ export default function AgentOnboardingTab({ agent, claimError, onOpenClaim }: A
   const namespace = agent.runtime?.namespace || agent.namespace || 'fe-signalloom-agents'
   const serviceAccount = agent.runtime?.service_account || agent.service_account || agent.name || 'default'
   const workloadTenant = agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared' ? agent.tenant_id : null)
-  const declaredModel = agent.runtime?.model || (agent as any).model || null
+  const declaredModel =
+    agent.runtime?.model ||
+    (agent as any).model ||
+    agent.model_name ||
+    (agent.labels && agent.labels['signalloom.ai/model']) ||
+    null
   const deploymentName = agent.runtime?.workload_name || extractWorkloadName(agent.name || podName)
 
   // Determine user tenant
@@ -216,14 +254,15 @@ spec:
           </p>
         </div>
 
-        {onOpenClaim && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <button
             type="button"
-            className="btn btn-primary"
-            data-testid="onboarding-open-claim-btn"
-            onClick={onOpenClaim}
+            className="btn btn-secondary"
+            data-testid="onboarding-refresh-btn"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
             style={{
-              padding: '10px 20px',
+              padding: '10px 18px',
               fontSize: 13,
               fontWeight: 600,
               whiteSpace: 'nowrap',
@@ -232,9 +271,38 @@ spec:
               gap: 8,
             }}
           >
-            Claim Agent Workload
+            <span
+              data-testid="onboarding-refresh-spinner"
+              style={{
+                display: 'inline-block',
+                animation: isRefreshing ? 'spin 1s linear infinite' : 'none',
+              }}
+            >
+              🔄
+            </span>
+            {isRefreshing ? 'Refreshing…' : 'Refresh'}
           </button>
-        )}
+
+          {onOpenClaim && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              data-testid="onboarding-open-claim-btn"
+              onClick={onOpenClaim}
+              style={{
+                padding: '10px 20px',
+                fontSize: 13,
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              Claim Agent Workload
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ─── Active Error or Pre-emptive Objection Alert ──────────────────────── */}
@@ -647,9 +715,38 @@ spec:
 
       {/* ─── Pre-flight Diagnostics Matrix ───────────────────────────────────── */}
       <div>
-        <h4 style={{ margin: '0 0 12px 0', fontSize: 14, color: 'var(--text)', fontWeight: 600 }}>
-          Pre-Flight Verification Matrix
-        </h4>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+          <h4 style={{ margin: 0, fontSize: 14, color: 'var(--text)', fontWeight: 600 }}>
+            Pre-Flight Verification Matrix
+          </h4>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            data-testid="onboarding-refresh-btn"
+            data-sub-testid="onboarding-matrix-refresh-btn"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            style={{
+              padding: '6px 12px',
+              fontSize: 12,
+              fontWeight: 500,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <span
+              data-testid="onboarding-matrix-refresh-spinner"
+              style={{
+                display: 'inline-block',
+                animation: isRefreshing ? 'spin 1s linear infinite' : 'none',
+              }}
+            >
+              🔄
+            </span>
+            {isRefreshing ? 'Refreshing…' : 'Refresh Checks'}
+          </button>
+        </div>
         <div
           style={{
             display: 'grid',

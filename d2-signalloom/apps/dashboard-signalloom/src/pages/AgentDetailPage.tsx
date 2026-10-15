@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, useContext } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { QueryClientContext } from '@tanstack/react-query'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { claimDiscoveredAgent, type AgentClaimRequest } from '../api/agentClaim'
@@ -881,8 +882,11 @@ export default function AgentDetailPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { user, getAccessTokenSilently } = useAuth0()
+  const queryClient = useContext(QueryClientContext)
 
   const [agent, setAgent] = useState<AgentResponse | null>(null)
+  const agentRef = useRef<AgentResponse | null>(null)
+  agentRef.current = agent
   const [auditEvents, setAuditEvents] = useState<AuditEventResponse[]>([])
   const [violations, setViolations] = useState<ViolationResponse[]>([])
   const [complianceResults, setComplianceResults] = useState<AgentComplianceResultResponse[]>([])
@@ -899,6 +903,16 @@ export default function AgentDetailPage() {
   const [claiming, setClaiming] = useState(false)
   const urlClaimError = searchParams.get('claim_error') || searchParams.get('error')
   const [claimError, setClaimError] = useState<string | null>(() => urlClaimError)
+
+  const clearClaimError = useCallback(() => {
+    setClaimError(null)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.delete('claim_error')
+      next.delete('error')
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
 
   useEffect(() => {
     if (urlClaimError) {
@@ -934,7 +948,9 @@ export default function AgentDetailPage() {
 
   const load = useCallback(async () => {
     if (!id) return
-    setLoading(true)
+    if (!agentRef.current) {
+      setLoading(true)
+    }
     try {
       const token = await getAccessTokenSilently()
       const [agentData, auditData, violationsData, postureData, telemetryData, externalEvidenceData] = await Promise.allSettled([
@@ -976,6 +992,11 @@ export default function AgentDetailPage() {
     }
   }, [id, getAccessTokenSilently])
 
+  const handleOpenClaim = useCallback(() => {
+    void load()
+    setShowClaimModal(true)
+  }, [load])
+
   useEffect(() => {
     if (skipNextLoadIdRef.current === id) {
       skipNextLoadIdRef.current = null
@@ -993,10 +1014,10 @@ export default function AgentDetailPage() {
     claimGenerationRef.current += 1
     claimInFlightRef.current = false
     setClaiming(false)
-    setClaimError(null)
+    setClaimError(urlClaimError || null)
     setClaimNotification(null)
     setClaimRefreshId(null)
-  }, [id])
+  }, [id, urlClaimError])
 
   async function handleAcknowledge(violationId: string) {
     const token = await getAccessTokenSilently()
@@ -1357,9 +1378,17 @@ export default function AgentDetailPage() {
           agent={agent}
           claimError={claimError}
           onClose={() => setShowClaimModal(false)}
-          onSuccess={() => {
+          onRefreshWorkload={async (_agentId) => {
+            await load()
+          }}
+          onClearClaimError={clearClaimError}
+          onSuccess={async () => {
             setShowClaimModal(false)
-            load()
+            clearClaimError()
+            await load()
+            queryClient?.invalidateQueries({ queryKey: ['agents'] })
+            queryClient?.invalidateQueries({ queryKey: ['discovery'] })
+            queryClient?.invalidateQueries({ queryKey: ['workloads'] })
           }}
         />
       )}
@@ -1382,7 +1411,7 @@ export default function AgentDetailPage() {
         onScanCompliance={handleComplianceScan}
         scanning={scanning}
         lastScanTimestamp={lastScanTimestamp}
-        onOpenClaim={() => setShowClaimModal(true)}
+        onOpenClaim={handleOpenClaim}
       />
 
       {/* ─── Tab Navigation Bar ──────────────────────────────────────────────── */}
@@ -1442,7 +1471,7 @@ export default function AgentDetailPage() {
           claimError={claimError}
           retryingClaimRefresh={claimRefreshId !== null}
           onClaim={claimAction}
-          onOpenClaim={() => setShowClaimModal(true)}
+          onOpenClaim={handleOpenClaim}
           onSelectTab={handleSelectTab}
         />
       )}
@@ -1451,7 +1480,9 @@ export default function AgentDetailPage() {
         <AgentOnboardingTab
           agent={agent}
           claimError={claimError}
-          onOpenClaim={() => setShowClaimModal(true)}
+          onOpenClaim={handleOpenClaim}
+          onRefresh={load}
+          onClearClaimError={clearClaimError}
         />
       )}
 

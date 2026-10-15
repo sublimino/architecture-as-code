@@ -99,7 +99,7 @@ export interface ClaimModalProps {
   onClose: () => void
   onSuccess?: (result: AgentClaimResponse) => void
   claimError?: string | null
-  onRefreshWorkload?: (agentId: string) => Promise<AgentResponse | void>
+  onRefreshWorkload?: (agentId?: string) => Promise<AgentResponse | void> | void
   onClearClaimError?: () => void
 }
 
@@ -354,6 +354,7 @@ export default function ClaimModal({
       }
 
       clearUrlClaimError()
+      onClearClaimError?.()
 
       if (queryClient) {
         await Promise.all([
@@ -554,6 +555,24 @@ export default function ClaimModal({
                     {copiedCmd === 'error-relabel-cmd' ? 'Copied! ✓' : 'Copy'}
                   </button>
                 </div>
+              </div>
+            )}
+            {onRefreshWorkload && (
+              <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  data-testid="claim-modal-refresh-workload-btn"
+                  onClick={async () => {
+                    await onRefreshWorkload(agent.id)
+                    onClearClaimError?.()
+                    setError(null)
+                  }}
+                  style={{ fontSize: 11, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  <span>🔄</span>
+                  Re-check Workload
+                </button>
               </div>
             )}
           </div>

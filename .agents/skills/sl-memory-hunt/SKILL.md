@@ -1,22 +1,22 @@
 ---
 name: sl-memory-hunt
-description: "Find, measure and classify memory problems in #partner-signal-loom workloads: OOMKilled containers, silent restart loops, working-set growth, leak versus concurrency fan-out. Samples distroless containers from the kind node via crictl, and bare host processes via /proc. USE WHEN OOMKilled, OOM, out of memory, restart loop, restartCount climbing, pod keeps restarting, memory leak, memory growth, working set, Weave 502, signal-ingest memory, raise the memory limit, GOMAXPROCS, sl-memory-hunt, /sl-memory-hunt."
+description: "Find, measure and classify memory problems in #partner-signal-loom workloads: OOMKilled containers, silent restart loops, working-set growth, leak versus concurrency fan-out. Samples distroless containers from the kind node via crictl, and bare host processes via /proc. USE WHEN OOMKilled, OOM, out of memory, restart loop, restartCount, pod restarting, memory leak, working set, Weave 502, signal-ingest memory, GOMAXPROCS, or sl-memory-hunt."
 ---
 
 # sl-memory-hunt
 
 Memory triage for the **Signal Loom** (`#partner-signal-loom`) platform. The tool finds the
 container, measures it over time, and gives you the numbers to classify the cause. The
-fix is yours; `ripwire-perf-target` takes over once the hot spot is measured.
+fix is yours. The `ripwire-perf-target` skill takes over once the hot spot is measured.
 
 ## Ideal state
 
 The work is done when all of these hold:
 
 1. **Every OOM loop is named.** `scan` reports each container whose last termination was
-   `OOMKilled` (init containers included) or whose `restartCount` exceeds the threshold,
-   with pod, container, restart count, last OOM time and memory limit. Nothing restarting
-   is waved through because the pod reads `Running`.
+   `OOMKilled` (init containers included) or whose `restartCount` exceeds the threshold.
+   Output includes pod, container, restart count, last OOM time, and memory limit. Nothing
+   restarting is waved through because the pod reads `Running`.
 2. **Memory is a series, never a point.** The working set was sampled at an interval across
    idle, a single load, and N concurrent loads. Peak, time of peak and peak as a percentage
    of the limit are recorded.
@@ -66,7 +66,7 @@ churn names). Injectable for tests: `KUBECTL`, `DOCKER`, `CRICTL_NODE`, `PROC_RO
   not need one.
 - **Image env changes behaviour.** Go sizes its scheduler to the node's cores unless
   `GOMAXPROCS` is set. On a 24-core host, FrostDB fanned each scan out 24 ways. Read it with
-  `crictl inspecti <image> | jq .info.imageSpec.config.Env`; `env` shows it.
+  `crictl inspecti <image> | jq .info.imageSpec.config.Env`. The `env` command shows it.
 - **Memory that tracks total data size points to fan-out, not a leak.** Same request, bigger
   store, bigger peak: suspect concurrency × data size first. `GOMAXPROCS=2` took a 2-viewer
   peak from 6.7 GiB to 42 MiB. Measure peak under N concurrent loads to tell the two apart.
@@ -75,14 +75,12 @@ churn names). Injectable for tests: `KUBECTL`, `DOCKER`, `CRICTL_NODE`, `PROC_RO
 - **Concurrent headless Chrome needs distinct `--user-data-dir`.** Two viewers sharing a
   profile collapse into one process, so the "N concurrent loads" were really one.
 - **Bare processes work too.** For a host process (a Go binary under test, a local server),
-  sample `/proc/<pid>/status` `VmRSS` and read `VmHWM` for the high-water mark the samples
-  may have missed between ticks.
+  sample `/proc/<pid>/status` `VmRSS`. Read `VmHWM` for the high-water mark missed between ticks.
 - **The proof has to measure bytes.** The fix's test asserts a peak in MiB and fails under the
   mutant (`GOMAXPROCS=24`: peak 18.7 → 187.7 MiB). A test that only checks exit 0 passes both ways.
 
 ## Hand-off
 
-Once you have a measured hot spot (a peak that scales with concurrency or data size, a
-profile or a heap dump), hand it to **`ripwire-perf-target`** to locate the code path. This
-skill does not read code to find the cause. It measures, and the measurement decides what
-to look at.
+Measure the hot spot first (a peak scaling with concurrency or data size, a profile, or heap dump).
+Hand it to **`ripwire-perf-target`** to locate the code path. This skill does not read code to find the
+cause. It measures, and the measurement decides what to look at.

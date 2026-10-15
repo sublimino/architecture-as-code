@@ -1,0 +1,109 @@
+#### Errata — SLCO-P1-GOV
+
+<!-- kanban-check: status=fail proceed=no blocking_drift=yes -->
+
+**Created:** 2026-10-15 01:10:11+01:00
+**Last Updated:** 2026-10-15 01:10:11+01:00
+
+**Disposition:** FAIL. Phase 2 advancement refused. This is a pending block,
+not an assertion that the named proposal was changed. A concurrent passing
+SLCO-P1-GOV block appeared in the protected principal proposal during this run.
+Do not overwrite it without resolving ownership and its contradictory evidence.
+
+**Evaluated commit:** `0a509afb47f5dce5c967626bc513c4648fe10cb8`.
+**Integration ref:** `refs/heads/integration/slco-v0.1.0`.
+**Worktree:** `/home/andy/src/.worktrees/osramp-demo/slco-v0.1.0/governor`.
+
+**Comparative acceptance evidence:** Each run invoked exactly
+`make test-eap-offline && make test-kusari-e2e && make docs-lint`.
+
+| Component | Run 1 | Run 2 | Skips | Exit |
+| :--- | :--- | :--- | :--- | :--- |
+| EAP pytest | 274 passed; 28 warnings | 274 passed; 28 warnings | 0 | 0 |
+| EAP BATS | 18 passed | 18 passed | 0 | 0 |
+| EAP CLI assertions | 33 passed | 33 passed | 0 | 0 |
+| Kusari default top-level tests | 36 passed | 36 passed | 0 | 0 |
+| Kusari FrostDB top-level tests | 42 passed | 42 passed | 0 | 0 |
+| Documentation | 785 clean; editorial subset 10 clean | 785 clean; editorial subset 10 clean | not tests | 0 |
+| Complete matrix | 403 counted passes | 403 counted passes | 0 | 0 |
+
+The Go logs additionally contain 18 nested pass events per store mode;
+these are not added to the top-level total. Two runs yield 806 counted
+passes, not a proof that every SLCO invariant is satisfied. Counts and
+return codes match; 165 normalised named pass events also match. Raw logs
+are not byte-identical. The historical 784-file target is not the observed
+785-file result. The ignored local PRD is present during both runs.
+
+**Execution metrics:** Run 1: `2026-10-15T01:05:15.123479+01:00` to
+`2026-10-15T01:06:31.127448+01:00`, PID `3998332`, observer `3998312`,
+`76.0039880159311` seconds, child max RSS `645496` KiB. Run 2:
+`2026-10-15T01:06:43.346054+01:00` to
+`2026-10-15T01:07:59.899107+01:00`, PID `4136142`, observer `4136123`,
+`76.55303903308231` seconds, child max RSS `644108` KiB. These are measured
+child maxima, not aggregate simultaneous tree RSS. No numeric memory/PID
+ceiling is supplied; strict resource-budget certification is UNVERIFIED.
+The initial missing `/usr/bin/time` instrumentation attempt did not run
+the matrix and is retained separately, not counted as a test failure.
+
+**Prerequisite closure:** All four cited evidence commits are ancestors
+of the evaluated integration HEAD. The helper reports corroborated pass
+tags, but that does not resolve substantive contradictions:
+
+| Card | Verified evidence commit | Qualified finding |
+| :--- | :--- | :--- |
+| SLCO-P1-1 | `86a4bdb556cbb11f2eed4b0fcf29cacf1b307506` | External pass errata explicitly reports 226 passed and 1 skipped. Zero-skip gate fails. |
+| SLCO-P1-2 | `69256c857bb6d12462400c2a846c98ef0f91e200` | Reports 23 passes; committed evidence reports persistence/coverage drift; full metrics absent. |
+| SLCO-P1-3 | `11ea9f5daccaf37f84949a867bc2510ebe6b30e2` | Header selectors at test_negative_security.py:395-413 raise test-local exceptions, not production rejection. |
+| SLCO-P1-4 | `99d190b6cba2e0ead44f7ff6061def7b8ba21698` | RLS/perimeter contract conflicts remain; hash implementation explicitly is not HMAC. |
+
+**Doctor:** Final captured exit `1`, UNHEALTHY, DOC-3 dirty principal
+proposal and DOC-5 orphan `/tmp/slsi-sync-main`. Separate link-check exit
+`0`: all six graph rules pass, CRITICAL=0, FAIL=0, WARN=0. Do not call this
+invalid graph state, a clean doctor result, or zero orphan worktrees.
+No foreign worktree was edited or removed by this governor.
+
+**Boundary evidence:** Both matrices pass existing quote/SQL-injection,
+empty/whitespace company, and malformed-hash exit-2 assertions in the
+mock CLI suite. This is bounded negative-input coverage, not a new
+randomised fuzz campaign or production HTTP security proof. Matrix logs
+contain zero matches for the audited unhandled traceback signatures;
+live user-facing output remains UNVERIFIED. C1-C3/T1-T6 and broader
+Life OS/PAI qualifications appear in certification.json. No passing
+security certificate or Phase 1 sign-off is issued.
+
+**Evidence location:** `docs/records/ci-evidence/slco-p1-gov-20261015/`.
+Run 1 SHA256:
+`932a174d73e835555da5015567985d697adee965f0ad766d870a868d319805d0`.
+Run 2 SHA256:
+`472516d53593da63a5257e6cfa62bc65e74db409183fc6c2434b41ba00698b64`.
+The checksum manifest includes evaluated repository sources and evidence.
+
+**Spend and token use:** The mechanical tool returned this table, with
+unavailable values rather than measured zeroes. Its dry run reports zero
+rows to update. `--apply` was not run because the named destination is
+a protected principal-checkout regular file, not the claimed vault link.
+
+| Task | Est. Cost | Tokens | Elapsed | AI URI |
+| :--- | :-------- | :----- | :------ | :----- |
+| P0 | — | — | — | — |
+| P1-PRE | — | — | — | — |
+| P1-1 | — | — | — | — |
+| P1-2 | — | — | — | — |
+| P1-3 | — | — | — | — |
+| P1-4 | — | — | — | — |
+| P1-GOV | — | — | — | — |
+| P2-PRE | — | — | — | — |
+| P2-1 | — | — | — | — |
+| P2-2 | — | — | — | — |
+| P2-3 | — | — | — | — |
+| P2-4 | — | — | — | — |
+| P2-GOV | — | — | — | — |
+
+**Required principal resolution:** Resolve the external proposal destination
+and conflicting governor verdict; have the owning actor reconcile the dirty
+proposal and orphan worktree; approve production-sensitive test/architecture
+remediation rather than bypassing assertions. The create-only lifecycle
+contract and failed gates prohibit board advancement. No push, feature
+change, live provisioning, database mutation, raw Kanban mutation, or
+sibling edit was performed. This pending block must not be represented
+as already applied proposal errata.

@@ -243,13 +243,14 @@ spec:
               # 2Gi (2026-10-06): GET /observations and /store/stats each decode
               # the whole store (handlers.go, q.Limit = 0) before truncating, so
               # two concurrent dashboard polls over a 130 MiB Parquet store were
-              # OOM-killed at 1Gi (7 restarts, /feeds 502). Stopgap until EAPCI
-              # P1-6 bounds the read; remove this headroom when it lands.
+              # OOM-killed at 1Gi (7 restarts, /feeds 502). EAPCI P1-6 later bounded
+              # the rows those reads return.
               # 8Gi briefly on 2026-10-15 (485 MB store, 28 OOMKills, /weave 502) until
               # the root cause was fixed: FrostDB fanned every scan out to GOMAXPROCS
               # (24 on kind) concurrent Parquet decodes. The image now sets
               # GOMAXPROCS=2 and the hot reads are bounded; two concurrent /weave
-              # viewers measured 42 MiB peak (was 6.7 GiB). Back to the 2Gi floor.
+              # viewers measured 42 MiB peak (was 6.7 GiB). 2Gi stays as headroom for
+              # /store/stats, which still scans every block (deploy_memory_test.go).
               memory: 2Gi
       volumes:
         # The FrostDB Parquet segments and their attestation evidence. The ephemeral

@@ -8,11 +8,12 @@ import (
 	"testing"
 )
 
-// minIngestMemoryMiB is the stopgap floor. GET /api/v1/observations and /api/v1/store/stats each
-// decode the whole FrostDB store per request (api/handlers.go, q.Limit = 0 and an unfiltered
-// QueryRange); two concurrent /feeds polls OOM-killed signal-ingest 7 times at 1Gi on 2026-10-06,
-// which fe-signalloom surfaced to the dashboard as a 502. EAPCI P1-6 bounds those reads; until it
-// lands, lowering the limit reintroduces the outage, so it is pinned here.
+// minIngestMemoryMiB is the floor for the signal-ingest memory limit. It began as a stopgap: on
+// 2026-10-06 GET /api/v1/observations and /api/v1/store/stats decoded the whole FrostDB store per
+// request and two concurrent /feeds polls OOM-killed signal-ingest at 1Gi. EAPCI P1-6 bounded the
+// rows those reads return, and on 2026-10-15 the scan fan-out was bounded too (GOMAXPROCS=2 in the
+// Dockerfile, sliced QueryPage, early-stopping QueryRange; store.TestFrostDB_FullScanPeakIsBounded
+// AtTheImageGOMAXPROCS). /store/stats still scans every block, so the floor stays as headroom.
 const minIngestMemoryMiB = 2048
 
 // memMiB parses the Kubernetes binary memory quantities this manifest uses (Mi, Gi).
@@ -62,7 +63,7 @@ func TestReconciledManifestGivesIngestFullStoreReadHeadroom(t *testing.T) {
 		}
 		if got := memMiB(t, lim); got < minIngestMemoryMiB {
 			t.Errorf("signal-ingest memory limit = %s (%d MiB), want >= %d MiB: full-store reads "+
-				"OOM-kill it below that until EAPCI P1-6 bounds them", lim, got, minIngestMemoryMiB)
+				"(/store/stats still scans every block) need that headroom", lim, got, minIngestMemoryMiB)
 		}
 	}
 	if !found {
@@ -70,8 +71,9 @@ func TestReconciledManifestGivesIngestFullStoreReadHeadroom(t *testing.T) {
 	}
 }
 
-// The limit is headroom for a known defect, not a sizing decision, so the reason travels with
-// the number: whoever lowers it must read why, and whoever lands P1-6 must find it to remove it.
+// The limit is headroom for a known cost, not a sizing decision, so the reason travels with the
+// number: whoever lowers it must read why (the bounded fan-out, and /store/stats still scanning
+// every block), and whoever bounds /store/stats must find it to revisit it.
 func TestIngestMemoryLimitCarriesItsReason(t *testing.T) {
 	raw, err := os.ReadFile("base/deployment.yaml")
 	if err != nil {
@@ -93,7 +95,7 @@ func TestIngestMemoryLimitCarriesItsReason(t *testing.T) {
 			comment = append([]string{strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(lines[j]), "#"))}, comment...)
 		}
 		reason := strings.Join(comment, " ")
-		for _, want := range []string{"EAPCI P1-6", "decode the whole store"} {
+		for _, want := range []string{"EAPCI P1-6", "decode the whole store", "GOMAXPROCS", "/store/stats"} {
 			if !strings.Contains(reason, want) {
 				t.Errorf("the comment above the signal-ingest memory limit does not mention %q; got:\n%s", want, reason)
 			}

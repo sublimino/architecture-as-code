@@ -309,3 +309,35 @@ test.describe("engineering portal migration", () => {
     expect(errors).toEqual([]);
   });
 });
+
+test.describe("documentation layout width and positioning", () => {
+  test("user documentation expands content width and preserves TOC positioning without overflow", async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    const response = await page.goto(`${BASE}/start/quick-start/`, { waitUntil: "domcontentloaded" });
+    expect(response, "no HTTP response for quick-start").not.toBeNull();
+    expect(response!.status()).toBe(200);
+
+    const slContainer = page.locator(".main-pane .sl-container").first();
+    await expect(slContainer).toBeVisible();
+    const containerBox = await slContainer.boundingBox();
+    expect(containerBox, "content .sl-container has no bounding box").not.toBeNull();
+    expect(containerBox!.width).toBeGreaterThan(850);
+
+    const mainPane = page.locator(".main-pane").first();
+    const rightSidebar = page.locator(".right-sidebar").first();
+    await expect(mainPane).toBeVisible();
+    await expect(rightSidebar).toBeVisible();
+
+    const mainBox = await mainPane.boundingBox();
+    const sidebarBox = await rightSidebar.boundingBox();
+    expect(mainBox, "main-pane has no bounding box").not.toBeNull();
+    expect(sidebarBox, "right-sidebar has no bounding box").not.toBeNull();
+
+    expect(mainBox!.x + mainBox!.width).toBeLessThanOrEqual(sidebarBox!.x + 1);
+
+    const hasNoHorizontalOverflow = await page.evaluate(() => {
+      return document.documentElement.scrollWidth <= document.documentElement.clientWidth;
+    });
+    expect(hasNoHorizontalOverflow).toBe(true);
+  });
+});

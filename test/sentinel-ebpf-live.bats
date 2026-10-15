@@ -28,11 +28,19 @@
 
 bats_require_minimum_version 1.5.0
 
+warden_manifest_namespace() {
+    yq -r 'select(.kind == "DaemonSet" and .metadata.name == "signalloom-warden") | .metadata.namespace' \
+        "${BATS_TEST_DIRNAME}/../d2-signalloom/infra/agent-swarm/signalloom-warden/daemonset.yaml"
+}
+
 setup_file() {
     export REPO_ROOT="${BATS_TEST_DIRNAME}/.."
     export WL_CONTEXT="${WL_CONTEXT:-kind-osramp}"
     export KIND_NODE="${KIND_NODE:-osramp-control-plane}"
     export AGENT_NS="${AGENT_NS:-fe-signalloom-agents}"
+    # The warden runs in its own namespace since 58aab9cb; read it from the
+    # manifest so the live run cannot drift from what Flux deploys.
+    export WARDEN_NS="${WARDEN_NS:-$(warden_manifest_namespace)}"
     export INGEST_NS="${INGEST_NS:-fe-signalloom}"
     export PROOF_JSON="${BATS_FILE_TMPDIR}/sentinel-ebpf-proof.json"
 
@@ -43,6 +51,7 @@ setup_file() {
                 --context "${WL_CONTEXT}" \
                 --kind-node "${KIND_NODE}" \
                 --namespace "${AGENT_NS}" \
+                --warden-namespace "${WARDEN_NS}" \
                 --ingest-namespace "${INGEST_NS}" \
                 --json "${PROOF_JSON}" >&2
         fi
@@ -217,4 +226,16 @@ warden_image_matches_pin() {
     total_obs="$(jq -r '.paging_and_determinism.total_observations_1' "${PROOF_JSON}")"
     [ "$match" = "true" ]
     [ "$total_obs" -gt 0 ]
+}
+
+@test "offline: the live runner looks for the warden in the manifest's namespace, not the agents'" {
+    local ns runner="${BATS_TEST_DIRNAME}/../scripts/sentinel-ebpf-live-runner.py"
+    ns="$(warden_manifest_namespace)"
+    [ -n "$ns" ] && [ "$ns" != fe-signalloom-agents ]
+    # every kubectl call that names the warden addresses the warden namespace
+    run grep -nE '"-n", args\.namespace,.*signalloom-warden|args\.namespace, "logs", f"pod/\{warden_pod_name' "$runner"
+    [ "$status" -eq 1 ] || { echo "$output"; return 1; }
+    [ "$(grep -cE 'args\.warden_namespace' "$runner")" -ge 4 ]
+    # and the suite passes the manifest's namespace through
+    grep -q -- '--warden-namespace "${WARDEN_NS}"' "${BATS_TEST_FILENAME}"
 }

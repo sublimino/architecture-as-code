@@ -191,6 +191,7 @@ def main():
     parser.add_argument("--context", default="kind-osramp", help="Kubernetes context")
     parser.add_argument("--kind-node", default="osramp-control-plane", help="Kind node container name")
     parser.add_argument("--namespace", default="fe-signalloom-agents", help="Agent namespace")
+    parser.add_argument("--warden-namespace", default="inf-signalloom-warden", help="Namespace the signalloom-warden DaemonSet runs in")
     parser.add_argument("--ingest-namespace", default="fe-signalloom", help="Signal Ingest namespace")
     parser.add_argument("--json", dest="json_out", default="", help="Output proof JSON path")
     args = parser.parse_args()
@@ -210,13 +211,13 @@ def main():
 
     # Verify Warden image tag
     running_image = subprocess.check_output([
-        "kubectl", "--context", args.context, "-n", args.namespace, "get", "ds", "signalloom-warden",
+        "kubectl", "--context", args.context, "-n", args.warden_namespace, "get", "ds", "signalloom-warden",
         "-o", "jsonpath={.spec.template.spec.containers[*].image}"
     ]).decode().strip()
 
     # Get initial warden restart count
     warden_pod_initial = subprocess.check_output([
-        "kubectl", "--context", args.context, "-n", args.namespace, "get", "pods", "-l", "app.kubernetes.io/name=signalloom-warden",
+        "kubectl", "--context", args.context, "-n", args.warden_namespace, "get", "pods", "-l", "app.kubernetes.io/name=signalloom-warden",
         "-o", "json"
     ]).decode()
     warden_initial_json = json.loads(warden_pod_initial)["items"][0]
@@ -431,7 +432,7 @@ time.sleep(35.0)
 
     # Read final warden restart count
     warden_pod_final = subprocess.check_output([
-        "kubectl", "--context", args.context, "-n", args.namespace, "get", "pods", "-l", "app.kubernetes.io/name=signalloom-warden",
+        "kubectl", "--context", args.context, "-n", args.warden_namespace, "get", "pods", "-l", "app.kubernetes.io/name=signalloom-warden",
         "-o", "json"
     ]).decode()
     final_restarts = json.loads(warden_pod_final)["items"][0]["status"]["containerStatuses"][0]["restartCount"]
@@ -498,7 +499,7 @@ time.sleep(35.0)
 
     # Read latest warden correlator stats from logs
     warden_logs = subprocess.check_output([
-        "kubectl", "--context", args.context, "-n", args.namespace, "logs", f"pod/{warden_pod_name}",
+        "kubectl", "--context", args.context, "-n", args.warden_namespace, "logs", f"pod/{warden_pod_name}",
         "--tail=100"
     ]).decode()
     latest_drops = 0

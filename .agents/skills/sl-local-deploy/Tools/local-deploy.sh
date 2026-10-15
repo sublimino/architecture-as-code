@@ -45,6 +45,7 @@ BUILD_DASHBOARD_BIN="${BUILD_DASHBOARD_BIN:-./scripts/build-sign-dashboard.sh}"
 BUILD_DOCS_BIN="${BUILD_DOCS_BIN:-./scripts/build-sign-docs.sh}"
 KIND_LOAD_VERIFIED_BIN="${KIND_LOAD_VERIFIED_BIN:-./scripts/kind-load-verified.sh}"
 PUSH_LOCAL_BIN="${PUSH_LOCAL_BIN:-./scripts/push-local.sh}"
+FLUX_BIN="${FLUX_BIN:-flux}"
 
 usage() {
   cat <<EOF
@@ -53,7 +54,7 @@ Usage: $(basename "$0") [OPTIONS]
 Fast, observable developer deployment pipeline for in-flight changes.
 
 Options:
-  -w, --workload <name>    Workload to deploy: dashboard, backend, docs, ingest, manifests, all, auto (default: auto)
+  -w, --workload <name>    Workload to deploy: dashboard, backend, docs, ingest, fleet, warden, supercred-runner, manifests, all, auto (default: auto)
   -c, --commit <msg>       Commit in-flight changes with conventional commit message (--no-gpg-sign)
   --auto-commit            Automatically commit dirty files before deploying
   --no-commit              Proceed without committing
@@ -63,13 +64,16 @@ Options:
   -h, --help               Show this help message
 
 Workload mapping:
-  dashboard  d2-signalloom/apps/dashboard-signalloom (React frontend)
-  backend    d2-signalloom/apps/fe-signalloom (FastAPI + DB migrations)
-  docs       d2-signalloom/apps/docs-signalloom (Docs portal)
-  ingest     d2-signalloom/apps/signal-ingest (Signal Fusion Ingest Service)
-  manifests  d2-signalloom/apps, d2-signalloom/infra, d2-osramp-fleet
-  all        All Signal Loom workloads and manifests
-  auto       Automatically detect affected workloads from git diff
+  dashboard         d2-signalloom/apps/dashboard-signalloom (React frontend)
+  backend           d2-signalloom/apps/fe-signalloom (FastAPI + DB migrations)
+  docs               d2-signalloom/apps/docs-signalloom (Docs portal)
+  ingest             d2-signalloom/apps/signal-ingest (Signal Fusion Ingest Service)
+  fleet              d2-osramp-fleet (fleet ResourceSets; push + reconcile Kustomization 'tenants')
+  warden             signalloom-warden/stun-sentinel DaemonSet (sentinel image publish)
+  supercred-runner   supercred-demo-runner image (SuperCred/Signal Fusion/Distance Latency demo API)
+  manifests          d2-signalloom/apps, d2-signalloom/infra
+  all                All Signal Loom workloads and manifests, including fleet, warden, supercred-runner
+  auto               Automatically detect affected workloads from git diff
 EOF
   exit 0
 }
@@ -243,12 +247,55 @@ extract_deployment_images() {
   done
 }
 
+# Reuse scripts/lib/source-id.sh's derivation of "which files does this
+# Dockerfile COPY" for auto-detecting warden and supercred-runner changes, so
+# the detection glob cannot drift from the same COPY-source parsing that
+# scripts/sentinel-image-tag.sh (warden) and scripts/supercred-images.sh
+# (supercred-runner) already use for their own build-input/dirty-check sets.
+# shellcheck source=scripts/lib/source-id.sh
+source ./scripts/lib/source-id.sh
+
+# The sentinel Dockerfile's build context is d2-signalloom/apps (see
+# d2-signalloom/Makefile's swarm-stun-sentinel-image), so its COPY sources are
+# context-relative and must be re-rooted at the repo root.
+warden_input_paths() {
+  local dockerfile="d2-signalloom/apps/signalloom-stun-sentinel/Dockerfile"
+  [[ -f "${dockerfile}" ]] || return 0
+  source_id_copied_paths "${dockerfile}" "signalloom-stun-sentinel/Dockerfile" | sed 's|^|d2-signalloom/apps/|'
+}
+
+# supercred-demo-runner's build context is the repo root (scripts/supercred-images.sh
+# DEMO_IMAGES entry "supercred-demo-runner:local|.|..."), so its COPY sources
+# are already repo-root-relative.
+supercred_runner_input_paths() {
+  local dockerfile="d2-signalloom/apps/supercred-demo-runner/Dockerfile"
+  [[ -f "${dockerfile}" ]] || return 0
+  source_id_copied_paths "${dockerfile}" "${dockerfile}"
+}
+
+# True if $1 is exactly one of the remaining args, or lives under one of them.
+path_under_any() {
+  local path="$1"
+  shift
+  local p
+  for p in "$@"; do
+    [[ -z "$p" ]] && continue
+    if [[ "$path" == "$p" || "$path" == "$p"/* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 # 3. Workload Detection
 TARGET_DASHBOARD=false
 TARGET_BACKEND=false
 TARGET_DOCS=false
 TARGET_INGEST=false
 TARGET_MANIFESTS=false
+TARGET_FLEET=false
+TARGET_WARDEN=false
+TARGET_SUPERCRED_RUNNER=false
 DYNAMIC_APPS=()
 
 if [[ "${WORKLOAD}" == "auto" ]]; then
@@ -270,6 +317,9 @@ if [[ "${WORKLOAD}" == "auto" ]]; then
 
   DIFF_PATHS="$(echo "${DIFF_PATHS}" | sed '/^$/d' | sort -u || true)"
 
+  mapfile -t WARDEN_INPUT_PATHS < <(warden_input_paths)
+  mapfile -t RUNNER_INPUT_PATHS < <(supercred_runner_input_paths)
+
   while IFS= read -r path; do
     [[ -z "$path" ]] && continue
     if [[ "$path" =~ ^d2-signalloom/apps/([^/]+) ]]; then
@@ -279,6 +329,14 @@ if [[ "${WORKLOAD}" == "auto" ]]; then
         fe-signalloom)        TARGET_BACKEND=true ;;
         docs-signalloom)      TARGET_DOCS=true ;;
         signal-ingest)        TARGET_INGEST=true ;;
+        # stun-sentinel, signalloom-stun-sentinel and supercred-demo-runner are
+        # deliberately NOT named here: their TARGET_WARDEN/TARGET_SUPERCRED_RUNNER
+        # assignment comes only from the Dockerfile-derived WARDEN_INPUT_PATHS/
+        # RUNNER_INPUT_PATHS check below, via path_under_any -- a hand-written
+        # app-name list here would be the second declaration of "what belongs to
+        # this image" the SKILL's own reasoning (scripts/lib/source-id.sh) warns
+        # against, and it would silently stop matching the day a COPY line moves.
+        stun-sentinel|signalloom-stun-sentinel|supercred-demo-runner) ;;
         *)
           if [[ -d "d2-signalloom/apps/${app}" ]]; then
             DYNAMIC_APPS+=("${app}")
@@ -288,8 +346,23 @@ if [[ "${WORKLOAD}" == "auto" ]]; then
       esac
     elif [[ "$path" =~ ^d2-signalloom/pkg/obscel ]]; then
       TARGET_INGEST=true
-    elif [[ "$path" =~ ^d2-signalloom/infra/ ]] || [[ "$path" =~ ^d2-osramp-fleet/ ]]; then
+    elif [[ "$path" =~ ^d2-signalloom/infra/ ]]; then
       TARGET_MANIFESTS=true
+    elif [[ "$path" =~ ^d2-osramp-fleet/ ]]; then
+      TARGET_FLEET=true
+    fi
+
+    # Warden and supercred-runner build inputs span multiple top-level trees
+    # (apps/, scripts/, infra/), derived straight from their Dockerfiles'
+    # COPY lines (see warden_input_paths/supercred_runner_input_paths above),
+    # so they are checked independently of the primary category above rather
+    # than folded into the if/elif chain -- a single path (e.g. a
+    # fe-signalloom/src edit) can affect more than one workload.
+    if path_under_any "$path" "${WARDEN_INPUT_PATHS[@]}"; then
+      TARGET_WARDEN=true
+    fi
+    if path_under_any "$path" "${RUNNER_INPUT_PATHS[@]}"; then
+      TARGET_SUPERCRED_RUNNER=true
     fi
   done <<< "${DIFF_PATHS}"
 
@@ -298,7 +371,8 @@ if [[ "${WORKLOAD}" == "auto" ]]; then
   fi
 
   # If nothing specific detected, default to dashboard
-  if ! ${TARGET_DASHBOARD} && ! ${TARGET_BACKEND} && ! ${TARGET_DOCS} && ! ${TARGET_INGEST} && ! ${TARGET_MANIFESTS} && [[ ${#DYNAMIC_APPS[@]} -eq 0 ]]; then
+  if ! ${TARGET_DASHBOARD} && ! ${TARGET_BACKEND} && ! ${TARGET_DOCS} && ! ${TARGET_INGEST} && ! ${TARGET_MANIFESTS} \
+     && ! ${TARGET_FLEET} && ! ${TARGET_WARDEN} && ! ${TARGET_SUPERCRED_RUNNER} && [[ ${#DYNAMIC_APPS[@]} -eq 0 ]]; then
     echo "    No specific workload edits detected; defaulting to dashboard."
     TARGET_DASHBOARD=true
   fi
@@ -308,6 +382,9 @@ else
     backend)   TARGET_BACKEND=true ;;
     docs)      TARGET_DOCS=true ;;
     ingest|signal-ingest) TARGET_INGEST=true ;;
+    fleet) TARGET_FLEET=true ;;
+    warden|sentinel|signalloom-warden) TARGET_WARDEN=true ;;
+    supercred-runner|supercred_runner|supercred-demo-runner) TARGET_SUPERCRED_RUNNER=true ;;
     manifests) TARGET_MANIFESTS=true ;;
     all)
       TARGET_DASHBOARD=true
@@ -315,6 +392,9 @@ else
       TARGET_DOCS=true
       TARGET_INGEST=true
       TARGET_MANIFESTS=true
+      TARGET_FLEET=true
+      TARGET_WARDEN=true
+      TARGET_SUPERCRED_RUNNER=true
       ;;
     *)
       if [[ -d "d2-signalloom/apps/${WORKLOAD}" ]]; then
@@ -333,10 +413,13 @@ ${TARGET_DASHBOARD} && echo "      - dashboard-signalloom (Frontend)"
 ${TARGET_BACKEND}   && echo "      - fe-signalloom (FastAPI Backend / Migrations)"
 ${TARGET_DOCS}      && echo "      - docs-signalloom (Documentation Portal)"
 ${TARGET_INGEST}    && echo "      - signal-ingest (Signal Fusion Ingest Service)"
+${TARGET_WARDEN}    && echo "      - signalloom-warden (Sentinel DaemonSet)"
+${TARGET_SUPERCRED_RUNNER} && echo "      - supercred-demo-runner (Demo Runner Image)"
 for dapp in "${DYNAMIC_APPS[@]:-}"; do
   [[ -n "$dapp" ]] && echo "      - ${dapp} (Discovered App)"
 done
 ${TARGET_MANIFESTS} && echo "      - manifests / Kustomizations"
+${TARGET_FLEET}     && echo "      - fleet (d2-osramp-fleet ResourceSets)"
 
 if [[ "${DRY_RUN}" == "true" ]]; then
   echo ""
@@ -439,16 +522,44 @@ if [[ "${TARGET_INGEST}" == "true" ]]; then
   echo "    ✓ signal-ingest built, verified on Kind, and published to Zot."
 fi
 
+if [[ "${TARGET_WARDEN}" == "true" ]]; then
+  echo "    Building and publishing signalloom-warden (sentinel)..."
+  if ! "${MAKE_BIN}" -C d2-signalloom sentinel-image-publish CLUSTER_NAME="${CLUSTER_NAME}"; then
+    echo "ERROR: Failed to build and publish signalloom-warden (sentinel) image." >&2
+    exit 1
+  fi
+  echo "    ✓ signalloom-warden built, verified on Kind, and published to Zot."
+fi
+
+if [[ "${TARGET_SUPERCRED_RUNNER}" == "true" ]]; then
+  echo "    Building and loading supercred-demo-runner..."
+  if ! "${MAKE_BIN}" demo-signalloom-supercred-runner-image CLUSTER_NAME="${CLUSTER_NAME}"; then
+    echo "ERROR: Failed to build and load supercred-demo-runner image." >&2
+    exit 1
+  fi
+  echo "    ✓ supercred-demo-runner built and verified on Kind."
+fi
+
 # 6. GitOps Reconciliation (Push OCI Artifact & Reconcile Flux)
 if [[ "${SKIP_RECONCILE}" == "false" ]]; then
   echo "==> Step 6: Pushing OCI manifests and reconciling Flux..."
   "${PUSH_LOCAL_BIN}" signalloom
 
-  if command -v flux >/dev/null 2>&1; then
+  if command -v "${FLUX_BIN}" >/dev/null 2>&1; then
     echo "    Reconciling Flux OCI source 'fe-signalloom'..."
-    flux reconcile source oci fe-signalloom -n fe-signalloom || true
+    "${FLUX_BIN}" reconcile source oci fe-signalloom -n fe-signalloom || true
     echo "    Reconciling Flux Kustomization 'apps'..."
-    flux reconcile kustomization apps -n fe-signalloom || true
+    "${FLUX_BIN}" reconcile kustomization apps -n fe-signalloom || true
+  fi
+
+  if [[ "${TARGET_FLEET}" == "true" ]]; then
+    echo "    Pushing fleet artifact (d2-osramp-fleet)..."
+    "${PUSH_LOCAL_BIN}" fleet
+    if command -v "${FLUX_BIN}" >/dev/null 2>&1; then
+      echo "    Reconciling Flux Kustomization 'tenants'..."
+      "${FLUX_BIN}" reconcile kustomization tenants -n flux-system --with-source || true
+    fi
+    echo "    ✓ fleet pushed and tenants Kustomization reconciled."
   fi
 else
   echo "==> Step 6: Skipping Flux reconciliation (--no-reconcile specified)."

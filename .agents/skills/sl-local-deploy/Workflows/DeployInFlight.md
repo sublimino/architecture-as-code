@@ -11,10 +11,11 @@ flowchart TD
   B --> C["3. Auto-Detect Workloads"]
   C --> D["4. Sync Kustomization Patches"]
   D --> E["5. Build and Sign Images"]
-  E --> F["6. Push OCI Manifests"]
-  F --> G["7. Preflight Images and Rollout"]
-  G --> H["8. Heal Ingress Port-Forwards"]
-  H --> I["9. Run Staleness Readback Proof"]
+  E --> F["6. Publish Warden / SuperCred-Runner"]
+  F --> G["7. Push OCI Manifests + Fleet/Tenants"]
+  G --> H["8. Preflight Images and Rollout"]
+  H --> I["9. Heal Ingress Port-Forwards"]
+  I --> J["10. Run Staleness Readback Proof"]
 ```
 
 ## Step 1: Inspect Working Tree and Current Pods
@@ -52,16 +53,32 @@ Run the deployment tool to build, sign, and roll out changes:
 ```
 
 The script performs the following actions:
-1. Detects which workloads changed based on Git diffs (`dashboard`, `backend`, `docs`, `signal-ingest`, or discovered apps).
+1. Detects which workloads changed based on Git diffs (`dashboard`, `backend`, `docs`, `signal-ingest`, `fleet`, `warden`, `supercred-runner`, or discovered apps).
 2. Synchronizes image tag patches in `d2-signalloom/apps/fe-signalloom/local/kustomization.yaml` and deployment pins in `d2-signalloom/apps/signal-ingest/base/deployment.yaml`.
 3. Builds container images with provenance attestations and SBOM metadata.
 4. Signs images and OCI artifacts using Cosign.
 5. Loads images into the Kind node via `kind load docker-image` and `kind-load-verified.sh`.
-6. Publishes manifests to the in-cluster Zot registry via `scripts/push-local.sh signalloom`.
-7. Verifies required container images are present in the Kind CRI image store before rollout.
-8. Reconciles Flux Kustomizations and restarts deployments.
-9. Re-establishes severed port-forwards on port 19080.
-10. Proves deployment freshness via `check-deployed-staleness.sh` and halts if stale.
+6. When `warden` is targeted, publishes the signalloom-warden (sentinel) DaemonSet image via `make -C d2-signalloom sentinel-image-publish`. When `supercred-runner` is targeted, builds and loads it via `make demo-signalloom-supercred-runner-image`.
+7. Publishes manifests to the in-cluster Zot registry via `scripts/push-local.sh signalloom`. When `fleet` is targeted, also pushes the fleet artifact via `scripts/push-local.sh fleet` and reconciles the `tenants` Flux Kustomization. Without this, the agent-swarm ResourceSet in `d2-osramp-fleet/tenants/base/agent-swarm.yaml` keeps running stale.
+8. Verifies required container images are present in the Kind CRI image store before rollout.
+9. Reconciles Flux Kustomizations and restarts deployments.
+10. Re-establishes severed port-forwards on port 19080.
+11. Proves deployment freshness via `check-deployed-staleness.sh` and halts if stale.
+
+### Fleet, Warden and SuperCred-Runner
+
+A change under `d2-osramp-fleet/**`, or to the sentinel's or supercred-demo-runner's
+build inputs, is auto-detected the same way as the core workloads. See
+`scripts/sentinel-image-tag.sh` and `scripts/supercred-images.sh` for each
+workload's exact input set. No extra flag is needed. To target one explicitly:
+
+```bash
+.agents/skills/sl-local-deploy/Tools/local-deploy.sh -w fleet
+.agents/skills/sl-local-deploy/Tools/local-deploy.sh -w warden
+.agents/skills/sl-local-deploy/Tools/local-deploy.sh -w supercred-runner
+```
+
+`-w all` includes all three alongside dashboard/backend/docs/ingest.
 
 ## Step 4: Verify Deployment Freshness
 

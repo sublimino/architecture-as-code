@@ -169,6 +169,24 @@ FAKE
   chmod +x "$bin/kind-load-verified.sh"
   export KIND_LOAD_VERIFIED_BIN="$bin/kind-load-verified.sh"
 
+  # Fake push-local.sh
+  cat >"$bin/push-local.sh" <<-'FAKE'
+    #!/usr/bin/env bash
+    echo "push-local $*" >>"${CALL_LOG}"
+    exit 0
+FAKE
+  chmod +x "$bin/push-local.sh"
+  export PUSH_LOCAL_BIN="$bin/push-local.sh"
+
+  # Fake flux
+  cat >"$bin/flux" <<-'FAKE'
+    #!/usr/bin/env bash
+    echo "flux $*" >>"${CALL_LOG}"
+    exit 0
+FAKE
+  chmod +x "$bin/flux"
+  export FLUX_BIN="$bin/flux"
+
   PATH="$bin:$PATH"
   export PATH
 }
@@ -244,6 +262,97 @@ FAKE
   [[ "$output" =~ "ERROR: signal-ingest refused to generate image tag" ]]
   [[ "$output" =~ "--auto-commit" ]]
   ! grep -q "rollout restart" "$CALL_LOG"
+}
+
+# ─── Test 6: fleet workload ───────────────────────────────────────────────────
+
+@test "fleet workload pushes fleet artifact and reconciles tenants kustomization" {
+  run "$script" -w fleet
+  [ "$status" -eq 0 ]
+  grep -q "push-local fleet" "$CALL_LOG"
+  grep -q "flux reconcile kustomization tenants -n flux-system --with-source" "$CALL_LOG"
+}
+
+@test "fleet workload is included in all" {
+  run "$script" -w all --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "- fleet (d2-osramp-fleet ResourceSets)" ]]
+}
+
+@test "fleet push and tenants reconcile are skipped entirely under --no-reconcile" {
+  run "$script" -w fleet --no-reconcile
+  [ "$status" -eq 0 ]
+  ! grep -q "push-local fleet" "$CALL_LOG"
+  ! grep -q "tenants" "$CALL_LOG"
+}
+
+@test "fleet push is not run for an unrelated workload even when GitOps reconciliation runs" {
+  run "$script" -w dashboard
+  [ "$status" -eq 0 ]
+  grep -q "push-local signalloom" "$CALL_LOG"
+  ! grep -q "push-local fleet" "$CALL_LOG"
+  ! grep -q "tenants" "$CALL_LOG"
+}
+
+@test "auto-detection selects fleet when d2-osramp-fleet changes" {
+  export OVERRIDE_DIFF_PATHS="d2-osramp-fleet/tenants/base/agent-swarm.yaml"
+  run "$script" -w auto --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "- fleet (d2-osramp-fleet ResourceSets)" ]]
+}
+
+# ─── Test 7: warden workload ──────────────────────────────────────────────────
+
+@test "warden workload publishes the sentinel image via make" {
+  run "$script" -w warden --no-reconcile
+  [ "$status" -eq 0 ]
+  grep -q "make -C d2-signalloom sentinel-image-publish CLUSTER_NAME=osramp" "$CALL_LOG"
+}
+
+@test "warden workload is included in all" {
+  run "$script" -w all --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "- signalloom-warden (Sentinel DaemonSet)" ]]
+}
+
+@test "sentinel-image-publish is not run for an unrelated workload" {
+  run "$script" -w dashboard --no-reconcile
+  [ "$status" -eq 0 ]
+  ! grep -q "sentinel-image-publish" "$CALL_LOG"
+}
+
+@test "auto-detection selects warden when a sentinel Dockerfile input changes" {
+  export OVERRIDE_DIFF_PATHS="d2-signalloom/apps/signalloom-stun-sentinel/config.go"
+  run "$script" -w auto --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "- signalloom-warden (Sentinel DaemonSet)" ]]
+}
+
+# ─── Test 8: supercred-runner workload ────────────────────────────────────────
+
+@test "supercred-runner workload builds and loads via make" {
+  run "$script" -w supercred-runner --no-reconcile
+  [ "$status" -eq 0 ]
+  grep -q "make demo-signalloom-supercred-runner-image CLUSTER_NAME=osramp" "$CALL_LOG"
+}
+
+@test "supercred-runner workload is included in all" {
+  run "$script" -w all --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "- supercred-demo-runner (Demo Runner Image)" ]]
+}
+
+@test "demo-signalloom-supercred-runner-image is not run for an unrelated workload" {
+  run "$script" -w dashboard --no-reconcile
+  [ "$status" -eq 0 ]
+  ! grep -q "supercred-runner-image" "$CALL_LOG"
+}
+
+@test "auto-detection selects supercred-runner when its Dockerfile input changes" {
+  export OVERRIDE_DIFF_PATHS="scripts/supercred-demo.sh"
+  run "$script" -w auto --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "- supercred-demo-runner (Demo Runner Image)" ]]
 }
 
 # ─── Additional workload option checks ───────────────────────────────────────

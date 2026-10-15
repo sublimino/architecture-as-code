@@ -79,4 +79,35 @@ Run the deployment tool from repository root:
 .agents/skills/sl-local-deploy/Tools/local-deploy.sh -w dashboard
 .agents/skills/sl-local-deploy/Tools/local-deploy.sh -w backend
 .agents/skills/sl-local-deploy/Tools/local-deploy.sh -w ingest
+.agents/skills/sl-local-deploy/Tools/local-deploy.sh -w fleet
+.agents/skills/sl-local-deploy/Tools/local-deploy.sh -w warden
+.agents/skills/sl-local-deploy/Tools/local-deploy.sh -w supercred-runner
+
+# Deploy everything, including fleet, warden and supercred-runner
+.agents/skills/sl-local-deploy/Tools/local-deploy.sh -w all
 ```
+
+### Fleet, Warden and SuperCred-Runner Workloads
+
+Three workloads beyond the core dashboard/backend/docs/ingest set, each wrapping an
+existing make/script entry point rather than reimplementing it:
+
+- **`fleet`** — `d2-osramp-fleet/**` changes (e.g. the agent-swarm ResourceSet). Pushes
+  the fleet artifact (`scripts/push-local.sh fleet`) and reconciles the `tenants`
+  Flux Kustomization. Without this, the cluster keeps running the old ResourceSet.
+- **`warden`** — the signalloom-warden (sentinel) DaemonSet image. Runs
+  `make -C d2-signalloom sentinel-image-publish CLUSTER_NAME=<cluster>`. Auto-detection
+  reuses `scripts/sentinel-image-tag.sh`'s own COPY-source derivation
+  (`scripts/lib/source-id.sh`'s `source_id_copied_paths`), so the detection glob
+  cannot drift from the fingerprint the image tag is actually built from.
+- **`supercred-runner`** — the `supercred-demo-runner` image. Runs
+  `make demo-signalloom-supercred-runner-image`. Auto-detection likewise reuses the
+  Dockerfile's own COPY sources (the same set `scripts/supercred-images.sh` builds
+  from), which span `d2-signalloom/apps/{cardvault,policy-engine,fe-signalloom}` and
+  `scripts/supercred-*.sh`/`scripts/lib`, not just its own app directory.
+
+All three are included in `-w all` and honour `--dry-run` (inspect-only, no build/push).
+`--no-reconcile` skips fleet's push+reconcile entirely. Warden and supercred-runner
+still build and load under `--no-reconcile`, since neither depends on Flux. Their
+underlying make/script binaries are injectable via `MAKE_BIN`, `PUSH_LOCAL_BIN` and
+`FLUX_BIN` for testing, same as every other workload.

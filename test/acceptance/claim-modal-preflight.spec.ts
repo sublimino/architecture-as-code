@@ -37,7 +37,7 @@ test.describe("Claim Modal Pre-Flight Verification & Reactive Objection Resoluti
     // 1. Overall Claimability Status Banner: Red Blocked state
     const claimabilityStatus = page.getByTestId("claim-modal-claimability-status");
     await expect(claimabilityStatus).toBeVisible();
-    await expect(claimabilityStatus).toContainText(/Claim Blocked — Action Required/i);
+    await expect(claimabilityStatus).toContainText(/Claim Blocked [:—] Action Required/i);
     await expect(claimabilityStatus).toContainText(/Blocked/i);
 
     // 2. Pre-Flight Prerequisites Matrix: Model Attribution must show UNDECLARED
@@ -103,7 +103,7 @@ test.describe("Claim Modal Pre-Flight Verification & Reactive Objection Resoluti
     // 1. Overall Claimability Status Banner: Green Claimable state
     const claimabilityStatus = page.getByTestId("claim-modal-claimability-status");
     await expect(claimabilityStatus).toBeVisible();
-    await expect(claimabilityStatus).toContainText(/Claimable — Ready for Governance/i);
+    await expect(claimabilityStatus).toContainText(/Claimable [:—] Ready for Governance/i);
     await expect(claimabilityStatus).toContainText(/Claimable/i);
 
     // 2. Pre-Flight Prerequisites Matrix: Model must be VERIFIED with claude-3-5-sonnet

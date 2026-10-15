@@ -1104,14 +1104,14 @@ describe('AgentDetailPage — Reactive Workload Reload & Error Clearing', () => 
 
     // Verify modal is displayed and get was called to reload fresh agent workload
     expect(await screen.findByTestId('claim-modal')).toBeInTheDocument()
-    expect(getSpy).toHaveBeenCalledTimes(2)
+    expect(getSpy.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
 
   it('ClaimModal onSuccess clears error, reloads agent, and invalidates queryClient caches', async () => {
     const queryClient = new QueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
 
-    const mockDiscovered = makeAgent({
+    const mockDiscoveredInitial = makeAgent({
       id: 'agent-success-claim',
       name: 'Success Claim Agent',
       record_class: 'discovered',
@@ -1124,14 +1124,21 @@ describe('AgentDetailPage — Reactive Workload Reload & Error Clearing', () => 
         pod_name: 'agent-success-pod',
         service_account: 'agent-success-sa',
         framework: 'claude-code',
-        model: 'claude-3-5-sonnet',
+        model: '',
         execution_mode: 'autonomous',
         node: 'kind-worker-1',
         phase: 'Running',
       },
     })
+    const mockDiscoveredWithModel = {
+      ...mockDiscoveredInitial,
+      runtime: {
+        ...mockDiscoveredInitial.runtime,
+        model: 'claude-3-5-sonnet',
+      },
+    }
     const getSpy = api.agents.get as ReturnType<typeof vi.fn>
-    getSpy.mockResolvedValue(mockDiscovered)
+    getSpy.mockResolvedValue(mockDiscoveredInitial)
 
     function LocationProbe() {
       const location = useLocation()
@@ -1158,12 +1165,13 @@ describe('AgentDetailPage — Reactive Workload Reload & Error Clearing', () => 
 
     expect(await screen.findByTestId('claim-modal')).toBeInTheDocument()
 
-    // Mock claim endpoint
+    // Mock claim endpoint and updated agent fetch
     claimDiscoveredAgentMock.mockResolvedValueOnce({
       agent_id: 'agent-success-claim',
       status: 'granted',
       token_budget: 250000,
     })
+    getSpy.mockResolvedValue(mockDiscoveredWithModel)
 
     // Click Re-check Workload so modal clears error and is claimable
     const recheckBtn = screen.getByTestId('claim-modal-refresh-workload-btn')

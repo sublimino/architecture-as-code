@@ -18,6 +18,7 @@ vi.mock('../../auth/oidc', () => ({
   useAuth0: () => ({
     user: mockAuthUser,
     getAccessTokenSilently: mockGetAccessTokenSilently,
+    token: 'test-bearer-token',
   }),
 }))
 

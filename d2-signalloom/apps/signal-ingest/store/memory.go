@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"os"
 	"sort"
 	"sync"
 	"time"
@@ -20,43 +21,140 @@ func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{}
 }
 
+// memoryPseudonymiser resolves the segment pseudonymiser from the environment.
+//
+// An UNSET key is development mode and yields (nil, nil): the store keeps cleartext, exactly as
+// it did before SLCO-P2-3. A key that is SET but unusable is an error, never a silent fall back to
+// cleartext — the FrostDB store refuses to start on the same input.
+func memoryPseudonymiser() (*SegmentPseudonymiser, error) {
+	if os.Getenv(SegmentPseudonymKeyEnv) == "" {
+		return nil, nil
+	}
+	return NewSegmentPseudonymiserFromEnv()
+}
+
+// Pseudonymiser exposes the key this store pseudonymises with, or nil in development mode.
+//
+// policy.StorePseudonymiser takes it so the live path and replay evaluate obs.actor and the
+// bundles' actor allowlists in the same pseudonym space the rows are stored in. Without it a
+// keyed MemoryStore stores pseudonyms while the policy sink evaluates cleartext, and replay
+// diverges from live.
+func (m *MemoryStore) Pseudonymiser() *SegmentPseudonymiser {
+	p, err := memoryPseudonymiser()
+	if err != nil {
+		return nil
+	}
+	return p
+}
+
+// pseudonymiseObservation moves each direct identifier into its keyed HMAC* field and clears the
+// cleartext one, which is the shape a segment-schema-v2 FrostDB row is read back in
+// (model.Observation, "Pseudonymous projection"). Putting the pseudonym into the cleartext field
+// instead would make every consumer that treats ActorHint as cleartext (policy.ActorIdentity)
+// pseudonymise it a second time.
+//
+// An empty identifier is left alone, so an HMAC* field the caller already populated survives.
+func pseudonymiseObservation(o *model.Observation, p *SegmentPseudonymiser) error {
+	for _, f := range []struct{ clear, hmac *string }{
+		{&o.ActorHint, &o.HMACActorHint},
+		{&o.ActorID, &o.HMACActorID},
+		{&o.PrincipalID, &o.HMACPrincipalID},
+		{&o.SessionID, &o.HMACSessionID},
+		{&o.ImpersonatedUser, &o.HMACImpersonatedUser},
+	} {
+		if *f.clear == "" {
+			continue
+		}
+		pseudo, err := p.Pseudonym(*f.clear)
+		if err != nil {
+			return err
+		}
+		*f.hmac = pseudo
+		*f.clear = ""
+	}
+	return nil
+}
+
 // Append adds observations to the in-memory store.
+//
+// With SIGNAL_SEGMENT_PSEUDONYM_KEY set (SLCO-P2-3), identifiers are pseudonymised at rest. The
+// whole batch is pseudonymised before any of it is stored, so a failure stores nothing rather
+// than a cleartext row.
 func (m *MemoryStore) Append(_ context.Context, observations []model.Observation) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	p, err := memoryPseudonymiser()
+	if err != nil {
+		return err
+	}
 	toAppend := make([]model.Observation, len(observations))
 	copy(toAppend, observations)
-	if p, err := NewSegmentPseudonymiserFromEnv(); err == nil && p != nil {
+	if p != nil {
 		for i := range toAppend {
-			if toAppend[i].ActorHint != "" {
-				if pseudo, err := p.Pseudonym(toAppend[i].ActorHint); err == nil && pseudo != "" {
-					toAppend[i].ActorHint = pseudo
-				}
-			}
-			if toAppend[i].ActorID != "" {
-				if pseudo, err := p.Pseudonym(toAppend[i].ActorID); err == nil && pseudo != "" {
-					toAppend[i].ActorID = pseudo
-				}
-			}
-			if toAppend[i].PrincipalID != "" {
-				if pseudo, err := p.Pseudonym(toAppend[i].PrincipalID); err == nil && pseudo != "" {
-					toAppend[i].PrincipalID = pseudo
-				}
-			}
-			if toAppend[i].SessionID != "" {
-				if pseudo, err := p.Pseudonym(toAppend[i].SessionID); err == nil && pseudo != "" {
-					toAppend[i].SessionID = pseudo
-				}
-			}
-			if toAppend[i].ImpersonatedUser != "" {
-				if pseudo, err := p.Pseudonym(toAppend[i].ImpersonatedUser); err == nil && pseudo != "" {
-					toAppend[i].ImpersonatedUser = pseudo
-				}
+			if err := pseudonymiseObservation(&toAppend[i], p); err != nil {
+				return err
 			}
 		}
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.data = append(m.data, toAppend...)
 	return nil
+}
+
+// identityMatch is a query's actor and subject filters in both representations a row can hold:
+// cleartext (no key, or a row stored before one was set) and the keyed pseudonym (HMAC* fields).
+// The pseudonyms are computed once per query, never per row.
+type identityMatch struct {
+	actor, actorPseudo     string
+	subject, subjectPseudo string
+}
+
+func newIdentityMatch(actor, subject string) (identityMatch, error) {
+	im := identityMatch{actor: actor, subject: subject}
+	if actor == "" && subject == "" {
+		return im, nil
+	}
+	p, err := memoryPseudonymiser()
+	if err != nil || p == nil {
+		return im, err
+	}
+	if im.actorPseudo, err = p.Pseudonym(actor); err != nil {
+		return im, err
+	}
+	if im.subjectPseudo, err = p.Pseudonym(subject); err != nil {
+		return im, err
+	}
+	return im, nil
+}
+
+// sameIdentity reports whether a row field pair holds want. A row carries one representation per
+// field, so the cleartext is compared with the raw query value and the HMAC field only with the
+// query's pseudonym — never the raw value, which would let a caller query by pseudonym directly.
+func sameIdentity(clear, hmac, want, wantPseudo string) bool {
+	return (clear != "" && clear == want) || (wantPseudo != "" && hmac == wantPseudo)
+}
+
+// matches applies the actor and subject filters, mirroring FrostDB's matchesQuery: actor is
+// ActorHint; subject is any of ActorHint, ActorID, PrincipalID or ImpersonatedUser, plus the
+// cleartext identity labels this store has always matched.
+func (im identityMatch) matches(o *model.Observation) bool {
+	if im.actor != "" && !sameIdentity(o.ActorHint, o.HMACActorHint, im.actor, im.actorPseudo) {
+		return false
+	}
+	if im.subject != "" {
+		s, sp := im.subject, im.subjectPseudo
+		matchSubject := sameIdentity(o.ActorHint, o.HMACActorHint, s, sp) ||
+			sameIdentity(o.ActorID, o.HMACActorID, s, sp) ||
+			sameIdentity(o.PrincipalID, o.HMACPrincipalID, s, sp) ||
+			sameIdentity(o.ImpersonatedUser, o.HMACImpersonatedUser, s, sp) ||
+			(o.Labels != nil && (o.Labels["actor_id"] == s ||
+				o.Labels["principal_id"] == s ||
+				o.Labels["impersonated_user"] == s ||
+				o.Labels["user"] == s))
+		if !matchSubject {
+			return false
+		}
+	}
+	return true
 }
 
 // matchesFilters reports whether o satisfies q's row predicates. Offset and Limit are
@@ -64,7 +162,7 @@ func (m *MemoryStore) Append(_ context.Context, observations []model.Observation
 //
 // Shared by QueryRange and ScanIDs so the two cannot drift: a row that one returns and the
 // other skips would make a warmed ID set disagree with the rows it was warmed from.
-func matchesFilters(o *model.Observation, q Query, layerSet map[model.Layer]struct{}) bool {
+func matchesFilters(o *model.Observation, q Query, layerSet map[model.Layer]struct{}, im identityMatch) bool {
 	// Kept here, not in QueryRange: ScanIDs shares this predicate, and the by-ID
 	// bound must apply to both reads or they drift apart.
 	if !q.matchesIDs(o.ID) {
@@ -87,20 +185,7 @@ func matchesFilters(o *model.Observation, q Query, layerSet map[model.Layer]stru
 			return false
 		}
 	}
-	if q.ActorID != "" && o.ActorHint != q.ActorID {
-		return false
-	}
-	if q.SubjectID != "" {
-		matchSubject := (o.ActorHint == q.SubjectID) ||
-			(o.Labels != nil && (o.Labels["actor_id"] == q.SubjectID ||
-				o.Labels["principal_id"] == q.SubjectID ||
-				o.Labels["impersonated_user"] == q.SubjectID ||
-				o.Labels["user"] == q.SubjectID))
-		if !matchSubject {
-			return false
-		}
-	}
-	return true
+	return im.matches(o)
 }
 
 // layerSetOf indexes q.Layers for membership tests.
@@ -118,10 +203,14 @@ func (m *MemoryStore) QueryRange(_ context.Context, q Query) ([]model.Observatio
 	defer m.mu.RUnlock()
 
 	layerSet := layerSetOf(q)
+	im, err := newIdentityMatch(q.ActorID, q.SubjectID)
+	if err != nil {
+		return nil, err
+	}
 
 	var matched []model.Observation
 	for i := range m.data {
-		if !matchesFilters(&m.data[i], q, layerSet) {
+		if !matchesFilters(&m.data[i], q, layerSet, im) {
 			continue
 		}
 		matched = append(matched, m.data[i])
@@ -150,10 +239,14 @@ func (m *MemoryStore) ScanIDs(_ context.Context, q Query, fn func(id string) err
 	defer m.mu.RUnlock()
 
 	layerSet := layerSetOf(q)
+	im, err := newIdentityMatch(q.ActorID, q.SubjectID)
+	if err != nil {
+		return err
+	}
 
 	emitted, skipped := 0, 0
 	for i := range m.data {
-		if !matchesFilters(&m.data[i], q, layerSet) {
+		if !matchesFilters(&m.data[i], q, layerSet, im) {
 			continue
 		}
 		if skipped < q.Offset {
@@ -179,10 +272,14 @@ func (m *MemoryStore) ScanObservations(_ context.Context, q Query, fn func(o *mo
 	defer m.mu.RUnlock()
 
 	layerSet := layerSetOf(q)
+	im, err := newIdentityMatch(q.ActorID, q.SubjectID)
+	if err != nil {
+		return err
+	}
 
 	emitted, skipped := 0, 0
 	for i := range m.data {
-		if !matchesFilters(&m.data[i], q, layerSet) {
+		if !matchesFilters(&m.data[i], q, layerSet, im) {
 			continue
 		}
 		if skipped < q.Offset {
@@ -207,9 +304,13 @@ func (m *MemoryStore) ObservationStats(_ context.Context, q Query) (ObservationS
 	defer m.mu.RUnlock()
 
 	layerSet := layerSetOf(q)
+	im, err := newIdentityMatch(q.ActorID, q.SubjectID)
+	if err != nil {
+		return ObservationStats{}, err
+	}
 	out := ObservationStats{ByLayer: map[string]int{}, ByFidelity: map[string]int{}}
 	for i := range m.data {
-		if !matchesFilters(&m.data[i], q, layerSet) {
+		if !matchesFilters(&m.data[i], q, layerSet, im) {
 			continue
 		}
 		out.Total++
@@ -253,6 +354,11 @@ func (m *MemoryStore) QueryPage(_ context.Context, q PageQuery) ([]model.Observa
 		layerSet[l] = struct{}{}
 	}
 
+	im, err := newIdentityMatch(q.ActorID, q.SubjectID)
+	if err != nil {
+		return nil, err
+	}
+
 	hasCursor := !q.CursorTimestamp.IsZero() || q.CursorID != ""
 
 	if q.Limit > 0 {
@@ -272,18 +378,8 @@ func (m *MemoryStore) QueryPage(_ context.Context, q PageQuery) ([]model.Observa
 					continue
 				}
 			}
-			if q.ActorID != "" && o.ActorHint != q.ActorID {
+			if !im.matches(o) {
 				continue
-			}
-			if q.SubjectID != "" {
-				matchSubject := (o.ActorHint == q.SubjectID) ||
-					(o.Labels != nil && (o.Labels["actor_id"] == q.SubjectID ||
-						o.Labels["principal_id"] == q.SubjectID ||
-						o.Labels["impersonated_user"] == q.SubjectID ||
-						o.Labels["user"] == q.SubjectID))
-				if !matchSubject {
-					continue
-				}
 			}
 			if !q.AllTenants {
 				if q.Tenant == "" || o.Labels == nil || o.Labels["tenant_id"] != q.Tenant {
@@ -320,18 +416,8 @@ func (m *MemoryStore) QueryPage(_ context.Context, q PageQuery) ([]model.Observa
 				continue
 			}
 		}
-		if q.ActorID != "" && o.ActorHint != q.ActorID {
+		if !im.matches(&o) {
 			continue
-		}
-		if q.SubjectID != "" {
-			matchSubject := (o.ActorHint == q.SubjectID) ||
-				(o.Labels != nil && (o.Labels["actor_id"] == q.SubjectID ||
-					o.Labels["principal_id"] == q.SubjectID ||
-					o.Labels["impersonated_user"] == q.SubjectID ||
-					o.Labels["user"] == q.SubjectID))
-			if !matchSubject {
-				continue
-			}
 		}
 		if !q.AllTenants {
 			if q.Tenant == "" || o.Labels == nil || o.Labels["tenant_id"] != q.Tenant {

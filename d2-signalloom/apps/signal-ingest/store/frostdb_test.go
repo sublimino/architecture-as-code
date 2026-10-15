@@ -521,15 +521,23 @@ func TestFrostDBStore_EquivalenceWithMemory_AdditiveColumns(t *testing.T) {
 		t.Fatalf("count mismatch: frost=%d, mem=%d", len(frostRes), len(memRes))
 	}
 
+	input := make(map[string]model.Observation, len(obs))
+	for _, o := range obs {
+		input[o.ID] = o
+	}
 	for i := range frostRes {
 		f := frostRes[i]
 		m := memRes[i]
-		// SLDP-P3-1: the two stores are no longer field-identical on identity, and must not be.
-		// MemoryStore is a v1-shaped mirror that keeps cleartext; the FrostDB segment keeps only
-		// keyed pseudonyms. Equivalence is therefore asserted through the pseudonym projection:
-		// the frost row must carry exactly the pseudonym of the cleartext the memory row holds,
-		// and must carry no cleartext of its own. Comparing the raw fields would have been
-		// satisfied by a store that wrote nothing at all.
+		in, ok := input[f.ID]
+		if !ok || m.ID != f.ID {
+			t.Fatalf("[%d] row order or identity mismatch: frost=%q mem=%q", i, f.ID, m.ID)
+		}
+		// SLDP-P3-1 made the FrostDB segment hold only keyed pseudonyms. SLCO-P2-3 made a keyed
+		// MemoryStore pseudonymise at rest too, in the same v2 read shape: cleartext fields empty,
+		// HMAC* fields populated. Both stores are therefore asserted against the pseudonym of the
+		// INPUT cleartext, not against each other's projection: deriving the expectation from the
+		// memory row would double-pseudonymise once memory stores pseudonyms, and comparing the
+		// stores only to each other would be satisfied by both writing nothing.
 		if f.DelegationDepth != m.DelegationDepth {
 			t.Errorf("delegation_depth mismatch at [%d]: frost=%d, mem=%d", i, f.DelegationDepth, m.DelegationDepth)
 		}
@@ -538,14 +546,20 @@ func TestFrostDBStore_EquivalenceWithMemory_AdditiveColumns(t *testing.T) {
 			cleartext string
 			frostRaw  string
 			frostHMAC string
+			memRaw    string
+			memHMAC   string
 		}{
-			{"principal_id", m.PrincipalID, f.PrincipalID, f.HMACPrincipalID},
-			{"actor_id", m.ActorID, f.ActorID, f.HMACActorID},
-			{"session_id", m.SessionID, f.SessionID, f.HMACSessionID},
-			{"impersonated_user", m.ImpersonatedUser, f.ImpersonatedUser, f.HMACImpersonatedUser},
+			{"actor_hint", in.ActorHint, f.ActorHint, f.HMACActorHint, m.ActorHint, m.HMACActorHint},
+			{"principal_id", in.PrincipalID, f.PrincipalID, f.HMACPrincipalID, m.PrincipalID, m.HMACPrincipalID},
+			{"actor_id", in.ActorID, f.ActorID, f.HMACActorID, m.ActorID, m.HMACActorID},
+			{"session_id", in.SessionID, f.SessionID, f.HMACSessionID, m.SessionID, m.HMACSessionID},
+			{"impersonated_user", in.ImpersonatedUser, f.ImpersonatedUser, f.HMACImpersonatedUser, m.ImpersonatedUser, m.HMACImpersonatedUser},
 		} {
 			if pair.frostRaw != "" {
 				t.Errorf("[%d] %s: frost segment returned cleartext %q", i, pair.name, pair.frostRaw)
+			}
+			if pair.memRaw != "" {
+				t.Errorf("[%d] %s: keyed memory store returned cleartext %q", i, pair.name, pair.memRaw)
 			}
 			want := ""
 			if pair.cleartext != "" {
@@ -554,6 +568,10 @@ func TestFrostDBStore_EquivalenceWithMemory_AdditiveColumns(t *testing.T) {
 			if pair.frostHMAC != want {
 				t.Errorf("[%d] %s: frost pseudonym = %q, want pseudonym of %q = %q",
 					i, pair.name, pair.frostHMAC, pair.cleartext, want)
+			}
+			if pair.memHMAC != want {
+				t.Errorf("[%d] %s: memory pseudonym = %q, want pseudonym of %q = %q",
+					i, pair.name, pair.memHMAC, pair.cleartext, want)
 			}
 		}
 	}

@@ -87,6 +87,7 @@ policy-editor.spec.ts	suite-only	Drives Policy-as-Code CEL editor, syntax diagno
 rbac-analysis.spec.ts	suite-only	Behind guards.afmDeployed(). One test, SKIP without the k8s-afm slice.
 rbac-explorer.spec.ts	suite-only	Behind guards.afmDeployed(). Ten tests, all SKIP without the k8s-afm slice.
 reproduce-404.spec.ts	suite-only	Asserts no transient 404 appears on initial page load or slow network during feature flag resolution. Requires demo-signalloom-up.
+admin-features-401.spec.ts	suite-only	Asserts no 401 Unauthorized errors occur on /admin/features during initial mount or background queries. Requires demo-signalloom-up.
 risk-audit.spec.ts	suite-only	Drives cross-surface journeys across FAIR Risk, Audit Trail, Federated Services, Fleet Demo, Collusion & Access, and Settings. Requires demo-signalloom-up.
 sfas-dossier-authorization.spec.ts	suite-only	Asserts 7-hop complete authorization chain, completeness badge, and instant proof drawer drill-down in Agent Dossier Tabs 2 and 5 against live demo cluster.
 signal-loom-baoaudit.spec.ts	suite-only	Drives Weave dashboard to verify OpenBao cryptographic identity audit stream panel, SVID lease tracking, and out-of-role vault access filtering.

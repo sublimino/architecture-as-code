@@ -239,3 +239,14 @@ warden_image_matches_pin() {
     # and the suite passes the manifest's namespace through
     grep -q -- '--warden-namespace "${WARDEN_NS}"' "${BATS_TEST_FILENAME}"
 }
+
+@test "offline: the runner's attack pods carry a framework the agent-identity admission policy accepts" {
+    local runner="${BATS_TEST_DIRNAME}/../scripts/sentinel-ebpf-live-runner.py"
+    local policy="${BATS_TEST_DIRNAME}/../d2-agent-trust/policies/agent-identity-state-protection.yaml"
+    local fw allowed
+    fw="$(sed -nE 's/^ +signalloom\.ai\/framework: "?([a-z]+)"?$/\1/p' "$runner")"
+    [ -n "$fw" ] || { echo "attack pod template carries no signalloom.ai/framework"; return 1; }
+    allowed="$(yq -r '.spec.variables[] | select(.name == "validFrameworks") | .expression' "$policy" | tr -d "[]' " | tr ',' '\n')"
+    [ -n "$allowed" ]
+    grep -qx -- "$fw" <<<"$allowed" || { echo "framework '$fw' not in: $(paste -sd, <<<"$allowed")"; return 1; }
+}

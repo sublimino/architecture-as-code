@@ -86,6 +86,9 @@ metadata:
   labels:
     signalloom.ai/agent: "true"
     signalloom.ai/agent-name: "{pod_name}"
+    # The agent-identity admission policy rejects agent pods without a framework;
+    # these stand in for the kusari agent, which declares "custom".
+    signalloom.ai/framework: "custom"
 spec:
   serviceAccountName: kusari-agent
   restartPolicy: Never

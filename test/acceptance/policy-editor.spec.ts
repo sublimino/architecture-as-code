@@ -374,3 +374,106 @@ test.describe("Surfaces 7 & 8: Adversarial Policy and Compliance Endpoint Contra
   });
 });
 
+test.describe("Governance Settings to PolicyEditor Deep-Linking & CIS Benchmark Canonical Rules", () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  test.beforeEach(async ({ page }) => {
+    await login(page, { demoMode: true });
+  });
+
+  const CANONICAL_CIS_RULES = [
+    { id: "no-root-containers", expectedCelSnippet: "runAsNonRoot" },
+    { id: "no-net-raw", expectedCelSnippet: "net_raw" },
+    { id: "no-added-capabilities", expectedCelSnippet: "capabilities.add" },
+    { id: "capabilities-dropped-all", expectedCelSnippet: "capabilities.drop" },
+    { id: "no-windows-hostprocess", expectedCelSnippet: "hostProcess" },
+    { id: "no-hostpath-volumes", expectedCelSnippet: "hostPath" },
+    { id: "no-host-ports", expectedCelSnippet: "hostPort" },
+    { id: "no-secrets-in-env", expectedCelSnippet: "secretKeyRef" },
+    { id: "seccomp-runtime-default", expectedCelSnippet: "RuntimeDefault" },
+    { id: "security-context-applied", expectedCelSnippet: "securityContext" },
+    { id: "no-default-namespace", expectedCelSnippet: "metadata.namespace != 'default'" },
+    { id: "no-privilege-escalation", expectedCelSnippet: "allowPrivilegeEscalation == false" },
+  ];
+
+  test("navigates from Settings Governance to CEL PolicyEditor for canonical CIS rules by clicking row", async ({ page }) => {
+    await page.goto(`${BASE}/settings?tab=governance`, { waitUntil: "domcontentloaded" });
+
+    // Verify Settings page loaded and Governance tab active
+    const card = page.getByTestId("framework-card-k8s-cis-benchmark");
+    await expect(card).toBeVisible({ timeout: 15_000 });
+
+    for (const rule of CANONICAL_CIS_RULES) {
+      // Find the rule row in the Governance table
+      const row = page.getByTestId(`policy-row-${rule.id}`);
+      await expect(row).toBeVisible({ timeout: 10_000 });
+
+      // Click the edit button or identity link
+      const editBtn = row.locator(".governance-policy-table__edit-btn, .governance-policy-table__identity").first();
+      await editBtn.click();
+
+      // Verify navigation to PolicyEditor with correct URL query parameters
+      await expect(page).toHaveURL(new RegExp(`/policies\\?framework=k8s-cis-benchmark&rule=${rule.id}`), { timeout: 10_000 });
+
+      // Verify PolicyEditor container is mounted
+      const editorContainer = page.getByTestId("policy-editor-container");
+      await expect(editorContainer).toBeVisible({ timeout: 10_000 });
+
+      // Verify selected rule in PolicyEditor matches the rule ID
+      const ruleTab = page.getByTestId(`rule-tab-${rule.id}`);
+      await expect(ruleTab).toBeVisible({ timeout: 5_000 });
+
+      // Verify CEL code textarea contains expected authoritative CEL snippet
+      const textarea = page.getByTestId("cel-code-textarea");
+      await expect(textarea).toBeVisible();
+      const celVal = await textarea.inputValue();
+      expect(celVal).toContain(rule.expectedCelSnippet);
+
+      // Verify CEL diagnostic indicates syntax valid
+      const validDiag = page.getByTestId("cel-diagnostic-valid");
+      await expect(validDiag).toBeVisible({ timeout: 5_000 });
+
+      // Navigate back to Settings Governance for the next rule
+      await page.goto(`${BASE}/settings?tab=governance`, { waitUntil: "domcontentloaded" });
+      await expect(page.getByTestId("framework-card-k8s-cis-benchmark")).toBeVisible({ timeout: 10_000 });
+    }
+  });
+
+  test("resolves alias 'alation' to no-privilege-escalation with valid CEL expression", async ({ page }) => {
+    await page.goto(`${BASE}/policies?framework=k8s-cis-benchmark&rule=alation`, { waitUntil: "domcontentloaded" });
+
+    const editorContainer = page.getByTestId("policy-editor-container");
+    await expect(editorContainer).toBeVisible({ timeout: 15_000 });
+
+    const selectedName = page.getByTestId("selected-rule-name");
+    await expect(selectedName).toBeVisible({ timeout: 10_000 });
+    await expect(selectedName).toContainText(/Privilege escalation disallowed|no-privilege-escalation/i);
+
+    const textarea = page.getByTestId("cel-code-textarea");
+    const celVal = await textarea.inputValue();
+    expect(celVal).toContain("allowPrivilegeEscalation == false");
+
+    const validDiag = page.getByTestId("cel-diagnostic-valid");
+    await expect(validDiag).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("resolves section alias 'cis-5.2.6' to no-privilege-escalation with valid CEL expression", async ({ page }) => {
+    await page.goto(`${BASE}/policies?framework=k8s-cis-benchmark&rule=cis-5.2.6`, { waitUntil: "domcontentloaded" });
+
+    const editorContainer = page.getByTestId("policy-editor-container");
+    await expect(editorContainer).toBeVisible({ timeout: 15_000 });
+
+    const selectedName = page.getByTestId("selected-rule-name");
+    await expect(selectedName).toBeVisible({ timeout: 10_000 });
+    await expect(selectedName).toContainText(/CIS-5\.2\.6/i);
+
+    const textarea = page.getByTestId("cel-code-textarea");
+    const celVal = await textarea.inputValue();
+    expect(celVal).toContain("allowPrivilegeEscalation == false");
+
+    const validDiag = page.getByTestId("cel-diagnostic-valid");
+    await expect(validDiag).toBeVisible({ timeout: 5_000 });
+  });
+});
+
+

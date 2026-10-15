@@ -240,39 +240,32 @@ describe('CompliancePolicyPage', () => {
     })
   })
 
-  it('includes K8s CIS benchmark bundle with CEL policies and cluster-level audit controls', async () => {
+  it('includes K8s CIS benchmark bundle with CEL policies and canonical controls', async () => {
     const { DEMO_BUNDLES } = await import('./CompliancePolicyPage')
     const cisBundle = DEMO_BUNDLES['k8s-cis-benchmark']
     expect(cisBundle).toBeDefined()
     expect(cisBundle.version).toBe('v1.8.0')
     expect(cisBundle.official_docs_url).toContain('cisecurity.org')
+    expect(cisBundle.rules.length).toBe(17)
 
     // Pod admission CEL controls
-    const rootControl = cisBundle.rules.find((r: any) => r.id === 'cis-5.2.6')
+    const rootControl = cisBundle.rules.find((r: any) => r.id === 'no-root-containers')
     expect(rootControl).toBeDefined()
-    expect(rootControl?.cel_expression).toContain('runAsNonRoot == true')
+    expect(rootControl?.cel_expression).toContain('runAsNonRoot')
 
-    const privEscControl = cisBundle.rules.find((r: any) => r.id === 'cis-5.2.5')
+    const privEscControl = cisBundle.rules.find((r: any) => r.id === 'no-privilege-escalation')
     expect(privEscControl).toBeDefined()
     expect(privEscControl?.cel_expression).toContain('allowPrivilegeEscalation == false')
 
-    const seccompControl = cisBundle.rules.find((r: any) => r.id === 'cis-5.7.4')
+    const seccompControl = cisBundle.rules.find((r: any) => r.id === 'seccomp-runtime-default')
     expect(seccompControl).toBeDefined()
     expect(seccompControl?.cel_expression).toContain('RuntimeDefault')
-
-    // Cluster / namespace-level controls marked as tested separately
-    const netpolControl = cisBundle.rules.find((r: any) => r.id === 'cis-5.3.1')
-    expect(netpolControl).toBeDefined()
-    expect(netpolControl?.tested_separately).toBe(true)
-    expect(netpolControl?.docs_url).toContain('kubernetes.io')
 
     // Validate that all pod admission CEL rules pass syntax validation
     const { validateCelExpression } = await import('../components/PolicyEditor')
     for (const rule of cisBundle.rules) {
-      if (!rule.tested_separately) {
-        const diag = validateCelExpression(rule.cel_expression)
-        expect(diag.valid, `CEL rule ${rule.id} syntax error: ${diag.message}`).toBe(true)
-      }
+      const diag = validateCelExpression(rule.cel_expression)
+      expect(diag.valid, `CEL rule ${rule.id} syntax error: ${diag.message}`).toBe(true)
     }
   })
 
@@ -286,7 +279,7 @@ describe('CompliancePolicyPage', () => {
     expect(await screen.findByTestId('policy-editor-container')).toBeInTheDocument()
     const selector = screen.getByTestId('framework-selector') as HTMLSelectElement
     expect(selector.value).toBe('k8s-cis-benchmark')
-    expect(screen.getByText(/CIS 5.2.6/i)).toBeInTheDocument()
+    expect(screen.getByText(/CIS[- ]5\.1\.6/i)).toBeInTheDocument()
   })
 
   it('supports aliasing between k8s-cis-benchmark and cis-kubernetes via deep link', async () => {
@@ -299,7 +292,7 @@ describe('CompliancePolicyPage', () => {
     expect(await screen.findByTestId('policy-editor-container')).toBeInTheDocument()
     const selector = screen.getByTestId('framework-selector') as HTMLSelectElement
     expect(selector.value).toBe('k8s-cis-benchmark')
-    expect(screen.getByText(/CIS 5.2.6/i)).toBeInTheDocument()
+    expect(screen.getByText(/CIS[- ]5\.1\.6/i)).toBeInTheDocument()
   })
 
   it('keeps URL searchParams in sync when selected framework changes in editor', async () => {

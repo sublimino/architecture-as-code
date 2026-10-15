@@ -51,9 +51,31 @@ export function lookupPolicyForControl(
   // 1. CIS Kubernetes Benchmark
   const cisBundle = DEMO_BUNDLES['k8s-cis-benchmark']
   if (cisBundle) {
+    const lowerName = controlName.toLowerCase()
     const cisRule = cisBundle.rules.find(r => {
-      const rSlug = r.id.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-      return slug.includes(rSlug) || rSlug.includes(slug) || controlName.toLowerCase().includes(r.id.toLowerCase())
+      const rId = r.id.toLowerCase()
+      const rSlug = rId.replace(/[^a-z0-9]+/g, '-')
+
+      // Semantic keyword matching for CIS controls (handles legacy fixture descriptions)
+      if (lowerName.includes('root') || lowerName.includes('non-root')) return rId === 'no-root-containers'
+      if (lowerName.includes('escalat')) return rId === 'no-privilege-escalation'
+      if (lowerName.includes('automount') || lowerName.includes('token')) return rId === 'sa-token-automount-disabled'
+      if (lowerName.includes('seccomp')) return rId === 'seccomp-runtime-default'
+      if (lowerName.includes('host namespace') || lowerName.includes('host pid') || lowerName.includes('hostpid')) return rId === 'no-host-pid'
+
+      if (slug.includes(rSlug) || rSlug.includes(slug) || lowerName.includes(rId)) {
+        return true
+      }
+
+      // Section number match (e.g. CIS-5.2.6 in name or ID)
+      const secMatch = lowerName.match(/(?:cis[-_.\s]*)?(\d+(?:\.\d+)+)/)
+      if (secMatch) {
+        const sec = secMatch[1]
+        const secPattern = new RegExp(`(^|\\b)cis[-_\\s]*${sec.replace(/\\./g, '\\.')}(?:[:\\s-]|$)`, 'i')
+        if (secPattern.test(r.name) || secPattern.test(r.id)) return true
+      }
+
+      return false
     })
     if (cisRule) {
       return {

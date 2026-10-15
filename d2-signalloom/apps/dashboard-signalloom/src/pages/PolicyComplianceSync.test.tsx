@@ -196,9 +196,9 @@ describe('Policy Compliance Normalization, Harmonization, and Deep Linking', () 
   })
 
   describe('harmonizeBundleRules Engine', () => {
-    it('preserves non-CEL / manual attestation rules from template while including active engine rules', () => {
+    it('preserves catalogue-only rules from template while including active engine rules', () => {
       const template = getBundleForFramework('k8s-cis-benchmark')!
-      expect(template.rules.some((r) => r.id === 'cis-5.4.1')).toBe(true)
+      expect(template.rules.some((r) => r.id === 'no-secrets-in-env')).toBe(true)
 
       const activeRules: PolicyRule[] = [
         {
@@ -221,12 +221,11 @@ describe('Policy Compliance Normalization, Harmonization, and Deep Linking', () 
       expect(harmonized.some((r) => r.id === 'sa-token-automount-disabled')).toBe(true)
       expect(harmonized.some((r) => r.id === 'no-privileged-containers')).toBe(true)
 
-      // Crucial: cis-5.4.1 (ResourceQuotas manual/cluster attestation) MUST be preserved!
-      const cis541 = harmonized.find((r) => r.id === 'cis-5.4.1')
-      expect(cis541).toBeDefined()
-      expect(cis541?.name).toContain('ResourceQuotas')
-      expect(cis541?.attestation_type).toBe('cluster')
-      expect(cis541?.manual_attestation).toBe(true)
+      // Crucial: catalogue-only rule no-secrets-in-env MUST be preserved with catalogue_only: true!
+      const secretsRule = harmonized.find((r) => r.id === 'no-secrets-in-env')
+      expect(secretsRule).toBeDefined()
+      expect(secretsRule?.name).toContain('CIS-5.4.1')
+      expect(secretsRule?.catalogue_only).toBe(true)
     })
 
     it('updates CEL expressions and statuses from active rules when IDs match', () => {
@@ -257,9 +256,9 @@ describe('Policy Compliance Normalization, Harmonization, and Deep Linking', () 
   })
 
   describe('Deep Linking & Dropdown User Journeys in CompliancePolicyPage', () => {
-    it('stably selects cis-5.4.1 on deep link without flashing or resetting to sa-token-automount-disabled', async () => {
+    it('stably selects no-secrets-in-env on deep link without flashing or resetting to sa-token-automount-disabled', async () => {
       render(
-        <MemoryRouter initialEntries={['/policies?framework=k8s-cis-benchmark&rule=cis-5.4.1']}>
+        <MemoryRouter initialEntries={['/policies?framework=k8s-cis-benchmark&rule=no-secrets-in-env']}>
           <Routes>
             <Route path="/policies" element={<CompliancePolicyPage />} />
           </Routes>
@@ -272,18 +271,18 @@ describe('Policy Compliance Normalization, Harmonization, and Deep Linking', () 
       const selector = screen.getByTestId('framework-selector') as HTMLSelectElement
       expect(selector.value).toBe('k8s-cis-benchmark')
 
-      // Wait for async load to finish and verify cis-5.4.1 remains selected
+      // Wait for async load to finish and verify no-secrets-in-env remains selected
       await waitFor(() => {
-        expect(screen.getByText(/CIS 5.4.1: Ensure ResourceQuotas are defined for agent namespaces/i)).toBeInTheDocument()
+        expect(screen.getByText(/CIS-5.4.1: Secrets not exposed as environment variables/i)).toBeInTheDocument()
       })
 
-      // Ensure the rule list displays cis-5.4.1 as the active rule
-      const activeRuleName = screen.getByText(/CIS 5.4.1: Ensure ResourceQuotas are defined for agent namespaces/i)
+      // Ensure the rule list displays no-secrets-in-env as the active rule
+      const activeRuleName = screen.getByText(/CIS-5.4.1: Secrets not exposed as environment variables/i)
       expect(activeRuleName).toBeInTheDocument()
 
-      // Ensure the active rule in the editor is cis-5.4.1
+      // Ensure the active rule in the editor is no-secrets-in-env
       const selectedRuleName = screen.getByTestId('selected-rule-name')
-      expect(selectedRuleName.textContent).toContain('CIS 5.4.1')
+      expect(selectedRuleName.textContent).toContain('CIS-5.4.1')
       expect(selectedRuleName.textContent).not.toContain('sa-token-automount-disabled')
     })
 
@@ -326,7 +325,7 @@ describe('Policy Compliance Normalization, Harmonization, and Deep Linking', () 
     it('clears rule query param when switching framework', async () => {
       const user = userEvent.setup()
       render(
-        <MemoryRouter initialEntries={['/policies?framework=k8s-cis-benchmark&rule=cis-5.4.1']}>
+        <MemoryRouter initialEntries={['/policies?framework=k8s-cis-benchmark&rule=no-secrets-in-env']}>
           <Routes>
             <Route path="/policies" element={<CompliancePolicyPage />} />
           </Routes>
@@ -428,7 +427,7 @@ describe('Writes carry only the engine bundle (engine is the authority)', () => 
 
     await screen.findByTestId('rule-tab-no-root-containers')
     // Catalogue rules stay visible, marked as reference material.
-    expect(screen.getByTestId('rule-catalogue-only-cis-5.2.6')).toBeInTheDocument()
+    expect(screen.getByTestId('rule-catalogue-only-no-net-raw')).toBeInTheDocument()
 
     const edited = 'object.spec.containers.all(c, c.securityContext.runAsUser != 0)'
     fireEvent.change(screen.getByTestId('cel-code-textarea'), { target: { value: edited } })

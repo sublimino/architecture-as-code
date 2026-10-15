@@ -1515,3 +1515,144 @@ describe('AgentsPage — review queue integration', () => {
     await waitFor(() => expect(within(queue).getByText('No agents need review')).toBeInTheDocument())
   })
 })
+
+describe('AgentsPage — Filter Chips & State Counts', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    clearSignalSummaryCache()
+    mockWeaveApi.getObservations.mockResolvedValue([])
+    mockWeaveApi.getActors.mockResolvedValue([])
+  })
+
+  it('renders all filter chips with accurate counts and isolates matching workloads', async () => {
+    // 8 Governed agents (active/registered), 2 unlinked discovered workloads (10 total)
+    // 1 with GitOps labels, 2 with tenant mismatch, 1 needing review
+    const mockAgents: AgentResponse[] = [
+      // 7 active Kagent workloads
+      makeAgent({ id: 'kagent-1', name: 'Kagent Alpha', lifecycle_state: 'active', tenant: 'tenant-demo', tenant_id: 'tenant-demo' }),
+      makeAgent({ id: 'kagent-2', name: 'Kagent Beta', lifecycle_state: 'active', tenant: 'tenant-demo', tenant_id: 'tenant-demo' }),
+      makeAgent({ id: 'kagent-3', name: 'Kagent Gamma', lifecycle_state: 'active', tenant: 'tenant-demo', tenant_id: 'tenant-demo' }),
+      makeAgent({ id: 'kagent-4', name: 'Kagent Delta', lifecycle_state: 'active', tenant: 'tenant-demo', tenant_id: 'tenant-demo' }),
+      makeAgent({ id: 'kagent-5', name: 'Kagent Epsilon', lifecycle_state: 'active', tenant: 'tenant-demo', tenant_id: 'tenant-demo' }),
+      makeAgent({ id: 'kagent-6', name: 'Kagent Zeta', lifecycle_state: 'active', tenant: 'tenant-demo', tenant_id: 'tenant-demo' }),
+      withLabels(makeAgent({ id: 'kagent-7', name: 'Kagent Eta', lifecycle_state: 'active', tenant: 'tenant-demo', tenant_id: 'tenant-demo' }), { 'kustomize.toolkit.fluxcd.io/name': 'kagent' }),
+      // 1 registered custom agent with non-compliant control (needs review)
+      makeAgent({
+        id: 'agent-echo',
+        name: 'Echo Agent',
+        lifecycle_state: 'registered',
+        tenant: 'tenant-demo',
+        tenant_id: 'tenant-demo',
+        compliance_summary: { total_controls: 6, passing: 4, failing: 2, pending: 0, posture_score: 0.67 },
+      }),
+      // 2 discovered unlinked workloads with idle lifecycle and no tenant (tenant mismatch + unlinked)
+      makeAgent({
+        id: 'netassert-pod',
+        name: 'NetAssert Pod',
+        lifecycle_state: 'idle',
+        record_class: 'discovered',
+        is_registry_linked: false,
+        tenant: null,
+        tenant_id: 'undeclared',
+      }),
+      makeAgent({
+        id: 'stunned-pod',
+        name: 'Stunned Pod',
+        lifecycle_state: 'idle',
+        record_class: 'discovered',
+        is_registry_linked: false,
+        tenant: null,
+        tenant_id: 'undeclared',
+      }),
+    ]
+
+    vi.mocked(api.agents.list).mockResolvedValue({
+      agents: mockAgents,
+      total: 10,
+    })
+
+    renderPage(['/agents?tenant=tenant-demo'])
+
+    await screen.findByText('Kagent Alpha')
+
+    // 1. Verify chip counts
+    // All states: 10
+    const allChip = screen.getByTestId('agent-lifecycle-filter-all')
+    expect(allChip).toHaveTextContent('All states')
+    expect(allChip).toHaveTextContent('10')
+
+    // Governed: 8 (7 active + 1 registered)
+    const governedChip = screen.getByTestId('agent-lifecycle-filter-Governed')
+    expect(governedChip).toHaveTextContent('Governed')
+    expect(governedChip).toHaveTextContent('8')
+
+    // Suspended: 0
+    const suspendedChip = screen.getByTestId('agent-lifecycle-filter-Suspended')
+    expect(suspendedChip).toHaveTextContent('Suspended')
+    expect(suspendedChip).toHaveTextContent('0')
+
+    // Revoked: 0
+    const revokedChip = screen.getByTestId('agent-lifecycle-filter-Revoked')
+    expect(revokedChip).toHaveTextContent('Revoked')
+    expect(revokedChip).toHaveTextContent('0')
+
+    // Unlinked: 2 (netassert-pod, stunned-pod)
+    const unlinkedChip = screen.getByTestId('agent-unlinked-filter-btn')
+    expect(unlinkedChip).toHaveTextContent('Unlinked')
+    expect(unlinkedChip).toHaveTextContent('2')
+
+    // GitOps Managed: 1 (kagent-7)
+    const gitopsChip = screen.getByTestId('agent-gitops-filter-btn')
+    expect(gitopsChip).toHaveTextContent('GitOps Managed')
+    expect(gitopsChip).toHaveTextContent('1')
+
+    // Tenant Mismatch: 2 (the 2 undeclared pods vs tenant-demo session tenant)
+    const mismatchChip = screen.getByTestId('agent-tenant-mismatch-filter-btn')
+    expect(mismatchChip).toHaveTextContent('Tenant Mismatch')
+    expect(mismatchChip).toHaveTextContent('2')
+
+    // Needs review: 1 (agent-echo with failing: 2)
+    const reviewChip = screen.getByTestId('agent-attention-filter-btn')
+    expect(reviewChip).toHaveTextContent('Needs review')
+    expect(reviewChip).toHaveTextContent('1')
+
+    // 2. Click Governed: isolates 8 governed workloads, hides 2 unlinked pods
+    await userEvent.click(governedChip)
+    expect(governedChip).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('agent-row-kagent-1').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+    expect(screen.getByTestId('agent-row-agent-echo').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+    expect(screen.getByTestId('agent-row-netassert-pod').closest('tbody')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByTestId('agent-row-stunned-pod').closest('tbody')).toHaveAttribute('aria-hidden', 'true')
+
+    // 3. Click All states to reset lifecycle
+    await userEvent.click(allChip)
+    expect(allChip).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('agent-row-netassert-pod').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+
+    // 4. Click Unlinked: isolates the 2 unlinked workloads
+    await userEvent.click(unlinkedChip)
+    expect(unlinkedChip).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('agent-row-kagent-1').closest('tbody')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByTestId('agent-row-agent-echo').closest('tbody')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByTestId('agent-row-netassert-pod').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+    expect(screen.getByTestId('agent-row-stunned-pod').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+
+    // Deactivate Unlinked
+    await userEvent.click(unlinkedChip)
+    expect(unlinkedChip).toHaveAttribute('aria-pressed', 'false')
+
+    // 5. Click Needs review: isolates agent-echo
+    await userEvent.click(reviewChip)
+    expect(reviewChip).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('agent-row-agent-echo').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+    expect(screen.getByTestId('agent-row-kagent-1').closest('tbody')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByTestId('agent-row-netassert-pod').closest('tbody')).toHaveAttribute('aria-hidden', 'true')
+
+    // 6. Click Clear: restores all workloads
+    const clearBtn = screen.getByRole('button', { name: 'Clear' })
+    await userEvent.click(clearBtn)
+    expect(screen.getByTestId('agent-row-kagent-1').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+    expect(screen.getByTestId('agent-row-agent-echo').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+    expect(screen.getByTestId('agent-row-netassert-pod').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+  })
+})

@@ -1009,6 +1009,10 @@ function GovernedTab({
     const stored = getSafeStorageItem('signalloom_tenant') ||
       getSafeStorageItem('signalloom:active-tenant')
     if (stored) return stored
+    const userEmail = String((user as any)?.email ?? '')
+    if (userEmail.includes('@signalloom.local') || userEmail === 'demo-user@signalloom.local') {
+      return 'tenant-demo'
+    }
     return 'tenant-1'
   }, [sessionTenant, searchParams, user, internalSessionTenant])
 
@@ -1036,6 +1040,7 @@ function GovernedTab({
   const [attentionFilter, setAttentionFilter] = useState(false)
   const [gitopsFilter, setGitopsFilter] = useState(() => searchParams.get('gitops') === 'true')
   const [tenantMismatchFilter, setTenantMismatchFilter] = useState(() => searchParams.get('mismatch') === 'true' || searchParams.get('tenant_mismatch') === 'true')
+  const [unlinkedFilter, setUnlinkedFilter] = useState(() => searchParams.get('unlinked') === 'true')
 
   const handleSort = (key: string) => {
     if (sortKey !== key) {
@@ -1146,6 +1151,7 @@ function GovernedTab({
     setAttentionFilter(false)
     setGitopsFilter(false)
     setTenantMismatchFilter(false)
+    setUnlinkedFilter(false)
     onFilterChange('all')
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
@@ -1162,6 +1168,7 @@ function GovernedTab({
       next.delete('gitops')
       next.delete('mismatch')
       next.delete('tenant_mismatch')
+      next.delete('unlinked')
       return next
     }, { replace: true })
   }
@@ -1172,6 +1179,10 @@ function GovernedTab({
     return agents.filter(a => a.record_class !== 'discovery')
   }, [agents])
 
+  const unlinkedCount = useMemo(
+    () => governedAgents.filter((a) => a.is_registry_linked === false || a.record_class === 'discovered').length,
+    [governedAgents]
+  )
   const gitopsCount = useMemo(() => governedAgents.filter(hasGitOpsMetadata).length, [governedAgents])
   const tenantMismatchCount = useMemo(
     () => governedAgents.filter((a) => isAgentTenantMismatch(a, activeSessionTenant)).length,
@@ -1188,6 +1199,9 @@ function GovernedTab({
     }
     if (tenantMismatchFilter) {
       list = list.filter((a) => isAgentTenantMismatch(a, activeSessionTenant))
+    }
+    if (unlinkedFilter) {
+      list = list.filter((a) => a.is_registry_linked === false || a.record_class === 'discovered')
     }
     if (lifecycleFilter !== 'all') {
       const normalizedFilter = lifecycleFilter.toLowerCase()
@@ -1206,7 +1220,7 @@ function GovernedTab({
       list = list.filter(a => matchAgentByQuery(a, parsedQuery))
     }
     return list
-  }, [governedAgents, search, parsedQuery, lifecycleFilter, attentionFilter, gitopsFilter, tenantMismatchFilter, activeSessionTenant])
+  }, [governedAgents, search, parsedQuery, lifecycleFilter, attentionFilter, gitopsFilter, tenantMismatchFilter, unlinkedFilter, activeSessionTenant])
 
   const displayAgents = useMemo(() => {
     if (!sortKey || !sortDir) return governedAgents
@@ -1356,125 +1370,64 @@ function GovernedTab({
               <span className="sl-filter-chip__count">{lifecycleCounts[state]}</span>
             </button>
           ))}
+          <button
+            type="button"
+            className="sl-filter-chip"
+            data-testid="agent-unlinked-filter-btn"
+            aria-pressed={unlinkedFilter}
+            onClick={() => setUnlinkedFilter((prev) => !prev)}
+          >
+            <span aria-hidden="true" className="sl-filter-dot sl-filter-dot--unlinked" />
+            Unlinked
+            <span className="sl-filter-chip__count">{unlinkedCount}</span>
+          </button>
+          <button
+            type="button"
+            className="sl-filter-chip"
+            data-testid="agent-attention-filter-btn"
+            aria-pressed={attentionFilter}
+            onClick={() => setAttentionFilter((prev) => !prev)}
+            style={attentionFilter ? { borderColor: colors.red, color: colors.red } : undefined}
+          >
+            <span aria-hidden="true" className="sl-filter-dot" style={{ background: colors.red }} />
+            Needs review
+            <span className="sl-filter-chip__count" style={attentionFilter ? { color: colors.red } : undefined}>
+              {deriveAgentReview(governedAgents).affectedAgentCount}
+            </span>
+          </button>
+          <button
+            type="button"
+            className="sl-filter-chip"
+            data-testid="agent-gitops-filter-btn"
+            aria-pressed={gitopsFilter}
+            onClick={() => setGitopsFilter((prev) => !prev)}
+            style={gitopsFilter ? { borderColor: colors.cyanLoom, color: colors.cyanLoom } : undefined}
+          >
+            <span aria-hidden="true" className="sl-filter-dot" style={{ background: colors.cyanLoom }} />
+            GitOps Managed
+            <span className="sl-filter-chip__count" style={gitopsFilter ? { color: colors.cyanLoom } : undefined}>
+              {gitopsCount}
+            </span>
+          </button>
+          <button
+            type="button"
+            className="sl-filter-chip"
+            data-testid="agent-tenant-mismatch-filter-btn"
+            aria-pressed={tenantMismatchFilter}
+            onClick={() => setTenantMismatchFilter((prev) => !prev)}
+            style={tenantMismatchFilter ? { borderColor: colors.amber, color: colors.amber } : undefined}
+          >
+            <span aria-hidden="true" className="sl-filter-dot" style={{ background: colors.amber }} />
+            Tenant Mismatch
+            <span className="sl-filter-chip__count" style={tenantMismatchFilter ? { color: colors.amber } : undefined}>
+              {tenantMismatchCount}
+            </span>
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => setAttentionFilter((prev) => !prev)}
-          data-testid="agent-attention-filter-btn"
-          aria-pressed={attentionFilter}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '5px 10px',
-            borderRadius: 4,
-            fontSize: 12,
-            fontWeight: attentionFilter ? 600 : 500,
-            cursor: 'pointer',
-            fontFamily: 'inherit',
-            background: attentionFilter
-              ? 'rgba(239, 68, 68, 0.18)'
-              : 'var(--surface2)',
-            color: attentionFilter ? colors.red : 'var(--text)',
-            border: `1px solid ${attentionFilter ? colors.red : 'var(--border)'}`,
-          }}
-        >
-          <span
-            style={{
-              background: colors.red,
-              color: 'var(--on-accent)',
-              borderRadius: 99,
-              fontSize: 10,
-              fontWeight: 700,
-              padding: '0px 5px',
-              minWidth: 16,
-              textAlign: 'center',
-            }}
-          >
-            {deriveAgentReview(governedAgents).affectedAgentCount}
-          </span>
-          Needs review
-        </button>
-        <button
-          type="button"
-          onClick={() => setGitopsFilter((prev) => !prev)}
-          data-testid="agent-gitops-filter-btn"
-          aria-pressed={gitopsFilter}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '5px 10px',
-            borderRadius: 4,
-            fontSize: 12,
-            fontWeight: gitopsFilter ? 600 : 500,
-            cursor: 'pointer',
-            fontFamily: 'inherit',
-            background: gitopsFilter
-              ? 'rgba(0, 210, 255, 0.18)'
-              : 'var(--surface2)',
-            color: gitopsFilter ? colors.cyanLoom : 'var(--text)',
-            border: `1px solid ${gitopsFilter ? colors.cyanLoom : 'var(--border)'}`,
-          }}
-        >
-          <span
-            style={{
-              background: gitopsFilter ? colors.cyanLoom : 'var(--surface)',
-              color: gitopsFilter ? 'var(--on-accent)' : 'var(--muted)',
-              borderRadius: 99,
-              fontSize: 10,
-              fontWeight: 700,
-              padding: '0px 5px',
-              minWidth: 16,
-              textAlign: 'center',
-            }}
-          >
-            {gitopsCount}
-          </span>
-          GitOps Managed
-        </button>
-        <button
-          type="button"
-          onClick={() => setTenantMismatchFilter((prev) => !prev)}
-          data-testid="agent-tenant-mismatch-filter-btn"
-          aria-pressed={tenantMismatchFilter}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '5px 10px',
-            borderRadius: 4,
-            fontSize: 12,
-            fontWeight: tenantMismatchFilter ? 600 : 500,
-            cursor: 'pointer',
-            fontFamily: 'inherit',
-            background: tenantMismatchFilter
-              ? 'rgba(245, 158, 11, 0.18)'
-              : 'var(--surface2)',
-            color: tenantMismatchFilter ? colors.amber : 'var(--text)',
-            border: `1px solid ${tenantMismatchFilter ? colors.amber : 'var(--border)'}`,
-          }}
-        >
-          <span
-            style={{
-              background: tenantMismatchFilter ? colors.amber : 'var(--surface)',
-              color: tenantMismatchFilter ? 'var(--on-accent)' : 'var(--muted)',
-              borderRadius: 99,
-              fontSize: 10,
-              fontWeight: 700,
-              padding: '0px 5px',
-              minWidth: 16,
-              textAlign: 'center',
-            }}
-          >
-            {tenantMismatchCount}
-          </span>
-          Tenant Mismatch
-        </button>
-        {(search || lifecycleFilter !== 'all' || attentionFilter || gitopsFilter || tenantMismatchFilter || sortKey) && (
+        {(search || lifecycleFilter !== 'all' || attentionFilter || gitopsFilter || tenantMismatchFilter || unlinkedFilter || sortKey) && (
           <button
             className="btn btn-secondary"
-            style={{ fontSize: 12, padding: '5px 12px' }}
+            style={{ fontSize: 12, padding: '4px 12px', borderRadius: 999 }}
             onClick={handleClear}
           >
             Clear
@@ -1722,6 +1675,10 @@ export default function AgentsPage() {
     const stored = getSafeStorageItem('signalloom_tenant') ||
       getSafeStorageItem('signalloom:active-tenant')
     if (stored) return stored
+    const userEmail = String((user as any)?.email ?? '')
+    if (userEmail.includes('@signalloom.local') || userEmail === 'demo-user@signalloom.local') {
+      return 'tenant-demo'
+    }
     return 'tenant-1'
   }, [searchParams, user, sessionTenant])
 

@@ -302,11 +302,12 @@ select option { background: var(--surface); }
 }
 .sl-filter-chip[aria-pressed="true"] { background: var(--surface2); border-color: var(--cyan); color: var(--text); }
 .sl-filter-chip__count { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 700; }
-.sl-filter-dot { border-radius: 50%; height: 6px; width: 6px; }
-.sl-filter-dot--active { background: var(--teal); }
+.sl-filter-dot { border-radius: 50%; height: 6px; width: 6px; flex-shrink: 0; }
+.sl-filter-dot--active, .sl-filter-dot--governed, .sl-filter-dot--Governed { background: var(--teal); }
 .sl-filter-dot--enrolled { background: var(--cyan); }
-.sl-filter-dot--suspended { background: var(--amber); }
-.sl-filter-dot--revoked { background: var(--error); }
+.sl-filter-dot--suspended, .sl-filter-dot--Suspended { background: var(--amber); }
+.sl-filter-dot--revoked, .sl-filter-dot--Revoked { background: var(--error); }
+.sl-filter-dot--unlinked, .sl-filter-dot--idle { background: var(--dim, #888); }
 .sl-filter-table-row { transition: opacity 300ms cubic-bezier(.23,1,.32,1); }
 @media (prefers-reduced-motion: reduce) {
   .sl-filter-table-row, .sl-sidebar__selection { transition: none; }

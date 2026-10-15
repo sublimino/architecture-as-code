@@ -846,8 +846,8 @@ architecture-audit-test: ## Run offline architecture collector fixture contracts
 security-audit-test: ## Run offline security collector fixture contracts.
 	bats test/sl-security-audit.bats
 
-test-scheduled-skills-contracts: ## Run bounded audit runner, collector, honest-status, and skills-layout contracts without model calls.
-	bats test/scheduled-skills-parallel.bats test/sl-architecture-audit.bats test/sl-security-audit.bats test/sl-drift-sweep.bats test/sl-skills-layout.bats
+test-scheduled-skills-contracts: ## Run bounded audit runner, collector, honest-status, skills-layout, and memory-hunt contracts without model calls.
+	bats test/scheduled-skills-parallel.bats test/sl-architecture-audit.bats test/sl-security-audit.bats test/sl-drift-sweep.bats test/sl-skills-layout.bats test/sl-memory-hunt.bats
 
 clean-test-artifacts: ## Clean leaked test artifacts from the cluster and /tmp without tearing down the foundation.
 	./scripts/clean-test-artifacts.sh

@@ -91,6 +91,36 @@ else
   echo "  [INFO] Cluster offline, skipping CRI check"
 fi
 
+# 5. OOMKilled / restart loop. A Running pod that OOMs and restarts reads as
+# healthy to every check above: CrashLoopBackOff is only the brief waiting
+# window between restarts. signal-ingest restarted 28 times in 6.5h at its 2Gi
+# limit before anyone noticed (2026-10-15). Logic lives in sl-memory-hunt.
+echo "Checking OOMKilled and restart loops..."
+MEMORY_HUNT="${MEMORY_HUNT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../sl-memory-hunt/Tools" 2>/dev/null && pwd)/memory-hunt.sh}"
+if [ ! -x "$MEMORY_HUNT" ]; then
+  echo "  [FAIL] OOM / restart loop: detector missing at ${MEMORY_HUNT}"
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+elif kubectl cluster-info --request-timeout=2s >/dev/null 2>&1; then
+  OOM_RC=0
+  OOM_OUT=$("$MEMORY_HUNT" scan -A --threshold "${AUDIT_RESTART_THRESHOLD:-5}" 2>&1) || OOM_RC=$?
+  case "$OOM_RC" in
+    0) echo "  [PASS] OOM / restart loop: no OOMKilled containers, none above ${AUDIT_RESTART_THRESHOLD:-5} restarts" ;;
+    1)
+      echo "  [FAIL] OOM / restart loop: containers OOMKilled or restarting:"
+      echo "$OOM_OUT" | sed -n '2,$p'
+      echo "  [REMEDIATION] Measure before resizing: '.agents/skills/sl-memory-hunt/Tools/memory-hunt.sh sample --pod <pod> -n <ns> --duration 120'"
+      echo "  then follow .agents/skills/sl-memory-hunt/SKILL.md to classify leak vs fan-out."
+      FAIL_COUNT=$((FAIL_COUNT + 1))
+      ;;
+    *)
+      echo "  [FAIL] OOM / restart loop: detector could not run (rc=${OOM_RC}): ${OOM_OUT}"
+      FAIL_COUNT=$((FAIL_COUNT + 1))
+      ;;
+  esac
+else
+  echo "  [INFO] Cluster offline, skipping OOM / restart loop check"
+fi
+
 echo "=== Invariant Audit Summary ==="
 if [ "$FAIL_COUNT" -eq 0 ]; then
   echo "RESULT: ALL INVARIANTS PASS"

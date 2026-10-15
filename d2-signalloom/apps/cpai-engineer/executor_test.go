@@ -468,6 +468,26 @@ func TestExecutor_WorkspaceIsolation(t *testing.T) {
 		t.Fatalf("NewSessionStore: %v", err)
 	}
 	defer store.Close()
+	t.Cleanup(func() {
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			tasks, err := store.List(50)
+			if err != nil {
+				break
+			}
+			running := false
+			for _, tk := range tasks {
+				if tk.Status == "pending" || tk.Status == "running" {
+					running = true
+					break
+				}
+			}
+			if !running {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	})
 
 	nono := NewNonoWrapper("strict")
 	executor := NewExecutor(dir, nono, store)

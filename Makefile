@@ -2236,7 +2236,12 @@ demo-signalloom-security-images: ## Build and kind-load the Kusari stub and nono
 
 .PHONY: demo-signalloom-fleet-image demo-signalloom-fleet-up demo-signalloom-fleet-down demo-signalloom-minio-image
 demo-signalloom-minio-image: ## Ensure host-cached minio image is loaded into Kind.
-	@if docker image inspect minio/minio:latest >/dev/null 2>&1; then \
+	@if [ -f /tmp/minio-latest.tar.gz ] && ! docker image inspect minio/minio:latest >/dev/null 2>&1; then \
+		docker load -i /tmp/minio-latest.tar.gz >/dev/null 2>&1 || true; \
+	elif [ -f .cache/images/minio-latest.tar.gz ] && ! docker image inspect minio/minio:latest >/dev/null 2>&1; then \
+		docker load -i .cache/images/minio-latest.tar.gz >/dev/null 2>&1 || true; \
+	fi; \
+	if docker image inspect minio/minio:latest >/dev/null 2>&1; then \
 		node_images="$$(docker exec $(CLUSTER_NAME)-control-plane crictl images 2>/dev/null || true)"; \
 		if ! grep -q 'minio/minio' <<<"$$node_images"; then \
 			kind load docker-image minio/minio:latest --name $(CLUSTER_NAME); \

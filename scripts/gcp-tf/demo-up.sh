@@ -1403,6 +1403,9 @@ LOCAL_AFM_ARCHIVE="${AFM_IMAGE_ARCHIVE:-${REPO_ROOT}/.afm-image/${ENV_KEY}/kubes
 # path from the same rule rather than sharing a constant one of them can drift.
 remote_afm_archive() { printf '%s/.afm-image/kubesec-afm.tar.gz' "$REMOTE_WORK_DIR"; }
 
+LOCAL_MINIO_ARCHIVE="${MINIO_IMAGE_ARCHIVE:-${REPO_ROOT}/.cache/images/minio-latest.tar.gz}"
+remote_minio_archive() { printf '%s/.cache/images/minio-latest.tar.gz' "$REMOTE_WORK_DIR"; }
+
 # The refusal. Loud, specific, and it names the escape hatch rather than taking
 # it silently — the previous behaviour warned and continued, which meant the
 # only place the missing slice ever surfaced was a 502 in front of an audience.
@@ -1533,6 +1536,44 @@ deliver_afm_image() {
     die "the delivered AFM image hashes ${landed:0:12} and ${digest:0:12} was sent. The archive is corrupt in transit; 'docker load' on the VM would fail later and blame containerd."
   fi
   log "AFM image delivery verified: sha256 ${landed:0:12} on the VM"
+}
+
+deliver_minio_image() {
+  local archive="$LOCAL_MINIO_ARCHIVE"
+  if [ ! -s "$archive" ]; then
+    warn "no MinIO image archive found at ${archive} — skipping MinIO delivery"
+    return 0
+  fi
+
+  local size digest remote_digest dest
+  dest="$(remote_minio_archive)"
+  size="$(wc -c <"$archive" | tr -d '[:space:]')"
+  digest="$(sha256sum "$archive" | cut -d' ' -f1)"
+  log "MinIO image archive: ${size} bytes, sha256 ${digest:0:12}"
+
+  remote_digest="$(vm_ssh "sha256sum $(printf '%q' "$dest") 2>/dev/null | cut -d' ' -f1 || true" |
+    strip_impersonation_warning | tr -d '[:space:]')"
+  if [ -n "$remote_digest" ] && [ "$remote_digest" = "$digest" ]; then
+    log "MinIO image already on ${INSTANCE_NAME} with a matching digest — skipping the ${size}-byte transfer"
+    return 0
+  fi
+
+  local staged="/tmp/minio-latest.$$.tar.gz"
+  log "delivering the MinIO image to ${INSTANCE_NAME}:${dest}"
+  vm_scp "$archive" "${INSTANCE_NAME}:${staged}"
+  vm_ssh "mkdir -p $(printf '%q' "$(dirname "$dest")") \
+    && mv -f $(printf '%q' "$staged") $(printf '%q' "$dest")"
+
+  local landed
+  landed="$(vm_ssh "sha256sum $(printf '%q' "$dest") 2>/dev/null | cut -d' ' -f1 || echo MISSING" |
+    strip_impersonation_warning | tr -d '[:space:]')"
+  if [ "$landed" = "MISSING" ] || [ -z "$landed" ]; then
+    die "the MinIO image is not on ${INSTANCE_NAME} at ${dest} after a transfer that reported success."
+  fi
+  if [ "$landed" != "$digest" ]; then
+    die "the delivered MinIO image hashes ${landed:0:12} and ${digest:0:12} was sent. The archive is corrupt in transit."
+  fi
+  log "MinIO image delivery verified: sha256 ${landed:0:12} on the VM"
 }
 
 # Creates and hands over EVERY remote path this driver tells the pipeline to
@@ -2270,6 +2311,7 @@ run_lane() {
   # it lands there). Delivering first would silently throw it away, and the
   # symptom would be a lane that refuses AFM having just been told it arrived.
   deliver_afm_image
+  deliver_minio_image
 
   # AFTER deliver_code, and that ordering is not cosmetic: dex_origin() invokes
   # the DELIVERED copy at ${REMOTE_WORK_DIR}/${DEX_ORIGIN_REL}, and deliver_code

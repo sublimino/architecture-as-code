@@ -36,8 +36,7 @@ sl_curl() {
 # 1. Authenticate with Dex OIDC
 echo -n "[1/5] Authenticating operator (${DEX_USER})... "
 AUTH_RESP="$(sl_curl "${BASE_URL}/dex/token" \
-  -u "signalloom-dashboard:" \
-  -d "grant_type=password&username=${DEX_USER}&password=${DEX_PASS}&scope=openid%20profile%20email%20audience:server:client_id:signalloom-api")"
+  -d "grant_type=password&client_id=signalloom-dashboard&username=${DEX_USER}&password=${DEX_PASS}&scope=openid%20profile%20email%20audience:server:client_id:signalloom-api")"
 
 OPERATOR_TOKEN="$(echo "${AUTH_RESP}" | jq -r .access_token)"
 if [[ -z "${OPERATOR_TOKEN}" || "${OPERATOR_TOKEN}" == "null" ]]; then

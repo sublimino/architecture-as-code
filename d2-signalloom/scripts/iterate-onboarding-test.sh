@@ -21,7 +21,7 @@ echo " Timestamp:  $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo " Log file:   ${LOG_FILE}"
 echo "======================================================================"
 
-> "${LOG_FILE}"
+: > "${LOG_FILE}"
 
 SUCCESS_COUNT=0
 FAILURE_COUNT=0

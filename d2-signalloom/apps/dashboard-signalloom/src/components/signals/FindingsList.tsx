@@ -21,7 +21,10 @@ export default function FindingsList({ findings }: { findings: PolicyFinding[] }
   }
 
   return (
-    <div className="card" style={{ padding: 0, overflow: 'hidden' }} data-testid="findings-list">
+    // Eight columns do not fit a narrow card. `overflow: hidden` clipped the
+    // trailing "Source signal" column, i.e. the jump to the observation that
+    // caused the finding; scroll instead so every column stays reachable.
+    <div className="card" style={{ padding: 0, overflowX: 'auto' }} data-testid="findings-list">
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ borderBottom: '1px solid var(--border)' }}>

@@ -20,6 +20,7 @@ import { useSignalSummary } from '../hooks/useSignalSummary'
 import { parseAgentSelectorQuery, matchAgentByQuery } from '../data/agentQuerySelectors'
 import { hasGitOpsMetadata, isAgentTenantMismatch, getSafeStorageItem } from '../data/workloadFilters'
 import { getTenantIdFromToken } from '../auth/tenant'
+import { useServerTenant } from '../auth/superadmin'
 import { getAgentWorkloadSecurityProfile } from '../components/agents/ClaimModal'
 import { CodingAgentsTab } from '../components/CodingAgentsTab'
 import { CompactOperationalTable, CompactDisclosure, CompactEmail, CompactObservedTime } from '../components/CompactOperationalTable'
@@ -976,45 +977,10 @@ function GovernedTab({
 }) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { getAccessTokenSilently, user } = useAuth0()
-
-  const [internalSessionTenant, setInternalSessionTenant] = useState<string | null>(null)
-
-  useEffect(() => {
-    let isMounted = true
-    getAccessTokenSilently()
-      .then((token) => {
-        if (!isMounted || !token) return
-        const fromToken = getTenantIdFromToken(token)
-        if (fromToken) {
-          setInternalSessionTenant(fromToken)
-        }
-      })
-      .catch(() => {})
-    return () => {
-      isMounted = false
-    }
-  }, [getAccessTokenSilently])
-
-  const activeSessionTenant = useMemo(() => {
-    if (sessionTenant) return sessionTenant
-    const fromUrl = searchParams.get('tenant')
-    if (fromUrl) return fromUrl
-    const userTenant = (user as any)?.['https://signalloom.ai/tenant_id'] ??
-      (user as any)?.tenant_id ??
-      (user as any)?.tenant ??
-      (user as any)?.org_id
-    if (userTenant) return String(userTenant)
-    if (internalSessionTenant) return internalSessionTenant
-    const stored = getSafeStorageItem('signalloom_tenant') ||
-      getSafeStorageItem('signalloom:active-tenant')
-    if (stored) return stored
-    const userEmail = String((user as any)?.email ?? '')
-    if (userEmail.includes('@signalloom.local') || userEmail === 'demo-user@signalloom.local') {
-      return 'tenant-demo'
-    }
-    return 'tenant-1'
-  }, [sessionTenant, searchParams, user, internalSessionTenant])
+  const { getAccessTokenSilently } = useAuth0()
+  // AgentsPage resolves the session tenant once and passes it down; null means
+  // "not known yet", in which case no row is reported as a tenant mismatch.
+  const activeSessionTenant = sessionTenant ?? null
 
   const resolveInitialSearch = () => {
     const s = searchParams.get('search')
@@ -1370,6 +1336,8 @@ function GovernedTab({
               <span className="sl-filter-chip__count">{lifecycleCounts[state]}</span>
             </button>
           ))}
+        </div>
+        <div className="sl-filter-chips" role="group" aria-label="Filter agents by registry link, review, GitOps and tenant">
           <button
             type="button"
             className="sl-filter-chip"
@@ -1646,6 +1614,7 @@ export default function AgentsPage() {
   const activeMainTab = searchParams.get('tab') === 'coding-agents' ? 'coding-agents' : 'governed'
 
   const [sessionTenant, setSessionTenant] = useState<string | null>(null)
+  const serverTenant = useServerTenant(getAccessTokenSilently)
 
   useEffect(() => {
     let isMounted = true
@@ -1675,12 +1644,12 @@ export default function AgentsPage() {
     const stored = getSafeStorageItem('signalloom_tenant') ||
       getSafeStorageItem('signalloom:active-tenant')
     if (stored) return stored
-    const userEmail = String((user as any)?.email ?? '')
-    if (userEmail.includes('@signalloom.local') || userEmail === 'demo-user@signalloom.local') {
-      return 'tenant-demo'
-    }
-    return 'tenant-1'
-  }, [searchParams, user, sessionTenant])
+    // No explicit selection: the server's tenant for this principal
+    // (GET /api/v1/me, from API_SUBJECT_TENANTS). Never guessed from the email
+    // domain; until the server answers the tenant is unknown (null) and no
+    // row is reported as a mismatch against an invented value.
+    return serverTenant
+  }, [searchParams, user, sessionTenant, serverTenant])
 
   const [agents, setAgents] = useState<AgentResponse[]>([])
 

@@ -7,7 +7,7 @@
  * - Truthful kernel containment telemetry: cgroup FROZEN / TC DROP, Requested (Outcome unconfirmed)
  * - Compliance scan, agent registration, filtering, search, and signal summary
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, within, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -36,9 +36,29 @@ vi.mock('react-router-dom', async () => {
 })
 
 const mockGetAccessTokenSilently = vi.fn().mockResolvedValue('test-token')
+let mockUser: Record<string, unknown> | undefined
 vi.mock('../auth/oidc', () => ({
-  useAuth0: () => ({ getAccessTokenSilently: mockGetAccessTokenSilently }),
+  useAuth0: () => ({ getAccessTokenSilently: mockGetAccessTokenSilently, user: mockUser }),
 }))
+
+// GET /api/v1/me is the authority for the session tenant. Without a stub the
+// relative fetch rejects, which is the "server has not answered" case.
+function stubMe(tenant: string, email = 'demo-user@signalloom.local') {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (String(url) === '/api/v1/me') {
+      return new Response(JSON.stringify({ subject: 'sub', tenant, email, superadmin: false }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    throw new Error(`unexpected fetch ${String(url)}`)
+  }))
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  mockUser = undefined
+})
 
 vi.mock('../api/agentClaim', () => ({
   claimDiscoveredAgent: vi.fn(),
@@ -1385,9 +1405,11 @@ describe('AgentsPage: Sortability and Timestamps (SLMS-P3-1)', () => {
       ],
       total: 3,
     })
+    stubMe('tenant-1')
     renderPage()
 
     await screen.findByText('GitOps Agent')
+    await waitFor(() => expect(screen.getByTestId('agent-tenant-mismatch-filter-btn')).toHaveTextContent('1'))
     expect(screen.getByTestId('agent-row-agent-gitops')).toBeInTheDocument()
     expect(screen.getByTestId('agent-row-agent-mismatch')).toBeInTheDocument()
     expect(screen.getByTestId('agent-row-agent-normal')).toBeInTheDocument()
@@ -1654,5 +1676,100 @@ describe('AgentsPage — Filter Chips & State Counts', () => {
     expect(screen.getByTestId('agent-row-kagent-1').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
     expect(screen.getByTestId('agent-row-agent-echo').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
     expect(screen.getByTestId('agent-row-netassert-pod').closest('tbody')).toHaveAttribute('aria-hidden', 'false')
+  })
+})
+
+describe('AgentsPage — server session tenant and unlinked filter', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    clearSignalSummaryCache()
+    mockWeaveApi.getObservations.mockResolvedValue([])
+    mockWeaveApi.getActors.mockResolvedValue([])
+  })
+
+  const hidden = (id: string) => screen.getByTestId(`agent-row-${id}`).closest('tbody')?.getAttribute('aria-hidden')
+  const mismatchChip = () => screen.getByTestId('agent-tenant-mismatch-filter-btn')
+  const unlinkedChip = () => screen.getByTestId('agent-unlinked-filter-btn')
+
+  const tenantAgents = () => [
+    makeAgent({ id: 'kusari-agent', name: 'Kusari Agent', tenant: 'kusari', tenant_id: 'kusari' }),
+    makeAgent({ id: 'demo-agent', name: 'Demo Agent', tenant: 'tenant-demo', tenant_id: 'tenant-demo' }),
+    makeAgent({ id: 'other-agent', name: 'Other Agent', tenant: 'tenant-1', tenant_id: 'tenant-1' }),
+  ]
+
+  it('takes the session tenant from /api/v1/me, not the email domain (kusari-operator → kusari)', async () => {
+    mockUser = { email: 'kusari-operator@signalloom.local', preferred_username: 'kusari-operator' }
+    stubMe('kusari', 'kusari-operator@signalloom.local')
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: tenantAgents(), total: 3 })
+    renderPage()
+
+    await screen.findByText('Kusari Agent')
+    await waitFor(() => expect(mismatchChip()).toHaveTextContent('Tenant Mismatch2'))
+    await userEvent.click(mismatchChip())
+    expect(hidden('kusari-agent')).toBe('true')
+    expect(hidden('demo-agent')).toBe('false')
+    expect(hidden('other-agent')).toBe('false')
+  })
+
+  it('reports no tenant mismatch while the server tenant is unknown, rather than inventing one', async () => {
+    mockUser = { email: 'demo-user@signalloom.local' }
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: tenantAgents(), total: 3 })
+    renderPage()
+
+    await screen.findByText('Kusari Agent')
+    await waitFor(() => expect(mockGetAccessTokenSilently).toHaveBeenCalled())
+    await act(async () => { await Promise.resolve() })
+    expect(mismatchChip()).toHaveTextContent('Tenant Mismatch0')
+    expect(hidden('kusari-agent')).toBe('false')
+    expect(hidden('demo-agent')).toBe('false')
+    expect(hidden('other-agent')).toBe('false')
+  })
+
+  const unlinkedAgents = () => [
+    makeAgent({ id: 'discovered-only', name: 'Discovered Only', record_class: 'discovered', is_registry_linked: true }),
+    makeAgent({ id: 'unlinked-only', name: 'Unlinked Only', record_class: 'registered', is_registry_linked: false }),
+    makeAgent({ id: 'linked-registered', name: 'Linked Registered', record_class: 'registered', is_registry_linked: true }),
+  ]
+
+  it('counts and isolates either discovered or registry-unlinked rows under Unlinked', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: unlinkedAgents(), total: 3 })
+    renderPage()
+
+    await screen.findByText('Discovered Only')
+    expect(unlinkedChip()).toHaveTextContent('Unlinked2')
+    await userEvent.click(unlinkedChip())
+    expect(hidden('discovered-only')).toBe('false')
+    expect(hidden('unlinked-only')).toBe('false')
+    expect(hidden('linked-registered')).toBe('true')
+  })
+
+  it('applies ?unlinked=true on load', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: unlinkedAgents(), total: 3 })
+    renderPage(['/agents?unlinked=true'])
+
+    await screen.findByText('Discovered Only')
+    expect(unlinkedChip()).toHaveAttribute('aria-pressed', 'true')
+    expect(hidden('discovered-only')).toBe('false')
+    expect(hidden('unlinked-only')).toBe('false')
+    expect(hidden('linked-registered')).toBe('true')
+  })
+
+  it('labels the lifecycle chips and the attribute chips as separate groups', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: unlinkedAgents(), total: 3 })
+    renderPage()
+
+    await screen.findByText('Discovered Only')
+    const lifecycle = screen.getByRole('group', { name: 'Filter agents by lifecycle state' })
+    const attributes = screen.getByRole('group', { name: 'Filter agents by registry link, review, GitOps and tenant' })
+    expect(within(lifecycle).getAllByRole('button').map(b => b.getAttribute('data-testid'))).toEqual(
+      expect.arrayContaining(['agent-lifecycle-filter-all']),
+    )
+    expect(within(lifecycle).getAllByRole('button').every(b => b.getAttribute('data-testid')?.startsWith('agent-lifecycle-filter-'))).toBe(true)
+    expect(within(attributes).getAllByRole('button').map(b => b.getAttribute('data-testid'))).toEqual([
+      'agent-unlinked-filter-btn',
+      'agent-attention-filter-btn',
+      'agent-gitops-filter-btn',
+      'agent-tenant-mismatch-filter-btn',
+    ])
   })
 })

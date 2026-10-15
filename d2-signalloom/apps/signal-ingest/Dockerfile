@@ -23,6 +23,14 @@ RUN CGO_ENABLED=0 go build -tags frostdb -trimpath -ldflags="-s -w" -o /out/sign
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/signal-ingest /signal-ingest
+# FrostDB fans every scan out to GOMAXPROCS consumer goroutines (read once at init,
+# query/physicalplan concurrencyHardcoded), each holding a 5 MiB read buffer per
+# projected Parquet column chunk. The Deployment sets no CPU limit, so without this
+# GOMAXPROCS is the node's core count (24 on kind-osramp) and any scan that reads the
+# whole store holds 24 row groups at once: the working set tracked the store, and the
+# pod was OOM-killed at 2 GiB (2026-10-15). A Deployment env or a CPU limit overrides it.
+# See store.TestFrostDB_FullScanPeakIsBoundedAtTheImageGOMAXPROCS.
+ENV GOMAXPROCS=2
 USER 65532:65532
 EXPOSE 8082
 ENTRYPOINT ["/signal-ingest"]

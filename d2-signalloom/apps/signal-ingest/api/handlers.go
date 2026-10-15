@@ -1221,6 +1221,12 @@ func handleCoverage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// streamReplayCap is how many observations a Last-Event-ID reconnect replays.
+const streamReplayCap = 100
+
+// errStreamReplayFull stops the replay scan once streamReplayCap rows are collected.
+var errStreamReplayFull = errors.New("api: stream replay cap reached")
+
 func (h *Handlers) handleStream(w http.ResponseWriter, r *http.Request) {
 	if r != nil && r.Body != nil {
 		defer func() {
@@ -1268,11 +1274,31 @@ func (h *Handlers) handleStream(w http.ResponseWriter, r *http.Request) {
 		lastEventID = r.URL.Query().Get("last_event_id")
 	}
 	if lastEventID != "" {
-		if t, err := time.Parse(time.RFC3339, lastEventID); err == nil {
-			obs, err := h.Store.QueryRange(r.Context(), store.Query{After: t})
-			if err == nil {
-				tenant, all := observationReadScope(r)
-				obs = scopeObservations(obs, tenant, all, 100)
+		// Streamed with an early stop at the replay cap rather than read with QueryRange and
+		// truncated: Last-Event-ID is client-supplied, so an old one used to materialise every row
+		// since then to send 100 of them. Same rows, same order, same scope as before. The tenant
+		// is pushed into the store query so a scoped replay stops after its own 100 rows instead
+		// of streaming every other tenant's to find them, and a principal with no tenant and no
+		// cross-tenant grant (who saw nothing before either) does not read at all.
+		// See TestStream_LastEventIDReplayCostDoesNotGrowWithTheStore.
+		tenant, all := observationReadScope(r)
+		if t, err := time.Parse(time.RFC3339, lastEventID); err == nil && (all || tenant != "") {
+			q := store.Query{After: t}
+			if !all {
+				q.TenantID = tenant
+			}
+			var obs []model.Observation
+			err := h.Store.ScanObservations(r.Context(), q, func(o *model.Observation) error {
+				if !all && (tenant == "" || o.Labels[ObservationTenantLabel] != tenant) {
+					return nil
+				}
+				obs = append(obs, *o)
+				if len(obs) >= streamReplayCap {
+					return errStreamReplayFull
+				}
+				return nil
+			})
+			if err == nil || errors.Is(err, errStreamReplayFull) {
 				for _, o := range obs {
 					data, _ := json.Marshal(o)
 					fmt.Fprintf(w, "id: %s\nevent: observation\ndata: %s\n\n", o.Timestamp.UTC().Format(time.RFC3339), string(data))

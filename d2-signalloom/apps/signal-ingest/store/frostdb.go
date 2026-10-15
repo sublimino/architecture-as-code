@@ -42,6 +42,9 @@ type FrostDBStore struct {
 	attestor      *SegmentAttestor
 	pseudonymiser *SegmentPseudonymiser
 	labelAllow    map[string]struct{}
+	// now anchors QueryPage's newest time slice. A field rather than a call to time.Now so a
+	// test can place the anchor relative to a fixture.
+	now func() time.Time
 }
 
 type frostDBStoreConfig struct {
@@ -245,6 +248,7 @@ func newFrostDBStore(cfg *frostDBStoreConfig, attestor *SegmentAttestor, opts ..
 		attestor:      attestor,
 		pseudonymiser: pseudonymiser,
 		labelAllow:    labelAllow,
+		now:           time.Now,
 	}, nil
 }
 
@@ -519,20 +523,28 @@ func (f *FrostDBStore) QueryRange(ctx context.Context, q Query) ([]model.Observa
 		builder = builder.Filter(filter)
 	}
 
+	// Once Limit rows are collected nothing later can be kept, so the scan stops there instead of
+	// running on through every remaining block and discarding what it reads. Before this, a
+	// QueryRange{Limit: 200} with no time bound (the authorization handlers' evidence lookup)
+	// cost a full decode of the store to return 200 rows.
+	// See TestFrostDB_QueryRangeLimitStopsTheScan.
 	var results []model.Observation
 	err = builder.Execute(ctx, func(ctx context.Context, r arrow.Record) error {
 		if q.Limit > 0 && len(results) >= q.Limit {
-			return nil
+			return errScanLimitReached
 		}
 		obs := recordToObservations(r)
 		for _, o := range obs {
 			results = append(results, o)
 			if q.Limit > 0 && len(results) >= q.Limit {
-				break
+				return errScanLimitReached
 			}
 		}
 		return nil
 	})
+	if err != nil && !errors.Is(err, errScanLimitReached) {
+		return nil, fmt.Errorf("frostdb: query range: %w", err)
+	}
 	if q.Offset > 0 {
 		if q.Offset >= len(results) {
 			return nil, nil
@@ -833,77 +845,7 @@ func (f *FrostDBStore) QueryPage(ctx context.Context, q PageQuery) ([]model.Obse
 	hasCursor := !q.CursorTimestamp.IsZero() || q.CursorID != ""
 
 	if q.Limit > 0 {
-		h := newObservationMinHeap(q.Limit)
-		seen := make(map[string]struct{})
-
-		err = builder.Execute(ctx, func(ctx context.Context, r arrow.Record) error {
-			n := int(r.NumRows())
-			if n == 0 {
-				return nil
-			}
-			schema := r.Schema()
-			colIdx := make(map[string]int, schema.NumFields())
-			for i, field := range schema.Fields() {
-				colIdx[field.Name] = i
-			}
-
-			tenantColIdx, hasTenantCol := colIdx["labels.tenant_id"]
-			tsColIdx, hasTsCol := colIdx["timestamp"]
-			idColIdx, hasIDCol := colIdx["id"]
-
-			for i := 0; i < n; i++ {
-				if !q.AllTenants {
-					if q.Tenant == "" || !hasTenantCol {
-						continue
-					}
-					rowTenant := stringAt(r.Column(tenantColIdx), i)
-					if rowTenant != q.Tenant {
-						continue
-					}
-				}
-
-				var rowTs time.Time
-				if hasTsCol {
-					ns := int64At(r.Column(tsColIdx), i)
-					if ns > 0 {
-						rowTs = time.Unix(0, ns).UTC()
-					}
-				}
-				var rowID string
-				if hasIDCol {
-					rowID = stringAt(r.Column(idColIdx), i)
-				}
-
-				if hasCursor {
-					if !(rowTs.Before(q.CursorTimestamp) || (rowTs.Equal(q.CursorTimestamp) && rowID < q.CursorID)) {
-						continue
-					}
-				}
-
-				if rowID != "" {
-					if _, dup := seen[rowID]; dup {
-						continue
-					}
-					seen[rowID] = struct{}{}
-				}
-
-				if len(h.items) == h.cap && len(h.items) > 0 {
-					root := &h.items[0]
-					if rowTs.Before(root.Timestamp) || (rowTs.Equal(root.Timestamp) && rowID <= root.ID) {
-						continue
-					}
-				}
-
-				o := decodeObservationAt(r, i, colIdx)
-				h.push(o)
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, fmt.Errorf("frostdb: query page execute: %w", err)
-		}
-
-		return h.sorted(), nil
+		return f.queryPageSliced(ctx, q, filterQuery, hasCursor)
 	}
 
 	var results []model.Observation

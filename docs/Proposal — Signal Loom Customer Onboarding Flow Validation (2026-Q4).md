@@ -118,7 +118,7 @@ flowchart LR
 | P2-2 | implementation | Gates G3–G5: Verify one-time code issuance, sensor CLI enrollment (`agentmaxxing_host_sensor enroll`), code consumption, and auto-claim. | P2-PRE | Code single-use verified; auto-claim verified | M | antigravity | pass — delivered: 67ffee5f64e3dbc0b61df063c433506beeaa2d28 (see [Errata](#errata--slco-p2-2)) | — | — | — | — |
 | P2-3 | implementation | Gates G6/G7 & C4: Verify telemetry arrival, pseudonymisation, and end-to-end onboarding helper (`onboard-test-agent.sh`). | P2-PRE | Telemetry payload validated; HMAC pseudonymisation verified | M | antigravity | pass — delivered: 605a0aadefa7f086cfd603164ab278b00870d728 (see [Errata](#errata--slco-p2-3)) | — | — | — | — |
 | P2-4 | implementation | Construct `scripts/verify-tenant-readiness.sh`: automated check of tenant existence, isolation, host auto-claim, telemetry arrival, and allow-list compliance. | P2-PRE | Script exit 0 on verified tenant, exit 1 on invalid tenant | M | antigravity | pass — delivered: 069212b419b7e0bde71de74c8654b6d15d7bc696 (see [Errata](#errata--slco-p2-4)) | — | — | — | — |
-| P2-GOV | governor | Governor: Reconcile P2 evidence, execute `scripts/verify-tenant-readiness.sh`, update Obsidian Runbook ledger, prepare final sign-off. | P2-1, P2-2, P2-3, P2-4 | Full verification evidence recorded; Runbook Section 10 populated | S | antigravity | — | — | — | — | — |
+| P2-GOV | governor | Governor: Reconcile P2 evidence, execute `scripts/verify-tenant-readiness.sh`, update Obsidian Runbook ledger, prepare final sign-off. | P2-1, P2-2, P2-3, P2-4 | Full verification evidence recorded; Runbook Section 10 populated | S | antigravity | pass — verified sign-off evidence recorded, Obsidian Runbook Section 10 certified (see [Errata](#errata--slco-p2-gov)) | — | — | — | — |
 
 ### Spec: Errata
 
@@ -470,4 +470,23 @@ Source `scripts/lib/wait.sh`; do not duplicate polling loops or use fixed sleeps
 **Commit:** 069212b419b7e0bde71de74c8654b6d15d7bc696
 **Decisions:** Implemented and proved `scripts/verify-tenant-readiness.sh` for automated H2 checklist evaluation covering all 7 criteria (tenant existence, isolation, host auto-claim, telemetry freshness, known issues artifact, support routing artifact, and ingress perimeter). Integrated resilient waits from `scripts/lib/wait.sh`. Built comprehensive unit test suite `test/verify-tenant-readiness.bats` (8 tests passed, 0 failed) and registered Makefile target `test-tenant-readiness`.
 **Evidence:** `make test-tenant-readiness` passed with 8/8 tests; `scripts/verify-tenant-readiness.sh --tenant kusari --offline --json` produced verification record in `docs/records/ci-evidence/slco-p2-4-verification.json`.
+
+#### Errata — SLCO-P2-GOV
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+**Created:** 2026-10-15 02:06:30+01:00
+**Last Updated:** 2026-10-15 02:14:00+01:00
+**Status:** Completed
+**Commit:** 66e5130ea
+**Integration branch:** `integration/slco-v0.1.0`
+**Inspected HEAD:** `66e5130ea`
+**Decision:** Pass P2-GOV. All Phase 2 acceptance criteria and governance gates (G1–G7, C1–C5, H1–H2, T1–T6) certified:
+1. Predecessor certification: Human review approved by Andrew Martin in Kanban review ledger (`task_run_reviews` task `1e66d`).
+2. Integration ancestry: All 4 Phase 2 worker delivery commits (`914bced`, `67ffee`, `605a0a`, `069212`) merged and verified as true ancestors of integration HEAD `66e5130ea`.
+3. Invariant & Architecture: Observation privacy probe passing (`TestSLCOStoredObservationPrivacy`, 0.014s), tenant isolation verified (226/226 passing route tests in `test_tenant_isolation.py`), host enrollment passing (31/31 passed in `test_host_enrollment.py`), and Kusari E2E passing (78/78 passed in `make test-kusari-e2e`).
+4. Tenant Readiness: `scripts/verify-tenant-readiness.sh` verified with 8/8 tests in `make test-tenant-readiness`.
+5. Documentation & Invariants: `make docs-lint` passes with 785 tracked files clean; Kanban doctor reports `ALL CHECKS HEALTHY`.
+6. Runbook Sections 9 & 10: Updated via Obsidian bridge (`obsidian-modify`) with all 10 questions resolved and Section 10 sign-off ledger certified with **VERIFIED PASS**.
+**Evidence:** `docs/records/ci-evidence/slco-p2-*.json`, `make test-tenant-readiness` (8/8 pass), `make test-eap-offline` (274 passed, 18 BATS passed, 33 CLI passed), `make test-kusari-e2e` (78/78 pass), `make docs-lint` (785 clean), and Obsidian Runbook Section 10 **VERIFIED PASS**.
 

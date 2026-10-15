@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import type { ReactNode } from 'react'
-import App, { routeLoadingLabel, SuperadminRoute } from './App'
+import App, { routeLoadingLabel, SuperadminRoute, EXTRA_ROUTE_LABELS } from './App'
 import { NAV } from './components/Sidebar'
 import { FeatureFlagProvider, clearFeatureFlagCache } from './providers/FeatureFlagProvider'
 import * as featuresApi from './api/featuresApi'
@@ -140,6 +140,21 @@ describe('routeLoadingLabel', () => {
 
     expect(routeLoadingLabel('/fleet')).toBe('Loading Fleet Demo')
     expect(routeLoadingLabel('/fleet/audience')).toBe('Loading Fleet Demo Audience')
+  })
+
+  it('holds no extra label that a NAV entry already supplies', () => {
+    // NAV is walked first, so a duplicate here is dead code, and twelve of
+    // them carried different wording from the label the user actually saw.
+    const navPaths = new Set(NAV.map((item) => item.to))
+    const shadowed = Object.keys(EXTRA_ROUTE_LABELS).filter((pattern) => navPaths.has(pattern))
+    expect(shadowed).toEqual([])
+  })
+
+  it('names every page of a feature the same way, root or nested', () => {
+    expect(routeLoadingLabel('/demos/agentmaxxing/run/7')).toBe(routeLoadingLabel('/demos/agentmaxxing'))
+    expect(routeLoadingLabel('/demos/agentmaxxing')).toBe('Loading AgentMaxxing Demo')
+    expect(routeLoadingLabel('/demos/fleet')).toBe(routeLoadingLabel('/fleet'))
+    expect(routeLoadingLabel('/demos/fleet/audience')).toBe(routeLoadingLabel('/fleet/audience'))
   })
 
   it('labels the detail routes that are not in the nav', () => {

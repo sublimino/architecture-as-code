@@ -174,30 +174,25 @@ export function useAppContext() {
  * only ever arrived at by redirect. NAV supplies the rest, so a new nav entry
  * gets a loading label for free and the label the user reads while waiting is
  * the same word they just clicked.
+ *
+ * NAV is matched first, so a path NAV already has never reaches this table
+ * (App.test pins that none is listed). Aliases of a NAV page (`/demos/fleet`,
+ * `/demos/agentmaxxing/*`) repeat that page's NAV label word for word.
  */
-const EXTRA_ROUTE_LABELS: Record<string, string> = {
+export const EXTRA_ROUTE_LABELS: Record<string, string> = {
   '/overview': 'Overview',
   '/agents/:id': 'Agent',
-  '/discovery': 'Discovery',
   '/discovery/accounts/:accountId': 'Account',
-  '/topology': 'Topology',
   '/activity': 'The Weave',
-  '/risk': 'FAIR Risk',
-  '/policies': 'Policies',
   '/containment': 'Containment',
   '/approvals': 'Approvals',
   '/workspaces': 'Workspaces',
   '/connectors': 'Connectors',
-  '/compliance': 'Compliance',
   '/compliance/policies': 'Policy Compliance',
   '/compliance/posture': 'Agent Posture',
   '/compliance/risk': 'Risk Exposure',
   '/compliance/:frameworkId': 'Framework',
   '/agent-trust-topology': 'Agent Trust Topology',
-  '/weave': 'The Weave',
-  '/federated-services': 'Federated Services',
-  '/collusion-access': 'Collusion & Access',
-  '/fleet/audience': 'Fleet Demo Audience',
   '/demos/fleet/audience': 'Fleet Demo Audience',
   '/onboarding': 'Setup',
   '/help/connectors/:provider': 'Connector Help',
@@ -209,24 +204,11 @@ const EXTRA_ROUTE_LABELS: Record<string, string> = {
   '/login': 'Login',
   '/callback': 'Sign In',
   '/admin/users': 'User Administration',
-  '/admin/features': 'Feature Flags',
   '/design-system/css': 'CSS Lab',
   '/evaluations': 'Policy Evaluation',
   '/compliance/evaluation': 'Policy Evaluation',
-  '/supercred': 'SuperCred Demo',
-  '/fleet': 'Fleet Demo',
   '/demos/fleet': 'Fleet Demo',
-  '/demos/agentmaxxing': 'AgentMaxxing Console',
-  '/demos/agentmaxxing/*': 'AgentMaxxing Console',
-  '/network-tests': 'Network Tests',
-  '/signal-fusion': 'Signal Fusion',
-  '/distance-latency': 'Distance & Latency',
-  '/signal-store': 'Signal Store',
-  '/feeds': 'Feeds Explorer',
-  '/design-system': 'Design System',
-  '/design-system/headers': 'Design System Headers',
-  '/settings': 'Settings',
-  '/users': 'Users',
+  '/demos/agentmaxxing/*': 'AgentMaxxing Demo',
 }
 
 /**
@@ -247,8 +229,10 @@ export function routeLoadingLabel(pathname: string): string {
   // Exact patterns before parameterised ones. `/compliance/:frameworkId`
   // matches `/compliance/policies` perfectly well, so a plain first-match walk
   // in declaration order would label the Policy Compliance page "Framework".
-  // Within each group order is irrelevant: matchPath is a whole-path match, so
-  // no two distinct exact patterns can both hit the same pathname.
+  // A splat counts as exact here, and `/demos/agentmaxxing/*` also matches the
+  // bare `/demos/agentmaxxing`, so within a group the first declared pattern
+  // wins: NAV before the extras. That is harmless only because an alias repeats
+  // its NAV label exactly (pinned in App.test).
   const ordered = [
     ...patterns.filter(([pattern]) => !pattern.includes(':')),
     ...patterns.filter(([pattern]) => pattern.includes(':')),
@@ -263,8 +247,10 @@ export function routeLoadingLabel(pathname: string): string {
  * Route-level wrapper for feature-flag gated pages.
  * While feature flags are resolving, renders AppLoader with the route-specific
  * label and PixelLoader (honoring the operator's loadTimes settings) so that
- * the user never experiences a flash of 404. If the flag evaluates to false,
- * renders NotFoundPage as terminal fallback.
+ * the user never experiences a flash of 404. If the server resolves the flag to
+ * false, renders NotFoundPage as terminal fallback. If the flags could not be
+ * fetched at all, FeatureGate renders an ErrorState with Retry instead: an
+ * unanswered request is not evidence that the page is disabled.
  */
 export function GatedRoute({ flag, children }: { flag: string; children: React.ReactNode }) {
   const location = useLocation()

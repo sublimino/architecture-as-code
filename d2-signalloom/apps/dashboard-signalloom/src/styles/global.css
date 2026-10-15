@@ -126,7 +126,6 @@ select option { background: var(--surface); }
 
 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: none; } }
-@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .fade-in { animation: fadeIn var(--motion-med) var(--ease-signature); }
 .slide-up { animation: slideUp var(--motion-slow) var(--ease-signature); }
 

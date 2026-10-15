@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import axios from 'axios'
 import { fetchFeatures, FEATURE_FLAGS_QUERY_KEY } from './featuresApi'
-import { DEFAULT_SYSTEM_FLAGS } from '../types/features'
 
 vi.mock('axios')
 
@@ -63,15 +62,13 @@ describe('featuresApi', () => {
     expect(result).toEqual(mockData)
   })
 
-  it('falls back to DEFAULT_SYSTEM_FLAGS on network or server failure', async () => {
-    vi.mocked(axios.get).mockRejectedValueOnce(new Error('500 Internal Server Error'))
+  it('rejects on network or server failure instead of inventing the tenant flags', async () => {
+    // A failed request is an error. Returning DEFAULT_SYSTEM_FLAGS stamped with
+    // the tenant's id made it indistinguishable from a real answer, so the
+    // provider cached it as that tenant's flags for the whole stale window.
+    vi.mocked(axios.get).mockRejectedValueOnce(new Error('Request failed with status code 502'))
 
-    const result = await fetchFeatures('mock-token', 'tenant-err')
-
-    expect(result.tenant_id).toBe('tenant-err')
-    expect(result.flags).toEqual(DEFAULT_SYSTEM_FLAGS)
-    expect(result.flags.core_governance).toBe(true)
-    expect(result.flags.demos_fleet).toBe(false)
+    await expect(fetchFeatures('mock-token', 'tenant-err')).rejects.toThrow('status code 502')
   })
 
   it('fetches admin features for a specific tenant', async () => {

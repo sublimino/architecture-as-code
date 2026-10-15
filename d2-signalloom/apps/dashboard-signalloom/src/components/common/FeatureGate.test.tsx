@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, waitFor } from '@testing-library/react'
 import { FeatureGate } from './FeatureGate'
 import {
   FeatureFlagProvider,
@@ -235,5 +235,56 @@ describe('FeatureGate', () => {
 
     expect(screen.queryByTestId('fallback-state')).toBeNull()
     expect(screen.getByTestId('active-state')).toBeTruthy()
+  })
+
+  describe('when the flags could not be fetched', () => {
+    function renderUnresolved(ui: React.ReactNode) {
+      vi.spyOn(featuresApi, 'fetchFeatures').mockRejectedValue(new Error('Network Error'))
+      return render(
+        <FeatureFlagProvider tenantId="t-down" retryDelaysMs={[0, 0]}>
+          {ui}
+        </FeatureFlagProvider>,
+      )
+    }
+
+    it('shows a retryable error instead of the "disabled" fallback', async () => {
+      // supercred defaults off: the old code rendered the fallback, i.e. told
+      // the user the feature is disabled when nobody knows that.
+      renderUnresolved(
+        <FeatureGate flag="supercred" fallback={<div data-testid="fallback-404">404</div>}>
+          <div data-testid="gated">secret</div>
+        </FeatureGate>,
+      )
+
+      await waitFor(() => expect(screen.getByTestId('feature-gate-error')).toBeTruthy())
+      expect(screen.getByTestId('error-retry')).toBeTruthy()
+      expect(screen.queryByTestId('fallback-404')).toBeNull()
+      expect(screen.queryByTestId('gated')).toBeNull()
+    })
+
+    it('never renders default-on gated content it cannot vouch for', async () => {
+      // page_agents defaults on: the old code fell through to the children.
+      renderUnresolved(
+        <FeatureGate flag="page_agents" fallback={<div data-testid="fallback-404">404</div>}>
+          <div data-testid="gated">agents</div>
+        </FeatureGate>,
+      )
+
+      await waitFor(() => expect(screen.getByTestId('feature-gate-error')).toBeTruthy())
+      expect(screen.queryByTestId('gated')).toBeNull()
+    })
+
+    it('keeps fallback-less gates (nav links) on the client defaults', async () => {
+      renderUnresolved(
+        <>
+          <FeatureGate flag="page_agents"><a data-testid="nav-agents">Agents</a></FeatureGate>
+          <FeatureGate flag="supercred"><a data-testid="nav-supercred">SuperCred</a></FeatureGate>
+        </>,
+      )
+
+      await waitFor(() => expect(screen.getByTestId('nav-agents')).toBeTruthy())
+      expect(screen.queryByTestId('nav-supercred')).toBeNull()
+      expect(screen.queryByTestId('feature-gate-error')).toBeNull()
+    })
   })
 })

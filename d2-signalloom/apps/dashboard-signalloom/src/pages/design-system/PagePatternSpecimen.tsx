@@ -22,8 +22,11 @@ export function PagePatternSpecimen(): React.JSX.Element {
     fontSize: 12,
     borderRadius: 4,
     border: '1px solid var(--border)',
-    background: activeState === state ? 'var(--accent, #00d2ff)' : 'var(--surface)',
-    color: activeState === state ? '#000' : 'var(--text)',
+    // Selected state reuses .btn-primary's pairing (global.css): --cyan fill
+    // with a --bg label, which buttonAffordance.test.ts holds at >=3:1 in
+    // every theme. A hard-coded #000 label would not follow the theme.
+    background: activeState === state ? 'var(--cyan)' : 'var(--surface)',
+    color: activeState === state ? 'var(--bg)' : 'var(--text)',
     fontWeight: activeState === state ? 600 : 400,
     cursor: 'pointer',
     transition: 'all 0.15s ease',

@@ -108,10 +108,10 @@ def test_repository_migration_versions_are_unique() -> None:
 
     assert len({migration.version for migration in migrations}) == len(migrations)
     assert [migration.filename for migration in migrations[-4:]] == [
-        "064_backfill_claimed_agent_ownership.sql",
         "065_seed_granular_page_flags.sql",
         "066_governance_frameworks_unique_and_policies.sql",
         "067_feature_flags_audit_event_type.sql",
+        "068_seed_governance_frameworks.sql",
     ]
 
 
@@ -379,3 +379,18 @@ async def test_every_repo_migration_is_idempotent_by_construction() -> None:
                 unguarded.append(f"{migration.filename}: {verb.strip()}")
 
     assert unguarded == [], f"non-idempotent DDL found: {unguarded}"
+
+
+def test_governance_framework_seed_never_overwrites_a_tenants_framework_selection() -> None:
+    """068 seeds the canonical frameworks on every estate. It may create a missing
+    tenant_settings row, but an operator's selected_frameworks must survive it."""
+    import re
+
+    sql = (MIGRATIONS_DIR / "068_seed_governance_frameworks.sql").read_text(encoding="utf-8")
+    statements = [s for s in sql.split(";") if "INSERT INTO public.tenant_settings" in s]
+    assert statements, "068 no longer seeds tenant_settings; revisit this test"
+    for statement in statements:
+        assert re.search(r"ON CONFLICT \(tenant_id\) DO NOTHING\s*$", statement), statement
+    assert "selected_frameworks = EXCLUDED" not in sql
+    assert not re.search(r"^\s*(BEGIN|COMMIT)\s*;", sql, re.M), "the migrator owns the transaction"
+    assert re.search(r"INSERT INTO public\.governance_frameworks", sql)

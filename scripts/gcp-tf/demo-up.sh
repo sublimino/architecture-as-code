@@ -1385,14 +1385,16 @@ AFM_REQUIRED="${AFM_REQUIRED:-1}"
 # An explicit AFM_IMAGE_ARCHIVE is still honoured verbatim: a caller naming one
 # path for one lane is unambiguous, and the sharing hazard only exists for the
 # default that every lane computes identically.
-LOCAL_AFM_ARCHIVE="${AFM_IMAGE_ARCHIVE:-}"
-if [ -z "$LOCAL_AFM_ARCHIVE" ]; then
-  if [ -s "${REPO_ROOT}/.afm-image/${ENV_KEY}/kubesec-afm.tar.gz" ]; then
-    LOCAL_AFM_ARCHIVE="${REPO_ROOT}/.afm-image/${ENV_KEY}/kubesec-afm.tar.gz"
-  else
-    LOCAL_AFM_ARCHIVE="${REPO_ROOT}/.afm-image/kubesec-afm.tar.gz"
-  fi
-fi
+#
+# This MUST stay a single-line `VAR="${OVERRIDE:-default}"` assignment, keyed
+# on ${ENV_KEY}: test/lane-private-paths.bats' default_of() parses exactly
+# that shape to prove the default is lane-private, and a multi-line if/else
+# here both breaks the parser (it reads the first line only, which would be
+# the unconditional, unkeyed half) and is how this regressed to a shared
+# path once already (fcc119b28). If a pre-built archive from a shared/bare
+# location is ever needed as a fallback, read it into this lane-private path
+# (copy), never repoint the default itself at the shared one.
+LOCAL_AFM_ARCHIVE="${AFM_IMAGE_ARCHIVE:-${REPO_ROOT}/.afm-image/${ENV_KEY}/kubesec-afm.tar.gz}"
 
 # Deliberately the path scripts/k8s-afm.sh computes for itself by default:
 # ${REPO_ROOT}/.afm-image/kubesec-afm.tar.gz, where REPO_ROOT on the VM is
@@ -1456,8 +1458,10 @@ deliver_afm_image() {
   # checkout lives beside this one, so REPO_ROOT/../kubesec-afm resolves on any
   # machine laid out the same way and resolves to nothing on a machine that is
   # not — which is the correct answer there, because the elif below already
-  # handles "no source checkout here" by using a pre-built archive.
-  local afm_src="${KUBESEC_AFM_ROOT:-${REPO_ROOT}/../kubesec-afm}"
+  # handles "no source checkout here" by using a pre-built archive. The
+  # KUBESEC_AFM_ROOT default itself now lives in scripts/k8s-afm.sh (one
+  # owner), reached via the has-source predicate immediately below rather than
+  # a second copy of the path in this file.
   if "${REPO_ROOT}/scripts/k8s-afm.sh" has-source; then
     log "building the AFM image archive from source"
     if ! "${REPO_ROOT}/scripts/k8s-afm.sh" save "$archive"; then
@@ -1467,8 +1471,22 @@ deliver_afm_image() {
   elif [ -s "$archive" ]; then
     log "using the pre-built AFM image archive at ${archive} (no source checkout here)"
   else
-    refuse_or_warn_no_afm "no KUBESEC_AFM_ROOT checkout and no archive at ${archive}"
-    return 0
+    # No source to build from and nothing yet at this lane's private path.
+    # A shared/bare archive left over from before lanes were isolated (or
+    # produced out-of-band) is a legitimate last resort — but only as a READ:
+    # copy it into the lane-private path so every lane gets its own copy to
+    # scp from, and nothing ever rebuilds or truncates the shared file itself.
+    local shared_archive="${REPO_ROOT}/.afm-image/kubesec-afm.tar.gz"
+    if [ -s "$shared_archive" ] && [ "$shared_archive" != "$archive" ]; then
+      log "no lane-private archive at ${archive}; copying the shared pre-built archive from ${shared_archive} (read-only — it is never written here)"
+      if ! mkdir -p "$(dirname "$archive")" || ! cp "$shared_archive" "$archive"; then
+        refuse_or_warn_no_afm "failed to copy the shared archive at ${shared_archive} into ${archive}"
+        return 0
+      fi
+    else
+      refuse_or_warn_no_afm "no KUBESEC_AFM_ROOT checkout and no archive at ${archive}"
+      return 0
+    fi
   fi
 
   local size digest remote_digest dest

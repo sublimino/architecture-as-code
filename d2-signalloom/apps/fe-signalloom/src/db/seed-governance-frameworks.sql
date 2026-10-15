@@ -14,8 +14,8 @@ INSERT INTO public.governance_frameworks (
     control_count, activated_by
 ) VALUES (
     'f0000000-0000-0000-0000-000000000001', 'tenant-demo',
-    'EU AI Act', '2024/1689', 'European Parliament', '2026-08-02',
-    3, 'admin@acme.co'
+    'EU AI Act', 'v1.0.0', 'European Parliament', '2026-08-02',
+    7, 'admin@acme.co'
 ) ON CONFLICT (tenant_id, name) DO UPDATE SET
     control_count = EXCLUDED.control_count,
     version = EXCLUDED.version,
@@ -61,25 +61,62 @@ INSERT INTO public.governance_frameworks (
     version = EXCLUDED.version,
     regulatory_body = EXCLUDED.regulatory_body;
 
+-- NIST SP 800-53
+INSERT INTO public.governance_frameworks (
+    id, tenant_id, name, version, regulatory_body,
+    control_count, activated_by
+) VALUES (
+    'f0000000-0000-0000-0000-000000000005', 'tenant-demo',
+    'NIST SP 800-53', 'v1.0.0', 'NIST',
+    14, 'admin@acme.co'
+) ON CONFLICT (tenant_id, name) DO UPDATE SET
+    control_count = EXCLUDED.control_count,
+    version = EXCLUDED.version,
+    regulatory_body = EXCLUDED.regulatory_body;
+
 -- ══════════════════════════════════════════════════════════════════════════════
 -- 2. Governance Controls for tenant-demo
 -- ══════════════════════════════════════════════════════════════════════════════
 
--- EU AI Act controls
-INSERT INTO public.governance_controls (id, tenant_id, framework_id, name, description, control_order) VALUES
+-- EU AI Act controls (7, evaluated by eu-ai-act pack)
+INSERT INTO public.governance_controls (
+    id, tenant_id, framework_id, name, description, control_order,
+    policy_framework_id, policy_check_id
+) VALUES
 ('c0000000-0000-0000-0000-000000000001', 'tenant-demo', 'f0000000-0000-0000-0000-000000000001',
- 'Traceability',
- 'Art. 9 -- Agent has complete enrollment metadata (name, type, capabilities, owner). All state transitions recorded in audit trail with actor and reason.',
- 1),
+ 'Art. 9 -- Containers Run as Non-Root',
+ 'Containers must run as non-root to reduce blast radius. Evaluated by eu-ai-act/container-run-as-non-root.',
+ 1, 'eu-ai-act', 'container-run-as-non-root'),
 ('c0000000-0000-0000-0000-000000000002', 'tenant-demo', 'f0000000-0000-0000-0000-000000000001',
- 'Human Oversight',
- 'Art. 14 -- Agent has a named Identity Owner (HumanPrincipal). Owner is active in directory. Agent is not operating without human accountability.',
- 2),
+ 'Art. 14 -- Human Oversight (HITL Label)',
+ 'Agent has a named Identity Owner and HITL label. Evaluated by eu-ai-act/hitl-label.',
+ 2, 'eu-ai-act', 'hitl-label'),
 ('c0000000-0000-0000-0000-000000000003', 'tenant-demo', 'f0000000-0000-0000-0000-000000000001',
- 'Incident Attribution',
- 'Every violation is attributable to a specific agent with a traceable OBO chain to a human. Violation records include severity, analysis, and recommended action.',
- 3)
-ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description;
+ 'Art. 10 -- Data Governance (Classification Label)',
+ 'Data classification label exists on workload. Evaluated by eu-ai-act/data-classification-label.',
+ 3, 'eu-ai-act', 'data-classification-label'),
+('c0000000-0000-0000-0000-000000000040', 'tenant-demo', 'f0000000-0000-0000-0000-000000000001',
+ 'Art. 9 -- No Privilege Escalation',
+ 'Minimize the admission of containers with allowPrivilegeEscalation. Evaluated by eu-ai-act/no-privilege-escalation.',
+ 4, 'eu-ai-act', 'no-privilege-escalation'),
+('c0000000-0000-0000-0000-000000000041', 'tenant-demo', 'f0000000-0000-0000-0000-000000000001',
+ 'Art. 9 -- No Privileged Mode',
+ 'Privileged mode disabled on containers. Evaluated by eu-ai-act/no-privileged-mode.',
+ 5, 'eu-ai-act', 'no-privileged-mode'),
+('c0000000-0000-0000-0000-000000000042', 'tenant-demo', 'f0000000-0000-0000-0000-000000000001',
+ 'Art. 15 -- Resource Limits Defined',
+ 'CPU and memory limits must be defined. Evaluated by eu-ai-act/resource-limits-set.',
+ 6, 'eu-ai-act', 'resource-limits-set'),
+('c0000000-0000-0000-0000-000000000043', 'tenant-demo', 'f0000000-0000-0000-0000-000000000001',
+ 'Art. 17 -- Image Digest Required',
+ 'Image must use sha256 digest. Evaluated by eu-ai-act/image-digest-required.',
+ 7, 'eu-ai-act', 'image-digest-required')
+ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    control_order = EXCLUDED.control_order,
+    policy_framework_id = EXCLUDED.policy_framework_id,
+    policy_check_id = EXCLUDED.policy_check_id;
 
 -- SOC 2 controls
 INSERT INTO public.governance_controls (id, tenant_id, framework_id, name, description, control_order) VALUES
@@ -253,6 +290,74 @@ ON CONFLICT (id) DO UPDATE SET
     policy_framework_id = EXCLUDED.policy_framework_id,
     policy_check_id = EXCLUDED.policy_check_id;
 
+-- NIST SP 800-53 controls (14, evaluated by nist-800-53 pack)
+INSERT INTO public.governance_controls (
+    id, tenant_id, framework_id, name, description, control_order,
+    policy_framework_id, policy_check_id
+) VALUES
+('c0000000-0000-0000-0000-000000000050', 'tenant-demo', 'f0000000-0000-0000-0000-000000000005',
+ 'AC-6 -- Non-Root Containers',
+ 'AC-6: Principle of least privilege -- containers must not run as root. Evaluated by nist-800-53/container-run-as-non-root.',
+ 1, 'nist-800-53', 'container-run-as-non-root'),
+('c0000000-0000-0000-0000-000000000051', 'tenant-demo', 'f0000000-0000-0000-0000-000000000005',
+ 'AC-6 -- No Host IPC',
+ 'Host IPC namespace not shared. Evaluated by nist-800-53/no-host-ipc.',
+ 2, 'nist-800-53', 'no-host-ipc'),
+('c0000000-0000-0000-0000-000000000052', 'tenant-demo', 'f0000000-0000-0000-0000-000000000005',
+ 'AC-6 -- No Host PID',
+ 'Host PID namespace not shared. Evaluated by nist-800-53/no-host-pid.',
+ 3, 'nist-800-53', 'no-host-pid'),
+('c0000000-0000-0000-0000-000000000053', 'tenant-demo', 'f0000000-0000-0000-0000-000000000005',
+ 'AC-6 -- No Host Network',
+ 'Host network namespace not shared. Evaluated by nist-800-53/no-host-network.',
+ 4, 'nist-800-53', 'no-host-network'),
+('c0000000-0000-0000-0000-000000000054', 'tenant-demo', 'f0000000-0000-0000-0000-000000000005',
+ 'AC-6(1) -- No Privilege Escalation',
+ 'Containers must not allow privilege escalation. Evaluated by nist-800-53/no-privilege-escalation.',
+ 5, 'nist-800-53', 'no-privilege-escalation'),
+('c0000000-0000-0000-0000-000000000055', 'tenant-demo', 'f0000000-0000-0000-0000-000000000005',
+ 'AC-6(2) -- No Privileged Mode',
+ 'Privileged mode disabled on containers. Evaluated by nist-800-53/no-privileged-mode.',
+ 6, 'nist-800-53', 'no-privileged-mode'),
+('c0000000-0000-0000-0000-000000000056', 'tenant-demo', 'f0000000-0000-0000-0000-000000000005',
+ 'AC-6 -- No Automount SA Token',
+ 'Service account token auto-mount disabled. Evaluated by nist-800-53/no-automount-sa-token.',
+ 7, 'nist-800-53', 'no-automount-sa-token'),
+('c0000000-0000-0000-0000-000000000057', 'tenant-demo', 'f0000000-0000-0000-0000-000000000005',
+ 'CM-8 -- Application Label',
+ 'Application label exists on workload. Evaluated by nist-800-53/app-label.',
+ 8, 'nist-800-53', 'app-label'),
+('c0000000-0000-0000-0000-000000000058', 'tenant-demo', 'f0000000-0000-0000-0000-000000000005',
+ 'CM-8 -- Version Label',
+ 'Version label exists on workload. Evaluated by nist-800-53/version-label.',
+ 9, 'nist-800-53', 'version-label'),
+('c0000000-0000-0000-0000-000000000059', 'tenant-demo', 'f0000000-0000-0000-0000-000000000005',
+ 'SC-6 -- Resource Limits Set',
+ 'CPU and memory limits must be defined. Evaluated by nist-800-53/resource-limits-set.',
+ 10, 'nist-800-53', 'resource-limits-set'),
+('c0000000-0000-0000-0000-000000000060', 'tenant-demo', 'f0000000-0000-0000-0000-000000000005',
+ 'SC-7 -- Drop All Capabilities',
+ 'All capabilities dropped from containers. Evaluated by nist-800-53/drop-all-capabilities.',
+ 11, 'nist-800-53', 'drop-all-capabilities'),
+('c0000000-0000-0000-0000-000000000061', 'tenant-demo', 'f0000000-0000-0000-0000-000000000005',
+ 'SI-7 -- Read-Only Root Filesystem',
+ 'Read-only root filesystem enforced. Evaluated by nist-800-53/read-only-rootfs.',
+ 12, 'nist-800-53', 'read-only-rootfs'),
+('c0000000-0000-0000-0000-000000000062', 'tenant-demo', 'f0000000-0000-0000-0000-000000000005',
+ 'SI-7 -- Image Digest Required',
+ 'Image must use sha256 digest. Evaluated by nist-800-53/image-digest-required.',
+ 13, 'nist-800-53', 'image-digest-required'),
+('c0000000-0000-0000-0000-000000000063', 'tenant-demo', 'f0000000-0000-0000-0000-000000000005',
+ 'AU-2 -- Audit Label',
+ 'Audit logging label present. Evaluated by nist-800-53/audit-label.',
+ 14, 'nist-800-53', 'audit-label')
+ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    control_order = EXCLUDED.control_order,
+    policy_framework_id = EXCLUDED.policy_framework_id,
+    policy_check_id = EXCLUDED.policy_check_id;
+
 -- ══════════════════════════════════════════════════════════════════════════════
 -- 3. Tenant Settings for tenant-demo (with default CEL frameworks active)
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -262,7 +367,7 @@ INSERT INTO public.tenant_settings (
     selected_frameworks, api_key_status, cookie_preferences
 ) VALUES (
     'tenant-demo', 'tenant-demo Org', 'enterprise', 'active',
-    '["eu-ai-act", "k8s-cis-benchmark", "cis-kubernetes", "finos-ai-governance-framework", "finos-aigf", "soc2"]'::jsonb,
+    '["eu-ai-act", "k8s-cis-benchmark", "cis-kubernetes", "finos-ai-governance-framework", "finos-aigf", "soc2", "nist-800-53"]'::jsonb,
     'active',
     '{"strictly_necessary": true, "analytics": true}'::jsonb
 ) ON CONFLICT (tenant_id) DO UPDATE SET
@@ -308,7 +413,7 @@ INSERT INTO public.tenant_settings (
     selected_frameworks, api_key_status, cookie_preferences
 ) VALUES (
     'kusari', 'Kusari Org', 'enterprise', 'active',
-    '["eu-ai-act", "k8s-cis-benchmark", "cis-kubernetes", "finos-ai-governance-framework", "finos-aigf", "soc2"]'::jsonb,
+    '["eu-ai-act", "k8s-cis-benchmark", "cis-kubernetes", "finos-ai-governance-framework", "finos-aigf", "soc2", "nist-800-53"]'::jsonb,
     'active',
     '{"strictly_necessary": true, "analytics": true}'::jsonb
 ) ON CONFLICT (tenant_id) DO UPDATE SET
@@ -354,7 +459,7 @@ INSERT INTO public.tenant_settings (
     selected_frameworks, api_key_status, cookie_preferences
 ) VALUES (
     'default', 'Default Org', 'enterprise', 'active',
-    '["eu-ai-act", "k8s-cis-benchmark", "cis-kubernetes", "finos-ai-governance-framework", "finos-aigf", "soc2"]'::jsonb,
+    '["eu-ai-act", "k8s-cis-benchmark", "cis-kubernetes", "finos-ai-governance-framework", "finos-aigf", "soc2", "nist-800-53"]'::jsonb,
     'active',
     '{"strictly_necessary": true, "analytics": true}'::jsonb
 ) ON CONFLICT (tenant_id) DO UPDATE SET

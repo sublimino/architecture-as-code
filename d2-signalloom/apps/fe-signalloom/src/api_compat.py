@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import os
+import re
 import secrets
 import threading
 import time
@@ -1270,6 +1271,9 @@ class PolicyScanRequest(BaseModel):
     frameworks: list[str] = Field(default_factory=list)
     # Registry ids of the agents to scan. Empty: every agent in the tenant.
     agentIds: list[str] = Field(default_factory=list, max_length=500)
+    # Fail-closed option: when True, engine unreachability or failure raises 502 instead of 200
+    strict: bool = Field(default=False)
+    failOnError: bool = Field(default=False)
 
 
 class PolicyComplianceCheck(BaseModel):
@@ -1314,12 +1318,18 @@ class PolicyControlGap(BaseModel):
     agentId: str
     framework: str
     check: str
-    controlId: str
+    controlId: str | None = None
     # What was stored for it: ``pending`` (not assessed) or ``error``.
     stored: Literal["pending", "error"]
     # ``no_workload``: the agent has no observed workload and the pack reads
     # only ``object``, so the engine was not asked.
-    reason: Literal["no_workload", "missing_from_engine_response"]
+    reason: Literal[
+        "no_workload",
+        "missing_from_engine_response",
+        "engine_error",
+        "engine_unreachable",
+        "unmapped_framework",
+    ]
 
 
 class PolicyScanResponse(BaseModel):
@@ -1339,6 +1349,8 @@ class PolicyScanResponse(BaseModel):
     agentsNotFound: list[str] = Field(default_factory=list)
     # Mapped controls of scanned agents that got no engine verdict, and why.
     controlGaps: list[PolicyControlGap] = Field(default_factory=list)
+    status: Literal["completed", "failed", "partial", "no_agents", "not_found"] | None = None
+    error: str | None = None
 
 
 class ControlResponse(BaseModel):
@@ -1386,6 +1398,23 @@ FRAMEWORK_TERRITORIES: dict[str, tuple[str, ...]] = {
     # than imposed by a territory, so scoping them would exclude them from
     # institutions that genuinely follow them.
 }
+
+#: Aliases mapping client-submitted framework names to policy pack identifiers.
+FRAMEWORK_PACK_ALIASES: dict[str, str] = {
+    "k8s-cis-benchmark": "cis-kubernetes",
+    "finos-ai-governance-framework": "finos-aigf",
+}
+
+#: Policy packs supported by the Go policy-engine.
+KNOWN_POLICY_PACKS: frozenset[str] = frozenset({
+    "cis-kubernetes",
+    "finos-aigf",
+    "eu-ai-act",
+    "nist-800-53",
+    "nis2",
+    "dora",
+    "cra",
+})
 
 #: A tenant or framework that operates everywhere.
 GLOBAL_TERRITORY = "*"
@@ -7689,6 +7718,8 @@ def _check_verdict(check: PolicyComplianceCheck) -> str:
 def _policy_scan_summary(
     checks: list[PolicyComplianceCheck],
     policy_version: str,
+    engine_invoked: bool = True,
+    engine_error: str | None = None,
 ) -> PolicySummaryResponse:
     # One summary per framework.  Grouping on (controlSet, framework) turned a
     # pack with four control sets into four "frameworks", each identified by a
@@ -7720,7 +7751,23 @@ def _policy_scan_summary(
     frameworks = []
     for framework_id, framework_checks in checks_by_framework.items():
         controls = by_control(framework_checks)
-        exposure = sum(check.carriedGbp for check in framework_checks)
+        if engine_invoked:
+            exposure = sum(check.carriedGbp for check in framework_checks)
+            total_exp = exposure
+            exp_money = MoneyResponse(amount=exposure, currency=REPORTING_CURRENCY)
+            fw_pricing = PricingRefusalResponse.of(
+                PricingStatus.PRICED,
+                reason=PRICED_REASON,
+                unpriced_fields=[],
+            )
+        else:
+            total_exp = None
+            exp_money = None
+            fw_pricing = PricingRefusalResponse.of(
+                PricingStatus.NO_RISK_DATA_PLANE,
+                reason=engine_error or NO_RISK_DATA_PLANE_REASON,
+                unpriced_fields=FRAMEWORK_MONEY_FIELDS,
+            )
         frameworks.append(
             PolicyFrameworkSummaryResponse(
                 id=framework_id,
@@ -7732,22 +7779,33 @@ def _policy_scan_summary(
                 totalResults=len(framework_checks),
                 passedControls=sum(all(v == "pass" for v in verdicts) for verdicts in controls.values()),
                 failedControls=sum(any(v == "fail" for v in verdicts) for verdicts in controls.values()),
-                totalExposureGbp=exposure,
-                exposure=MoneyResponse(amount=exposure, currency=REPORTING_CURRENCY),
-                # Priced. The same key set as the refusal, carrying the affirmative
-                # value -- so a client branches on one field rather than inferring from
-                # whether an object is present.
-                pricing=PricingRefusalResponse.of(
-                    PricingStatus.PRICED,
-                    reason=PRICED_REASON,
-                    unpriced_fields=[],
-                ),
+                totalExposureGbp=total_exp,
+                exposure=exp_money,
+                pricing=fw_pricing,
             )
         )
-    total_carried = sum(check.carriedGbp for check in checks)
-    total_ale = sum(check.ale for check in checks)
-    total_var95 = sum(check.var95 for check in checks)
-    total_tvar = sum(check.tvar for check in checks)
+    if engine_invoked:
+        total_carried = sum(check.carriedGbp for check in checks)
+        total_ale = sum(check.ale for check in checks)
+        total_var95 = sum(check.var95 for check in checks)
+        total_tvar = sum(check.tvar for check in checks)
+        carried_money = MoneyResponse(amount=total_carried, currency=REPORTING_CURRENCY)
+        summary_pricing = PricingRefusalResponse.of(
+            PricingStatus.PRICED,
+            reason=PRICED_REASON,
+            unpriced_fields=[],
+        )
+    else:
+        total_carried = None
+        total_ale = None
+        total_var95 = None
+        total_tvar = None
+        carried_money = None
+        summary_pricing = PricingRefusalResponse.of(
+            PricingStatus.NO_RISK_DATA_PLANE,
+            reason=engine_error or NO_RISK_DATA_PLANE_REASON,
+            unpriced_fields=SUMMARY_MONEY_FIELDS,
+        )
     return PolicySummaryResponse(
         totalChecks=len(checks),
         passed=count(checks, "pass"),
@@ -7758,12 +7816,8 @@ def _policy_scan_summary(
         totalVar95=total_var95,
         totalTvar=total_tvar,
         totalCarriedGbp=total_carried,
-        carried=MoneyResponse(amount=total_carried, currency=REPORTING_CURRENCY),
-        pricing=PricingRefusalResponse.of(
-            PricingStatus.PRICED,
-            reason=PRICED_REASON,
-            unpriced_fields=[],
-        ),
+        carried=carried_money,
+        pricing=summary_pricing,
         currency=REPORTING_CURRENCY,
         # The latest time any check reports, or -- when none reports one -- this
         # response's own time. Never a time attributed to a check that had none.
@@ -7773,30 +7827,43 @@ def _policy_scan_summary(
     )
 
 
+def _clean_pack_version(ver: str | None, fallback: str) -> str:
+    if not ver:
+        return fallback
+    ver = ver.strip()
+    if re.match(r"^v?\d+(\.\d+)*$", ver):
+        return ver if ver.startswith("v") else f"v{ver}"
+    return fallback
+
+
 async def _scan_one_agent(
     client: httpx.AsyncClient,
     url: str,
     tenant_id: str,
     body: dict[str, Any],
-) -> list[dict[str, Any]] | None:
-    """One agent's engine verdicts, or None when the engine gave no usable answer."""
+) -> tuple[list[dict[str, Any]] | None, str | None]:
+    """One agent's engine verdicts, or (None, err) when the engine gave no usable answer."""
     try:
         resp = await client.post(url, json=body, headers={"X-Tenant-ID": tenant_id})
     except httpx.HTTPError as exc:
-        logger.warning("policy-engine scan unavailable: %s", exc)
-        return None
+        err = f"policy-engine scan unavailable: {exc}"
+        logger.warning(err)
+        return None, err
     if resp.status_code != 200:
-        logger.warning("policy-engine scan returned HTTP %s", resp.status_code)
-        return None
+        err = f"policy-engine scan returned HTTP {resp.status_code}"
+        logger.warning(err)
+        return None, err
     try:
         results = resp.json()
     except ValueError:
-        logger.warning("policy-engine scan returned a non-JSON body")
-        return None
+        err = "policy-engine scan returned a non-JSON body"
+        logger.warning(err)
+        return None, err
     if not isinstance(results, list) or not all(isinstance(item, dict) for item in results):
-        logger.warning("policy-engine scan returned a non-list body")
-        return None
-    return results
+        err = "policy-engine scan returned a non-list body"
+        logger.warning(err)
+        return None, err
+    return results, None
 
 
 async def _db_policy_scan(
@@ -7828,6 +7895,9 @@ async def _db_policy_scan(
     # assessed_at: a scan that spent a minute in the engine assessed the agent
     # as it was a minute ago, and freshness has to order by that.
     scan_started = datetime.now(timezone.utc)
+    raw_requested_frameworks = list(dict.fromkeys(request.frameworks))
+    requested_frameworks = [FRAMEWORK_PACK_ALIASES.get(f, f) for f in raw_requested_frameworks]
+
     async with _read(pool) as conn:
         control_rows = await conn.fetch(
             """SELECT c.id AS control_id, c.policy_framework_id, c.policy_check_id,
@@ -7840,7 +7910,7 @@ async def _db_policy_scan(
                  AND c.policy_check_id IS NOT NULL
                  AND (cardinality($2::text[]) = 0 OR c.policy_framework_id = ANY($2::text[]))""",
             tenant_id,
-            request.frameworks,
+            requested_frameworks,
         )
         # L2: ``agent_registry.id`` is a uuid and the filter compares
         # ``id::text``, which Postgres renders in lower case -- so an id the
@@ -7883,19 +7953,22 @@ async def _db_policy_scan(
     mapped_checks: dict[str, list[str]] = {}
     for framework, check in control_for:
         mapped_checks.setdefault(framework, []).append(check)
-    frameworks = list(request.frameworks) or sorted({framework for framework, _ in control_for})
-    # The engine evaluates only checks listed for the request's policyVersion,
-    # and each pack is activated at its own version (governance_frameworks.version),
-    # so an agent gets one call per distinct pack version. A requested pack the
-    # tenant has not mapped is asked about at the caller's policyVersion.
+    frameworks = requested_frameworks or sorted({framework for framework, _ in control_for})
+
+    unmapped_requested = [
+        f for f in requested_frameworks
+        if f not in mapped_checks and f not in KNOWN_POLICY_PACKS
+    ]
+
     pack_version = {
-        row["policy_framework_id"]: row["framework_version"]
+        row["policy_framework_id"]: _clean_pack_version(row["framework_version"], request.policyVersion)
         for row in control_rows
         if row["framework_version"]
     }
     calls: dict[str, list[str]] = {}
     for framework in frameworks:
-        calls.setdefault(pack_version.get(framework, request.policyVersion), []).append(framework)
+        if framework in mapped_checks or framework in KNOWN_POLICY_PACKS:
+            calls.setdefault(pack_version.get(framework, request.policyVersion), []).append(framework)
 
     policy_engine_url = getattr(settings, "policy_engine_url", "http://policy-engine:8081")
     scan_url = f"{policy_engine_url}/api/v1/compliance/scan"
@@ -7908,7 +7981,23 @@ async def _db_policy_scan(
     unmapped = 0
     gaps: list[PolicyControlGap] = []
 
-    if frameworks and agent_rows:
+    # Emit unmapped_framework gaps for requested frameworks without mapped controls
+    if unmapped_requested:
+        for agent_row in agent_rows:
+            for f in unmapped_requested:
+                gaps.append(PolicyControlGap(
+                    agentId=str(agent_row["id"]),
+                    framework=f,
+                    check="unmapped",
+                    controlId=None,
+                    stored="error",
+                    reason="unmapped_framework",
+                ))
+
+    last_engine_error: str | None = None
+    all_unmapped = bool(requested_frameworks) and len(unmapped_requested) == len(requested_frameworks)
+
+    if frameworks and agent_rows and calls and not all_unmapped:
         async with httpx.AsyncClient(timeout=10.0) as client:
             for agent_row in agent_rows:
                 obj = policy_scan.build_agent_object(agent_row)
@@ -7921,6 +8010,9 @@ async def _db_policy_scan(
                 # (framework, check) mapped for a pack that was asked but absent
                 # from the engine's answer.
                 missing: list[tuple[str, str]] = []
+                agent_failed = False
+                agent_err: str | None = None
+
                 for version, version_frameworks in calls.items():
                     send = list(version_frameworks)
                     if obj is None:
@@ -7935,11 +8027,14 @@ async def _db_policy_scan(
                         obj=obj,
                         agent=agent_context,
                     )
-                    answer = await _scan_one_agent(client, scan_url, tenant_id, body)
+                    answer, err = await _scan_one_agent(client, scan_url, tenant_id, body)
                     if answer is None:
                         # No partial reconcile: half an assessment would read
                         # as a complete one.
                         results = None
+                        agent_failed = True
+                        agent_err = err or "policy-engine scan failed"
+                        last_engine_error = agent_err
                         break
                     # H2: every mapped check of every pack sent is expected back.
                     expected = {(f, c) for f in send for c in mapped_checks.get(f, [])}
@@ -7948,14 +8043,32 @@ async def _db_policy_scan(
                         # call, not "nothing to report".
                         logger.warning("policy-engine scan returned no checks for %s@%s", send, version)
                         results = None
+                        agent_failed = True
+                        agent_err = f"policy-engine scan returned no checks for {send}@{version}"
+                        last_engine_error = agent_err
                         break
                     seen = {(str(i.get("framework", "")), str(i.get("check", ""))) for i in answer}
                     missing += sorted(expected - seen)
                     answered += 1
                     results.extend(answer)
-                if results is None:
+
+                if agent_failed or results is None:
                     agents_failed.append(str(agent_row["id"]))
+                    # Generate actionable engine_error controlGaps for this failed agent
+                    for version, version_frameworks in calls.items():
+                        for f in version_frameworks:
+                            for c in mapped_checks.get(f, []):
+                                cid = control_for.get((f, c))
+                                gaps.append(PolicyControlGap(
+                                    agentId=str(agent_row["id"]),
+                                    framework=f,
+                                    check=c,
+                                    controlId=str(cid) if cid is not None else None,
+                                    stored="error",
+                                    reason="engine_error",
+                                ))
                     continue
+
                 agents_scanned += 1
                 # Counted only for agents whose whole scan was usable.
                 engine_answers += answered
@@ -8037,7 +8150,34 @@ async def _db_policy_scan(
                         )
                     )
 
+    if all_unmapped:
+        scan_status = "failed"
+        error = f"Requested frameworks {', '.join(unmapped_requested)} are unmapped for tenant"
+    elif agents_failed:
+        if agents_scanned > 0:
+            scan_status = "partial"
+        else:
+            scan_status = "failed"
+        error = last_engine_error
+    elif unmapped_requested:
+        if agents_scanned > 0:
+            scan_status = "partial"
+        else:
+            scan_status = "failed"
+        error = f"Some requested frameworks {', '.join(unmapped_requested)} are unmapped"
+    elif not agent_rows:
+        scan_status = "not_found" if requested else "no_agents"
+        error = f"Requested agents not found: {', '.join(agents_not_found)}" if requested else None
+    else:
+        scan_status = "completed"
+        error = None
+
+    if (request.strict or request.failOnError) and scan_status in ("failed", "partial"):
+        raise APIError(502, "policy_engine_unavailable", error or "policy scan failed in strict mode")
+
     stored = [verdict for verdict, _ in verdicts.values()]
+    engine_invoked = engine_answers > 0 and scan_status != "failed"
+
     async with _write(pool) as conn:
         # Serialise the write half per tenant. Taken inside the transaction, so
         # commit or rollback releases it and a failed scan cannot leak it.
@@ -8071,7 +8211,12 @@ async def _db_policy_scan(
                 scan_started,
             )
 
-        summary = _policy_scan_summary(checks, request.policyVersion)
+        summary = _policy_scan_summary(
+            checks,
+            request.policyVersion,
+            engine_invoked=engine_invoked,
+            engine_error=error,
+        )
 
         await _audit_log(
             conn, tenant_id, "compliance.scan_completed", None, None, actor,
@@ -8094,18 +8239,20 @@ async def _db_policy_scan(
                 "controls_no_workload": sum(g.reason == "no_workload" for g in gaps),
                 "controls_missing_from_engine": sum(g.reason == "missing_from_engine_response" for g in gaps),
                 "total_exposure_gbp": summary.totalCarriedGbp,
-                "engine_invoked": engine_answers > 0,
+                "engine_invoked": engine_invoked,
             },
         )
 
     return PolicyScanResponse(
         checks=checks,
         summary=summary,
-        engineInvoked=engine_answers > 0,
+        engineInvoked=engine_invoked,
         agentsScanned=agents_scanned,
         agentsFailed=agents_failed,
         agentsNotFound=agents_not_found,
         controlGaps=gaps,
+        status=scan_status,
+        error=error,
     )
 
 

@@ -1109,3 +1109,96 @@ async def test_an_empty_answer_for_mapped_checks_is_an_engine_failure_for_that_a
     assert (data["agentsFailed"], data["agentsScanned"], data["checks"]) == ([str(AGENT_A)], 0, [])
     assert fake.results == before
     assert fake.result_writes == 0
+
+
+# --------------------------------------------------------------------------
+# Agent scoping, honest failure reporting, strict mode, and unmapped frameworks
+# --------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_scan_scoped_to_agent_ids_scans_only_requested_agents(db):
+    """Ensure request.agentIds correctly isolates evaluation to requested agents."""
+    fake = db(FakeDB(
+        agents=[
+            agent_row(AGENT_A, "agent-a", workload=POD_A),
+            agent_row(AGENT_B, "agent-b", workload=DEPLOYMENT),
+        ],
+        controls=[CONTROLS[0]],  # cis-kubernetes: no-privileged-containers
+    ))
+    fake.results[(AGENT_B, CTRL_PRIV)] = {"tenant_id": EAP_TENANT_A, "status": "pending", "evidence_ref": "untouched"}
+    before_b = dict(fake.results[(AGENT_B, CTRL_PRIV)])
+
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(return_value=httpx.Response(200, json=[
+            item("cis-kubernetes", "no-privileged-containers", "pass"),
+        ]))
+        resp = await scan({**SCAN, "agentIds": [str(AGENT_A)]})
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["agentsScanned"] == 1
+    assert data["agentsFailed"] == []
+    assert {c["agentId"] for c in data["checks"]} == {str(AGENT_A)}
+    # B was neither scanned by the engine nor touched in the DB
+    assert fake.results[(AGENT_B, CTRL_PRIV)] == before_b
+    assert fake.results[(AGENT_A, CTRL_PRIV)]["status"] == "pass"
+
+
+@pytest.mark.asyncio
+async def test_engine_failure_honestly_reports_status_error_and_gaps(db):
+    """When policy-engine fails, response honestly communicates failure, error, and gaps."""
+    fake = db(FakeDB(
+        agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)],
+        controls=[CONTROLS[0], CONTROLS[1]],
+    ))
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(return_value=httpx.Response(500, json={"error": "internal error"}))
+        resp = await scan(SCAN)
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["engineInvoked"] is False
+    assert data["status"] == "failed"
+    assert "policy-engine scan" in data["error"] or "HTTP 500" in data["error"]
+    assert data["agentsFailed"] == [str(AGENT_A)]
+    assert data["agentsScanned"] == 0
+    # Must report actionable gaps for the failed agent
+    assert any(g["reason"] == "engine_error" and g["agentId"] == str(AGENT_A) for g in data["controlGaps"])
+    # Summary must not lie that risk was priced at 0
+    assert data["summary"]["pricing"]["status"] == "NO_RISK_DATA_PLANE"
+    assert data["summary"]["totalCarriedGbp"] is None
+
+
+@pytest.mark.asyncio
+async def test_engine_failure_strict_mode_raises_502(db):
+    """When strict/failOnError is requested, an engine failure raises HTTP 502."""
+    fake = db(FakeDB(
+        agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)],
+        controls=[CONTROLS[0]],
+    ))
+    with respx.mock() as mock:
+        mock.post(ENGINE).mock(side_effect=httpx.ConnectError("connection refused"))
+        resp = await scan({**SCAN, "strict": True})
+
+    assert resp.status_code == 502, resp.text
+    error = resp.json()["error"]
+    assert error["code"] == "policy_engine_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_unmapped_framework_does_not_silently_pass_with_zero_results(db):
+    """Scanning an unmapped framework does not silently claim clean green zero-result scan."""
+    fake = db(FakeDB(
+        agents=[agent_row(AGENT_A, "agent-a", workload=POD_A)],
+        controls=[CONTROLS[0]],  # cis-kubernetes mapped, but soc-2 is unmapped
+    ))
+    with respx.mock():
+        resp = await scan({**SCAN, "frameworks": ["soc-2"]})
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["engineInvoked"] is False
+    assert data["status"] == "failed"
+    assert "unmapped" in data["error"].lower()
+    assert any(g["reason"] == "unmapped_framework" for g in data["controlGaps"])
+

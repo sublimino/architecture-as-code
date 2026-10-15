@@ -341,3 +341,50 @@ test.describe("documentation layout width and positioning", () => {
     expect(hasNoHorizontalOverflow).toBe(true);
   });
 });
+
+test.describe("dev-docs diagram and content layout width", () => {
+  test("Draw.io architecture diagram expands beyond 850px on desktop viewport", async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await page.goto(`${ENGINEERING}/reference/architecture-diagrams/`, { waitUntil: "load" });
+    const drawioImg = page.locator('img[src$="/diagrams/osramp-kind-sovereign-airgap.svg"]').first();
+    await expect(drawioImg).toBeVisible();
+    const box = await drawioImg.boundingBox();
+    expect(box, "Draw.io SVG boundingBox missing").not.toBeNull();
+    expect(box!.width, "Draw.io SVG diagram width should expand beyond 850px").toBeGreaterThan(850);
+  });
+
+  test("internal architecture diagrams expand beyond 850px on desktop viewport", async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await page.goto(`${ENGINEERING}/reference/internal-architecture/`, { waitUntil: "load" });
+    const internalImg = page.locator('img[src*="/diagrams/internal/"]').first();
+    await expect(internalImg).toBeVisible();
+    const box = await internalImg.boundingBox();
+    expect(box, "Internal architecture diagram boundingBox missing").not.toBeNull();
+    expect(box!.width, "Internal architecture diagram width should expand beyond 850px").toBeGreaterThan(850);
+  });
+
+  test("developer onboarding container expands beyond 850px on desktop viewport", async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await page.goto(`${ENGINEERING}/onboarding/developer/`, { waitUntil: "load" });
+    const container = page.locator("main .sl-container").first();
+    await expect(container).toBeVisible();
+    const box = await container.boundingBox();
+    expect(box, "main .sl-container boundingBox missing").not.toBeNull();
+    expect(box!.width, "Developer onboarding main .sl-container width should expand beyond 850px").toBeGreaterThan(850);
+  });
+
+  test("mobile viewport does not suffer horizontal scroll overflow", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    for (const path of [
+      `${ENGINEERING}/reference/architecture-diagrams/`,
+      `${ENGINEERING}/reference/internal-architecture/`,
+      `${ENGINEERING}/onboarding/developer/`,
+    ]) {
+      await page.goto(path, { waitUntil: "load" });
+      const noOverflow = await page.evaluate(() => {
+        return document.documentElement.scrollWidth <= document.documentElement.clientWidth;
+      });
+      expect(noOverflow, `horizontal overflow detected on ${path}`).toBe(true);
+    }
+  });
+});

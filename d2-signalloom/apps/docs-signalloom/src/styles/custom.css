@@ -1,3 +1,8 @@
+:root,
+html:not([data-has-sidebar]) {
+  --sl-content-width: 100%;
+}
+
 :root {
   --sl-color-accent-low: #2c1b06;
   --sl-color-accent: #fbb15b;
@@ -45,3 +50,8 @@ html:not([data-has-sidebar]) {
   border-radius: 0.5rem;
   background: var(--sl-color-bg-nav);
 }
+
+.sl-markdown-content :is(img, svg) {
+  max-width: 100%;
+}
+

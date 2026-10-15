@@ -8211,11 +8211,8 @@ async def _db_policy_scan(
                 scan_started,
             )
 
-        summary = _policy_scan_summary(
-            checks,
-            request.policyVersion,
-            engine_invoked=engine_invoked,
-            engine_error=error,
+        total_exposure_gbp = (
+            sum(check.carriedGbp for check in checks) if engine_invoked else None
         )
 
         await _audit_log(
@@ -8238,9 +8235,16 @@ async def _db_policy_scan(
                 "agents_not_found": len(agents_not_found),
                 "controls_no_workload": sum(g.reason == "no_workload" for g in gaps),
                 "controls_missing_from_engine": sum(g.reason == "missing_from_engine_response" for g in gaps),
-                "total_exposure_gbp": summary.totalCarriedGbp,
+                "total_exposure_gbp": total_exposure_gbp,
                 "engine_invoked": engine_invoked,
             },
+        )
+
+        summary = _policy_scan_summary(
+            checks,
+            request.policyVersion,
+            engine_invoked=engine_invoked,
+            engine_error=error,
         )
 
     return PolicyScanResponse(

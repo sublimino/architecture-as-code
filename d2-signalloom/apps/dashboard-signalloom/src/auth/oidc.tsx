@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import axios, { type AxiosInstance } from 'axios'
 import { AuthProvider, useAuth, hasAuthParams } from 'react-oidc-context'
-import { WebStorageStateStore } from 'oidc-client-ts'
+import { WebStorageStateStore, type IdTokenClaims } from 'oidc-client-ts'
 import { setUnauthorizedHandler } from '../api/client'
 
 export { hasAuthParams }
@@ -171,7 +171,17 @@ export function OidcProvider({ children }: Props) {
   )
 }
 
-export function useAuth0() {
+export interface Auth0ContextValue {
+  isAuthenticated: boolean
+  isLoading: boolean
+  loginWithRedirect: (opts?: unknown) => void
+  logout: (opts?: unknown) => void
+  getAccessTokenSilently: () => Promise<string>
+  token?: string | null
+  user: IdTokenClaims | undefined
+}
+
+export function useAuth0(): Auth0ContextValue {
   let auth: ReturnType<typeof useAuth> | undefined
   try { auth = useAuth() } catch {}
   const authRef = useRef(auth)

@@ -33,10 +33,6 @@ html:not([data-has-sidebar]) {
   --sl-color-bg-sidebar: #13161c;
 }
 
-:root,
-html:not([data-has-sidebar]) {
-  --sl-content-width: 100%;
-}
 
 .sl-markdown-content code {
   overflow-wrap: anywhere;

@@ -387,7 +387,7 @@ describe('DesignSystemPage', () => {
     render(<DesignSystemPage />)
     const section = screen.getByTestId('ds-section-page-patterns')
     expect(within(section).getByTestId('ds-page-patterns-specimen')).toBeInTheDocument()
-    expect(within(section).getByTestId('pattern-state-healthy')).toBeInTheDocument()
+    expect(within(section).getByTestId('btn-pattern-healthy')).toBeInTheDocument()
     expect(within(section).getByTestId('pattern-demo-content')).toBeInTheDocument()
   })
 

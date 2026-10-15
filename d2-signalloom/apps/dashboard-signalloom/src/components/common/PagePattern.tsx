@@ -121,7 +121,6 @@ export function PageLoader({
 }): React.JSX.Element {
   return (
     <div
-      data-testid={testId}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -130,7 +129,7 @@ export function PageLoader({
         background: 'var(--bg)',
       }}
     >
-      <PixelLoader label={label} testId={`${testId}-pixel`} announce={announce} />
+      <PixelLoader label={label} testId={testId} announce={announce} />
     </div>
   )
 }

@@ -169,6 +169,7 @@ export function PagePatternSpecimen(): React.JSX.Element {
             }
           >
             <div
+              data-testid="pattern-demo-content"
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',

@@ -404,8 +404,11 @@ test.describe("Governance Settings to PolicyEditor Deep-Linking & CIS Benchmark 
     await expect(card).toBeVisible({ timeout: 15_000 });
 
     for (const rule of CANONICAL_CIS_RULES) {
-      // Find the rule row in the Governance table
-      const row = page.getByTestId(`policy-row-${rule.id}`);
+      const cisCard = page.getByTestId("framework-card-k8s-cis-benchmark");
+      await expect(cisCard).toBeVisible({ timeout: 10_000 });
+
+      // Find the rule row in the CIS Governance table
+      const row = cisCard.getByTestId(`policy-row-${rule.id}`);
       await expect(row).toBeVisible({ timeout: 10_000 });
 
       // Click the edit button or identity link

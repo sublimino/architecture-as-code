@@ -1,0 +1,86 @@
+{
+  "card": "SLCO-P2-3",
+  "status": "fail",
+  "proceed": false,
+  "blocking_drift": false,
+  "created": "2026-10-15T01:39:41+01:00",
+  "base_commit": "1f5509e038124303eb11315475b2260ca2edcc2f",
+  "worktree": "/home/andy/src/.worktrees/d35ff/osramp-demo",
+  "reported_pwd": "/home/andy/.cline/worktrees/d35ff/osramp-demo",
+  "proposal_location_note": "The exact card-specified proposal path resolves to itself under /home/andy/src/cp/osramp-demo/docs, not a vault symlink. obsidian-search returned no match and obsidian-read of the conventional proposal vault path returned file-not-found. Only the explicitly authorized external proposal path is reconciled; it is never staged or committed in this worktree.",
+  "ancestry": "git merge-base --is-ancestor integration/slco-v0.1.0 HEAD: exit 0 before edits",
+  "hard_blocker": {
+    "name": "Raw cleartext identity fields retained in stored telemetry observations",
+    "scope": "Offline protected /api/v1/observations router with actual MemoryStore. Synthetic identities only; no deployed store or customer data inspected.",
+    "request": "Authenticated tenant-a observation writer posts one valid observation with synthetic actor name, principal email and impersonated-user email. SIGNAL_SEGMENT_PSEUDONYM_KEY is set to a synthetic 32-byte hex value.",
+    "response": {"status": 201, "content_type": "application/json", "body": {"ingested": 1}},
+    "readback": "MemoryStore.QueryRange(TenantID=tenant-a) returned exactly the probe row; JSON retained actor_hint, principal_id and impersonated_user unchanged.",
+    "tenant_attribution": "tenant-a, as expected; this probe did not demonstrate cross-tenant misattribution",
+    "operative_output": [
+      "HTTP=201 Content-Type=\"application/json\" ingested={\"ingested\":1} tenant=\"tenant-a\" store=*store.MemoryStore",
+      "HARD BLOCKER: stored observation retains synthetic cleartext actor_hint",
+      "HARD BLOCKER: stored observation retains synthetic cleartext principal_id",
+      "HARD BLOCKER: stored observation retains synthetic cleartext impersonated_user",
+      "--- FAIL: TestSLCOStoredObservationPrivacy (0.01s)"
+    ],
+    "root_cause": "handlers.go:605 appends validated, tenant-bound observations directly; memory.go:24-28 retains them unchanged. Segment pseudonymisation is not applied to this store boundary.",
+    "disposition": "Stopped functional verification immediately. No remediation, alternate store substitution, live deployment, push or PR attempted. Preserve an opt-in failing privacy invariant probe for approved remediation.",
+    "recommended_action": "remediate: apply an approved privacy boundary correction, then rerun this probe and full card verification"
+  },
+  "ledger": [
+    {"command": "make test-kusari-e2e", "exit": 0, "memory_package_seconds": 4.256, "frostdb_package_seconds": 4.377, "top_level_passes_total": 78, "subtest_passes_total": 36, "skips": 0, "note": "39 top-level tests per mode, not the card's stale 28-test count. Passing this suite does not certify observation privacy or host enrollment."},
+    {"command": "shellcheck d2-signalloom/scripts/onboard-test-agent.sh", "exit": 0, "diagnostics_bytes": 0, "result": "completed before blocker; exit and empty diagnostics rechecked during artifact verification"},
+    {"command": "shellcheck d2-signalloom/scripts/iterate-onboarding-test.sh", "exit": 0, "diagnostics_bytes": 0, "result": "completed before blocker; exit and empty diagnostics rechecked during artifact verification"},
+    {"command": "go test -tags slco_privacy_probe ./api -run '^TestSLCOStoredObservationPrivacy$' -count=1 -v", "environment": {"GOPATH": "/tmp/gopath", "GOCACHE": "/tmp/gocache", "GOMODCACHE": "/tmp/gomodcache", "CGO_ENABLED": "0"}, "cwd": "d2-signalloom/apps/signal-ingest", "exit": 1, "started": "2026-10-15T01:39:18.713481+01:00", "pid": 2749460, "wall_seconds": 2.084, "maxrss_kib_children": 404436, "go_test_package_seconds": 0.013, "timeout_seconds": 120, "note": "Child resource maximum includes compilation; it is not service memory or aggregate tree RSS."},
+    {"command": "initial direct go probes without Makefile GOPATH", "result": "toolchain/sumdb cache permission errors before tests executed", "pids": [2666673, 2692033], "correction": "Use the existing Makefile's GOPATH=/tmp/gopath convention; no module or toolchain ref change."},
+    {"command": "make docs-lint", "exit": 0, "result": "785 tracked files clean; dev docs 10 files clean, 0 findings"},
+    {"command": "artifact SHA256 verification", "result": "16 of 16 final hashes matched. Probe received whitespace-only gofmt alignment after execution; final probe hash recorded below. gofmt -d and git diff --check produced no findings.", "executed_probe_sha256": "005841654d863ec8054b1d31a91ea8a73e19711fc70945d81f5a6b06f4d6c0a7"}
+  ],
+  "gate_matrix": [
+    {"requirement": "G6 first telemetry visible with pseudonymised identities", "status": "fail", "evidence": "Stored identity privacy invariant fails; live tenant dashboard and first-event timestamp not certified."},
+    {"requirement": "G7 H2 technical completion", "status": "unverified", "evidence": "No certification of lane isolation, admin login, enrolled auto-claimed host, recent telemetry, owned issue list or communicated support route. All six are required."},
+    {"requirement": "C4 onboarding helper on throwaway GCP tenant", "status": "unverified", "evidence": "Script statically inspected; no live run after mandatory stop."},
+    {"requirement": "C5 three runs by named cover", "status": "unverified", "evidence": "Not replaced with mocked repetitions; no runs performed after stop."},
+    {"requirement": "valid host-token authentication and verify_unauthorized_telemetry_rejected", "status": "unverified", "evidence": "Probe uses a valid tenant-scoped static writer, not an enrolled host credential. Named negative selector not executed."},
+    {"requirement": "HMAC known answers and missing-key behavior", "status": "unverified", "evidence": "Key-present MemoryStore privacy failed; no broader HMAC certification or FrostDB failure asserted."},
+    {"requirement": "server-bound tenant attribution", "status": "partial", "evidence": "Probe row correctly stamped tenant-a; spoofing and cross-tenant negative cases not executed by this card."},
+    {"requirement": "malformed inputs and adversarial fuzzing", "status": "unverified", "evidence": "Stopped before execution; no fail-closed certification."},
+    {"requirement": "execution resource budgets", "status": "partial", "evidence": "PID, timestamp, elapsed and child max RSS measured for decisive probe. 120-second probe timeout met; card ceiling 180 minutes. No numeric service memory or process-count budget supplied; cannot certify unspecified limits."},
+    {"requirement": "no user-facing exceptions or stack traces", "status": "unverified", "evidence": "Decisive probe output contains test failure diagnostics, not an application panic. Malformed-input and helper error channels not exercised."},
+    {"requirement": "clean isolated test directories", "status": "partial", "evidence": "Probe uses only process-local memory; no test data directory or live tenant created. Shared compiler caches intentionally retained; final git cleanliness checked after commit."}
+  ],
+  "architectural_compliance": [
+    {"invariant": "PAI never assert without evidence", "disposition": "Failed privacy invariant reported; passing unrelated suites not used as certification."},
+    {"invariant": "Tenant isolation and server identity", "disposition": "Positive tenant-a stamping observed; full RLS/host spoofing claims remain unverified."},
+    {"invariant": "Privacy before observation storage", "disposition": "FAIL for tested MemoryStore route, despite configured key."},
+    {"invariant": "Enrollment replay defense", "disposition": "Earlier-card ownership; not rebuilt or recertified."},
+    {"invariant": "Public ingest perimeter", "disposition": "Not certified by an in-process HTTP router test."},
+    {"invariant": "No false positive test gates", "disposition": "Privacy probe remains failing and opt-in via slco_privacy_probe build tag; no skip or weakened assertion hides failure."},
+    {"invariant": "Privileged versus operational split", "disposition": "No privileged operation or deployment; probe uses test fixture static writer only."},
+    {"invariant": "No domain-wide delegation, JSON service keys or folder shares", "disposition": "No such operation performed; not an estate-wide audit."},
+    {"invariant": "Life OS human handoff and cover", "disposition": "Canonical H2 six-item checklist and named-cover C5 requirement retained as unverified, not inferred from automation."},
+    {"invariant": "Integration and runtime ownership", "disposition": "Required ancestry verified; no main/master operation, sibling edit, board mutation, remote push or PR."}
+  ],
+  "script_static_audit": {
+    "onboard": "Parameters resolve positional IDs/model/budget and SIGNAL_LOOM connection/Dex defaults. Five steps: password-grant Dex access token, external registration, one-time token issuance, enrollment, inventory plus audit verification. It does not post telemetry. Model is printed but not sent. curl uses -sk without explicit connect/max timeout; response bodies are printed on failure; jq failures may reach stderr. These are inspection findings, not executed error-channel certifications.",
+    "iteration": "Fixed shared /tmp log and JSON paths, second-resolution suffixes and no parameter validation present repeatability/collision risks. No concurrent-run or malformed-count test was executed; no modifications made after stop."
+  },
+  "artifact_sha256": {
+    "d2-signalloom/scripts/onboard-test-agent.sh": "7444d33b865c7b8bec8bcee616e639ceec044bf31bcbb8d81bf7896eaf46ee9f",
+    "d2-signalloom/scripts/iterate-onboarding-test.sh": "a236db38dbac6655e5ea8ab76c0411c9ac1007d5acd7c4c96c625ce15d2fd830",
+    "d2-signalloom/apps/signal-ingest/api/slco_privacy_probe_test.go": "a6b007fc34975f9e96fcb8d21fbbc837175703e700411c99a8b17d83b6495aa0",
+    "d2-signalloom/apps/signal-ingest/api/handlers.go": "d36a4f5b7f14a0be4e93416d4d130ce7e3de746d58b108d4de8f2dc06b76118b",
+    "d2-signalloom/apps/signal-ingest/api/auth.go": "5e854f294b5ff20944df077965928ec83af36cf4f1c448551a9a567851d35961",
+    "d2-signalloom/apps/signal-ingest/api/tenancy_test.go": "0bae31e4b4d972cc5d886c7a540781e9f6566da0e494d9c0dba8e9591852cd64",
+    "d2-signalloom/apps/signal-ingest/api/handlers_test.go": "db1fcf9ff9ab01094304c2c7a7a6747f3ddc59dbd49146006596c1c82af24fb6",
+    "d2-signalloom/apps/signal-ingest/store/memory.go": "e09fc00330339aad09fc03eb6cab8b0b64c86137d60ef85dc5675658ab6dfef6",
+    "d2-signalloom/apps/signal-ingest/model/signal.go": "aec6815e373b0459fd0eab76bd81c6b70279d7c1c25640ec8f5035ff42182d09",
+    "d2-signalloom/apps/signal-ingest/store/segment_pseudonymiser.go": "d7b5f25f44171df87ddb32e31779e4502614679894863603b5822e75e87c6e2d",
+    "d2-signalloom/apps/signal-ingest/store/frostdb.go": "37e96ead2857c7c02092e0aed933ddf89ec58dcce3c1a0def7313a6cd7e762aa",
+    "d2-signalloom/apps/signal-ingest/store/label_allowlist.go": "e88ab6aef4ab8965a32096b4ae8c855698e7181d65f0d4e5e43ac299ebb9d303",
+    "d2-signalloom/apps/signal-ingest/tenancy/tenancy.go": "2a2ede56f43cac1d109e219ae07036babec1d205cf0d2328f1da5a0da13bf80a",
+    "d2-signalloom/apps/signal-ingest/go.mod": "2a774635695b2f381bf2bfe9512bcb781dcfd7fa218d3541f6996addf521053e",
+    "d2-signalloom/apps/signal-ingest/go.sum": "4d7903cfe2f188a6541c39a5d25632b7665b42b72ce4a6bfe2839426f1f973a3",
+    "Makefile": "cf9baa4dfa21a2e0783454718f18118e7c96ac6cea9bddad33e1f00abe0f0b01"
+  }
+}

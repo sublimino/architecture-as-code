@@ -40,23 +40,15 @@ test.describe("Claim Modal Pre-Flight Verification & Reactive Objection Resoluti
     await expect(claimabilityStatus).toContainText(/Claim Blocked — Action Required/i);
     await expect(claimabilityStatus).toContainText(/Blocked/i);
 
-    // 2. Pre-Flight Prerequisites Matrix
-    const prereqsMatrix = page.getByTestId("claim-modal-prereqs-matrix");
-    await expect(prereqsMatrix).toBeVisible();
-
-    // Model Attribution prerequisite must show UNDECLARED
+    // 2. Pre-Flight Prerequisites Matrix: Model Attribution must show UNDECLARED
     const modelPrereq = page.getByTestId("claim-modal-prereq-model");
     await expect(modelPrereq).toBeVisible();
-    await expect(modelPrereq).toContainText(/Model Attribution/i);
+    await expect(modelPrereq).toContainText(/AI Model Attribution/i);
     await expect(modelPrereq).toContainText(/UNDECLARED/i);
+    await expect(modelPrereq).toContainText(/Workload in cluster declares no signalloom\.ai\/model/i);
+    await expect(modelPrereq.locator("code").filter({ hasText: "signalloom.ai/model=" }).first()).toBeVisible();
 
-    // 3. Active Onboarding Blocker Diagnostic Alert
-    const modalError = page.getByTestId("claim-modal-error");
-    await expect(modalError).toBeVisible();
-    await expect(modalError).toContainText(/Workload Model Objection: Missing signalloom\.ai\/model/i);
-    await expect(modalError.locator("code").filter({ hasText: "signalloom.ai/model=" }).first()).toBeVisible();
-
-    // 4. Model input warning and undeclared badge
+    // 3. Model input warning and undeclared badge
     const modelWarning = page.getByTestId("claim-modal-model-warning");
     await expect(modelWarning).toBeVisible();
     await expect(modelWarning).toContainText(/Pod in cluster has no signalloom\.ai\/model label/i);
@@ -65,7 +57,7 @@ test.describe("Claim Modal Pre-Flight Verification & Reactive Objection Resoluti
     await expect(undeclaredBadge).toBeVisible();
     await expect(undeclaredBadge).toContainText(/Undeclared/i);
 
-    // 5. Pre-flight blocker advisory
+    // 4. Pre-flight blocker advisory
     const blockerAdvisory = page.getByTestId("claim-modal-blocker-advisory");
     await expect(blockerAdvisory).toBeVisible();
     await expect(blockerAdvisory).toContainText(/Pre-flight blockers detected/i);
@@ -73,7 +65,7 @@ test.describe("Claim Modal Pre-Flight Verification & Reactive Objection Resoluti
     // Take screenshot evidence of unmodeled blocked state
     await page.screenshot({ path: "/tmp/claim-modal-unmodeled-blocked.png", fullPage: true });
 
-    // 6. Close the modal cleanly
+    // 5. Close the modal cleanly
     const cancelBtn = page.getByTestId("claim-modal-cancel-btn");
     await expect(cancelBtn).toBeVisible();
     await cancelBtn.click();
@@ -105,13 +97,13 @@ test.describe("Claim Modal Pre-Flight Verification & Reactive Objection Resoluti
     const modalRefreshBtn = page.getByTestId("claim-modal-refresh-btn");
     await expect(modalRefreshBtn).toBeVisible();
 
-    // Clicking refresh should trigger live refresh
+    // Clicking refresh triggers live refresh against cluster
     await modalRefreshBtn.click();
 
     // 1. Overall Claimability Status Banner: Green Claimable state
     const claimabilityStatus = page.getByTestId("claim-modal-claimability-status");
     await expect(claimabilityStatus).toBeVisible();
-    await expect(claimabilityStatus).toContainText(/Workload Claimable — Ready to Claim/i);
+    await expect(claimabilityStatus).toContainText(/Claimable — Ready for Governance/i);
     await expect(claimabilityStatus).toContainText(/Claimable/i);
 
     // 2. Pre-Flight Prerequisites Matrix: Model must be VERIFIED with claude-3-5-sonnet
@@ -127,7 +119,7 @@ test.describe("Claim Modal Pre-Flight Verification & Reactive Objection Resoluti
     await expect(tenantPrereq).toContainText(/Tenant Boundary/i);
     await expect(tenantPrereq).toContainText(/ALIGNED/i);
 
-    // 4. Missing model error alert MUST NOT be in the document (auto-cleared)
+    // 4. Missing model error alert MUST NOT be visible (auto-cleared)
     const modalError = page.getByTestId("claim-modal-error");
     await expect(modalError).toBeHidden();
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useId, useContext } from 'react'
 import { QueryClientContext, type QueryClient } from '@tanstack/react-query'
 import { useAuth0 } from '../../auth/oidc'
+import { getTenantIdFromToken } from '../../auth/tenant'
 import { claimDiscoveredAgent, type AgentClaimRequest, type AgentClaimResponse } from '../../api/agentClaim'
 import { api } from '../../api/client'
 import type { AgentResponse } from '../../types/api'
@@ -155,12 +156,30 @@ export default function ClaimModal({
   const claimantOwner = user?.email || user?.name || user?.sub || ''
   const authenticatedOperator = user?.email || user?.sub || ''
 
+  const userToken =
+    (user as { access_token?: string; id_token?: string })?.access_token ||
+    (user as { access_token?: string; id_token?: string })?.id_token ||
+    ''
+  const tokenTenant = userToken ? getTenantIdFromToken(userToken) : null
+
   const workloadTenant =
+    currentAgent.labels?.['signalloom.ai/tenant'] ||
     currentAgent.tenant ||
     (currentAgent.tenant_id && currentAgent.tenant_id !== 'undeclared' ? currentAgent.tenant_id : null)
+
+  const isDemoUser =
+    claimantOwner === 'demo-user@signalloom.local' ||
+    claimantOwner.startsWith('demo-user') ||
+    user?.preferred_username === 'demo-user' ||
+    user?.name === 'demo-user'
+
   const operatorTenant =
-    (user as { tenant?: string; 'https://signalloom.ai/tenant'?: string })?.tenant ||
+    tokenTenant ||
+    (user as { tenant?: string; 'https://signalloom.ai/tenant'?: string; tenant_id?: string })?.tenant ||
+    (user as { tenant_id?: string })?.tenant_id ||
     (user as { 'https://signalloom.ai/tenant'?: string })?.['https://signalloom.ai/tenant'] ||
+    (user as { 'https://signalloom.ai/tenant_id'?: string })?.['https://signalloom.ai/tenant_id'] ||
+    (isDemoUser ? 'tenant-demo' : null) ||
     (claimantOwner ? claimantOwner.split('@')[1]?.split('.')[0] : 'default') ||
     'default'
 

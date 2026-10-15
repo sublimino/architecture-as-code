@@ -540,7 +540,40 @@ describe('ClaimModal & getAgentWorkloadSecurityProfile', () => {
       expect(screen.getByTestId('claim-modal-claimability-badge')).toHaveTextContent('Claimable')
     })
   })
+
+  it('correctly maps demo-user@signalloom.local to tenant-demo avoiding false tenant mismatch', async () => {
+    const prevUser = authState.user
+    authState.user = { email: 'demo-user@signalloom.local', sub: 'demo-user' }
+
+    const demoAgent = createMockDiscoveredAgent({
+      id: 'demo-tenant-agent',
+      name: 'test-agent-stunned',
+      tenant_id: 'tenant-demo',
+      tenant: 'tenant-demo',
+      runtime: {
+        ...createMockDiscoveredAgent().runtime,
+        model: 'claude-3-5-sonnet',
+      },
+    })
+
+    vi.spyOn(api.agents, 'get').mockResolvedValue(demoAgent)
+
+    try {
+      render(<ClaimModal agent={demoAgent} onClose={vi.fn()} />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('claim-modal-claimability-badge')).toHaveTextContent('Claimable')
+      })
+
+      expect(screen.getByTestId('claim-modal-prereq-tenant-badge')).toHaveTextContent('ALIGNED')
+      expect(screen.getByTestId('claim-modal-prereq-tenant')).toHaveTextContent('tenant-demo')
+      expect(screen.queryByTestId('claim-modal-error')).not.toBeInTheDocument()
+    } finally {
+      authState.user = prevUser
+    }
+  })
 })
+
 
 
 

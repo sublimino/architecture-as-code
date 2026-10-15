@@ -36,7 +36,7 @@ describe('harmonizeBundleRules: engine authority', () => {
     const fromCatalogue = merged.filter((r) => !engineIds.has(r.id))
 
     expect(fromEngine.map((r) => r.catalogue_only)).toEqual([undefined, undefined])
-    expect(fromCatalogue.length).toBe(catalogue('k8s-cis-benchmark').length)
+    expect(fromCatalogue.length).toBe(catalogue('k8s-cis-benchmark').length - cisEngineRules.length)
     expect(fromCatalogue.every((r) => r.catalogue_only === true)).toBe(true)
   })
 
@@ -52,9 +52,9 @@ describe('harmonizeBundleRules: engine authority', () => {
     expect(out.manual_attestation).toBeUndefined()
     expect(out.attestation_type).toBeUndefined()
     expect(out.cel_expression).toBe('true')
-    // The one-to-one match still fills display-only reference text and claims cis-5.4.1.
+    // The one-to-one match still fills display-only reference text and claims no-secrets-in-env.
     expect(out.docs_url).toContain('kubernetes.io')
-    expect(merged.some((r) => r.id === 'cis-5.4.1')).toBe(false)
+    expect(merged.some((r) => r.id === 'no-secrets-in-env')).toBe(false)
   })
 })
 
@@ -82,7 +82,7 @@ describe('harmonizeBundleRules: one-to-one matcher, never on a partial number', 
     const engine: PolicyRule = { id: 'secrets-mgmt', name: 'CIS 5.4 Secrets management', cel_expression: 'true' }
     const merged = harmonizeBundleRules(catalogue('k8s-cis-benchmark'), [engine])
     expect(merged[0]).toEqual(engine)
-    expect(merged.find((r) => r.id === 'cis-5.4.1')?.catalogue_only).toBe(true)
+    expect(merged.find((r) => r.id === 'no-secrets-in-env')?.catalogue_only).toBe(true)
   })
 
   it('two engine rules competing for one catalogue control claim it zero times, not twice', () => {
@@ -90,7 +90,7 @@ describe('harmonizeBundleRules: one-to-one matcher, never on a partial number', 
     const b: PolicyRule = { id: 'quota-b', name: 'CIS 5.4.1 quotas B', cel_expression: 'false' }
     const merged = harmonizeBundleRules(catalogue('k8s-cis-benchmark'), [a, b])
     expect(merged.slice(0, 2)).toEqual([a, b])
-    expect(merged.filter((r) => r.id === 'cis-5.4.1').length).toBe(1)
+    expect(merged.filter((r) => r.id === 'no-secrets-in-env').length).toBe(1)
   })
 })
 
@@ -160,5 +160,44 @@ describe('normalizeFrameworkId: cra only as a whole token', () => {
     [null, 'Cyber Resilience Act (EU) 2024/2847'],
   ])('maps %s / %s to cra', (id, name) => {
     expect(normalizeFrameworkId(id, name)).toBe('cra')
+  })
+})
+
+describe('k8s-cis-benchmark canonical bundle', () => {
+  it('returns all 17 canonical rules with exact check IDs, non-empty cel_expressions, and required checks', () => {
+    const bundle = getBundleForFramework('k8s-cis-benchmark')
+    expect(bundle).not.toBeNull()
+    expect(bundle!.rules).toHaveLength(17)
+
+    const expectedRuleIds = [
+      'sa-token-automount-disabled',
+      'no-privileged-containers',
+      'no-host-pid',
+      'no-host-ipc',
+      'no-host-network',
+      'no-privilege-escalation',
+      'no-root-containers',
+      'no-net-raw',
+      'no-added-capabilities',
+      'capabilities-dropped-all',
+      'no-windows-hostprocess',
+      'no-hostpath-volumes',
+      'no-host-ports',
+      'no-secrets-in-env',
+      'seccomp-runtime-default',
+      'security-context-applied',
+      'no-default-namespace',
+    ]
+
+    const actualRuleIds = bundle!.rules.map((r) => r.id)
+    expect(actualRuleIds).toEqual(expectedRuleIds)
+
+    expect(actualRuleIds).toContain('no-root-containers')
+    expect(actualRuleIds).toContain('no-privilege-escalation')
+
+    for (const rule of bundle!.rules) {
+      expect(rule.cel_expression).toBeDefined()
+      expect(rule.cel_expression.trim().length).toBeGreaterThan(0)
+    }
   })
 })

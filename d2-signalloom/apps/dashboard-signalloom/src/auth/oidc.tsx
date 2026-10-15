@@ -252,6 +252,7 @@ export function useAuth0() {
       loginWithRedirect,
       logout,
       getAccessTokenSilently,
+      token: token || null,
       user: profile,
     }),
     [
@@ -259,6 +260,7 @@ export function useAuth0() {
       auth?.isLoading,
       auth?.activeNavigator,
       profile,
+      token,
       getAccessTokenSilently,
       loginWithRedirect,
       logout,

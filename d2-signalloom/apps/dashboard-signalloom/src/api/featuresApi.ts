@@ -65,12 +65,14 @@ export async function fetchAdminFeatures(
   tenantId?: string | null,
   signal?: AbortSignal,
 ): Promise<FeaturesResponse> {
+  if (!token) {
+    throw new Error('Authentication token is required to fetch admin features')
+  }
   const qs = tenantId && tenantId !== 'all' ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''
   const url = `${BASE}/api/v1/admin/features${qs}`
 
-  const headers: Record<string, string> = {}
-  if (token) {
-    headers.Authorization = `Bearer ${token}`
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
   }
 
   const response = await axios.get<FeaturesResponse>(url, {
@@ -88,11 +90,13 @@ export async function fetchFeaturePresets(
   token?: string | null,
   signal?: AbortSignal,
 ): Promise<PresetsResponse> {
+  if (!token) {
+    throw new Error('Authentication token is required to fetch feature presets')
+  }
   const url = `${BASE}/api/v1/admin/features/presets`
 
-  const headers: Record<string, string> = {}
-  if (token) {
-    headers.Authorization = `Bearer ${token}`
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
   }
 
   const response = await axios.get<PresetsResponse>(url, {
@@ -143,18 +147,31 @@ export async function updateSingleFeature(
 
 // ─── React Query Hooks ─────────────────────────────────────────────────────────
 
-export function useAdminFeatures(tenantId?: string | null, token?: string | null) {
+export function useAdminFeatures(
+  tenantId?: string | null,
+  token?: string | null,
+  options?: { enabled?: boolean },
+) {
+  const isEnabled = options?.enabled !== undefined ? options.enabled : Boolean(token)
+
   return useQuery<FeaturesResponse, Error>({
-    queryKey: ADMIN_FEATURES_QUERY_KEY(tenantId),
+    queryKey: [...ADMIN_FEATURES_QUERY_KEY(tenantId), token ?? 'no-token'],
     queryFn: ({ signal }) => fetchAdminFeatures(token, tenantId, signal),
+    enabled: isEnabled,
     staleTime: 30_000,
   })
 }
 
-export function useFeaturePresets(token?: string | null) {
+export function useFeaturePresets(
+  token?: string | null,
+  options?: { enabled?: boolean },
+) {
+  const isEnabled = options?.enabled !== undefined ? options.enabled : Boolean(token)
+
   return useQuery<PresetsResponse, Error>({
-    queryKey: FEATURE_PRESETS_QUERY_KEY(),
+    queryKey: [...FEATURE_PRESETS_QUERY_KEY(), token ?? 'no-token'],
     queryFn: ({ signal }) => fetchFeaturePresets(token, signal),
+    enabled: isEnabled,
     staleTime: 60_000,
   })
 }

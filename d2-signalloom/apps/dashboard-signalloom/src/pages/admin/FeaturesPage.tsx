@@ -83,15 +83,28 @@ export default function FeaturesPage({
   testId = 'features-page',
   defaultTenant,
 }: FeaturesPageProps): React.JSX.Element {
-  const { user, getAccessTokenSilently } = useAuth0()
+  const { user, getAccessTokenSilently, token: auth0Token } = useAuth0()
   const { superadmin: contextSuperadmin } = useAppContext()
   const { superadmin: serverSuperadmin } = useServerSuperadmin(user, getAccessTokenSilently)
   const isSuperadmin = serverSuperadmin || contextSuperadmin
 
-  const [token, setToken] = useState<string | null>(null)
-  const [selectedTenant, setSelectedTenant] = useState<string>(
-    defaultTenant || 'kusari',
-  )
+  const [token, setToken] = useState<string | null>(auth0Token || null)
+
+  const derivedInitialTenant = useMemo(() => {
+    if (defaultTenant) return defaultTenant
+    if (auth0Token) {
+      const fromToken = getTenantIdFromToken(auth0Token)
+      if (fromToken) return fromToken
+    }
+    const profileTenant =
+      (user as any)?.['https://signalloom.ai/tenant_id'] ||
+      (user as any)?.tenant_id ||
+      (user as any)?.tenantId
+    if (profileTenant) return profileTenant
+    return 'kusari'
+  }, [defaultTenant, auth0Token, user])
+
+  const [selectedTenant, setSelectedTenant] = useState<string>(derivedInitialTenant)
   const [primaryTenantInfo, setPrimaryTenantInfo] = useState<{ id: string; org_name: string } | null>(null)
   const [customTenantInput, setCustomTenantInput] = useState<string>('')
   const [searchQuery, setSearchQuery] = useState('')
@@ -471,7 +484,7 @@ export default function FeaturesPage({
       <AdminNavTabs />
 
       {/* Main Content Area with Loading & Error States */}
-      {isFeaturesLoading && !featuresData ? (
+      {(isFeaturesLoading || !token) && !featuresData ? (
         <div className="card" style={{ padding: 48, textAlign: 'center' }}>
           <LoadingState status="loading" label="feature flags" />
         </div>

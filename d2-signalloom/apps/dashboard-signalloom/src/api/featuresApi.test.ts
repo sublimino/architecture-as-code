@@ -137,5 +137,42 @@ describe('featuresApi', () => {
     )
     expect(result).toEqual(mockUpdated)
   })
+
+  it('detects and prevents 401s: useAdminFeatures and useFeaturePresets must not fire unauthenticated requests when token is absent or null', async () => {
+    const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
+    const { renderHook } = await import('@testing-library/react')
+    const React = await import('react')
+    const { useAdminFeatures, useFeaturePresets } = await import('./featuresApi')
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    })
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children)
+
+    // Render hooks with null token (as happens on initial page mount before getAccessTokenSilently resolves)
+    renderHook(() => useAdminFeatures('kusari', null), { wrapper })
+    renderHook(() => useFeaturePresets(null), { wrapper })
+
+    // Must NOT fire unauthenticated requests to protected admin endpoints!
+    expect(axios.get).not.toHaveBeenCalledWith(
+      expect.stringContaining('/api/v1/admin/features'),
+      expect.anything(),
+    )
+  })
+
+  it('rejects fetchAdminFeatures and fetchFeaturePresets when token is missing', async () => {
+    const { fetchAdminFeatures, fetchFeaturePresets } = await import('./featuresApi')
+
+    await expect(fetchAdminFeatures(null, 'kusari')).rejects.toThrow(
+      'Authentication token is required to fetch admin features',
+    )
+    await expect(fetchFeaturePresets(undefined)).rejects.toThrow(
+      'Authentication token is required to fetch feature presets',
+    )
+  })
 })
+
 

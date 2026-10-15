@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newTestServer creates an offline, isolated cpai-engineer server backed by a temp
@@ -28,7 +29,27 @@ func newTestServer(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatalf("new session store: %v", err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
+	t.Cleanup(func() {
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			tasks, err := store.List(100)
+			if err != nil {
+				break
+			}
+			running := false
+			for _, tk := range tasks {
+				if tk.Status == "pending" || tk.Status == "running" {
+					running = true
+					break
+				}
+			}
+			if !running {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		_ = store.Close()
+	})
 
 	nono := NewNonoWrapper("strict")
 	executor := NewExecutor(workspaceDir, nono, store)
@@ -37,6 +58,22 @@ func newTestServer(t *testing.T) *httptest.Server {
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
 	return ts
+}
+
+func waitForTask(ts *httptest.Server, taskID string) {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(ts.URL + "/tasks/" + taskID)
+		if err == nil {
+			var tk TaskResponse
+			if err := json.NewDecoder(resp.Body).Decode(&tk); err == nil && tk.Status != "pending" && tk.Status != "running" {
+				resp.Body.Close()
+				return
+			}
+			resp.Body.Close()
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func TestHealthProbes_MethodsAndHeadBodySuppression(t *testing.T) {
@@ -139,6 +176,7 @@ func TestTasksSubmission_ValidationAndGates(t *testing.T) {
 	if created.Status != "pending" {
 		t.Errorf("expected status=pending, got %q", created.Status)
 	}
+	defer waitForTask(ts, created.TaskID)
 
 	// 2. Input validation: empty body
 	respEmpty, err := http.Post(ts.URL+"/tasks", "application/json", bytes.NewReader(nil))
@@ -313,6 +351,7 @@ func TestTasksDetail_MethodsAndHeadParity(t *testing.T) {
 	createResp.Body.Close()
 
 	taskPath := "/tasks/" + created.TaskID
+	defer waitForTask(ts, created.TaskID)
 
 	// 1. GET /tasks/{id} returns 200 OK
 	getResp, err := http.Get(ts.URL + taskPath)

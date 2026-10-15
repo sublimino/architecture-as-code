@@ -429,10 +429,34 @@ func (ch *complianceHandler) scanFor(tenantID string) (tenantScan, bool) {
 	return s, ok
 }
 
+func (ch *complianceHandler) listFrameworks() (map[string][]string, error) {
+	if ch.policyRoot == "" {
+		return frameworks.ListEmbeddedFrameworks()
+	}
+	fws, err := frameworks.ListFrameworks(ch.policyRoot)
+	if err != nil {
+		return frameworks.ListEmbeddedFrameworks()
+	}
+	if embedded, embErr := frameworks.ListEmbeddedFrameworks(); embErr == nil {
+		for id, versions := range embedded {
+			if _, exists := fws[id]; !exists {
+				fws[id] = versions
+			}
+		}
+	}
+	return fws, nil
+}
+
 func newComplianceHandler(policyRoot string, optEngine ...*CELEngine) (*complianceHandler, error) {
-	// Verify the frameworks directory exists.
-	if _, err := frameworks.ListFrameworks(policyRoot); err != nil {
-		return nil, err
+	// Verify the frameworks directory exists or embedded frameworks are available.
+	if policyRoot == "" {
+		if _, err := frameworks.ListEmbeddedFrameworks(); err != nil {
+			return nil, err
+		}
+	} else {
+		if _, err := frameworks.ListFrameworks(policyRoot); err != nil {
+			return nil, err
+		}
 	}
 	var celEngine *CELEngine
 	if len(optEngine) > 0 && optEngine[0] != nil {
@@ -545,7 +569,7 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 		asOf = parsed
 	}
 
-	available, err := frameworks.ListFrameworks(ch.policyRoot)
+	available, err := ch.listFrameworks()
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -759,7 +783,7 @@ func (ch *complianceHandler) handleFrameworks(w http.ResponseWriter, r *http.Req
 	subpath := strings.TrimPrefix(r.URL.Path, "/api/v1/compliance/frameworks")
 	subpath = strings.TrimPrefix(subpath, "/")
 
-	fws, err := frameworks.ListFrameworks(ch.policyRoot)
+	fws, err := ch.listFrameworks()
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -1123,7 +1147,18 @@ func selectPack(policyRoot, fwID string, dirs []string, policyVersion string) (*
 	var newest *frameworks.Framework
 	var newestDir string
 	for _, dir := range dirs {
-		fw, err := frameworks.Load(policyRoot, fwID, dir)
+		var fw *frameworks.Framework
+		var err error
+		if policyRoot == "" {
+			fw, err = frameworks.LoadEmbeddedFramework(fwID, dir)
+		} else {
+			fw, err = frameworks.Load(policyRoot, fwID, dir)
+			if err != nil {
+				if embFw, embErr := frameworks.LoadEmbeddedFramework(fwID, dir); embErr == nil {
+					fw, err = embFw, nil
+				}
+			}
+		}
 		if err != nil {
 			return nil, err
 		}

@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ClaimModal, { getAgentWorkloadSecurityProfile } from './ClaimModal'
 import type { AgentResponse } from '../../types/api'
 import * as agentClaimApi from '../../api/agentClaim'
+import { api } from '../../api/client'
 
 const authState = vi.hoisted(() => ({
   user: { sub: 'test-user' } as { email?: string; name?: string; sub?: string },
@@ -324,6 +326,219 @@ describe('ClaimModal & getAgentWorkloadSecurityProfile', () => {
     expect(screen.getByTestId('claim-modal-copy-model-cmd-btn')).toBeInTheDocument()
 
     expect(screen.getByTestId('claim-modal-claimability-badge')).toHaveTextContent('Blocked')
+  })
+
+  it('auto-refreshes on mount, fetches fresh agent from API, and updates currentAgent', async () => {
+    const initialAgent = createMockDiscoveredAgent({
+      id: 'agent-mount-refresh',
+      name: 'agent-mount-refresh',
+      runtime: {
+        ...createMockDiscoveredAgent().runtime,
+        pod_name: 'initial-pod-name',
+        service_account: 'initial-sa',
+      },
+    })
+
+    const freshAgent: AgentResponse = {
+      ...initialAgent,
+      runtime: {
+        ...initialAgent.runtime,
+        pod_name: 'refreshed-pod-name',
+        service_account: 'refreshed-sa-live',
+      },
+    }
+
+    const getSpy = vi.spyOn(api.agents, 'get').mockResolvedValue(freshAgent)
+
+    render(<ClaimModal agent={initialAgent} onClose={vi.fn()} />)
+
+    await waitFor(() => {
+      expect(getSpy).toHaveBeenCalledWith('test-token', 'agent-mount-refresh')
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('claim-modal-prereq-spiffe')).toHaveTextContent('refreshed-sa-live')
+    })
+  })
+
+  it('auto-clears missing model objection, cleans URL params, and turns status Green Claimable when refresh returns model', async () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/agents/discovered:test-agent-stunned?claim_error=Workload+test-agent-stunned+declares+no+signalloom.ai%2Fmodel'
+    )
+
+    const unmodeledAgent = createMockDiscoveredAgent({
+      id: 'test-agent-stunned',
+      name: 'test-agent-stunned',
+      tenant_id: 'default',
+      runtime: {
+        ...createMockDiscoveredAgent().runtime,
+        pod_name: 'test-agent-stunned',
+        model: null,
+      },
+    })
+
+    const refreshedAgentWithModel: AgentResponse = {
+      ...unmodeledAgent,
+      runtime: {
+        ...unmodeledAgent.runtime,
+        model: 'claude-3-5-sonnet',
+      },
+    }
+
+    vi.spyOn(api.agents, 'get').mockResolvedValue(refreshedAgentWithModel)
+    const onClearClaimError = vi.fn()
+
+    render(
+      <ClaimModal
+        agent={unmodeledAgent}
+        claimError="Workload 'test-agent-stunned' declares no signalloom.ai/model; refusing to record an invented model"
+        onClose={vi.fn()}
+        onClearClaimError={onClearClaimError}
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('claim-modal-claimability-badge')).toHaveTextContent('Claimable')
+    })
+
+    expect(screen.getByTestId('claim-modal-claimability-status')).toHaveTextContent('Claimable — Ready for Governance')
+    expect(screen.getByTestId('claim-modal-prereq-model-badge')).toHaveTextContent('VERIFIED')
+    expect(screen.getByTestId('claim-modal-prereq-model')).toHaveTextContent('claude-3-5-sonnet')
+    expect(screen.queryByTestId('claim-modal-error')).not.toBeInTheDocument()
+
+    expect(onClearClaimError).toHaveBeenCalled()
+
+    expect(window.location.search).not.toContain('claim_error')
+    expect(window.location.search).not.toContain('error')
+
+    expect(screen.getByTestId('claim-modal-refreshed-badge')).toHaveTextContent('Workload refreshed: model detected')
+  })
+
+  it('triggers refresh and updates pre-flight matrix when clicking claim-modal-refresh-btn', async () => {
+    const unmodeledAgent = createMockDiscoveredAgent({
+      id: 'test-agent-refresh-click',
+      name: 'test-agent-refresh-click',
+      tenant_id: 'default',
+      runtime: {
+        ...createMockDiscoveredAgent().runtime,
+        model: null,
+      },
+    })
+
+    const refreshedAgent: AgentResponse = {
+      ...unmodeledAgent,
+      runtime: {
+        ...unmodeledAgent.runtime,
+        model: 'claude-3-5-sonnet',
+      },
+    }
+
+    const getSpy = vi.spyOn(api.agents, 'get').mockResolvedValueOnce(unmodeledAgent)
+
+    render(<ClaimModal agent={unmodeledAgent} onClose={vi.fn()} />)
+
+    expect(screen.getByTestId('claim-modal-claimability-badge')).toHaveTextContent('Blocked')
+    expect(screen.getByTestId('claim-modal-prereq-model-badge')).toHaveTextContent('UNDECLARED')
+
+    getSpy.mockResolvedValueOnce(refreshedAgent)
+
+    const refreshBtn = screen.getByTestId('claim-modal-refresh-btn')
+    fireEvent.click(refreshBtn)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('claim-modal-claimability-badge')).toHaveTextContent('Claimable')
+    })
+
+    expect(screen.getByTestId('claim-modal-prereq-model-badge')).toHaveTextContent('VERIFIED')
+    expect(screen.getByTestId('claim-modal-prereq-model')).toHaveTextContent('claude-3-5-sonnet')
+    expect(screen.getByTestId('claim-modal-refreshed-badge')).toHaveTextContent('Workload refreshed: model detected')
+  })
+
+  it('executes pre-flight refresh before submitting claim and invalidates query caches', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const agent = createMockDiscoveredAgent({
+      id: 'test-agent-presubmission',
+      name: 'test-agent-presubmission',
+      tenant_id: 'default',
+      runtime: {
+        ...createMockDiscoveredAgent().runtime,
+        model: 'claude-3-5-sonnet',
+      },
+    })
+
+    const getSpy = vi.spyOn(api.agents, 'get').mockResolvedValue(agent)
+    const claimSpy = vi.spyOn(agentClaimApi, 'claimDiscoveredAgent').mockResolvedValue({
+      claim_id: 'claim-uuid-1',
+      status: 'granted',
+      spiffe_svid_verified: true,
+      allocated_token_budget: 250000,
+      signal_session_url: '/ws/session/1',
+      ebpf_sentinel_bound: true,
+      agent_id: 'test-agent-presubmission',
+    })
+
+    const onClose = vi.fn()
+    const onSuccess = vi.fn()
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ClaimModal agent={agent} onClose={onClose} onSuccess={onSuccess} />
+      </QueryClientProvider>
+    )
+
+    getSpy.mockClear()
+
+    const submitBtn = screen.getByTestId('claim-modal-submit-btn')
+    fireEvent.click(submitBtn)
+
+    await waitFor(() => {
+      expect(claimSpy).toHaveBeenCalled()
+    })
+
+    expect(getSpy).toHaveBeenCalledWith('test-token', 'test-agent-presubmission')
+    expect(onSuccess).toHaveBeenCalled()
+    expect(onClose).toHaveBeenCalled()
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['agents'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['discovery'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['workloads'] })
+  })
+
+  it('invokes onRefreshWorkload prop when provided instead of default api.agents.get', async () => {
+    const initialAgent = createMockDiscoveredAgent({
+      id: 'custom-refresh-agent',
+      tenant_id: 'default',
+      runtime: {
+        ...createMockDiscoveredAgent().runtime,
+        model: null,
+      },
+    })
+
+    const freshAgent: AgentResponse = {
+      ...initialAgent,
+      runtime: {
+        ...initialAgent.runtime,
+        model: 'claude-3-5-sonnet',
+      },
+    }
+
+    const customRefresh = vi.fn().mockResolvedValue(freshAgent)
+
+    render(<ClaimModal agent={initialAgent} onClose={vi.fn()} onRefreshWorkload={customRefresh} />)
+
+    await waitFor(() => {
+      expect(customRefresh).toHaveBeenCalledWith('custom-refresh-agent')
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('claim-modal-claimability-badge')).toHaveTextContent('Claimable')
+    })
   })
 })
 

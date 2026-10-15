@@ -1,6 +1,8 @@
-import { useState, useId } from 'react'
+import { useState, useEffect, useId, useContext } from 'react'
+import { QueryClientContext, type QueryClient } from '@tanstack/react-query'
 import { useAuth0 } from '../../auth/oidc'
 import { claimDiscoveredAgent, type AgentClaimRequest, type AgentClaimResponse } from '../../api/agentClaim'
+import { api } from '../../api/client'
 import type { AgentResponse } from '../../types/api'
 import { colors } from '../../styles/tokens'
 import { detectGitOps } from '../../utils/gitops'
@@ -49,6 +51,18 @@ export function extractWorkloadName(podName: string): string {
   return podName
 }
 
+export function extractDeclaredModel(agent: Partial<AgentResponse> | null | undefined): string | null {
+  if (!agent) return null
+  return (
+    agent.runtime?.model ||
+    (agent as any).model ||
+    agent.model_name ||
+    (agent.labels && agent.labels['signalloom.ai/model']) ||
+    ((agent.runtime as any)?.labels && (agent.runtime as any).labels['signalloom.ai/model']) ||
+    null
+  )
+}
+
 export function getUrlClaimError(): string | null {
   if (typeof window !== 'undefined' && window.location && window.location.search) {
     try {
@@ -61,42 +75,89 @@ export function getUrlClaimError(): string | null {
   return null
 }
 
+export function clearUrlClaimError(): void {
+  if (typeof window !== 'undefined' && window.location) {
+    try {
+      const params = new URLSearchParams(window.location.search || '')
+      if (params.has('claim_error') || params.has('error')) {
+        params.delete('claim_error')
+        params.delete('error')
+        const newSearch = params.toString() ? `?${params.toString()}` : ''
+        const newPath = (window.location.pathname || '') + newSearch + (window.location.hash || '')
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(window.history.state, '', newPath)
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+}
+
 export interface ClaimModalProps {
   agent: AgentResponse
   onClose: () => void
   onSuccess?: (result: AgentClaimResponse) => void
   claimError?: string | null
+  onRefreshWorkload?: (agentId: string) => Promise<AgentResponse | void>
+  onClearClaimError?: () => void
 }
 
-export default function ClaimModal({ agent, onClose, onSuccess, claimError }: ClaimModalProps) {
+export default function ClaimModal({
+  agent,
+  onClose,
+  onSuccess,
+  claimError,
+  onRefreshWorkload,
+  onClearClaimError,
+}: ClaimModalProps) {
   const { user, getAccessTokenSilently } = useAuth0()
   const titleId = useId()
   const descriptionId = useId()
 
-  const secProfile = getAgentWorkloadSecurityProfile(agent)
+  const queryClient = useContext(QueryClientContext) as QueryClient | undefined
 
-  const defaultPodName = agent.runtime?.pod_name || (agent.record_class === 'discovered' ? agent.id : agent.name)
-  const defaultNamespace = agent.runtime?.namespace || agent.namespace || 'fe-signalloom-agents'
-  const deploymentName = agent.runtime?.workload_name || extractWorkloadName(agent.name || defaultPodName)
+  const [currentAgent, setCurrentAgent] = useState<AgentResponse>(agent)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [refreshedBadge, setRefreshedBadge] = useState<string | null>(null)
+  const [clearedClaimError, setClearedClaimError] = useState(false)
+
+  useEffect(() => {
+    setCurrentAgent(agent)
+  }, [agent])
+
+  useEffect(() => {
+    if (claimError) {
+      setError(claimError)
+      setClearedClaimError(false)
+    }
+  }, [claimError])
+
+  const secProfile = getAgentWorkloadSecurityProfile(currentAgent)
+
+  const defaultPodName =
+    currentAgent.runtime?.pod_name ||
+    (currentAgent.record_class === 'discovered' ? currentAgent.id : currentAgent.name)
+  const defaultNamespace =
+    currentAgent.runtime?.namespace || currentAgent.namespace || 'fe-signalloom-agents'
+  const deploymentName =
+    currentAgent.runtime?.workload_name || extractWorkloadName(currentAgent.name || defaultPodName)
   const defaultSpiffeId =
-    agent.identity?.spiffe_id ||
-    `spiffe://signalloom.demo/ns/${defaultNamespace}/sa/${agent.runtime?.service_account || agent.service_account || defaultPodName}`
-  const defaultHarness = agent.runtime?.framework || agent.framework || agent.type || 'claude-code'
+    currentAgent.identity?.spiffe_id ||
+    `spiffe://signalloom.demo/ns/${defaultNamespace}/sa/${currentAgent.runtime?.service_account || currentAgent.service_account || defaultPodName}`
+  const defaultHarness =
+    currentAgent.runtime?.framework || currentAgent.framework || currentAgent.type || 'claude-code'
 
-  const declaredModel =
-    agent.runtime?.model ||
-    (agent as any).model ||
-    agent.model_name ||
-    (agent.labels && agent.labels['signalloom.ai/model']) ||
-    null
-
+  const declaredModel = extractDeclaredModel(currentAgent)
   const hasDeclaredModel = Boolean(declaredModel && declaredModel.trim().length > 0)
   const defaultModel = declaredModel || 'claude-3-5-sonnet'
 
   const claimantOwner = user?.email || user?.name || user?.sub || ''
   const authenticatedOperator = user?.email || user?.sub || ''
 
-  const workloadTenant = agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared' ? agent.tenant_id : null)
+  const workloadTenant =
+    currentAgent.tenant ||
+    (currentAgent.tenant_id && currentAgent.tenant_id !== 'undeclared' ? currentAgent.tenant_id : null)
   const operatorTenant =
     (user as { tenant?: string; 'https://signalloom.ai/tenant'?: string })?.tenant ||
     (user as { 'https://signalloom.ai/tenant'?: string })?.['https://signalloom.ai/tenant'] ||
@@ -104,7 +165,7 @@ export default function ClaimModal({ agent, onClose, onSuccess, claimError }: Cl
     'default'
 
   const isTenantMismatch = Boolean(workloadTenant && operatorTenant && workloadTenant !== operatorTenant)
-  const gitops = detectGitOps(agent, { tenant: operatorTenant })
+  const gitops = detectGitOps(currentAgent, { tenant: operatorTenant })
 
   const [podName, setPodName] = useState(defaultPodName)
   const [namespace, setNamespace] = useState(defaultNamespace)
@@ -125,7 +186,7 @@ export default function ClaimModal({ agent, onClose, onSuccess, claimError }: Cl
     }
   }
 
-  const effectiveError = error || claimError || null
+  const effectiveError = error || (clearedClaimError ? null : claimError) || null
 
   const isMissingModelError = Boolean(
     !hasDeclaredModel ||
@@ -160,17 +221,110 @@ export default function ClaimModal({ agent, onClose, onSuccess, claimError }: Cl
     )
   )
 
-  const hasBlockers = isMissingModelError || isTenantMismatch || isCrossTenantError || isMissingTenantError || isAlreadyClaimedError
+  const hasBlockers =
+    isMissingModelError || isTenantMismatch || isCrossTenantError || isMissingTenantError || isAlreadyClaimedError
   const isClaimable = !hasBlockers && !effectiveError
 
   const relabelCommand = `kubectl -n ${namespace} label pod ${podName} signalloom.ai/tenant=${operatorTenant} --overwrite`
   const modelLabelCommand = `kubectl -n ${namespace} label pod ${podName} signalloom.ai/model=${model || defaultModel} --overwrite`
   const deploymentModelPatchCommand = `kubectl -n ${namespace} patch deployment ${deploymentName} -p '{"spec":{"template":{"metadata":{"labels":{"signalloom.ai/model":"${model || defaultModel}"}}}}}'`
 
+  const refreshWorkload = async (silent = false): Promise<AgentResponse | null> => {
+    if (!silent) {
+      setIsRefreshing(true)
+    }
+
+    try {
+      let freshAgent: AgentResponse | undefined
+      if (onRefreshWorkload) {
+        try {
+          const res = await onRefreshWorkload(currentAgent.id || agent.id)
+          if (res && typeof res === 'object' && 'id' in res) {
+            freshAgent = res as AgentResponse
+          }
+        } catch {
+          // ignore error in onRefreshWorkload
+        }
+      }
+
+      if (!freshAgent) {
+        let token = 'demo-token'
+        try {
+          token = await getAccessTokenSilently()
+        } catch {
+          token = 'demo-token'
+        }
+        try {
+          freshAgent = await api.agents.get(token, currentAgent.id || agent.id)
+        } catch {
+          // ignore error in api.agents.get
+        }
+      }
+
+      if (freshAgent) {
+        const updatedAgent: AgentResponse = {
+          ...freshAgent,
+          id: agent.id,
+          name: agent.name || freshAgent.name,
+        }
+        setCurrentAgent(updatedAgent)
+
+        const freshDeclaredModel = extractDeclaredModel(freshAgent)
+        if (freshDeclaredModel && freshDeclaredModel.trim().length > 0) {
+          setModel(freshDeclaredModel)
+          setError(null)
+          setClearedClaimError(true)
+          clearUrlClaimError()
+          onClearClaimError?.()
+          setRefreshedBadge('Workload refreshed: model detected')
+          setTimeout(() => setRefreshedBadge(null), 4000)
+        }
+
+        const freshTenant =
+          freshAgent.tenant ||
+          (freshAgent.tenant_id && freshAgent.tenant_id !== 'undeclared' ? freshAgent.tenant_id : null)
+        if (freshTenant && operatorTenant && freshTenant === operatorTenant) {
+          if (isCrossTenantError || isTenantMismatch) {
+            setError(null)
+            setClearedClaimError(true)
+            clearUrlClaimError()
+            onClearClaimError?.()
+          }
+        }
+
+        return updatedAgent
+      }
+    } finally {
+      if (!silent) {
+        setIsRefreshing(false)
+      }
+    }
+
+    return null
+  }
+
+  useEffect(() => {
+    refreshWorkload(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSubmitting(true)
     setError(null)
+
+    // Pre-submission refresh
+    const fresh = await refreshWorkload(true)
+    const activeAgent = fresh || currentAgent
+
+    const activeDeclaredModel = extractDeclaredModel(activeAgent)
+    const activeHasDeclaredModel = Boolean(activeDeclaredModel && activeDeclaredModel.trim().length > 0)
+
+    if (!activeHasDeclaredModel) {
+      setError(`Workload '${activeAgent.name || podName}' declares no signalloom.ai/model; refusing to record an invented model.`)
+      setSubmitting(false)
+      return
+    }
 
     const requestPayload: AgentClaimRequest = {
       pod_name: podName.trim() || defaultPodName,
@@ -178,7 +332,7 @@ export default function ClaimModal({ agent, onClose, onSuccess, claimError }: Cl
       namespace: namespace.trim() || defaultNamespace,
       spiffe_id: spiffeId.trim() || defaultSpiffeId,
       harness: harness.trim() || defaultHarness,
-      model: model.trim() || defaultModel,
+      model: (activeDeclaredModel || model || defaultModel).trim(),
       declared_tools: [],
       token_budget_limit: tokenBudget > 0 ? tokenBudget : 100000,
       agent_id: agent.id,
@@ -197,6 +351,16 @@ export default function ClaimModal({ agent, onClose, onSuccess, claimError }: Cl
 
       if (result.status === 'denied') {
         throw new Error('Claim was rejected by governance policy.')
+      }
+
+      clearUrlClaimError()
+
+      if (queryClient) {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['agents'] }),
+          queryClient.invalidateQueries({ queryKey: ['discovery'] }),
+          queryClient.invalidateQueries({ queryKey: ['workloads'] }),
+        ]).catch(() => {})
       }
 
       onSuccess?.(result)
@@ -300,7 +464,7 @@ export default function ClaimModal({ agent, onClose, onSuccess, claimError }: Cl
         </div>
 
         <p id={descriptionId} style={{ fontSize: 12, color: 'var(--muted, #8b949e)', marginBottom: 18, lineHeight: 1.5 }}>
-          Bring discovered workload <strong style={{ color: 'var(--text)' }}>{agent.name || agent.id}</strong> into
+          Bring discovered workload <strong style={{ color: 'var(--text)' }}>{currentAgent.name || currentAgent.id}</strong> into
           Signal Loom tenant governance. {secProfile.description}
         </p>
 
@@ -604,10 +768,10 @@ export default function ClaimModal({ agent, onClose, onSuccess, claimError }: Cl
                   borderRadius: 4,
                   background: 'var(--surface2)',
                   border: '1px solid var(--border)',
-                  color: agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared') ? 'var(--text)' : 'var(--muted)',
+                  color: currentAgent.tenant || (currentAgent.tenant_id && currentAgent.tenant_id !== 'undeclared') ? 'var(--text)' : 'var(--muted)',
                 }}
               >
-                {agent.tenant || (agent.tenant_id && agent.tenant_id !== 'undeclared' ? agent.tenant_id : 'Undeclared (Will bind to claimant tenant on claim)')}
+                {currentAgent.tenant || (currentAgent.tenant_id && currentAgent.tenant_id !== 'undeclared' ? currentAgent.tenant_id : 'Undeclared (Will bind to claimant tenant on claim)')}
               </div>
             </div>
 
@@ -831,9 +995,65 @@ export default function ClaimModal({ agent, onClose, onSuccess, claimError }: Cl
 
             {/* Pre-Flight Prerequisites Matrix */}
             <div data-testid="claim-modal-prereqs-matrix" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Pre-Flight Prerequisites Verification
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Pre-Flight Prerequisites Verification
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  data-testid="claim-modal-refresh-btn"
+                  onClick={() => {
+                    void refreshWorkload(false)
+                  }}
+                  disabled={isRefreshing}
+                  style={{
+                    fontSize: 11,
+                    padding: '3px 8px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    cursor: isRefreshing ? 'not-allowed' : 'pointer',
+                    background: 'var(--surface, #1e293b)',
+                    border: '1px solid var(--border, #334155)',
+                    color: 'var(--text, #f8fafc)',
+                    borderRadius: 4,
+                  }}
+                  aria-label="Refresh Workload"
+                >
+                  <span
+                    data-testid="claim-modal-refresh-spinner"
+                    style={{
+                      display: 'inline-block',
+                      animation: isRefreshing ? 'spin 1s linear infinite' : 'none',
+                    }}
+                  >
+                    🔄
+                  </span>
+                  <span>{isRefreshing ? 'Refreshing…' : 'Refresh'}</span>
+                </button>
               </div>
+
+              {refreshedBadge && (
+                <div
+                  data-testid="claim-modal-refreshed-badge"
+                  style={{
+                    padding: '6px 10px',
+                    background: 'rgba(34, 197, 94, 0.15)',
+                    border: '1px solid rgba(34, 197, 94, 0.35)',
+                    borderRadius: 4,
+                    color: 'var(--teal, #10B981)',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <span>✓</span>
+                  <span>{refreshedBadge}</span>
+                </div>
+              )}
 
               {/* Prereq 1: AI Model Attribution */}
               <div
@@ -999,7 +1219,7 @@ export default function ClaimModal({ agent, onClose, onSuccess, claimError }: Cl
                   </span>
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.4 }}>
-                  ServiceAccount: <code>{agent.runtime?.service_account || agent.service_account || defaultPodName}</code>
+                  ServiceAccount: <code>{currentAgent.runtime?.service_account || currentAgent.service_account || defaultPodName}</code>
                 </div>
               </div>
             </div>
@@ -1143,7 +1363,7 @@ export default function ClaimModal({ agent, onClose, onSuccess, claimError }: Cl
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--muted)' }}>ServiceAccount:</span>
                 <span style={{ fontFamily: 'monospace', color: 'var(--text)' }}>
-                  {agent.runtime?.service_account || agent.service_account || 'default'}
+                  {currentAgent.runtime?.service_account || currentAgent.service_account || 'default'}
                 </span>
               </div>
             </div>

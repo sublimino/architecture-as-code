@@ -245,7 +245,11 @@ spec:
               # two concurrent dashboard polls over a 130 MiB Parquet store were
               # OOM-killed at 1Gi (7 restarts, /feeds 502). Stopgap until EAPCI
               # P1-6 bounds the read; remove this headroom when it lands.
-              memory: 2Gi
+              # 4Gi (2026-10-15): the Parquet store reached 485 MB in 22 blocks and the
+              # idle working set sat at ~1.7 GiB, so any dashboard poll crossed 2Gi
+              # (28 OOMKills, /weave 502). Same stopgap, resized to the data; the
+              # bounded-read root fix is tracked separately.
+              memory: 4Gi
       volumes:
         # The FrostDB Parquet segments and their attestation evidence. The ephemeral
         # volume this replaces was deleted with the pod, so every reschedule or

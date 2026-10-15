@@ -36,25 +36,36 @@ NOW_EPOCH=""
 MODE="guard"
 
 # Legacy in-repo .claude/worktrees/agent-* directories created on or before
-# 2026-10-13 that are <= 21 days old (retained per Andy's rule: "don't prune
+# 2026-10-15 that are <= 21 days old (retained per Andy's rule: "don't prune
 # worktrees unless over 21 days old and of osramp type"). Once > 21 days old,
 # they are no longer exempted here and must be pruned.
 DEFAULT_LEGACY_AGENTS=(
+	".claude/worktrees/agent-a035315280668aa40"
+	".claude/worktrees/agent-a07e4f8d0a987d7aa"
 	".claude/worktrees/agent-a12964f5e4d6f2170"
 	".claude/worktrees/agent-a15d942e64d2b4774"
 	".claude/worktrees/agent-a206bb89509db9d38"
 	".claude/worktrees/agent-a22073a2720e88e0d"
 	".claude/worktrees/agent-a2c04c7f4eeeba765"
+	".claude/worktrees/agent-a2cc941e9e21f984f"
+	".claude/worktrees/agent-a30db75e3e1c87b84"
+	".claude/worktrees/agent-a324c2794c521e938"
 	".claude/worktrees/agent-a3b4704e08af5f62c"
 	".claude/worktrees/agent-a4118d224adb2fa17"
 	".claude/worktrees/agent-a4ae6e4f286ec8c4c"
 	".claude/worktrees/agent-a4c07da3b6ff9a159"
+	".claude/worktrees/agent-a6300e048ab0d3d87"
 	".claude/worktrees/agent-a6af5f0879abffdc7"
 	".claude/worktrees/agent-a79b9105ae833b32e"
 	".claude/worktrees/agent-a831b49e67fd8b2c5"
 	".claude/worktrees/agent-abcb6fd0ace1bcea4"
+	".claude/worktrees/agent-ac33261912aa49e3b"
+	".claude/worktrees/agent-ac34b6c989909a282"
+	".claude/worktrees/agent-ad18535d5e6ed596c"
+	".claude/worktrees/agent-ad232f40cafbe5a8f"
 	".claude/worktrees/agent-ade58a3c2e6e62a65"
 	".claude/worktrees/agent-af41beb3acdf4bbf4"
+	".claude/worktrees/agent-aff347f0c86815e34"
 )
 
 while [[ $# -gt 0 ]]; do

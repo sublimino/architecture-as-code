@@ -151,3 +151,9 @@ teardown() {
 	[[ "$output" != *"other-project"* ]]
 	[[ "$output" != *"path=$FAKE_REPO	"* ]]
 }
+
+@test "live repo default baseline exempts current legacy worktrees so guard passes" {
+	run "$SCRIPT"
+	[ "$status" -eq 0 ]
+	[ -z "$output" ]
+}

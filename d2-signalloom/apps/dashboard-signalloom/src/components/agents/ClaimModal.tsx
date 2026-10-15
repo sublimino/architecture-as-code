@@ -985,7 +985,7 @@ export default function ClaimModal({
                   <span style={{ fontSize: 18 }}>🟢</span>
                   <div>
                     <div style={{ color: 'var(--teal, #10B981)', fontWeight: 700, fontSize: 13 }}>
-                      Claimable — Ready for Governance
+                      Claimable: Ready for Governance
                     </div>
                     <div style={{ color: 'var(--text)', fontSize: 11, marginTop: 2 }}>
                       All pre-flight requirements verified. Workload will bind to {workloadTenant || operatorTenant}.
@@ -1028,7 +1028,7 @@ export default function ClaimModal({
                   <span style={{ fontSize: 18 }}>🛑</span>
                   <div>
                     <div style={{ color: 'var(--error, #ef4444)', fontWeight: 700, fontSize: 13 }}>
-                      Claim Blocked — Action Required
+                      Claim Blocked: Action Required
                     </div>
                     <div style={{ color: 'var(--text)', fontSize: 11, marginTop: 2 }}>
                       {isMissingModelError && isTenantMismatch

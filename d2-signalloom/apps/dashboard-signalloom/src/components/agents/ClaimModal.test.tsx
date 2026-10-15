@@ -270,7 +270,7 @@ describe('ClaimModal & getAgentWorkloadSecurityProfile', () => {
 
     const statusBanner = screen.getByTestId('claim-modal-claimability-status')
     expect(statusBanner).toBeInTheDocument()
-    expect(statusBanner).toHaveTextContent('Claim Blocked — Action Required')
+    expect(statusBanner).toHaveTextContent('Claim Blocked: Action Required')
     expect(screen.getByTestId('claim-modal-claimability-badge')).toHaveTextContent('Blocked')
 
     const prereqsMatrix = screen.getByTestId('claim-modal-prereqs-matrix')
@@ -299,7 +299,7 @@ describe('ClaimModal & getAgentWorkloadSecurityProfile', () => {
 
     const statusBanner = screen.getByTestId('claim-modal-claimability-status')
     expect(statusBanner).toBeInTheDocument()
-    expect(statusBanner).toHaveTextContent('Claimable — Ready for Governance')
+    expect(statusBanner).toHaveTextContent('Claimable: Ready for Governance')
     expect(screen.getByTestId('claim-modal-claimability-badge')).toHaveTextContent('Claimable')
 
     expect(screen.getByTestId('claim-modal-prereq-model-badge')).toHaveTextContent('VERIFIED')
@@ -403,7 +403,7 @@ describe('ClaimModal & getAgentWorkloadSecurityProfile', () => {
       expect(screen.getByTestId('claim-modal-claimability-badge')).toHaveTextContent('Claimable')
     })
 
-    expect(screen.getByTestId('claim-modal-claimability-status')).toHaveTextContent('Claimable — Ready for Governance')
+    expect(screen.getByTestId('claim-modal-claimability-status')).toHaveTextContent('Claimable: Ready for Governance')
     expect(screen.getByTestId('claim-modal-prereq-model-badge')).toHaveTextContent('VERIFIED')
     expect(screen.getByTestId('claim-modal-prereq-model')).toHaveTextContent('claude-3-5-sonnet')
     expect(screen.queryByTestId('claim-modal-error')).not.toBeInTheDocument()

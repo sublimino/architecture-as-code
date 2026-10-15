@@ -68,3 +68,9 @@ scripts/kind-data-backup.sh:stun-sentinel-fleet-key # EAPCI-P1-5: backs up the l
 test/netebpf-adversarial.bats # netebpf adversarial test tests apps/stun-sentinel
 test/netebpf-preflight.bats # netebpf preflight test tests apps/stun-sentinel
 d2-signalloom/apps/dashboard-signalloom/src/pages/DeploySensorHelpPage.test.tsx:stun-sentinel # negative guard asserting the help page no longer names the legacy probe
+.agents/skills/sl-local-deploy/Tools/local-deploy.sh:d2-signalloom/apps/signalloom-stun-sentinel/Dockerfile # warden image input set is read from the R3 module's real Dockerfile path
+.agents/skills/sl-local-deploy/Tools/local-deploy.sh:signalloom-stun-sentinel/Dockerfile # same Dockerfile, as the context-relative path source_id_copied_paths expects
+.agents/skills/sl-local-deploy/Tools/local-deploy.sh:stun-sentinel, signalloom-stun-sentinel and supercred-demo-runner # comment naming the R3 module directories the auto-detect excludes from the app-name branch
+.agents/skills/sl-local-deploy/Tools/local-deploy.sh:stun-sentinel|signalloom-stun-sentinel|supercred-demo-runner # case arm matching the R3 module directory names
+test/sl-local-deploy.bats:d2-signalloom/apps/signalloom-stun-sentinel/config.go # auto-detect test uses a real file path inside the R3 module
+.agents/skills/sl-local-deploy/Tools/local-deploy.sh:swarm-stun-sentinel-image # names the real d2-signalloom Makefile target that builds the warden image

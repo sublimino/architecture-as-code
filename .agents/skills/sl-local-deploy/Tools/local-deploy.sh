@@ -69,7 +69,7 @@ Workload mapping:
   docs               d2-signalloom/apps/docs-signalloom (Docs portal)
   ingest             d2-signalloom/apps/signal-ingest (Signal Fusion Ingest Service)
   fleet              d2-osramp-fleet (fleet ResourceSets; push + reconcile Kustomization 'tenants')
-  warden             signalloom-warden/stun-sentinel DaemonSet (sentinel image publish)
+  warden             signalloom-warden DaemonSet (sentinel image publish)
   supercred-runner   supercred-demo-runner image (SuperCred/Signal Fusion/Distance Latency demo API)
   manifests          d2-signalloom/apps, d2-signalloom/infra
   all                All Signal Loom workloads and manifests, including fleet, warden, supercred-runner

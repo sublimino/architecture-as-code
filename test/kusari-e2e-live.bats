@@ -295,16 +295,21 @@ observations_store() {
         return 1
     }
 
-    # The version that fired is the version in the tree. A finding carrying an
-    # older bundle_version is a pod that has not picked the ConfigMap up.
+    # The version that fired MOST RECENTLY is the version in the tree. The store
+    # is host-persistent (EAPCI P1-5/P2-4), so findings from before a bundle
+    # upgrade legitimately keep their older bundle_version; demanding a single
+    # version across all history fails on any upgraded estate. A pod that has
+    # not picked the ConfigMap up still fails here: its newest finding carries
+    # the old version. (A finding's timestamp is the source event time, not the
+    # evaluation time, so "since the pod started" cannot be the cut.)
     local want got
     want="$(yq -r '.version' "${BUNDLE_DIR}/cloud-signals.yaml")"
     got="$(jq -r '[.[] | select(.source == "policy_finding")
-                   | select(.labels.bundle_id == "kusari-cloud-signals")
-                   | .labels.bundle_version] | unique | join(",")' \
+                   | select(.labels.bundle_id == "kusari-cloud-signals")]
+                  | sort_by(.timestamp) | last | .labels.bundle_version' \
         "${BATS_TEST_TMPDIR}/obs.json")"
     [ "$got" = "$want" ] || {
-        echo "cloud-signals findings carry bundle_version '${got}', the tree declares '${want}'"
+        echo "the newest cloud-signals finding carries bundle_version '${got}', the tree declares '${want}'"
         return 1
     }
 }

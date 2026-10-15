@@ -195,3 +195,29 @@ async def test_api_compliance_posture_calculate_endpoint():
         )
         assert resp_scale.status_code == 200
         assert resp_scale.json()["posture_score"] == 85.0
+
+
+@pytest.mark.asyncio
+async def test_framework_list_keeps_its_list_contract_when_the_engine_answers_with_its_version_map(monkeypatch):
+    """The policy engine lists frameworks as {id: [versions]}; the dashboard's Settings
+    governance tab reads FrameworkResponse[]. Passing the engine body through rendered
+    "No frameworks available" once the engine started answering (embedded scanner)."""
+    from fastapi.responses import JSONResponse
+    import routers.policy_engine as pe
+
+    engine_map = {"cis-kubernetes": ["v1.8"], "eu-ai-act": ["v2.1"], "nist-800-53": ["v2.1"], "dora": ["v1.0"]}
+
+    async def fake_proxy(request, subpath, prefix, tenant_id=None, **_):
+        return JSONResponse(status_code=200, content=engine_map)
+
+    monkeypatch.setattr(pe, "proxy_policy_engine", fake_proxy)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/v1/compliance/frameworks", headers=eap_bearer(EAP_ALICE))
+    assert resp.status_code == 200
+    body = resp.json()
+    assert isinstance(body, list) and body, body
+    assert all({"id", "name", "version"} <= set(fw) for fw in body), body
+    ids = {fw["id"] for fw in body}
+    assert {"eu-ai-act", "nist-800-53"} <= ids
+    assert ids & {"k8s-cis-benchmark", "cis-kubernetes"}, ids

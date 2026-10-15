@@ -249,6 +249,9 @@ async def proxy_compliance_route(
 ) -> Response:
     """Proxy compliance requests to upstream policy-engine or local handlers."""
     clean_subpath = subpath.lstrip("/")
+    if clean_subpath.rstrip("/") == "frameworks" and request.method in ("GET", "HEAD"):
+        from routers.compliance import list_frameworks
+        return await list_frameworks(request, tenant_id=tenant_id)
     if clean_subpath.startswith("frameworks/"):
         fw_id = clean_subpath.split("/", 1)[1]
         from routers.compliance import get_framework_by_id

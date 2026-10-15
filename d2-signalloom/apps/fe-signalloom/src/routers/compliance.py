@@ -9,6 +9,7 @@ Handles:
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -135,9 +136,19 @@ async def list_frameworks(
     # Proxy to upstream policy engine if available, fallback to KNOWN_FRAMEWORKS
     from routers.policy_engine import proxy_policy_engine
     resp = await proxy_policy_engine(request, "frameworks", "compliance", tenant_id=tenant_id)
-    if resp.status_code == 200:
+    if resp.status_code in (401, 403):
+        # An authorisation refusal (e.g. cross-tenant query) is an answer, not an outage.
         return resp
-    # Fallback to local catalog if upstream is unavailable
+    if resp.status_code == 200:
+        # The engine lists its packs as {framework_id: [versions]}, not FrameworkResponse[].
+        # Pass it through only when it already speaks this route's list contract.
+        try:
+            upstream = json.loads(bytes(resp.body))
+        except (AttributeError, TypeError, ValueError):
+            upstream = None
+        if isinstance(upstream, list):
+            return resp
+    # Fallback to local catalog if upstream is unavailable or answers in another shape
     return JSONResponse(
         status_code=200,
         content=list(KNOWN_FRAMEWORKS.values()),

@@ -1,4 +1,5 @@
 import React from 'react'
+import axios from 'axios'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, act } from '@testing-library/react'
 import {
@@ -11,12 +12,14 @@ import * as oidc from '../auth/oidc'
 import { DEFAULT_SYSTEM_FLAGS } from '../types/features'
 
 function ConsumerComponent(): React.JSX.Element {
-  const { flags, isLoading, tenantId, setFlagOverride, refetch } =
+  const { flags, isLoading, tenantId, setFlagOverride, refetch, error, isResolved } =
     useFeatureFlagContext()
 
   return (
     <div>
       <div data-testid="loading">{isLoading ? 'loading' : 'ready'}</div>
+      <div data-testid="error">{error ? error.message : 'none'}</div>
+      <div data-testid="resolved">{isResolved ? 'resolved' : 'unresolved'}</div>
       <div data-testid="tenant">{tenantId ?? 'none'}</div>
       <div data-testid="demos_fleet">{flags.demos_fleet ? 'enabled' : 'disabled'}</div>
       <div data-testid="core_governance">
@@ -180,13 +183,13 @@ describe('FeatureFlagProvider', () => {
     expect(screen.getByTestId('demos_fleet').textContent).toBe('enabled')
   })
 
-  it('handles backend API failure gracefully by defaulting flags without crashing', async () => {
+  it('handles backend API failure without crashing and reports it as unresolved', async () => {
     vi.spyOn(featuresApi, 'fetchFeatures').mockRejectedValue(
       new Error('500 Server Error'),
     )
 
     render(
-      <FeatureFlagProvider tenantId="tenant-error">
+      <FeatureFlagProvider tenantId="tenant-error" retryDelaysMs={[0, 0]}>
         <ConsumerComponent />
       </FeatureFlagProvider>,
     )
@@ -195,9 +198,90 @@ describe('FeatureFlagProvider', () => {
       expect(screen.getByTestId('loading').textContent).toBe('ready')
     })
 
-    // UI remains stable with default system flags
+    // UI remains stable, but the flags are known to be guesses.
     expect(screen.getByTestId('core_governance').textContent).toBe('enabled')
     expect(screen.getByTestId('demos_fleet').textContent).toBe('disabled')
+    expect(screen.getByTestId('error').textContent).toBe('500 Server Error')
+    expect(screen.getByTestId('resolved').textContent).toBe('unresolved')
+  })
+
+  // Through the real fetchFeatures (axios stubbed), because the defect lived in
+  // the hand-off: fetchFeatures swallowed the failure and returned defaults
+  // stamped with the tenant id, and the provider cached them as that tenant's.
+  it('never caches a failed fetch as the tenant flags', async () => {
+    const get = vi.spyOn(axios, 'get').mockRejectedValue(
+      new Error('Request failed with status code 502'),
+    )
+
+    const { unmount } = render(
+      <FeatureFlagProvider tenantId="tenant-blip" retryDelaysMs={[0, 0]}>
+        <ConsumerComponent />
+      </FeatureFlagProvider>,
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('error').textContent).toBe('Request failed with status code 502')
+    })
+    // Bounded: one attempt plus one per retry delay, then it stops.
+    expect(get).toHaveBeenCalledTimes(3)
+    expect(screen.getByTestId('resolved').textContent).toBe('unresolved')
+    unmount()
+
+    get.mockResolvedValue({ data: { tenant_id: 'tenant-blip', flags: { demos_fleet: true } } })
+    render(
+      <FeatureFlagProvider tenantId="tenant-blip" retryDelaysMs={[0, 0]}>
+        <ConsumerComponent />
+      </FeatureFlagProvider>,
+    )
+    // Within the 60 s stale window: a cached failure would show 'disabled'.
+    await waitFor(() => {
+      expect(screen.getByTestId('demos_fleet').textContent).toBe('enabled')
+    })
+    expect(get).toHaveBeenCalledTimes(4)
+    expect(screen.getByTestId('error').textContent).toBe('none')
+    expect(screen.getByTestId('resolved').textContent).toBe('resolved')
+  })
+
+  it('retries a transient failure and applies the server flags', async () => {
+    vi.spyOn(axios, 'get')
+      .mockRejectedValueOnce(new Error('Network Error'))
+      .mockResolvedValueOnce({ data: { tenant_id: 'tenant-retry', flags: { demos_fleet: true } } })
+
+    render(
+      <FeatureFlagProvider tenantId="tenant-retry" retryDelaysMs={[0, 0]}>
+        <ConsumerComponent />
+      </FeatureFlagProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('demos_fleet').textContent).toBe('enabled')
+    })
+    expect(screen.getByTestId('error').textContent).toBe('none')
+  })
+
+  it('keeps the last server flags when a later refetch fails', async () => {
+    const fetchSpy = vi.spyOn(featuresApi, 'fetchFeatures').mockResolvedValueOnce({
+      tenant_id: 'tenant-kept',
+      flags: { ...DEFAULT_SYSTEM_FLAGS, demos_fleet: true },
+    })
+
+    render(
+      <FeatureFlagProvider tenantId="tenant-kept" retryDelaysMs={[0, 0]}>
+        <ConsumerComponent />
+      </FeatureFlagProvider>,
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('demos_fleet').textContent).toBe('enabled')
+    })
+
+    fetchSpy.mockRejectedValue(new Error('Network Error'))
+    await act(async () => {
+      screen.getByTestId('refetch-btn').click()
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('error').textContent).toBe('Network Error')
+    })
+    expect(screen.getByTestId('demos_fleet').textContent).toBe('enabled')
+    expect(screen.getByTestId('resolved').textContent).toBe('resolved')
   })
 
   it('does not call getAccessTokenSilently when auth.isAuthenticated is false', async () => {

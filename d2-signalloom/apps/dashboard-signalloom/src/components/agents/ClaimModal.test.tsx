@@ -252,6 +252,80 @@ describe('ClaimModal & getAgentWorkloadSecurityProfile', () => {
 
     expect(screen.queryByTestId('claim-modal-gitops-notice')).not.toBeInTheDocument()
   })
+
+  it('renders Red Blocked claimability status and undeclared model objection when model is missing', () => {
+    const unmodeledAgent = createMockDiscoveredAgent({
+      id: 'test-agent-stunned',
+      name: 'test-agent-stunned',
+      tenant_id: 'default',
+      runtime: {
+        ...createMockDiscoveredAgent().runtime,
+        pod_name: 'test-agent-stunned',
+        model: null,
+      },
+    })
+    render(<ClaimModal agent={unmodeledAgent} onClose={vi.fn()} />)
+
+    const statusBanner = screen.getByTestId('claim-modal-claimability-status')
+    expect(statusBanner).toBeInTheDocument()
+    expect(statusBanner).toHaveTextContent('Claim Blocked — Action Required')
+    expect(screen.getByTestId('claim-modal-claimability-badge')).toHaveTextContent('Blocked')
+
+    const prereqsMatrix = screen.getByTestId('claim-modal-prereqs-matrix')
+    expect(prereqsMatrix).toBeInTheDocument()
+
+    const modelPrereq = screen.getByTestId('claim-modal-prereq-model')
+    expect(modelPrereq).toBeInTheDocument()
+    expect(screen.getByTestId('claim-modal-prereq-model-badge')).toHaveTextContent('UNDECLARED')
+    expect(modelPrereq).toHaveTextContent('signalloom.ai/model')
+    expect(screen.getByTestId('claim-modal-copy-model-btn')).toBeInTheDocument()
+
+    expect(screen.getByTestId('claim-modal-model-undeclared-badge')).toHaveTextContent('UNDECLARED ON POD')
+    expect(screen.getByTestId('claim-modal-model-warning')).toHaveTextContent('signalloom.ai/model')
+    expect(screen.getByTestId('claim-modal-blocker-advisory')).toHaveTextContent('Pre-flight blockers detected')
+  })
+
+  it('renders Green Claimable status when model is declared and tenant boundary is aligned', () => {
+    const claimableAgent = createMockDiscoveredAgent({
+      tenant_id: 'default',
+      runtime: {
+        ...createMockDiscoveredAgent().runtime,
+        model: 'anthropic/claude-sonnet-4',
+      },
+    })
+    render(<ClaimModal agent={claimableAgent} onClose={vi.fn()} />)
+
+    const statusBanner = screen.getByTestId('claim-modal-claimability-status')
+    expect(statusBanner).toBeInTheDocument()
+    expect(statusBanner).toHaveTextContent('Claimable — Ready for Governance')
+    expect(screen.getByTestId('claim-modal-claimability-badge')).toHaveTextContent('Claimable')
+
+    expect(screen.getByTestId('claim-modal-prereq-model-badge')).toHaveTextContent('VERIFIED')
+    expect(screen.getByTestId('claim-modal-prereq-tenant-badge')).toHaveTextContent('ALIGNED')
+    expect(screen.queryByTestId('claim-modal-model-warning')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('claim-modal-blocker-advisory')).not.toBeInTheDocument()
+  })
+
+  it('displays active claimError prop with detailed objection diagnostic and copyable command', () => {
+    const agent = createMockDiscoveredAgent({
+      id: 'test-agent-stunned',
+      name: 'test-agent-stunned',
+      tenant_id: 'default',
+    })
+    const claimError = "Workload 'test-agent-stunned' declares no signalloom.ai/model; refusing to record an invented model"
+
+    render(<ClaimModal agent={agent} claimError={claimError} onClose={vi.fn()} />)
+
+    const errorAlert = screen.getByTestId('claim-modal-error')
+    expect(errorAlert).toBeInTheDocument()
+    expect(errorAlert).toHaveTextContent('Workload Model Objection: Missing signalloom.ai/model')
+    expect(errorAlert).toHaveTextContent("declares no signalloom.ai/model; refusing to record an invented model")
+    expect(errorAlert).toHaveTextContent('Signal Loom strictly mandates that every governed agent declares an approved AI foundation model')
+    expect(screen.getByTestId('claim-modal-copy-model-cmd-btn')).toBeInTheDocument()
+
+    expect(screen.getByTestId('claim-modal-claimability-badge')).toHaveTextContent('Blocked')
+  })
 })
+
 
 

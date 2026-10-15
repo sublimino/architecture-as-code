@@ -41,13 +41,34 @@ export function getAgentWorkloadSecurityProfile(agent: Partial<AgentResponse> | 
   }
 }
 
+export function extractWorkloadName(podName: string): string {
+  const match = podName.match(/^(.+?)(?:-[0-9a-f]{8,10}-[0-9a-z]{5}|-[0-9a-f]{8,10})$/)
+  if (match) return match[1]
+  const singleSuffix = podName.match(/^(.+?)-[0-9a-z]{5}$/)
+  if (singleSuffix) return singleSuffix[1]
+  return podName
+}
+
+export function getUrlClaimError(): string | null {
+  if (typeof window !== 'undefined' && window.location && window.location.search) {
+    try {
+      const params = new URLSearchParams(window.location.search)
+      return params.get('claim_error') || params.get('error') || null
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
 export interface ClaimModalProps {
   agent: AgentResponse
   onClose: () => void
   onSuccess?: (result: AgentClaimResponse) => void
+  claimError?: string | null
 }
 
-export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProps) {
+export default function ClaimModal({ agent, onClose, onSuccess, claimError }: ClaimModalProps) {
   const { user, getAccessTokenSilently } = useAuth0()
   const titleId = useId()
   const descriptionId = useId()
@@ -56,11 +77,21 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
 
   const defaultPodName = agent.runtime?.pod_name || (agent.record_class === 'discovered' ? agent.id : agent.name)
   const defaultNamespace = agent.runtime?.namespace || agent.namespace || 'fe-signalloom-agents'
+  const deploymentName = agent.runtime?.workload_name || extractWorkloadName(agent.name || defaultPodName)
   const defaultSpiffeId =
     agent.identity?.spiffe_id ||
     `spiffe://signalloom.demo/ns/${defaultNamespace}/sa/${agent.runtime?.service_account || agent.service_account || defaultPodName}`
   const defaultHarness = agent.runtime?.framework || agent.framework || agent.type || 'claude-code'
-  const defaultModel = agent.runtime?.model || agent.model_name || 'claude-3-5-sonnet'
+
+  const declaredModel =
+    agent.runtime?.model ||
+    (agent as any).model ||
+    agent.model_name ||
+    (agent.labels && agent.labels['signalloom.ai/model']) ||
+    null
+
+  const hasDeclaredModel = Boolean(declaredModel && declaredModel.trim().length > 0)
+  const defaultModel = declaredModel || 'claude-3-5-sonnet'
 
   const claimantOwner = user?.email || user?.name || user?.sub || ''
   const authenticatedOperator = user?.email || user?.sub || ''
@@ -83,7 +114,7 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
   const [tokenBudget, setTokenBudget] = useState<number>(250000)
   const [owner, setOwner] = useState(claimantOwner)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(() => claimError || getUrlClaimError() || null)
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null)
 
   const handleCopy = (text: string, id: string) => {
@@ -94,7 +125,47 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
     }
   }
 
+  const effectiveError = error || claimError || null
+
+  const isMissingModelError = Boolean(
+    !hasDeclaredModel ||
+    (effectiveError && (
+      effectiveError.toLowerCase().includes('no signalloom.ai/model') ||
+      effectiveError.toLowerCase().includes('workload_model_undeclared') ||
+      effectiveError.toLowerCase().includes('refusing to record an invented model')
+    ))
+  )
+
+  const isMissingTenantError = Boolean(
+    effectiveError && (
+      effectiveError.toLowerCase().includes('no signalloom.ai/tenant') ||
+      effectiveError.toLowerCase().includes('workload_tenant_undeclared')
+    )
+  )
+
+  const isCrossTenantError = Boolean(
+    isTenantMismatch ||
+    (effectiveError && (
+      effectiveError.toLowerCase().includes('belongs to another tenant') ||
+      effectiveError.toLowerCase().includes('cross_tenant_forbidden')
+    ))
+  )
+
+  const isAlreadyClaimedError = Boolean(
+    effectiveError && (
+      effectiveError.toLowerCase().includes('already claimed') ||
+      effectiveError.toLowerCase().includes('duplicate_claim') ||
+      effectiveError.toLowerCase().includes('409') ||
+      effectiveError.toLowerCase().includes('conflict')
+    )
+  )
+
+  const hasBlockers = isMissingModelError || isTenantMismatch || isCrossTenantError || isMissingTenantError || isAlreadyClaimedError
+  const isClaimable = !hasBlockers && !effectiveError
+
   const relabelCommand = `kubectl -n ${namespace} label pod ${podName} signalloom.ai/tenant=${operatorTenant} --overwrite`
+  const modelLabelCommand = `kubectl -n ${namespace} label pod ${podName} signalloom.ai/model=${model || defaultModel} --overwrite`
+  const deploymentModelPatchCommand = `kubectl -n ${namespace} patch deployment ${deploymentName} -p '{"spec":{"template":{"metadata":{"labels":{"signalloom.ai/model":"${model || defaultModel}"}}}}}'`
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -233,21 +304,94 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
           Signal Loom tenant governance. {secProfile.description}
         </p>
 
-        {error && (
+        {effectiveError && (
           <div
             data-testid="claim-modal-error"
             style={{
               background: 'rgba(239, 68, 68, 0.12)',
               border: '1px solid rgba(239, 68, 68, 0.35)',
-              color: 'var(--error, #ef4444)',
               borderRadius: 6,
-              padding: '10px 14px',
-              fontSize: 12,
+              padding: '12px 16px',
               marginBottom: 16,
               lineHeight: 1.4,
             }}
           >
-            <strong>Claim Error:</strong> {error}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <div style={{ color: 'var(--error, #ef4444)', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>⚠️</span>
+                <span>
+                  {isMissingModelError
+                    ? 'Workload Model Objection: Missing signalloom.ai/model'
+                    : isCrossTenantError || isTenantMismatch
+                    ? 'Tenant Boundary Objection: Cross-Tenant Protection'
+                    : isAlreadyClaimedError
+                    ? 'Workload Conflict: Already Governed'
+                    : 'Claim Pre-Flight Refusal'}
+                </span>
+              </div>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: '2px 6px',
+                  borderRadius: 3,
+                  background: 'rgba(239, 68, 68, 0.2)',
+                  color: 'var(--error, #ef4444)',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Refusal
+              </span>
+            </div>
+            <div style={{ color: 'var(--text)', fontSize: 12, marginBottom: 8 }}>
+              <strong>Reported Error:</strong> {effectiveError}
+            </div>
+            <div style={{ color: 'var(--muted)', fontSize: 11, marginBottom: 8, lineHeight: 1.5 }}>
+              {isMissingModelError
+                ? 'Signal Loom strictly mandates that every governed agent declares an approved AI foundation model via the signalloom.ai/model label or annotation (HTTP 422 workload_model_undeclared). Without an explicit model identifier, token cost accounting, rate limiting, and model-specific compliance policies cannot be established. Refusing to record an invented model guarantees cryptographic attestation integrity.'
+                : isCrossTenantError || isTenantMismatch
+                ? 'Signal Loom strictly enforces tenant isolation at the API gateway and claim engine (HTTP 403 cross_tenant_forbidden). Workloads provisioned for another tenant cannot be claimed without re-labelling.'
+                : 'The claim engine refused the claim request during pre-flight policy evaluation.'}
+            </div>
+            {isMissingModelError && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)' }}>Remediation Command:</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <code style={{ background: 'var(--surface)', padding: '4px 6px', borderRadius: 3, color: 'var(--cyan)', fontSize: 10, flex: 1, overflowX: 'auto' }}>
+                    {modelLabelCommand}
+                  </code>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    data-testid="claim-modal-copy-model-cmd-btn"
+                    onClick={() => handleCopy(modelLabelCommand, 'error-model-cmd')}
+                    style={{ fontSize: 10, padding: '2px 6px', whiteSpace: 'nowrap' }}
+                  >
+                    {copiedCmd === 'error-model-cmd' ? 'Copied! ✓' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+            )}
+            {(isCrossTenantError || isTenantMismatch) && !isMissingModelError && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)' }}>Remediation Command:</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <code style={{ background: 'var(--surface)', padding: '4px 6px', borderRadius: 3, color: 'var(--cyan)', fontSize: 10, flex: 1, overflowX: 'auto' }}>
+                    {relabelCommand}
+                  </code>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    data-testid="claim-modal-copy-relabel-cmd-btn"
+                    onClick={() => handleCopy(relabelCommand, 'error-relabel-cmd')}
+                    style={{ fontSize: 10, padding: '2px 6px', whiteSpace: 'nowrap' }}
+                  >
+                    {copiedCmd === 'error-relabel-cmd' ? 'Copied! ✓' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -357,9 +501,27 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 }}>
-                  Model
-                </label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>
+                    Model
+                  </label>
+                  {!hasDeclaredModel && (
+                    <span
+                      data-testid="claim-modal-model-undeclared-badge"
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: 'var(--error, #ef4444)',
+                        background: 'rgba(239, 68, 68, 0.15)',
+                        padding: '1px 6px',
+                        borderRadius: 3,
+                        border: '1px solid rgba(239, 68, 68, 0.3)',
+                      }}
+                    >
+                      UNDECLARED ON POD
+                    </span>
+                  )}
+                </div>
                 <input
                   type="text"
                   data-testid="claim-modal-model"
@@ -370,12 +532,39 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
                     padding: '8px 12px',
                     borderRadius: 4,
                     background: 'var(--surface, #0d1117)',
-                    border: '1px solid var(--border, #30363d)',
+                    border: `1px solid ${!hasDeclaredModel ? 'rgba(239, 68, 68, 0.4)' : 'var(--border, #30363d)'}`,
                     color: 'var(--text, #c9d1d9)',
                     fontSize: 13,
                     boxSizing: 'border-box',
                   }}
                 />
+                {!hasDeclaredModel && (
+                  <div
+                    data-testid="claim-modal-model-warning"
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--error, #ef4444)',
+                      marginTop: 4,
+                      lineHeight: 1.4,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 6,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <span>⚠️ Pod in cluster has no <code>signalloom.ai/model</code> label.</span>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      data-testid="claim-modal-copy-model-fix-btn"
+                      onClick={() => handleCopy(modelLabelCommand, 'input-model-cmd')}
+                      style={{ fontSize: 10, padding: '1px 6px', whiteSpace: 'nowrap' }}
+                    >
+                      {copiedCmd === 'input-model-cmd' ? 'Copied! ✓' : 'Copy Label Cmd'}
+                    </button>
+                  </div>
+                )}
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 }}>
@@ -465,6 +654,23 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
               </div>
             </div>
 
+            {hasBlockers && (
+              <div
+                data-testid="claim-modal-blocker-advisory"
+                style={{
+                  fontSize: 11,
+                  color: 'var(--amber, #f59e0b)',
+                  background: 'rgba(234, 179, 8, 0.1)',
+                  border: '1px solid rgba(234, 179, 8, 0.25)',
+                  borderRadius: 4,
+                  padding: '6px 10px',
+                  lineHeight: 1.4,
+                }}
+              >
+                ⚠️ <strong>Pre-flight blockers detected:</strong> Resolve outstanding objections before claiming.
+              </div>
+            )}
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
               <button
                 type="button"
@@ -526,6 +732,276 @@ export default function ClaimModal({ agent, onClose, onSuccess }: ClaimModalProp
           >
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
               Workload Pre-Flight & Diagnostics
+            </div>
+
+            {/* Overall Claimability Status (Red / Green) */}
+            {isClaimable ? (
+              <div
+                data-testid="claim-modal-claimability-status"
+                style={{
+                  padding: '12px 14px',
+                  background: 'rgba(34, 197, 94, 0.12)',
+                  border: '1px solid rgba(34, 197, 94, 0.35)',
+                  borderRadius: 6,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>🟢</span>
+                  <div>
+                    <div style={{ color: 'var(--teal, #10B981)', fontWeight: 700, fontSize: 13 }}>
+                      Claimable — Ready for Governance
+                    </div>
+                    <div style={{ color: 'var(--text)', fontSize: 11, marginTop: 2 }}>
+                      All pre-flight requirements verified. Workload will bind to {workloadTenant || operatorTenant}.
+                    </div>
+                  </div>
+                </div>
+                <span
+                  data-testid="claim-modal-claimability-badge"
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: '3px 8px',
+                    borderRadius: 4,
+                    background: 'rgba(34, 197, 94, 0.2)',
+                    color: 'var(--teal, #10B981)',
+                    border: '1px solid rgba(34, 197, 94, 0.4)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Claimable
+                </span>
+              </div>
+            ) : (
+              <div
+                data-testid="claim-modal-claimability-status"
+                style={{
+                  padding: '12px 14px',
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  borderRadius: 6,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>🛑</span>
+                  <div>
+                    <div style={{ color: 'var(--error, #ef4444)', fontWeight: 700, fontSize: 13 }}>
+                      Claim Blocked — Action Required
+                    </div>
+                    <div style={{ color: 'var(--text)', fontSize: 11, marginTop: 2 }}>
+                      {isMissingModelError && isTenantMismatch
+                        ? 'Missing AI model declaration and tenant boundary mismatch.'
+                        : isMissingModelError
+                        ? 'Missing signalloom.ai/model declaration on workload pod.'
+                        : isTenantMismatch
+                        ? `Tenant mismatch: workload belongs to "${workloadTenant}".`
+                        : effectiveError || 'Pre-flight checks failed. Resolve blockers to onboard.'}
+                    </div>
+                  </div>
+                </div>
+                <span
+                  data-testid="claim-modal-claimability-badge"
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: '3px 8px',
+                    borderRadius: 4,
+                    background: 'rgba(239, 68, 68, 0.2)',
+                    color: 'var(--error, #ef4444)',
+                    border: '1px solid rgba(239, 68, 68, 0.4)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Blocked
+                </span>
+              </div>
+            )}
+
+            {/* Pre-Flight Prerequisites Matrix */}
+            <div data-testid="claim-modal-prereqs-matrix" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Pre-Flight Prerequisites Verification
+              </div>
+
+              {/* Prereq 1: AI Model Attribution */}
+              <div
+                data-testid="claim-modal-prereq-model"
+                style={{
+                  padding: '8px 10px',
+                  background: isMissingModelError ? 'rgba(239, 68, 68, 0.08)' : 'rgba(34, 197, 94, 0.08)',
+                  border: `1px solid ${isMissingModelError ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.25)'}`,
+                  borderRadius: 6,
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text)' }}>AI Model Attribution</span>
+                  <span
+                    data-testid="claim-modal-prereq-model-badge"
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: '2px 6px',
+                      borderRadius: 3,
+                      background: isMissingModelError ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)',
+                      color: isMissingModelError ? 'var(--error)' : 'var(--teal)',
+                    }}
+                  >
+                    {isMissingModelError ? 'UNDECLARED' : 'VERIFIED'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: isMissingModelError ? 'var(--error)' : 'var(--muted)', lineHeight: 1.4 }}>
+                  {isMissingModelError ? (
+                    <div>
+                      Workload in cluster declares no <code>signalloom.ai/model</code>. Refusing invented model.
+                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <code style={{ background: 'var(--surface)', padding: '3px 6px', borderRadius: 3, color: 'var(--cyan)', fontSize: 10, flex: 1, overflowX: 'auto' }}>
+                          {modelLabelCommand}
+                        </code>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          data-testid="claim-modal-copy-model-btn"
+                          onClick={() => handleCopy(modelLabelCommand, 'prereq-model')}
+                          style={{ fontSize: 10, padding: '2px 6px', whiteSpace: 'nowrap' }}
+                        >
+                          {copiedCmd === 'prereq-model' ? 'Copied! ✓' : 'Copy'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <span>Declared model: <strong style={{ color: 'var(--text)' }}>{declaredModel}</strong></span>
+                  )}
+                </div>
+              </div>
+
+              {/* Prereq 2: Tenant Boundary */}
+              <div
+                data-testid="claim-modal-prereq-tenant"
+                style={{
+                  padding: '8px 10px',
+                  background: isTenantMismatch ? 'rgba(239, 68, 68, 0.08)' : 'rgba(34, 197, 94, 0.08)',
+                  border: `1px solid ${isTenantMismatch ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.25)'}`,
+                  borderRadius: 6,
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text)' }}>Tenant Boundary</span>
+                  <span
+                    data-testid="claim-modal-prereq-tenant-badge"
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: '2px 6px',
+                      borderRadius: 3,
+                      background: isTenantMismatch ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)',
+                      color: isTenantMismatch ? 'var(--error)' : 'var(--teal)',
+                    }}
+                  >
+                    {isTenantMismatch ? 'MISMATCH' : 'ALIGNED'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: isTenantMismatch ? 'var(--error)' : 'var(--muted)', lineHeight: 1.4 }}>
+                  {isTenantMismatch ? (
+                    <div>
+                      Workload "{workloadTenant}" ≠ Session "{operatorTenant}"
+                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <code style={{ background: 'var(--surface)', padding: '3px 6px', borderRadius: 3, color: 'var(--cyan)', fontSize: 10, flex: 1, overflowX: 'auto' }}>
+                          {relabelCommand}
+                        </code>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          data-testid="claim-modal-copy-tenant-btn"
+                          onClick={() => handleCopy(relabelCommand, 'prereq-tenant')}
+                          style={{ fontSize: 10, padding: '2px 6px', whiteSpace: 'nowrap' }}
+                        >
+                          {copiedCmd === 'prereq-tenant' ? 'Copied! ✓' : 'Copy'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <span>Aligned to tenant: <strong style={{ color: 'var(--text)' }}>{workloadTenant || operatorTenant}</strong></span>
+                  )}
+                </div>
+              </div>
+
+              {/* Prereq 3: GitOps Reconciliation */}
+              <div
+                data-testid="claim-modal-prereq-gitops"
+                style={{
+                  padding: '8px 10px',
+                  background: gitops.isGitOps ? 'rgba(234, 179, 8, 0.08)' : 'rgba(34, 197, 94, 0.08)',
+                  border: `1px solid ${gitops.isGitOps ? 'rgba(234, 179, 8, 0.3)' : 'rgba(34, 197, 94, 0.25)'}`,
+                  borderRadius: 6,
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text)' }}>GitOps Confinement</span>
+                  <span
+                    data-testid="claim-modal-prereq-gitops-badge"
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: '2px 6px',
+                      borderRadius: 3,
+                      background: gitops.isGitOps ? 'rgba(234, 179, 8, 0.2)' : 'rgba(34, 197, 94, 0.2)',
+                      color: gitops.isGitOps ? 'var(--amber)' : 'var(--teal)',
+                    }}
+                  >
+                    {gitops.isGitOps ? (gitops.engine === 'flux' ? 'FLUX' : gitops.engine === 'argo' ? 'ARGO' : 'GITOPS') : 'STANDALONE'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: gitops.isGitOps ? 'var(--amber)' : 'var(--muted)', lineHeight: 1.4 }}>
+                  {gitops.isGitOps ? 'Managed by GitOps. Commit changes to git repository.' : 'Standalone workload (direct kubectl changes supported).'}
+                </div>
+              </div>
+
+              {/* Prereq 4: Workload Attestation */}
+              <div
+                data-testid="claim-modal-prereq-spiffe"
+                style={{
+                  padding: '8px 10px',
+                  background: 'rgba(34, 197, 94, 0.08)',
+                  border: '1px solid rgba(34, 197, 94, 0.25)',
+                  borderRadius: 6,
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text)' }}>SPIFFE Workload Attestation</span>
+                  <span
+                    data-testid="claim-modal-prereq-spiffe-badge"
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: '2px 6px',
+                      borderRadius: 3,
+                      background: 'rgba(34, 197, 94, 0.2)',
+                      color: 'var(--teal)',
+                    }}
+                  >
+                    VERIFIED
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.4 }}>
+                  ServiceAccount: <code>{agent.runtime?.service_account || agent.service_account || defaultPodName}</code>
+                </div>
+              </div>
             </div>
 
             {/* GitOps Warning Notice if GitOps is detected */}

@@ -1355,6 +1355,7 @@ export default function AgentDetailPage() {
       {showClaimModal && agent && (
         <ClaimModal
           agent={agent}
+          claimError={claimError}
           onClose={() => setShowClaimModal(false)}
           onSuccess={() => {
             setShowClaimModal(false)

@@ -438,6 +438,7 @@ def test_concurrent_readers_and_writers_do_not_deadlock(preemptive_scheduler):
 
 def test_twenty_concurrent_customer_evaluations(preemptive_scheduler):
     """Twenty distinct customers evaluated at once, one thread each."""
+    _warm_up()
     mgr = ScenarioManager()
     customers = [f"eval-customer-{i:02d}" for i in range(20)]
     assignments = [(c, derive_customer_hash(c)) for c in customers]
@@ -537,6 +538,8 @@ def test_memory_is_linear_and_fully_reclaimed():
     so memory is bounded by executions retained, not by a fixed ceiling. What
     must hold is that the cost per execution is constant and nothing leaks.
     """
+    if hasattr(gc, "unfreeze"):
+        gc.unfreeze()
     gc.collect()
     tracemalloc.start()
     try:

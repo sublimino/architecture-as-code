@@ -145,3 +145,7 @@ d2-signalloom/apps/signalloom-stun-sentinel/telemetry/attribution_test.go:PORT:4
 d2-signalloom/apps/signalloom-stun-sentinel/telemetry/classifier_test.go:PORT:8443  # inert: dstPort input to the egress classifier
 d2-signalloom/apps/signalloom-stun-sentinel/telemetry/classifier_test.go:PORT:9000  # inert: dstPort input to the egress classifier
 d2-signalloom/apps/signalloom-stun-sentinel/telemetry/classifier_test.go:PORT:11434  # inert: dstPort input (Ollama) to the egress classifier
+d2-signalloom/apps/signal-ingest/store/frostdb_stats_encoding_test.go:PORT:8080  # inert: manual verification comment showing port-forward command
+d2-signalloom/apps/stun-sentinel/pkg/correlator/syscall_normalisation_test.go:PORT:8443  # inert: DestPort field of a synthetic SyscallEvent fixture
+d2-signalloom/apps/stun-sentinel/pkg/ebpf/live_test.go:TMP:/tmp/sentinel-live-noise-  # unique: completed by a per-run nonce
+d2-signalloom/apps/stun-sentinel/pkg/ebpf/normalisation_test.go:PORT:8443  # inert: port field in a test case table

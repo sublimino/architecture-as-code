@@ -23,10 +23,10 @@ What the scan reports back:
   API offers nothing the connector reads for these, so Signal Loom shows them
   as "not observed" rather than as zero.
 
-If one request fails the scan is reported as a **warning**; if both fail, or
-no key is stored, it is reported as an **error** and the scan logs say which
-request failed (or that no request was made). Signal Loom never substitutes
-sample data for a failed scan.
+If one request fails, the scan is reported as a **warning**. If both
+fail or no key is stored, it is reported as an **error**. The scan logs
+show which request failed. Signal Loom never substitutes sample data for
+a failed scan.
 
 > **Not used in this version:** the optional **Workspace ID** and **Admin API
 > Key** fields are stored with the connector but no request uses them yet.
@@ -54,7 +54,7 @@ On the connector setup screen in your Signal Loom dashboard:
 - **Workspace ID** (optional): stored for your reference, not used.
 - **Admin API Key** (optional): stored, not used.
 
-Signal Loom stores the key encrypted; it is never displayed again after
+Signal Loom stores the key encrypted. It is never displayed again after
 initial entry.
 
 ## What you see after a scan
@@ -69,7 +69,6 @@ initial entry.
 
 ## Rotation
 
-Anthropic API keys do not expire on a fixed schedule. Rotate this key on a
-**180-day** cadence as a matter of practice: create a new key, update it in
-your Signal Loom connector settings, then revoke the old one once the next
-scan completes successfully.
+Anthropic API keys do not expire automatically. Rotate this key on a
+**180-day** cadence. Create a new key, update it in connector settings,
+and revoke the old key.

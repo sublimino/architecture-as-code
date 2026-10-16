@@ -582,7 +582,8 @@ test-all-offline: offline-deps ## Run all offline test suites (Go unit, Vitest, 
 	cd d2-signalloom/design-system-demo && bun run test
 	cd tools/harness-dash && bun test
 	@echo "=== [Offline 3/5] Python Unit & Invariant Suites ==="
-	cd d2-signalloom/apps/fe-signalloom/src && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with respx --with-requirements requirements.txt python -m pytest tests -q --disable-warnings
+	cd d2-signalloom/apps/fe-signalloom/src && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist --with respx --with-requirements requirements.txt python -m pytest -o addopts= -n auto --dist worksteal --ignore=tests/test_scenario_seeding.py --ignore=tests/test_cadvisor_poller.py tests -q --disable-warnings
+	cd d2-signalloom/apps/fe-signalloom/src && UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} uv run --python 3.12 --with pytest --with pytest-asyncio --with respx --with-requirements requirements.txt python -m pytest tests/test_scenario_seeding.py tests/test_cadvisor_poller.py -q --disable-warnings
 	UV_CONFIG_FILE=/dev/null UV_CACHE_DIR=$${UV_CACHE_DIR:-/tmp/uv-cache} bash d2-signalloom/test/audit-guard-reintroduction-proof.sh
 	$(MAKE) -C d2-agent-trust test
 	$(MAKE) -C d2-signalloom/apps/netassert-controller test

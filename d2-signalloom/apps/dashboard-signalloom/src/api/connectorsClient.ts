@@ -75,6 +75,56 @@ export interface SyncResult {
   logs: SyncLogEntry[]
 }
 
+// ─── Remote agent runtime state (GET /connectors/{id}/remote-agents + SSE) ──
+//
+// What the provider's managed platform reports about its agents, sessions and
+// assistants, as last observed by the backend sync engine. Every timestamp is
+// null where the engine has not observed it; nothing here is inferred.
+
+/** How the backend learns of changes upstream. Unknown modes pass through as-is. */
+export type RemoteSyncMode = 'poll' | 'stream' | 'webhook'
+
+export interface ConnectorSyncState {
+  mode: RemoteSyncMode | (string & {})
+  last_poll_at: string | null
+  last_success_at: string | null
+  last_error: string | null
+  next_poll_at: string | null
+}
+
+export interface RemoteAgent {
+  external_id: string
+  kind: 'agent' | 'session' | 'assistant' | (string & {})
+  name: string | null
+  model: string | null
+  status: string | null
+  version: string | number | null
+  external_updated_at: string | null
+  first_seen_at: string | null
+  last_seen_at: string | null
+  last_changed_at: string | null
+  /** Set once the provider stops reporting it; the row is kept, not deleted. */
+  gone_at: string | null
+}
+
+export interface RemoteAgentsSnapshot {
+  provider_id: string
+  connector_id: string
+  sync_state: ConnectorSyncState
+  agents: RemoteAgent[]
+}
+
+/** Decoded events from GET /connectors/stream. */
+export type ConnectorStreamEvent =
+  | { type: 'remote_agent.upserted'; provider_id: string; connector_id: string; agent: RemoteAgent }
+  | { type: 'remote_agent.gone'; provider_id: string; connector_id: string; external_id: string; gone_at: string }
+  | { type: 'connector.sync_state'; provider_id: string; connector_id: string; sync_state: ConnectorSyncState }
+
+/** Absolute URL of the connector event stream. */
+export function connectorStreamUrl(): string {
+  return `${BASE}/api/connectors/stream`
+}
+
 // The API's error envelope is {"error": {"code", "message"}}; null when the
 // failure carries no such code (network down, non-API response).
 export function apiErrorCode(err: unknown): string | null {

@@ -17,7 +17,7 @@ import LoadingState, { loadPhase } from '../components/LoadingState'
 import HelpHint from '../components/HelpHint'
 import AgentEvidenceDrawer from '../components/AgentEvidenceDrawer'
 import { useSignalSummary } from '../hooks/useSignalSummary'
-import { parseAgentSelectorQuery, matchAgentByQuery, getAgentFramework, isClaudeAgent } from '../data/agentQuerySelectors'
+import { parseAgentSelectorQuery, matchAgentByQuery, getAgentFramework, isClaudeAgent, agentMatchesIdentity } from '../data/agentQuerySelectors'
 export { getAgentFramework, isClaudeAgent }
 import { hasGitOpsMetadata, isAgentTenantMismatch, getSafeStorageItem } from '../data/workloadFilters'
 import { getTenantIdFromToken } from '../auth/tenant'
@@ -1050,48 +1050,58 @@ function GovernedTab({
     }
   }, [searchParams])
 
-  // Auto-open drawer if ?drawer=<id>, ?agent=<id>, or ?selected=<id> is in URL
+  // The deep-link id whose direct lookup is in flight or has settled. A lookup
+  // runs once per id, not once per poll, and a result only lands if its id is
+  // still the current one (close, dismiss, or a list match invalidate it).
+  const deepLinkLookupRef = useRef<string | null>(null)
+  const [deepLinkNotice, setDeepLinkNotice] = useState<{ id: string; kind: 'not-found' | 'lookup-failed'; detail?: string } | null>(null)
+
+  // Auto-open drawer if ?drawer=<id>, ?agent=<id>, or ?selected=<id> is in URL.
+  // Exact identity only: a deep link opens the agent it names or says it was
+  // not found. Never a lookalike, whether from the list or the direct lookup.
   useEffect(() => {
     const drawerId = searchParams.get('drawer') || searchParams.get('agent') || searchParams.get('selected')
-    if (drawerId) {
-      if (agents.length > 0) {
-        const match = agents.find(a =>
-          a.id === drawerId ||
-          a.name === drawerId ||
-          a.id.endsWith(`:${drawerId}`) ||
-          Boolean((a as any).remote_agent_id && (a as any).remote_agent_id === drawerId) ||
-          (drawerId.startsWith('agent_01') && (
-            a.id.toLowerCase().includes('claude') ||
-            (a.name || '').toLowerCase().includes('jokester') ||
-            (a.model_name || '').toLowerCase().includes('claude') ||
-            a.type === 'claude'
-          ))
-        )
-        if (match) {
-          setSelectedAgent(match)
-          return
-        }
-      }
-      // If not found in current loaded list (e.g. filtered, paged, or direct deep-link), fetch directly by ID
-      let cancelled = false
-      void (async () => {
-        try {
-          const token = await getAccessTokenSilently()
-          const direct = await api.agents.get(token, drawerId)
-          if (!cancelled && direct) {
-            setSelectedAgent(direct)
-          }
-        } catch {
-          // Genuinely not found or network error
-        }
-      })()
-      return () => {
-        cancelled = true
-      }
-    } else if (!drawerId && selectedAgent) {
-      setSelectedAgent(null)
+    if (!drawerId) {
+      deepLinkLookupRef.current = null
+      setDeepLinkNotice(null)
+      setSelectedAgent(prev => (prev ? null : prev))
+      return
     }
-  }, [searchParams, agents, getAccessTokenSilently])
+    const match = agents.find(a => agentMatchesIdentity(a, drawerId))
+    if (match) {
+      deepLinkLookupRef.current = null
+      setDeepLinkNotice(null)
+      setSelectedAgent(match)
+      return
+    }
+    // Not in the loaded list (filtered, paged, or a direct deep link): ask the
+    // server for exactly this id, once, after the list has answered.
+    if (!loaded || deepLinkLookupRef.current === drawerId) return
+    deepLinkLookupRef.current = drawerId
+    const isCurrent = () => deepLinkLookupRef.current === drawerId
+    void (async () => {
+      try {
+        const token = await getAccessTokenSilently()
+        const direct = await api.agents.get(token, drawerId)
+        if (!isCurrent()) return
+        if (agentMatchesIdentity(direct, drawerId)) {
+          setDeepLinkNotice(null)
+          setSelectedAgent(direct)
+        } else {
+          setDeepLinkNotice({ id: drawerId, kind: 'not-found' })
+        }
+      } catch (err) {
+        if (!isCurrent()) return
+        const e = err as { status?: number; response?: { status?: number }; message?: string }
+        const status = e?.response?.status ?? e?.status
+        if (status === 404) {
+          setDeepLinkNotice({ id: drawerId, kind: 'not-found' })
+        } else {
+          setDeepLinkNotice({ id: drawerId, kind: 'lookup-failed', detail: e?.message || 'request failed' })
+        }
+      }
+    })()
+  }, [searchParams, agents, loaded, getAccessTokenSilently])
 
   const handleSearchChange = (val: string) => {
     setSearch(val)
@@ -1117,14 +1127,27 @@ function GovernedTab({
     }, { replace: true })
   }
 
-  const handleCloseDrawer = () => {
-    setSelectedAgent(null)
+  // Every param the open-drawer effect reads. Closing must remove all of them,
+  // or the effect re-reads the survivor and reopens the drawer.
+  const clearDrawerParams = () => {
+    deepLinkLookupRef.current = null
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
       next.delete('drawer')
       next.delete('agent')
+      next.delete('selected')
       return next
     }, { replace: true })
+  }
+
+  const handleCloseDrawer = () => {
+    setSelectedAgent(null)
+    clearDrawerParams()
+  }
+
+  const handleDismissDeepLinkNotice = () => {
+    setDeepLinkNotice(null)
+    clearDrawerParams()
   }
 
   const handleClear = () => {
@@ -1148,6 +1171,7 @@ function GovernedTab({
       next.delete('state')
       next.delete('drawer')
       next.delete('agent')
+      next.delete('selected')
       next.delete('gitops')
       next.delete('mismatch')
       next.delete('tenant_mismatch')
@@ -1289,9 +1313,35 @@ function GovernedTab({
           onOpenFullRecord={(id) => navigate(`/agents/${id}?tab=overview`)}
           onEdit={(agent) => {
             setSelectedAgent(null)
+            clearDrawerParams()
             setEditingAgent(agent)
           }}
         />
+      )}
+      {deepLinkNotice && (
+        <div
+          role="status"
+          data-testid={deepLinkNotice.kind === 'not-found' ? 'agent-deeplink-not-found' : 'agent-deeplink-lookup-failed'}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, padding: '10px 14px',
+            border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface2)', color: 'var(--text)', fontSize: 13,
+          }}
+        >
+          <span style={{ flex: 1 }}>
+            {deepLinkNotice.kind === 'not-found'
+              ? <>No agent matches <code>{deepLinkNotice.id}</code>. No drawer was opened.</>
+              : <>Could not look up agent <code>{deepLinkNotice.id}</code>: {deepLinkNotice.detail}. No drawer was opened.</>}
+          </span>
+          <button
+            type="button"
+            className="btn"
+            aria-label="Dismiss agent link notice"
+            data-testid={deepLinkNotice.kind === 'not-found' ? 'agent-deeplink-not-found-dismiss' : 'agent-deeplink-lookup-failed-dismiss'}
+            onClick={handleDismissDeepLinkNotice}
+          >
+            Dismiss
+          </button>
+        </div>
       )}
 
       {/* Filter bar */}

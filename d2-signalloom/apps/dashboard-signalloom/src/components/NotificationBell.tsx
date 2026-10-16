@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react'
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useTenantWarnings, type TenantWarning } from '../hooks/useTenantWarnings'
 
@@ -61,6 +62,51 @@ function formatTime(iso: string | null | undefined): string {
   }
 }
 
+/** Space between the bell and the portalled panel, and the panel's minimum distance from every viewport edge. */
+const PANEL_GAP = 8
+
+interface AnchorRect {
+  top: number
+  left: number
+  width: number
+  height: number
+}
+
+/** Clamp that degrades to `min` when the range has collapsed or inverted (panel bigger than viewport). */
+function clampWithinRange(value: number, min: number, max: number): number {
+  return max < min ? min : Math.min(Math.max(value, min), max)
+}
+
+/**
+ * Decide the fixed-position viewport coordinates for the portalled warnings panel.
+ *
+ * Coordinates are viewport-relative, matching `getBoundingClientRect` and `position: fixed`.
+ * Pure and side-effect free so the geometry can be tested without a browser. `placement`
+ * is an explicit caller choice (TopNav opens downward, the Sidebar footer opens upward),
+ * not auto-flipped — the panel is always clamped to stay fully on screen regardless.
+ */
+export function computeNotificationPanelPosition(
+  anchor: AnchorRect,
+  panel: { width: number; height: number },
+  viewport: { width: number; height: number },
+  placement: 'top' | 'bottom',
+  gap: number = PANEL_GAP,
+): { top: number; left: number } {
+  const anchorBottom = anchor.top + anchor.height
+  const anchorRight = anchor.left + anchor.width
+
+  const rawTop = placement === 'top' ? anchor.top - gap - panel.height : anchorBottom + gap
+  const top = clampWithinRange(rawTop, gap, viewport.height - panel.height - gap)
+
+  // Right-align under the bell for bottom placement, left-align for top placement —
+  // matches the original absolute-positioned panel's visual anchoring, so the panel
+  // extends away from the anchor rather than jumping to the opposite side.
+  const rawLeft = placement === 'top' ? anchor.left : anchorRight - panel.width
+  const left = clampWithinRange(rawLeft, gap, viewport.width - panel.width - gap)
+
+  return { top, left }
+}
+
 export function NotificationBell({
   warnings: propWarnings,
   unreadWarnings: propUnreadWarnings,
@@ -74,8 +120,10 @@ export function NotificationBell({
   style,
 }: NotificationBellProps) {
   const [open, setOpen] = useState(false)
+  const [panelPosition, setPanelPosition] = useState<{ top: number; left: number } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const bellButtonRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
 
   // Use hook if props are not explicitly supplied
   const hookResult = useTenantWarnings({
@@ -90,16 +138,18 @@ export function NotificationBell({
   const markAsRead = propOnMarkAsRead ?? hookResult.markAsRead
   const markAllAsRead = propOnMarkAllAsRead ?? hookResult.markAllAsRead
 
-  // Dismiss dropdown on click outside or Escape
+  // Dismiss dropdown on click outside or Escape. The panel is portalled outside
+  // containerRef's DOM subtree, so a click on it must also count as "inside".
   useEffect(() => {
     if (!open) return
     const ownerDocument = containerRef.current?.ownerDocument
     if (!ownerDocument) return
 
     function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setOpen(false)
-      }
+      const target = event.target as Node
+      if (containerRef.current?.contains(target)) return
+      if (panelRef.current?.contains(target)) return
+      setOpen(false)
     }
 
     function handleKeyDown(event: KeyboardEvent) {
@@ -116,6 +166,36 @@ export function NotificationBell({
       ownerDocument.removeEventListener('keydown', handleKeyDown)
     }
   }, [open])
+
+  // Keep the portalled panel's fixed position pinned to the bell, re-measuring on
+  // open, resize, and scroll of any ancestor (capture phase catches nested scrollers).
+  useLayoutEffect(() => {
+    if (!open) return
+    const ownerDocument = containerRef.current?.ownerDocument
+    const ownerWindow = ownerDocument?.defaultView
+    if (!ownerDocument || !ownerWindow) return
+
+    const measure = () => {
+      if (!bellButtonRef.current || !panelRef.current) return
+      const anchorRect = bellButtonRef.current.getBoundingClientRect()
+      const panelRect = panelRef.current.getBoundingClientRect()
+      const next = computeNotificationPanelPosition(
+        anchorRect,
+        { width: panelRect.width, height: panelRect.height },
+        { width: ownerWindow.innerWidth, height: ownerWindow.innerHeight },
+        placement,
+      )
+      setPanelPosition((prev) => (prev && prev.top === next.top && prev.left === next.left ? prev : next))
+    }
+
+    measure()
+    ownerWindow.addEventListener('resize', measure)
+    ownerDocument.addEventListener('scroll', measure, true)
+    return () => {
+      ownerWindow.removeEventListener('resize', measure)
+      ownerDocument.removeEventListener('scroll', measure, true)
+    }
+  }, [open, placement, warnings.length])
 
   const toggleOpen = useCallback(() => {
     setOpen((prev) => !prev)
@@ -199,16 +279,19 @@ export function NotificationBell({
         )}
       </button>
 
-      {open && (
+      {open && containerRef.current && createPortal(
         <div
+          ref={panelRef}
           role="dialog"
           aria-label="Tenant warnings"
           data-testid="tenant-warnings-panel"
           style={{
-            position: 'absolute',
-            ...(placement === 'top'
-              ? { bottom: 42, left: 0 }
-              : { top: 40, right: 0 }),
+            position: 'fixed',
+            top: panelPosition?.top ?? -9999,
+            left: panelPosition?.left ?? -9999,
+            // Hidden until the first measure() pass lands a real position, so the
+            // panel never flashes at the (-9999, -9999) staging coordinates.
+            visibility: panelPosition ? 'visible' : 'hidden',
             width: 380,
             maxWidth: '90vw',
             maxHeight: 460,
@@ -216,7 +299,10 @@ export function NotificationBell({
             border: '1px solid var(--border)',
             borderRadius: 8,
             boxShadow: '0 12px 32px rgba(0,0,0,0.45)',
-            zIndex: 1000,
+            // Above the sidebar, top nav (zIndex 100), and every drawer in this app
+            // (the highest in use elsewhere is 9999) — a notification must always
+            // be reachable, not buried under whatever panel happens to be open.
+            zIndex: 10000,
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
@@ -392,7 +478,8 @@ export function NotificationBell({
               })
             )}
           </div>
-        </div>
+        </div>,
+        containerRef.current.ownerDocument.body,
       )}
     </div>
   )

@@ -183,7 +183,7 @@ const SOURCE_SYMBOLS: readonly SourceSymbols[] = [
   ['pages/LoginPage.tsx', 'LoginPage'],
   ['pages/RbacExplorerPage.tsx', 'RbacExplorerPage RbacErrorBoundary TableToolbar TableEmptyState'],
   ['pages/RbacAnalysisPage.tsx', 'RbacAnalysisPage'],
-  ['pages/PolicyEvaluationPage.tsx', 'PolicyEvaluationPage'],
+  ['pages/PolicyEvaluationPage.tsx', 'PolicyEvaluationPage LivePolicyEvaluation DemoPolicyEvaluation'],
   ['pages/AgentMaxxingDemoPage.tsx', 'AgentMaxxingDemoPage'],
   ['pages/FleetDemoPage.tsx', 'FleetDemoPage'],
   ['pages/WeavePage.tsx', 'WeavePage SignalThread ActorCard CoverageHonestyPanel'],
@@ -208,7 +208,7 @@ const SOURCE_SYMBOLS: readonly SourceSymbols[] = [
   ['components/help/HelpCardComponents.tsx', 'CopyableCodeBlock DocLinkCard'],
   ['pages/DeploySensorHelpPage.tsx', 'DeploySensorHelpPage'],
   ['pages/OnboardAgentHelpPage.tsx', 'OnboardAgentHelpPage'],
-  ['pages/RemoteEnvironmentPage.tsx', 'RemoteEnvironmentPage'],
+  ['pages/RemoteEnvironmentPage.tsx', 'RemoteEnvironmentPage LiveEnvironmentView DemoEnvironmentView Section Tile Breadcrumb ErrorBanner'],
 ]
 
 type Representation =
@@ -288,7 +288,7 @@ const ROUTE_SOURCES: readonly [source: string, href: string, state: string][] = 
   ['views/AuditTrail.tsx', '/audit', 'Open Audit Trail with demo mode enabled.'],
   ['pages/DeploySensorHelpPage.tsx', '/settings/help/deploy-sensor', 'Open Settings and choose Deploy Sensor Help in the infrastructure guide.'],
   ['pages/OnboardAgentHelpPage.tsx', '/settings/help/onboard-agent', 'Open Settings and choose Onboard Agent Help in the agent integration guide.'],
-  ['pages/RemoteEnvironmentPage.tsx', '/settings/connectors/claude', 'Open the Remote Environment Console for a connected provider to view configuration, network egress rules, CEL compliance, and running agent metadata.'],
+  ['pages/RemoteEnvironmentPage.tsx', '/settings/connectors/claude', 'Open the Remote Environment Console for a connected AI provider: the connector record and last scan in live mode, the fixture environment in demo mode.'],
 ]
 
 for (const route of ROUTE_SOURCES) routeSource(...route)

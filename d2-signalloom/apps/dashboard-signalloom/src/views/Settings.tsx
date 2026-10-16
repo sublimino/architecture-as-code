@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
-import { connectorsApi } from '../api/connectorsClient'
+import { connectorsApi, connectorErrorMessage, isRemoteEnvironmentProvider } from '../api/connectorsClient'
 import type { TenantSettingsResponse, FrameworkResponse, NHIScan, PlatformUser } from '../types/api'
 import type { ConnectorProvider, TenantConnector } from '../types/connectors'
 import LoadingState from '../components/LoadingState'
@@ -141,6 +141,7 @@ export default function Settings() {
   const [configuringProvider, setConfiguringProvider] = useState<ConnectorProvider | null>(null)
   const [syncLogProvider, setSyncLogProvider] = useState<ConnectorProvider | null>(null)
   const [scanningProviderId, setScanningProviderId] = useState<string | null>(null)
+  const [scanErrors, setScanErrors] = useState<Record<string, string>>({})
   const [cadenceHours, setCadenceHours] = useState(24)
   const [alertEmail, setAlertEmail] = useState('')
   const [alertThreshold, setAlertThreshold] = useState(1)
@@ -361,11 +362,21 @@ export default function Settings() {
 
   async function handleScanConnector(providerId: string) {
     setScanningProviderId(providerId)
+    setScanErrors(({ [providerId]: _cleared, ...rest }) => rest)
     try {
       const token = await getAccessTokenSilently()
-      await connectorsApi.triggerScan(token, providerId)
+      const result = await connectorsApi.triggerScan(token, providerId)
+      if (result.status !== 'success') {
+        // A 200 with status error/warning is still a failed (or partial) scan:
+        // say so, naming the calls that failed.
+        const failed = result.logs.filter((l) => l.level === 'error').map((l) => l.message).join(' ')
+        const label = result.status === 'warning' ? 'Scan incomplete' : 'Scan failed'
+        setScanErrors((prev) => ({ ...prev, [providerId]: `${label}: ${failed || `the scan finished with status ${result.status}.`}` }))
+      }
       const freshConnectors = await connectorsApi.listConnectors(token)
       setConnectors(freshConnectors)
+    } catch (err) {
+      setScanErrors((prev) => ({ ...prev, [providerId]: `Scan failed: ${connectorErrorMessage(err, 'Scan failed.')}` }))
     } finally {
       setScanningProviderId(null)
     }
@@ -930,25 +941,26 @@ export default function Settings() {
                   const isConnected = connector?.status === 'connected'
                   const isDisconnected = connector?.status === 'disconnected'
 
+                  // A tested connector is not a scanned one: only last_scan_at means Synced.
+                  const mutedBadge = { color: 'var(--muted)', background: 'var(--surface)', border: '1px solid var(--border-subtle)' }
                   let syncStatusText = 'Not configured'
-                  let syncBadgeColor = 'var(--muted)'
-                  let syncBadgeBg = 'rgba(148, 163, 184, 0.12)'
-
+                  let syncBadge = mutedBadge
                   if (isConnected && connector) {
-                    if (connector.last_scan_at || connector.last_tested_at) {
+                    if (connector.last_scan_at) {
                       syncStatusText = 'Synced'
-                      syncBadgeColor = 'var(--teal)'
-                      syncBadgeBg = 'rgba(16, 185, 129, 0.16)'
+                      syncBadge = { color: 'var(--teal)', background: 'var(--teal-bg)', border: '1px solid var(--teal-border)' }
                     } else {
-                      syncStatusText = 'Pending Sync'
-                      syncBadgeColor = 'var(--amber)'
-                      syncBadgeBg = 'rgba(245, 158, 11, 0.16)'
+                      syncStatusText = 'Not yet scanned'
+                      syncBadge = { color: 'var(--warning)', background: 'var(--amber-bg)', border: '1px solid var(--amber-border)' }
                     }
                   } else if (isDisconnected) {
                     syncStatusText = 'Disconnected'
-                    syncBadgeColor = 'var(--muted)'
-                    syncBadgeBg = 'rgba(148, 163, 184, 0.16)'
                   }
+                  // This session's scan outcome first, else the last failure the server recorded.
+                  const serverScanError = isConnected && connector?.last_scan_status && connector.last_scan_status !== 'success' && connector.last_scan_error
+                    ? `${connector.last_scan_status === 'warning' ? 'Last scan incomplete' : 'Last scan failed'}: ${connector.last_scan_error}`
+                    : null
+                  const scanError = scanErrors[p.provider_id] ?? serverScanError
 
                   return (
                     <div
@@ -967,9 +979,7 @@ export default function Settings() {
                                 fontWeight: 600,
                                 padding: '2px 8px',
                                 borderRadius: 10,
-                                color: syncBadgeColor,
-                                background: syncBadgeBg,
-                                border: `1px solid ${syncBadgeColor}33`,
+                                ...syncBadge,
                                 letterSpacing: '0.02em',
                               }}
                             >
@@ -981,49 +991,54 @@ export default function Settings() {
                               ? connector.last_tested_at ? `Connected · Last tested ${fmtTs(connector.last_tested_at)}` : 'Connected'
                               : null}
                           </div>
+                          {scanError && (
+                            <div role="alert" data-testid={`scan-error-${p.provider_id}`} style={{ fontSize: 11, color: 'var(--error)', marginTop: 2 }}>
+                              {scanError}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         {isConnected && connector && (
                           <>
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              data-testid={`view-environment-${p.provider_id}`}
-                              onClick={() => navigate(`/settings/connectors/${p.provider_id}`)}
-                              style={{ fontSize: 12, padding: '5px 12px' }}
-                            >
-                              View Environment
-                            </button>
-                            {connector?.metadata?.has_credentials !== false && (
+                            {isRemoteEnvironmentProvider(p.provider_id) && (
                               <button
                                 type="button"
                                 className="btn btn-secondary btn-sm"
-                                data-testid={`scan-connector-${p.provider_id}`}
-                                onClick={() => handleScanConnector(p.provider_id)}
-                                disabled={scanningProviderId === p.provider_id}
+                                data-testid={`view-environment-${p.provider_id}`}
+                                onClick={() => navigate(`/settings/connectors/${p.provider_id}`)}
                                 style={{ fontSize: 12, padding: '5px 12px' }}
                               >
-                                {scanningProviderId === p.provider_id ? (
-                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                                    <span
-                                      style={{
-                                        width: 10,
-                                        height: 10,
-                                        border: '2px solid currentColor',
-                                        borderRightColor: 'transparent',
-                                        borderRadius: '50%',
-                                        display: 'inline-block',
-                                        animation: 'spin 0.75s linear infinite',
-                                      }}
-                                    />
-                                    Scanning...
-                                  </span>
-                                ) : (
-                                  'Scan Now'
-                                )}
+                                View Environment
                               </button>
                             )}
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              data-testid={`scan-connector-${p.provider_id}`}
+                              onClick={() => handleScanConnector(p.provider_id)}
+                              disabled={scanningProviderId === p.provider_id}
+                              style={{ fontSize: 12, padding: '5px 12px' }}
+                            >
+                              {scanningProviderId === p.provider_id ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                  <span
+                                    style={{
+                                      width: 10,
+                                      height: 10,
+                                      border: '2px solid currentColor',
+                                      borderRightColor: 'transparent',
+                                      borderRadius: '50%',
+                                      display: 'inline-block',
+                                      animation: 'spin 0.75s linear infinite',
+                                    }}
+                                  />
+                                  Scanning...
+                                </span>
+                              ) : (
+                                'Scan Now'
+                              )}
+                            </button>
                             <button
                               type="button"
                               className="btn btn-secondary btn-sm"

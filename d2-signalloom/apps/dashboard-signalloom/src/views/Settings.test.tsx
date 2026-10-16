@@ -42,7 +42,8 @@ vi.mock('../api/client', () => ({
   },
 }))
 
-vi.mock('../api/connectorsClient', () => ({
+vi.mock('../api/connectorsClient', async () => ({
+  ...(await vi.importActual<typeof import('../api/connectorsClient')>('../api/connectorsClient')),
   connectorsApi: {
     listProviders: vi.fn(),
     listConnectors: vi.fn(),
@@ -374,17 +375,109 @@ describe('Settings: Service Connectors', () => {
 
   it('shows "Connected" for providers with an active connector and allows viewing environment', async () => {
     vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
-      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
+      { connector_id: 'conn-1', provider_id: 'openai', display_name: 'OpenAI', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
     ])
     renderSettings(['/settings?tab=connectors'])
     expect(await screen.findByText('Connected')).toBeInTheDocument()
     const notConfigured = screen.getAllByText('Not configured')
     expect(notConfigured).toHaveLength(2)
 
-    const viewEnvBtn = screen.getByTestId('view-environment-okta')
+    const viewEnvBtn = screen.getByTestId('view-environment-openai')
     expect(viewEnvBtn).toBeInTheDocument()
     await userEvent.click(viewEnvBtn)
-    expect(mockNavigate).toHaveBeenCalledWith('/settings/connectors/okta')
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/connectors/openai')
+  })
+
+  it('offers View Environment only for providers that have a remote environment page', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
+      { connector_id: 'conn-2', provider_id: 'openai', display_name: 'OpenAI', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
+    ])
+    renderSettings(['/settings?tab=connectors'])
+    await screen.findByTestId('scan-connector-okta')
+    expect(screen.queryByTestId('view-environment-okta')).not.toBeInTheDocument()
+    expect(screen.getByTestId('view-environment-openai')).toBeInTheDocument()
+  })
+
+  it('shows a visible per-row error when Scan Now fails', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
+    ])
+    vi.mocked(connectorsApi.triggerScan).mockRejectedValue(new Error('upstream refused the scan'))
+    renderSettings(['/settings?tab=connectors'])
+    await userEvent.click(await screen.findByTestId('scan-connector-okta'))
+    expect(await screen.findByTestId('scan-error-okta')).toHaveTextContent('upstream refused the scan')
+    expect(screen.getByTestId('scan-connector-okta')).not.toBeDisabled()
+  })
+
+  it.each([
+    ['error', 'Scan failed'],
+    ['warning', 'Scan incomplete'],
+  ] as const)('shows the row error when a scan returns status %s, naming what failed', async (status, prefix) => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
+    ])
+    vi.mocked(connectorsApi.triggerScan).mockResolvedValue({
+      provider_id: 'okta', synced_at: '2026-10-16T12:00:00Z', duration_ms: 5, status,
+      records_scanned: { agents: null, models: null, environments: null, tools: null }, policies_evaluated: null,
+      logs: [
+        { id: 'log-1', timestamp: '2026-10-16T12:00:00Z', level: 'info', message: 'Listed 2 Anthropic agents.' },
+        { id: 'log-2', timestamp: '2026-10-16T12:00:00Z', level: 'error', message: 'Listing Anthropic models failed (HTTP 401).' },
+      ],
+    })
+    renderSettings(['/settings?tab=connectors'])
+    await userEvent.click(await screen.findByTestId('scan-connector-okta'))
+    const alert = await screen.findByTestId('scan-error-okta')
+    expect(alert).toHaveTextContent(prefix)
+    expect(alert).toHaveTextContent('Listing Anthropic models failed (HTTP 401).')
+    expect(alert).not.toHaveTextContent('Listed 2 Anthropic agents.')
+  })
+
+  it('shows no row error after a successful scan', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
+    ])
+    vi.mocked(connectorsApi.triggerScan).mockResolvedValue({
+      provider_id: 'okta', synced_at: '2026-10-16T12:00:00Z', duration_ms: 5, status: 'success',
+      records_scanned: { agents: 1, models: 1, environments: null, tools: null }, policies_evaluated: null, logs: [],
+    })
+    renderSettings(['/settings?tab=connectors'])
+    await userEvent.click(await screen.findByTestId('scan-connector-okta'))
+    expect(connectorsApi.triggerScan).toHaveBeenCalledWith('test-token', 'okta')
+    await waitFor(() => expect(screen.getByTestId('scan-connector-okta')).not.toBeDisabled())
+    expect(screen.queryByTestId('scan-error-okta')).not.toBeInTheDocument()
+  })
+
+  it('shows the last scan error the server recorded for the connector', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, last_scan_status: 'error', last_scan_error: 'Listing Anthropic agents failed (HTTP 500).', metadata: {}, created_at: '2026-01-01' },
+    ])
+    renderSettings(['/settings?tab=connectors'])
+    const alert = await screen.findByTestId('scan-error-okta')
+    expect(alert).toHaveTextContent('Listing Anthropic agents failed (HTTP 500).')
+    expect(screen.getByTestId('sync-status-okta')).toHaveTextContent('Not yet scanned')
+  })
+
+  it('calls a connector Synced only once it has been scanned, with a valid token border', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: '2026-10-01T00:00:00Z', last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
+      { connector_id: 'conn-2', provider_id: 'openai', display_name: 'OpenAI', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: '2026-10-02T00:00:00Z', metadata: {}, created_at: '2026-01-01' },
+    ])
+    renderSettings(['/settings?tab=connectors'])
+    const tested = await screen.findByTestId('sync-status-okta')
+    expect(tested).toHaveTextContent('Not yet scanned')
+    const synced = screen.getByTestId('sync-status-openai')
+    expect(synced).toHaveTextContent('Synced')
+    expect(synced.getAttribute('style')).toContain('var(--teal-border)')
+    expect(synced.getAttribute('style')).not.toMatch(/\)33/)
+  })
+
+  it('offers Scan Now for every connected connector (no guard on a field the API never sends)', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: { has_credentials: false }, created_at: '2026-01-01' },
+    ])
+    renderSettings(['/settings?tab=connectors'])
+    expect(await screen.findByTestId('scan-connector-okta')).toBeInTheDocument()
   })
 
   it('shows toggle ON for connected providers and OFF for unconfigured', async () => {
@@ -588,7 +681,7 @@ describe('Settings: Service Connectors', () => {
     expect(screen.getByText(/Sync & Telemetry Logs/i)).toBeInTheDocument()
   })
 
-  it('displays clear sync status badges (Synced, Pending Sync, Disconnected, Not configured)', async () => {
+  it('displays clear sync status badges (Synced, Not yet scanned, Disconnected, Not configured)', async () => {
     vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
       {
         connector_id: 'conn-okta',
@@ -632,53 +725,16 @@ describe('Settings: Service Connectors', () => {
     const oktaBadge = screen.getByTestId('sync-status-okta')
     expect(oktaBadge).toHaveTextContent('Synced')
 
-    // OpenAI connected without scans/tests -> Pending Sync badge
+    // OpenAI connected without scans/tests -> Not yet scanned badge
     const openaiBadge = screen.getByTestId('sync-status-openai')
-    expect(openaiBadge).toHaveTextContent('Pending Sync')
+    expect(openaiBadge).toHaveTextContent('Not yet scanned')
 
     // Entra is disconnected -> Disconnected badge
     const entraBadge = screen.getByTestId('sync-status-ad_entra')
     expect(entraBadge).toHaveTextContent('Disconnected')
   })
-
-  it('guards Scan Now button: renders when has_credentials is not false, hides when false', async () => {
-    // 1. With credentials configured
-    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
-      {
-        connector_id: 'conn-okta',
-        provider_id: 'okta',
-        display_name: 'Okta',
-        status: 'connected',
-        credential_expires_at: null,
-        last_tested_at: null,
-        last_scan_at: null,
-        metadata: { has_credentials: true },
-        created_at: '2026-01-01',
-      },
-    ])
-    const { unmount } = renderSettings(['/settings?tab=connectors'])
-    expect(await screen.findByTestId('scan-connector-okta')).toBeInTheDocument()
-    unmount()
-
-    // 2. With has_credentials: false
-    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
-      {
-        connector_id: 'conn-okta',
-        provider_id: 'okta',
-        display_name: 'Okta',
-        status: 'connected',
-        credential_expires_at: null,
-        last_tested_at: null,
-        last_scan_at: null,
-        metadata: { has_credentials: false },
-        created_at: '2026-01-01',
-      },
-    ])
-    renderSettings(['/settings?tab=connectors'])
-    await screen.findByText('Connected')
-    expect(screen.queryByTestId('scan-connector-okta')).not.toBeInTheDocument()
-  })
 })
+
 
 /**
  * The Display card: whether loaders show how long they have been waiting.

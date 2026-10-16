@@ -75,6 +75,7 @@ def client_for(monkeypatch: pytest.MonkeyPatch):
         return None
 
     monkeypatch.setattr(api_compat, "_get_pool", _no_pool)
+    monkeypatch.setattr(settings, "database_url", "")  # fixture mode means no DSN, not an unreachable one
 
     def reject_external_network(*_args, **_kwargs):
         raise AssertionError("external network access is forbidden in connectors tests")

@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 import api_compat
+import connector_credentials
 import superadmin
 from api_compat import (
     APIError,
@@ -83,7 +84,11 @@ class TenantConnector(BaseModel):
     status: ConnectorStatusType = "connected"
     credential_expires_at: str | None = None
     last_tested_at: str | None = None
+    # Time of the last fully successful scan. A failed or partial scan leaves it
+    # alone and records its outcome in last_scan_status / last_scan_error.
     last_scan_at: str | None = None
+    last_scan_status: Literal["success", "warning", "error"] | None = None
+    last_scan_error: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=_now_iso)
 
@@ -324,17 +329,12 @@ _CONN_LOCK = threading.Lock()
 
 
 
-# Demo AI-provider connectors, seeded only in fixture mode. With a database a
-# tenant has a Claude or OpenAI connector only if it configured one.
-_FIXTURE_ONLY_SEED_PROVIDERS = frozenset({"claude", "openai"})
+def _ensure_tenant_connectors_seeded(tenant_id: str) -> list[dict[str, Any]]:
+    """Fixture mode only (no database): the demo tenant's connectors.
 
-
-async def _fixture_mode() -> bool:
-    """True when there is no database pool: the only mode allowed demo results."""
-    return await api_compat._get_pool() is None
-
-
-def _ensure_tenant_connectors_seeded(tenant_id: str, fixture: bool = True) -> list[dict[str, Any]]:
+    A deployment with a database never calls this; its tenants have exactly the
+    connectors they configured, read from ``public.tenant_connectors``.
+    """
     with _CONN_LOCK:
         if tenant_id not in _TENANT_CONNECTORS_DATA:
             _TENANT_CONNECTORS_DATA[tenant_id] = [
@@ -416,17 +416,18 @@ def _ensure_tenant_connectors_seeded(tenant_id: str, fixture: bool = True) -> li
                     "created_at": "2026-01-15T08:00:00Z",
                 },
             ]
-            if not fixture:
-                _TENANT_CONNECTORS_DATA[tenant_id] = [
-                    c for c in _TENANT_CONNECTORS_DATA[tenant_id] if c["provider_id"] not in _FIXTURE_ONLY_SEED_PROVIDERS
-                ]
             _sync_tenant_connectors_map(tenant_id)
         return _TENANT_CONNECTORS_DATA[tenant_id]
 
 
-def _sync_tenant_connectors_map(tenant_id: str) -> None:
-    """Synchronize connector active states to _TENANT_CONNECTORS in api_compat."""
-    connectors = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
+def _sync_tenant_connectors_map(tenant_id: str, connectors: list[dict[str, Any]] | None = None) -> None:
+    """Synchronize connector active states to _TENANT_CONNECTORS in api_compat.
+
+    ``connectors`` is the tenant's full list; fixture mode omits it and the
+    in-memory list is used.
+    """
+    if connectors is None:
+        connectors = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
     active_by_provider = {c["provider_id"]: (c.get("status") == "connected") for c in connectors}
     active_by_id = {c["connector_id"]: (c.get("status") == "connected") for c in connectors}
 
@@ -470,6 +471,181 @@ def reset_connectors_for_testing(tenant_id: str | None = None) -> None:
             _TENANT_CONNECTOR_CREDENTIALS.clear()
 
 
+# ---------------------------------------------------------------------------
+# Live store: public.tenant_connectors (migration 070)
+# ---------------------------------------------------------------------------
+# With a database, a tenant's connectors, their sealed credentials and the last
+# scan result live in Postgres, never in the dicts above: a restart forgets
+# nothing, and no tenant is handed connectors it never configured. Every
+# statement is scoped by ``tenant_id = $1`` and tagged
+# ``/* connector_store:<op> */`` (tests/connector_store_fake.py keys on the tag).
+# Credentials are stored only as connector_credentials.seal_credentials output.
+
+_TABLE = "public.tenant_connectors"
+_COLS = (
+    "connector_id, provider_id, display_name, status, credential_expires_at, last_tested_at, "
+    "last_scan_at, last_scan_status, last_scan_error, metadata, created_at"
+)
+_SQL_LIST = (
+    f"/* connector_store:list */ SELECT {_COLS} FROM {_TABLE} "
+    "WHERE tenant_id = $1 ORDER BY created_at, connector_id"
+)
+# A key matches a connector id or a provider id; the connector id wins.
+_SQL_GET = (
+    f"/* connector_store:get */ SELECT {_COLS}, credentials_ciphertext, last_scan_result FROM {_TABLE} "
+    "WHERE tenant_id = $1 AND (connector_id = $2 OR provider_id = $2) "
+    "ORDER BY (connector_id = $2) DESC LIMIT 1"
+)
+_SQL_GET_LOCKED = _SQL_GET + " FOR UPDATE"
+_SQL_GET_PROVIDER = (
+    f"/* connector_store:get_provider */ SELECT {_COLS}, credentials_ciphertext, last_scan_result FROM {_TABLE} "
+    "WHERE tenant_id = $1 AND provider_id = $2 FOR UPDATE"
+)
+_SQL_COUNT = f"/* connector_store:count */ SELECT count(*) FROM {_TABLE} WHERE tenant_id = $1"
+_SQL_INSERT = (
+    f"/* connector_store:insert */ INSERT INTO {_TABLE} (tenant_id, connector_id, provider_id, display_name, "
+    "status, credential_expires_at, metadata, credentials_ciphertext, created_at, updated_at) "
+    "VALUES ($1, $2, $3, $4, 'connected', $5, $6::jsonb, $7, $8, $8)"
+)
+_SQL_RECONNECT = (
+    f"/* connector_store:reconnect */ UPDATE {_TABLE} SET status = 'connected', display_name = $3, "
+    "metadata = $4::jsonb, credential_expires_at = $5, "
+    "credentials_ciphertext = COALESCE($6, credentials_ciphertext), updated_at = NOW() "
+    "WHERE tenant_id = $1 AND connector_id = $2"
+)
+_SQL_SET_STATUS = (
+    f"/* connector_store:set_status */ UPDATE {_TABLE} SET status = $3, updated_at = NOW() "
+    f"WHERE tenant_id = $1 AND connector_id = $2 RETURNING {_COLS}"
+)
+_SQL_DISCONNECT = (
+    f"/* connector_store:disconnect */ UPDATE {_TABLE} SET status = 'disconnected', "
+    "credentials_ciphertext = NULL, last_scan_result = NULL, updated_at = NOW() "
+    "WHERE tenant_id = $1 AND connector_id = $2"
+)
+_SQL_STAMP_TESTED = (
+    f"/* connector_store:stamp_tested */ UPDATE {_TABLE} SET last_tested_at = $3, updated_at = NOW() "
+    "WHERE tenant_id = $1 AND connector_id = $2"
+)
+_SQL_RECORD_SCAN = (
+    f"/* connector_store:record_scan */ UPDATE {_TABLE} SET last_scan_at = COALESCE($3, last_scan_at), "
+    "last_scan_status = $4, last_scan_error = $5, last_scan_result = $6::jsonb, updated_at = NOW() "
+    "WHERE tenant_id = $1 AND connector_id = $2"
+)
+
+
+async def _store_pool(what: str) -> Any:
+    """The pool, or None in fixture mode; 503 when a configured database is unreachable.
+
+    A configured-but-down database must not fall back to the demo seeds.
+    """
+    return await api_compat._require_pool(what)
+
+
+def _ts_out(value: Any) -> str | None:
+    if value is None or isinstance(value, str):
+        return value
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _ts_in(value: str | None, field: str) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise APIError(422, "invalid_timestamp", f"{field} is not an ISO-8601 timestamp") from None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _json_in(value: Any) -> Any:
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def _connector_from_row(row: Any) -> dict[str, Any]:
+    """The public connector record. Never carries the ciphertext."""
+    return {
+        "connector_id": row["connector_id"],
+        "provider_id": row["provider_id"],
+        "display_name": row["display_name"],
+        "status": row["status"],
+        "credential_expires_at": _ts_out(row["credential_expires_at"]),
+        "last_tested_at": _ts_out(row["last_tested_at"]),
+        "last_scan_at": _ts_out(row["last_scan_at"]),
+        "last_scan_status": row["last_scan_status"],
+        "last_scan_error": row["last_scan_error"],
+        "metadata": _json_in(row["metadata"]) or {},
+        "created_at": _ts_out(row["created_at"]),
+    }
+
+
+def _credential_store_unavailable(exc: Exception) -> APIError:
+    return APIError(503, "credential_store_unavailable", f"Connector credentials cannot be stored or read: {exc}")
+
+
+def _open_stored(tenant_id: str, row: Any) -> dict[str, str]:
+    ciphertext = row["credentials_ciphertext"]
+    if not ciphertext:
+        return {}
+    try:
+        return connector_credentials.open_credentials(tenant_id, row["connector_id"], ciphertext)
+    except (connector_credentials.CredentialStoreUnavailable, connector_credentials.CredentialDecryptError) as exc:
+        raise _credential_store_unavailable(exc) from None
+
+
+async def _live_connectors(pool: Any, tenant_id: str) -> list[dict[str, Any]]:
+    connectors = [_connector_from_row(r) for r in await pool.fetch(_SQL_LIST, tenant_id)]
+    _sync_tenant_connectors_map(tenant_id, connectors)
+    return connectors
+
+
+async def refresh_live_connector_states(pool: Any, tenant_id: str) -> None:
+    """Load the tenant's stored connector states into ``api_compat._TENANT_CONNECTORS``.
+
+    Discovery gates sources on that map; after a restart it is empty until the
+    store is read.
+    """
+    await _live_connectors(pool, tenant_id)
+
+
+async def _live_create(pool: Any, tenant_id: str, body: ConnectorCreateRequest) -> tuple[str, str]:
+    """Insert or reconnect the tenant's connector for ``body.provider_id``. Returns (id, created_at)."""
+    credentials = dict(body.credentials)
+    if credentials:
+        try:
+            connector_credentials.require_key()
+        except connector_credentials.CredentialStoreUnavailable as exc:
+            raise _credential_store_unavailable(exc) from None
+    expires = _ts_in(body.credential_expires_at, "credential_expires_at")
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+
+    async with _write(pool) as conn:
+        existing = await conn.fetchrow(_SQL_GET_PROVIDER, tenant_id, body.provider_id)
+        if existing is not None:
+            conn_id = existing["connector_id"]
+        else:
+            conn_id = f"conn-{body.provider_id}-{(await conn.fetchval(_SQL_COUNT, tenant_id)) + 1:02d}"
+        ciphertext = None
+        if credentials:
+            try:
+                ciphertext = connector_credentials.seal_credentials(tenant_id, conn_id, credentials)
+            except connector_credentials.CredentialStoreUnavailable as exc:
+                raise _credential_store_unavailable(exc) from None
+        # Saving a connector is not testing or scanning it: no test, scan or
+        # expiry timestamp is written unless the caller supplied the expiry.
+        if existing is not None:
+            metadata = {**(_json_in(existing["metadata"]) or {}), **body.metadata}
+            await conn.execute(
+                _SQL_RECONNECT, tenant_id, conn_id,
+                body.display_name or existing["display_name"], json.dumps(metadata),
+                expires if expires is not None else existing["credential_expires_at"], ciphertext,
+            )
+        else:
+            await conn.execute(
+                _SQL_INSERT, tenant_id, conn_id, body.provider_id, body.display_name or body.provider_id,
+                expires, json.dumps(body.metadata), ciphertext, now,
+            )
+    return conn_id, _ts_out(now) or _now_iso()
+
 
 # ---------------------------------------------------------------------------
 # Route Handlers
@@ -485,6 +661,13 @@ async def list_connector_providers(
     return ConnectorProvidersResponse(providers=STANDARD_PROVIDERS)
 
 
+async def _tenant_connectors(tenant_id: str, what: str) -> list[dict[str, Any]]:
+    pool = await _store_pool(what)
+    if pool is None:
+        return _ensure_tenant_connectors_seeded(tenant_id)
+    return await _live_connectors(pool, tenant_id)
+
+
 @router.get("/api/v1/connectors/status", response_model=ConnectorSyncStatus)
 @router.get("/api/connectors/status", response_model=ConnectorSyncStatus)
 @router.get("/connectors/status", response_model=ConnectorSyncStatus)
@@ -492,8 +675,7 @@ async def get_connectors_status(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> ConnectorSyncStatus:
     """Fetch real-time connector synchronization and ingestion health."""
-    tenant_id = principal.tenant
-    raw_conns = _ensure_tenant_connectors_seeded(tenant_id, await _fixture_mode())
+    raw_conns = await _tenant_connectors(principal.tenant, "Reading connector status")
     conns = [TenantConnector(**c) for c in raw_conns]
     active_count = sum(1 for c in conns if c.status == "connected")
     return ConnectorSyncStatus(
@@ -512,9 +694,14 @@ async def list_connectors(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> TenantConnectorsResponse:
     """List configured cloud, Git, and IdP connectors for caller's tenant."""
-    tenant_id = principal.tenant
-    raw_conns = _ensure_tenant_connectors_seeded(tenant_id, await _fixture_mode())
+    raw_conns = await _tenant_connectors(principal.tenant, "Listing connectors")
     return TenantConnectorsResponse(connectors=[TenantConnector(**c) for c in raw_conns])
+
+
+def _requested_status(prev_status: str, body: ConnectorToggleRequest | None) -> ConnectorStatusType:
+    if body and body.enabled is not None:
+        return "connected" if body.enabled else "disconnected"
+    return "disconnected" if prev_status == "connected" else "connected"
 
 
 @router.post("/api/v1/connectors/{connector_id}/toggle", response_model=TenantConnector)
@@ -527,42 +714,48 @@ async def toggle_connector(
 ) -> TenantConnector:
     """Enable or disable a connector with immediate audit event emission."""
     tenant_id = principal.tenant
-    _ensure_tenant_connectors_seeded(tenant_id, await _fixture_mode())
+    pool = await _store_pool("Toggling a connector")
 
+    # Toggling probes nothing, so it does not touch last_tested_at.
+    if pool is None:
+        _ensure_tenant_connectors_seeded(tenant_id)
+        with _CONN_LOCK:
+            conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
+            match = next((c for c in conns if c["connector_id"] == connector_id or c["provider_id"] == connector_id), None)
+            if match is None:
+                raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
+            prev_status = match.get("status", "connected")
+            new_status = _requested_status(prev_status, body)
+            match["status"] = new_status
+            _sync_tenant_connectors_map(tenant_id)
+            match = dict(match)
+    else:
+        async with _write(pool) as conn:
+            row = await conn.fetchrow(_SQL_GET_LOCKED, tenant_id, connector_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
+            prev_status = row["status"]
+            new_status = _requested_status(prev_status, body)
+            match = _connector_from_row(await conn.fetchrow(_SQL_SET_STATUS, tenant_id, row["connector_id"], new_status))
+        await _live_connectors(pool, tenant_id)
+
+    # Emit structured audit event
+    audit_entry = {
+        "eventType": "CONNECTOR_STATUS_CHANGED",
+        "action": "tenant.connector_toggled",
+        "tenant_id": tenant_id,
+        "actor": principal.actor,
+        "connector_id": match["connector_id"],
+        "provider_id": match["provider_id"],
+        "previous_status": prev_status,
+        "new_status": new_status,
+        "timestamp": _now_iso(),
+    }
     with _CONN_LOCK:
-        conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
-        match = next((c for c in conns if c["connector_id"] == connector_id or c["provider_id"] == connector_id), None)
-        if match is None:
-            raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
-
-        prev_status = match.get("status", "connected")
-        if body and body.enabled is not None:
-            new_status: ConnectorStatusType = "connected" if body.enabled else "disconnected"
-        else:
-            new_status = "disconnected" if prev_status == "connected" else "connected"
-
-        match["status"] = new_status
-        match["last_tested_at"] = _now_iso()
-
-        # Emit structured audit event
-        audit_entry = {
-            "eventType": "CONNECTOR_STATUS_CHANGED",
-            "action": "tenant.connector_toggled",
-            "tenant_id": tenant_id,
-            "actor": principal.actor,
-            "connector_id": match["connector_id"],
-            "provider_id": match["provider_id"],
-            "previous_status": prev_status,
-            "new_status": new_status,
-            "timestamp": _now_iso(),
-        }
         _AUDIT_LOG_EVENTS.append(audit_entry)
-        _sync_tenant_connectors_map(tenant_id)
-
-        result = TenantConnector(**match)
+    result = TenantConnector(**match)
 
     # Optional DB write
-    pool = await api_compat._get_pool()
     if pool is not None:
         try:
             async with _write(pool) as conn:
@@ -592,8 +785,17 @@ async def create_connector(
 ) -> ConnectorCreateResponse:
     """Create or update a connector configuration."""
     tenant_id = principal.tenant
-    _ensure_tenant_connectors_seeded(tenant_id, await _fixture_mode())
+    pool = await _store_pool("Saving a connector")
 
+    if pool is not None:
+        conn_id, now = await _live_create(pool, tenant_id, body)
+        await _live_connectors(pool, tenant_id)
+        with _CONN_LOCK:
+            _AUDIT_LOG_EVENTS.append(_created_entry(tenant_id, principal, conn_id, body.provider_id, now))
+        return ConnectorCreateResponse(connector_id=conn_id, provider_id=body.provider_id, status="connected", created_at=now)
+
+    # Fixture mode (no database): the demo shows demo timestamps and a demo expiry.
+    _ensure_tenant_connectors_seeded(tenant_id)
     with _CONN_LOCK:
         conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
         match = next((c for c in conns if c["provider_id"] == body.provider_id), None)
@@ -627,17 +829,7 @@ async def create_connector(
             _TENANT_CONNECTOR_CREDENTIALS[tenant_id][conn_id] = dict(body.credentials)
             _TENANT_CONNECTOR_CREDENTIALS[tenant_id][body.provider_id] = dict(body.credentials)
 
-        _AUDIT_LOG_EVENTS.append({
-
-            "eventType": "CONNECTOR_CREATED",
-            "action": "tenant.connector_created",
-            "tenant_id": tenant_id,
-            "actor": principal.actor,
-            "connector_id": conn_id,
-            "provider_id": body.provider_id,
-            "status": "connected",
-            "timestamp": now,
-        })
+        _AUDIT_LOG_EVENTS.append(_created_entry(tenant_id, principal, conn_id, body.provider_id, now))
         _sync_tenant_connectors_map(tenant_id)
 
     return ConnectorCreateResponse(
@@ -648,6 +840,19 @@ async def create_connector(
     )
 
 
+def _created_entry(tenant_id: str, principal: Principal, conn_id: str, provider_id: str, now: str) -> dict[str, Any]:
+    return {
+        "eventType": "CONNECTOR_CREATED",
+        "action": "tenant.connector_created",
+        "tenant_id": tenant_id,
+        "actor": principal.actor,
+        "connector_id": conn_id,
+        "provider_id": provider_id,
+        "status": "connected",
+        "timestamp": now,
+    }
+
+
 @router.delete("/api/v1/connectors/{connector_id}", response_model=ConnectorDeleteResponse)
 @router.delete("/api/connectors/{connector_id}", response_model=ConnectorDeleteResponse)
 @router.delete("/connectors/{connector_id}", response_model=ConnectorDeleteResponse)
@@ -655,33 +860,50 @@ async def delete_connector(
     connector_id: str,
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> ConnectorDeleteResponse:
-    """Disconnect a connector for the caller's tenant."""
+    """Disconnect a connector for the caller's tenant.
+
+    Disconnecting forgets the tenant's key and what it observed, so a later
+    re-enable cannot test or scan with the old credential.
+    """
     tenant_id = principal.tenant
-    _ensure_tenant_connectors_seeded(tenant_id, await _fixture_mode())
+    pool = await _store_pool("Disconnecting a connector")
 
+    if pool is None:
+        _ensure_tenant_connectors_seeded(tenant_id)
+        with _CONN_LOCK:
+            conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
+            match = next((c for c in conns if c["connector_id"] == connector_id or c["provider_id"] == connector_id), None)
+            if match is None:
+                raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
+            match["status"] = "disconnected"
+            for key in (match["connector_id"], match["provider_id"]):
+                _TENANT_CONNECTOR_CREDENTIALS.get(tenant_id, {}).pop(key, None)
+                _TENANT_SYNC_RESULTS.get(tenant_id, {}).pop(key, None)
+            _sync_tenant_connectors_map(tenant_id)
+            cid, provider = match["connector_id"], match["provider_id"]
+    else:
+        async with _write(pool) as conn:
+            row = await conn.fetchrow(_SQL_GET_LOCKED, tenant_id, connector_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
+            cid, provider = row["connector_id"], row["provider_id"]
+            await conn.execute(_SQL_DISCONNECT, tenant_id, cid)
+        await _live_connectors(pool, tenant_id)
+
+    audit_entry = {
+        "eventType": "CONNECTOR_STATUS_CHANGED",
+        "action": "tenant.connector_disconnected",
+        "tenant_id": tenant_id,
+        "actor": principal.actor,
+        "connector_id": cid,
+        "provider_id": provider,
+        "previous_status": "connected",
+        "new_status": "disconnected",
+        "timestamp": _now_iso(),
+    }
     with _CONN_LOCK:
-        conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
-        match = next((c for c in conns if c["connector_id"] == connector_id or c["provider_id"] == connector_id), None)
-        if match is None:
-            raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
-
-        match["status"] = "disconnected"
-        audit_entry = {
-            "eventType": "CONNECTOR_STATUS_CHANGED",
-            "action": "tenant.connector_disconnected",
-            "tenant_id": tenant_id,
-            "actor": principal.actor,
-            "connector_id": match["connector_id"],
-            "provider_id": match["provider_id"],
-            "previous_status": "connected",
-            "new_status": "disconnected",
-            "timestamp": _now_iso(),
-        }
         _AUDIT_LOG_EVENTS.append(audit_entry)
-        _sync_tenant_connectors_map(tenant_id)
-        cid = match["connector_id"]
 
-    pool = await api_compat._get_pool()
     if pool is not None:
         try:
             async with _write(pool) as conn:
@@ -733,21 +955,15 @@ async def _fetch_live_anthropic_telemetry(api_key: str) -> dict[str, Any] | None
     try:
         async with httpx.AsyncClient(timeout=_UPSTREAM_TIMEOUT) as client:
             resp = await client.get(f"{ANTHROPIC_API}/v1/agents", headers={"x-api-key": api_key, **_ANTHROPIC_HEADERS})
-            if resp.status_code == 200:
-                data = resp.json()
-                agents = (data.get("data") or data.get("agents") or []) if isinstance(data, dict) else []
-                if isinstance(agents, list) and agents and isinstance(agents[0], dict) and agents[0].get("name"):
-                    first = agents[0]
-                    return {"agent_name": first["name"], "agent_id": first.get("id"), "agents": agents, "count": len(agents)}
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            agents = (data.get("data") or data.get("agents") or []) if isinstance(data, dict) else []
+            if isinstance(agents, list) and agents and isinstance(agents[0], dict) and agents[0].get("name"):
+                first = agents[0]
+                return {"agent_name": first["name"], "agent_id": first.get("id"), "agents": agents, "count": len(agents)}
     except Exception as exc:
         logger.debug("Anthropic agents listing failed: %s", exc)
-        if api_key.startswith("sk-ant-test") or api_key.startswith("sk-ant-mock"):
-            return {
-                "agent_name": "Daily News Jokester",
-                "agent_id": "agent_01FoEhnKF9QsC5DGmuELhm7G",
-                "agents": [{"id": "agent_01FoEhnKF9QsC5DGmuELhm7G", "name": "Daily News Jokester"}],
-                "count": 1,
-            }
     return None
 
 
@@ -762,33 +978,38 @@ async def _probe(url: str, headers: dict[str, str]) -> tuple[int | None, int, st
         return None, int((time.monotonic() - started) * 1000), type(exc).__name__
 
 
-def _probe_verdict(service: str, status: int | None, error: str | None) -> tuple[bool, bool, str | None, str | None]:
-    """(valid, scopes_ok, error_msg, message) from a real probe outcome only."""
+# (valid, scopes_ok, error_msg, message, tested). ``tested`` is True only when
+# the upstream answered, i.e. the credential was really put to the provider.
+Verdict = tuple[bool, bool, str | None, str | None, bool]
+
+
+def _probe_verdict(service: str, status: int | None, error: str | None) -> Verdict:
+    """A verdict from a real probe outcome only."""
     if status is None:
-        return False, False, f"Could not reach the {service} API ({error}); the credential was not tested.", None
+        return False, False, f"Could not reach the {service} API ({error}); the credential was not tested.", None, False
     if status == 200:
-        return True, True, None, f"{service} API accepted the credential (HTTP 200)."
+        return True, True, None, f"{service} API accepted the credential (HTTP 200).", True
     if status == 401:
-        return False, False, f"{service} API rejected the credential (HTTP 401).", None
+        return False, False, f"{service} API rejected the credential (HTTP 401).", None, True
     if status == 403:
-        return True, False, f"{service} API authenticated the credential but refused the required permission (HTTP 403).", None
-    return False, False, f"Unexpected HTTP {status} from the {service} API; the credential was not verified.", None
+        return True, False, f"{service} API authenticated the credential but refused the required permission (HTTP 403).", None, True
+    return False, False, f"Unexpected HTTP {status} from the {service} API; the credential was not verified.", None, True
 
 
-async def _verify_claude(creds: dict[str, str]) -> tuple[bool, bool, str | None, str | None]:
+async def _verify_claude(creds: dict[str, str]) -> Verdict:
     key = creds.get("api_key")
     if not key:
-        return False, False, "No Anthropic API key was supplied or stored; nothing was tested.", None
+        return False, False, "No Anthropic API key was supplied or stored; nothing was tested.", None, False
     status, _, error = await _probe(f"{ANTHROPIC_API}/v1/models", {"x-api-key": key, "anthropic-version": "2023-06-01"})
     return _probe_verdict("Anthropic", status, error)
 
 
-async def _verify_openai(creds: dict[str, str]) -> tuple[bool, bool, str | None, str | None]:
+async def _verify_openai(creds: dict[str, str]) -> Verdict:
     # ``admin_api_key`` is the field name credentials were stored under before
     # the wizard field became ``api_key``; both hold an org Admin key.
     key = creds.get("api_key") or creds.get("admin_api_key")
     if not key:
-        return False, False, "No OpenAI Admin API key was supplied or stored; nothing was tested.", None
+        return False, False, "No OpenAI Admin API key was supplied or stored; nothing was tested.", None, False
     status, _, error = await _probe(f"{OPENAI_API}/v1/organization/admin_api_keys", {"Authorization": f"Bearer {key}"})
     return _probe_verdict("OpenAI Admin", status, error)
 
@@ -828,7 +1049,7 @@ async def test_supplied_credentials(
     verifier = _VERIFIERS.get(provider_id)
     if verifier is None:
         raise APIError(501, "test_unsupported", f"No credential verifier exists for provider '{provider_id}'")
-    valid, scopes_ok, error_msg, message = await verifier(_supplied_credentials(body))
+    valid, scopes_ok, error_msg, message, _tested = await verifier(_supplied_credentials(body))
     return ConnectorTestResult(connector_id=None, valid=valid, scopes_ok=scopes_ok, error_msg=error_msg, message=message)
 
 
@@ -842,25 +1063,40 @@ async def test_connector(
 ) -> ConnectorTestResult:
     """Test a stored connector's credentials (or credentials supplied in the body)."""
     tenant_id = principal.tenant
-    fixture = await _fixture_mode()
-    _ensure_tenant_connectors_seeded(tenant_id, fixture)
+    pool = await _store_pool("Testing a connector")
 
+    if pool is not None:
+        row = await pool.fetchrow(_SQL_GET, tenant_id, connector_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
+        match = _connector_from_row(row)
+        expires_at_str = match["credential_expires_at"]
+        problem = _stored_state_problem(match)
+        if problem is not None:
+            return ConnectorTestResult(
+                connector_id=match["connector_id"], valid=False, scopes_ok=False, error_msg=problem[0],
+                credential_expires_at=expires_at_str, needs_rotation=problem[1],
+            )
+        verifier = _VERIFIERS.get(match["provider_id"])
+        if verifier is None:
+            raise APIError(501, "test_unsupported", f"No credential verifier exists for provider '{match['provider_id']}'")
+        creds = _supplied_credentials(body) or _open_stored(tenant_id, row)
+        valid, scopes_ok, error_msg, message, tested = await verifier(creds)
+        if tested:
+            # The provider answered: this is when the credential was tested.
+            await pool.execute(_SQL_STAMP_TESTED, tenant_id, match["connector_id"], datetime.now(timezone.utc))
+        return ConnectorTestResult(
+            connector_id=match["connector_id"], valid=valid, scopes_ok=scopes_ok, error_msg=error_msg,
+            credential_expires_at=expires_at_str, message=message,
+        )
+
+    # Fixture mode (no database): the demo path.
+    _ensure_tenant_connectors_seeded(tenant_id)
     with _CONN_LOCK:
         conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
         match = next((c for c in conns if c["connector_id"] == connector_id or c["provider_id"] == connector_id), None)
         if match is None:
-            known_provider_ids = {p.provider_id for p in STANDARD_PROVIDERS} | {"claude", "openai", "dex"}
-            if connector_id in known_provider_ids:
-                match = {
-                    "connector_id": f"conn-{connector_id}-01",
-                    "provider_id": connector_id,
-                    "display_name": connector_id.capitalize(),
-                    "status": "connected",
-                    "metadata": {},
-                }
-            else:
-                raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
-        match["last_tested_at"] = _now_iso()
+            raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
         expires_at_str = match.get("credential_expires_at")
         problem = _stored_state_problem(match)
 
@@ -872,28 +1108,20 @@ async def test_connector(
 
     creds = _supplied_credentials(body) or _stored_credentials(tenant_id, match)
 
-    if fixture:
-        # Demo path, no database: the stored state passed, so report it valid.
-        test_message = None
-        if match.get("provider_id") == "claude":
-            live_telemetry = await _fetch_live_anthropic_telemetry(creds.get("api_key", ""))
-            if live_telemetry:
-                update_claude_agent_name(tenant_id, live_telemetry["agent_name"], live_telemetry.get("agent_id"))
-                test_message = f"✓ Verified connection to Anthropic Claude API. Discovered live agent: {live_telemetry['agent_name']}"
-            else:
-                test_message = "✓ Verified connection to Anthropic Claude API."
-        return ConnectorTestResult(
-            connector_id=match["connector_id"], valid=True, scopes_ok=True,
-            credential_expires_at=expires_at_str, message=test_message,
-        )
-
-    verifier = _VERIFIERS.get(match["provider_id"])
-    if verifier is None:
-        raise APIError(501, "test_unsupported", f"No credential verifier exists for provider '{match['provider_id']}'")
-    valid, scopes_ok, error_msg, message = await verifier(creds)
+    # The stored state passed, so the demo reports it valid.
+    test_message = None
+    if match.get("provider_id") == "claude":
+        live_telemetry = await _fetch_live_anthropic_telemetry(creds.get("api_key", ""))
+        if live_telemetry:
+            update_claude_agent_name(tenant_id, live_telemetry["agent_name"], live_telemetry.get("agent_id"))
+            test_message = f"✓ Verified connection to Anthropic Claude API. Discovered live agent: {live_telemetry['agent_name']}"
+        else:
+            test_message = "✓ Verified connection to Anthropic Claude API."
+    with _CONN_LOCK:
+        match["last_tested_at"] = _now_iso()
     return ConnectorTestResult(
-        connector_id=match["connector_id"], valid=valid, scopes_ok=scopes_ok, error_msg=error_msg,
-        credential_expires_at=expires_at_str, message=message,
+        connector_id=match["connector_id"], valid=True, scopes_ok=True,
+        credential_expires_at=expires_at_str, message=test_message,
     )
 
 
@@ -1152,6 +1380,19 @@ async def _scan_claude_live(provider_id: str, creds: dict[str, str]) -> SyncResu
 _LIVE_SCANNERS = {"claude": _scan_claude_live}
 
 
+def _scan_outcome(result: SyncResult) -> tuple[str | None, str | None]:
+    """(new last_scan_at or None to keep the previous one, last_scan_error).
+
+    last_scan_at means "synced": only a scan that observed everything it asked
+    for earns it. A warning is a partial scan (some listings failed), so it
+    records its status and error but keeps the previous successful time.
+    """
+    if result.status == "success":
+        return result.synced_at, None
+    failures = [log.message for log in result.logs if log.level == "error"]
+    return None, " ".join(failures) or f"Scan finished with status '{result.status}'."
+
+
 @router.post("/api/v1/connectors/{provider_id}/scan", response_model=SyncResult)
 @router.post("/api/connectors/{provider_id}/scan", response_model=SyncResult)
 @router.post("/connectors/{provider_id}/scan", response_model=SyncResult)
@@ -1162,19 +1403,25 @@ async def scan_connector(
 ) -> SyncResult:
     """Scan one of the caller's connected connectors, by provider id or connector id."""
     tenant_id = principal.tenant
-    fixture = await _fixture_mode()
-    _ensure_tenant_connectors_seeded(tenant_id, fixture)
+    pool = await _store_pool("Scanning a connector")
+    fixture = pool is None
 
-    with _CONN_LOCK:
-        conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
-        match = next(
-            (c for c in conns
-             if (c["connector_id"] == provider_id or c["provider_id"] == provider_id) and c.get("status") == "connected"),
-            None,
-        )
-        if match is None:
-            raise APIError(404, "connector_not_configured", f"No connected connector '{provider_id}' for this tenant")
-        connector_id, canonical_provider = match["connector_id"], match["provider_id"]
+    row: Any = None
+    if fixture:
+        _ensure_tenant_connectors_seeded(tenant_id)
+        with _CONN_LOCK:
+            conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
+            match = next(
+                (c for c in conns
+                 if (c["connector_id"] == provider_id or c["provider_id"] == provider_id) and c.get("status") == "connected"),
+                None,
+            )
+    else:
+        row = await pool.fetchrow(_SQL_GET, tenant_id, provider_id)
+        match = _connector_from_row(row) if row is not None and row["status"] == "connected" else None
+    if match is None:
+        raise APIError(404, "connector_not_configured", f"No connected connector '{provider_id}' for this tenant")
+    connector_id, canonical_provider = match["connector_id"], match["provider_id"]
 
     scanner = None if fixture else _LIVE_SCANNERS.get(canonical_provider)
     if not fixture and scanner is None:
@@ -1185,10 +1432,17 @@ async def scan_connector(
         {"connector_id": connector_id, "provider_id": canonical_provider}, "Connector scan",
     )
 
-    creds = _supplied_credentials(body) or _stored_credentials(tenant_id, match)
     if scanner is not None:
+        creds = _supplied_credentials(body) or _open_stored(tenant_id, row)
         result = await scanner(canonical_provider, creds)
+        scan_at, scan_error = _scan_outcome(result)
+        await pool.execute(
+            _SQL_RECORD_SCAN, tenant_id, connector_id, _ts_in(scan_at, "synced_at"),
+            result.status, scan_error, result.model_dump_json(),
+        )
+        await _live_connectors(pool, tenant_id)
     else:
+        creds = _supplied_credentials(body) or _stored_credentials(tenant_id, match)
         live_telemetry = None
         if canonical_provider == "claude":
             live_telemetry = await _fetch_live_anthropic_telemetry(creds.get("api_key", ""))
@@ -1201,12 +1455,15 @@ async def scan_connector(
             live_agent_id=live_telemetry.get("agent_id") if live_telemetry else None,
             live_count=live_telemetry.get("count") if live_telemetry else None,
         )
-
-    with _CONN_LOCK:
-        match["last_scan_at"] = result.synced_at
-        stored = _TENANT_SYNC_RESULTS.setdefault(tenant_id, {})
-        stored[canonical_provider] = result
-        stored[connector_id] = result
+        scan_at, scan_error = _scan_outcome(result)
+        with _CONN_LOCK:
+            if scan_at is not None:
+                match["last_scan_at"] = scan_at
+            match["last_scan_error"] = scan_error
+            match["last_scan_status"] = result.status
+            stored = _TENANT_SYNC_RESULTS.setdefault(tenant_id, {})
+            stored[canonical_provider] = result
+            stored[connector_id] = result
 
     logger.info("Connector '%s' scanned for tenant '%s' by actor '%s'", connector_id, tenant_id, principal.actor)
     return _redact_for(principal, result)
@@ -1221,20 +1478,25 @@ async def get_connector_logs(
 ) -> SyncResult:
     """The last stored scan result for a provider or connector id."""
     tenant_id = principal.tenant
-    fixture = await _fixture_mode()
-    _ensure_tenant_connectors_seeded(tenant_id, fixture)
+    pool = await _store_pool("Reading connector scan logs")
 
-    with _CONN_LOCK:
-        conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
-        match = next((c for c in conns if c["connector_id"] == provider_id or c["provider_id"] == provider_id), None)
-        tenant_results = _TENANT_SYNC_RESULTS.get(tenant_id, {})
-        result = tenant_results.get(provider_id) or (tenant_results.get(match["provider_id"]) if match else None)
-        if result is None and fixture and match is not None:
-            # Fixture mode only: the demo shows canned logs before any scan.
-            result = _generate_sync_result(match["provider_id"])
-            tenant_results = _TENANT_SYNC_RESULTS.setdefault(tenant_id, {})
-            tenant_results[match["provider_id"]] = result
-            tenant_results[match["connector_id"]] = result
+    if pool is not None:
+        row = await pool.fetchrow(_SQL_GET, tenant_id, provider_id)
+        stored = _json_in(row["last_scan_result"]) if row is not None else None
+        result = SyncResult.model_validate(stored) if stored else None
+    else:
+        _ensure_tenant_connectors_seeded(tenant_id)
+        with _CONN_LOCK:
+            conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
+            match = next((c for c in conns if c["connector_id"] == provider_id or c["provider_id"] == provider_id), None)
+            tenant_results = _TENANT_SYNC_RESULTS.get(tenant_id, {})
+            result = tenant_results.get(provider_id) or (tenant_results.get(match["provider_id"]) if match else None)
+            if result is None and match is not None:
+                # Fixture mode only: the demo shows canned logs before any scan.
+                result = _generate_sync_result(match["provider_id"])
+                tenant_results = _TENANT_SYNC_RESULTS.setdefault(tenant_id, {})
+                tenant_results[match["provider_id"]] = result
+                tenant_results[match["connector_id"]] = result
 
     if result is None:
         raise APIError(404, "never_scanned", f"No scan has run for '{provider_id}' in this tenant")

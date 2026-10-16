@@ -1,442 +1,380 @@
 import { useState, useEffect, useCallback } from 'react'
+import type { ReactNode } from 'react'
 import { useParams, Link, useSearchParams } from 'react-router-dom'
-import { api } from '../api/client'
-import { connectorsApi } from '../api/connectorsClient'
+import {
+  connectorsApi,
+  connectorErrorMessage,
+  demoRemoteEnvironment,
+  isRemoteEnvironmentProvider,
+  type SyncResult,
+} from '../api/connectorsClient'
+import type { RemoteEnvironmentFixture } from '../api/fakeData'
 import { useAuth0 } from '../auth/oidc'
+import type { TenantConnector } from '../types/connectors'
+import SyncLogsModal from '../components/connectors/SyncLogsModal'
+import NotFoundPage from './NotFoundPage'
 
-const VALID_TABS = ['all', 'general', 'network', 'packages', 'agents'] as const
-type EnvTabId = typeof VALID_TABS[number]
+// Remote environment console for an AI provider connector.
+//
+// Demo mode renders the fixture in api/fakeData.ts. Live mode renders only
+// what the connectors API returns: the tenant's connector record and its last
+// SyncResult. The API returns no credit balance, egress configuration, policy
+// results or agent identities, so live mode says so rather than inventing them.
 
-interface RemoteEnvironmentConfig {
-  providerId: string
-  providerName: string
-  envName: string
-  hosting: string
-  hostingNote: string
-  orgName: string
-  envId: string
-  lastUpdated: string
-  creditBalance: string
-  status: string
-  description: string
-  workspaceId: string
-  outboundPolicy: string
-  packageManagersEnabled: boolean
-  mcpServersEnabled: boolean
-  allowedHosts: string[]
-  maxAllowedHosts: number
-  packagesDescription: string
-  metadata: Record<string, string>
-  celPolicies: Array<{
-    id: string
-    name: string
-    status: 'PASS' | 'FAIL'
-    description: string
-  }>
-  connectedAgents: Array<{
-    id: string
-    name: string
-    status: 'active' | 'idle'
-    sessionId: string
-    lastActive: string
-    model?: string
-    createdBy?: string
-  }>
+const tone = {
+  teal: { background: 'var(--teal-bg)', color: 'var(--teal)', border: '1px solid var(--teal-border)' },
+  cyan: { background: 'var(--cyan-bg)', color: 'var(--cyan)', border: '1px solid var(--cyan-border)' },
+  amber: { background: 'var(--amber-bg)', color: 'var(--warning)', border: '1px solid var(--amber-border)' },
+  red: { background: 'var(--red-bg)', color: 'var(--error)', border: '1px solid var(--red-border)' },
+  muted: { background: 'var(--surface2)', color: 'var(--muted)', border: '1px solid var(--border-subtle)' },
 }
 
-const DEFAULT_CONFIGS: Record<string, RemoteEnvironmentConfig> = {
-  claude: {
-    providerId: 'claude',
-    providerName: 'Anthropic Claude',
-    envName: 'cloud-dev',
-    hosting: 'Cloud',
-    hostingNote: "Can't be changed after creation",
-    orgName: "Andy's Individual Org",
-    envId: 'env_01CyCigBbDRSLTzSCyyHQ7eT',
-    lastUpdated: '16m ago',
-    creditBalance: 'US$23.57',
-    status: 'Active · Synchronized',
-    description: 'What sessions in this environment are for',
-    workspaceId: 'wrkspc_01CyCigBbDRSLTzSCyyHQ7eT',
-    outboundPolicy: "Outbound traffic is blocked except for what's allowed below.",
-    packageManagersEnabled: true,
-    mcpServersEnabled: true,
-    allowedHosts: [],
-    maxAllowedHosts: 16,
-    packagesDescription: 'No packages beyond the standard image.',
-    metadata: {
-      owner: 'andy',
-      cluster: 'osramp-kind',
-      tier: 'development',
-    },
-    celPolicies: [
-      {
-        id: 'cis-5.2.8',
-        name: 'cis-5.2.8: NET_RAW capability not held',
-        status: 'PASS',
-        description: 'External runtime container drops NET_RAW capability, preventing packet spoofing and raw socket access.',
-      },
-      {
-        id: 'egress-confinement',
-        name: 'egress-confinement: No unrestricted 0.0.0.0/0 egress',
-        status: 'PASS',
-        description: 'Default-deny egress posture enforced; egress restricted to permitted registries and configured MCP endpoints.',
-      },
-      {
-        id: 'mcp-attestation',
-        name: 'mcp-attestation: MCP servers require SPIFFE identity',
-        status: 'PASS',
-        description: 'Agent-to-agent MCP connections require valid cryptographic SPIFFE SVID issuance and verification.',
-      },
-    ],
-    connectedAgents: [
-      {
-        id: 'agent_01FoEhnKF9QsC5DGmuELhm7G',
-        name: 'Daily News Jokester',
-        status: 'active',
-        model: 'claude-opus-5-5',
-        createdBy: 'Andrew Martin (User)',
-        sessionId: 'ses_01CyCigBbDRSLTzSCyyHQ7eT',
-        lastActive: '2 hours ago',
-      },
-    ],
-  },
-  openai: {
-    providerId: 'openai',
-    providerName: 'OpenAI',
-    envName: 'openai-dev',
-    hosting: 'Cloud',
-    hostingNote: "Can't be changed after creation",
-    orgName: "Andy's Individual Org",
-    envId: 'env_openai_01CyCigBbDRSL',
-    lastUpdated: '10m ago',
-    creditBalance: 'US$48.20',
-    status: 'Active · Synchronized',
-    description: 'Sandbox runtime for OpenAI Assistant and Code Interpreter workloads',
-    workspaceId: 'wrkspc_openai_01CyCigBbDRSL',
-    outboundPolicy: "Outbound traffic is blocked except for what's allowed below.",
-    packageManagersEnabled: true,
-    mcpServersEnabled: true,
-    allowedHosts: [],
-    maxAllowedHosts: 16,
-    packagesDescription: 'Standard python3 runtime image.',
-    metadata: {
-      owner: 'andy',
-      cluster: 'osramp-kind',
-      tier: 'development',
-    },
-    celPolicies: [
-      {
-        id: 'cis-5.2.8',
-        name: 'cis-5.2.8: NET_RAW capability not held',
-        status: 'PASS',
-        description: 'External runtime container drops NET_RAW capability.',
-      },
-      {
-        id: 'egress-confinement',
-        name: 'egress-confinement: No unrestricted 0.0.0.0/0 egress',
-        status: 'PASS',
-        description: 'Default-deny egress posture enforced.',
-      },
-      {
-        id: 'mcp-attestation',
-        name: 'mcp-attestation: MCP servers require SPIFFE identity',
-        status: 'PASS',
-        description: 'Workload verification requires cryptographic attestation.',
-      },
-    ],
-    connectedAgents: [
-      {
-        id: 'agent_openai_01',
-        name: 'openai-eval-assistant',
-        status: 'active',
-        sessionId: 'ses_openai_01',
-        lastActive: '5m ago',
-      },
-    ],
-  },
+const pill = { padding: '3px 10px', borderRadius: 99, fontSize: 12, fontWeight: 600 }
+const tileStyle = { padding: 14, background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }
+const tileLabel = { fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 4 }
+const cardStyle = { padding: 22, marginBottom: 20, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }
+
+function Section({ title, subtitle, testId, children }: { title: string; subtitle: string; testId?: string; children: ReactNode }) {
+  const [collapsed, setCollapsed] = useState(false)
+  return (
+    <section className="card" data-testid={testId} style={cardStyle}>
+      <div
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, cursor: 'pointer' }}
+        onClick={() => setCollapsed((c) => !c)}
+      >
+        <div>
+          <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, color: 'var(--text)' }}>{title}</h2>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>{subtitle}</p>
+        </div>
+        <button
+          type="button"
+          style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 14 }}
+          aria-label={`Toggle ${title} Section`}
+        >
+          {collapsed ? '▶ Expand' : '▼ Collapse'}
+        </button>
+      </div>
+      {!collapsed && children}
+    </section>
+  )
+}
+
+function Tile({ label, children, testId }: { label: string; children: ReactNode; testId?: string }) {
+  return (
+    <div style={tileStyle} data-testid={testId}>
+      <div style={tileLabel}>{label}</div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{children}</div>
+    </div>
+  )
+}
+
+function Breadcrumb({ label }: { label: string }) {
+  return (
+    <nav aria-label="Breadcrumb" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
+      <Link to="/settings" style={{ color: 'var(--muted)', textDecoration: 'none' }}>
+        Settings
+      </Link>
+      <span>/</span>
+      <Link to="/settings?tab=connectors" data-testid="link-back-connectors" style={{ color: 'var(--muted)', textDecoration: 'none' }}>
+        Connectors
+      </Link>
+      <span>/</span>
+      <span style={{ color: 'var(--text)', fontWeight: 600 }}>{label}</span>
+    </nav>
+  )
+}
+
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <div role="alert" style={{ ...tone.red, padding: '10px 14px', borderRadius: 6, fontSize: 12, marginBottom: 16 }}>
+      {message}
+    </div>
+  )
+}
+
+function fmtTs(iso: string | null | undefined): string {
+  if (!iso) return 'Never'
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
+}
+
+function count(n: number | null | undefined): string {
+  return n == null ? 'not observed' : String(n)
 }
 
 export default function RemoteEnvironmentPage() {
   const { providerId } = useParams<{ providerId: string }>()
-  const normalizedProvider = (providerId || 'claude').toLowerCase()
-  const env = DEFAULT_CONFIGS[normalizedProvider] || DEFAULT_CONFIGS.claude
+  const id = providerId?.toLowerCase()
+  if (!isRemoteEnvironmentProvider(id)) {
+    return (
+      <div data-testid="remote-env-not-found">
+        <NotFoundPage />
+      </div>
+    )
+  }
+  const demoEnv = demoRemoteEnvironment(id)
+  return demoEnv ? <DemoEnvironmentView providerId={id} env={demoEnv} /> : <LiveEnvironmentView providerId={id} />
 
+}
+
+function LiveEnvironmentView({ providerId }: { providerId: string }) {
   const { getAccessTokenSilently } = useAuth0()
-  const [connectedAgents, setConnectedAgents] = useState(env.connectedAgents)
-  const [searchParams, setSearchParams] = useSearchParams()
-  const initialTab = (searchParams.get('tab') || 'all').toLowerCase() as EnvTabId
-  const [activeTab, setActiveTab] = useState<EnvTabId>(VALID_TABS.includes(initialTab) ? initialTab : 'all')
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({})
-  const [syncStatus, setSyncStatus] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [providerName, setProviderName] = useState(providerId)
+  const [connector, setConnector] = useState<TenantConnector | null>(null)
+  const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
+  const [syncing, setSyncing] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
-  const [claimedAgents, setClaimedAgents] = useState<Record<string, boolean>>({})
-  const [claimingAgents, setClaimingAgents] = useState<Record<string, boolean>>({})
 
-  useEffect(() => {
-    setConnectedAgents(env.connectedAgents)
-  }, [env.connectedAgents])
-
-  // Sync activeTab whenever URL searchParams change
-  useEffect(() => {
-    const t = (searchParams.get('tab') || 'all').toLowerCase() as EnvTabId
-    if (VALID_TABS.includes(t)) {
-      setActiveTab(t)
-    } else {
-      setActiveTab('all')
-    }
-  }, [searchParams])
-
-  const handleTabClick = (tabId: EnvTabId) => {
-    setActiveTab(tabId)
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev)
-      if (tabId === 'all') {
-        next.delete('tab')
-      } else {
-        next.set('tab', tabId)
-      }
-      return next
-    })
-  }
-
-  const syncAgentsFromApi = useCallback(async () => {
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
     try {
-      let token = ''
-      try {
-        token = await getAccessTokenSilently()
-      } catch {}
-      const updated = await Promise.all(
-        env.connectedAgents.map(async (ag) => {
-          try {
-            const remoteAgent = await api.agents.get(token, ag.id)
-            if (remoteAgent && remoteAgent.name) {
-              return {
-                ...ag,
-                name: remoteAgent.name,
-                model: remoteAgent.model_name || remoteAgent.runtime?.model || ag.model,
-                status: (remoteAgent.lifecycle_state === 'active' ? 'active' : ag.status) as 'active' | 'idle',
-              }
-            }
-          } catch {
-            // Keep default if agent get fails
-          }
-          return ag
-        })
-      )
-      setConnectedAgents(updated)
-    } catch {
-      // Fallback gracefully
-    }
-  }, [env.connectedAgents, getAccessTokenSilently])
-
-  useEffect(() => {
-    let cancelled = false
-    void syncAgentsFromApi()
-    return () => {
-      cancelled = true
-    }
-  }, [syncAgentsFromApi])
-
-  const toggleSection = (section: string) => {
-    setCollapsedSections((prev) => ({ ...prev, [section]: !prev[section] }))
-  }
-
-  const handleSyncNow = async () => {
-    setSyncStatus('Synchronized just now')
-    let token = ''
-    try {
-      token = await getAccessTokenSilently()
-    } catch {}
-    try {
-      await connectorsApi.triggerScan(token, normalizedProvider)
-    } catch {}
-    await syncAgentsFromApi()
-  }
-
-  const handleClaimAgent = async (agentId: string) => {
-    setClaimingAgents((prev) => ({ ...prev, [agentId]: true }))
-    try {
-      let token = ''
-      try {
-        token = await getAccessTokenSilently()
-      } catch {}
-
-      try {
-        await api.agents.claim(token, agentId, {
-          pod_name: agentId,
-          namespace: 'cloud-dev',
-          spiffe_id: `spiffe://signalloom.demo/ns/cloud-dev/sa/${agentId}`,
-          harness: 'claude-code',
-          model: 'claude-opus-5-5',
-          declared_tools: [],
-          token_budget_limit: 100000,
-        })
-      } catch {
-        // Fallback to discovery claim if direct claim fails
-        try {
-          await api.discovery.claim(token, {
-            agent_id: agentId,
-            namespace: 'cloud-dev',
-          })
-        } catch {
-          // Graceful fallback for mock/demo
-        }
-      }
-      setClaimedAgents((prev) => ({ ...prev, [agentId]: true }))
+      const token = await getAccessTokenSilently()
+      const [providers, connectors, logs] = await Promise.all([
+        connectorsApi.listProviders(token),
+        connectorsApi.listConnectors(token),
+        connectorsApi.getSyncLogs(token, providerId),
+      ])
+      setProviderName(providers.find((p) => p.provider_id === providerId)?.display_name ?? providerId)
+      setConnector(connectors.find((c) => c.provider_id === providerId && c.status !== 'disconnected') ?? null)
+      setSyncResult(logs)
+    } catch (err) {
+      setError(connectorErrorMessage(err, 'Could not load this connector.'))
     } finally {
-      setClaimingAgents((prev) => ({ ...prev, [agentId]: false }))
+      setLoading(false)
+    }
+  }, [getAccessTokenSilently, providerId])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  // rethrow: the logs modal's rescan must reject on failure so the modal shows
+  // the error rather than re-listing old logs as if the scan had worked.
+  const handleSyncNow = async (rethrow = false) => {
+    setSyncing(true)
+    setError(null)
+    try {
+      const token = await getAccessTokenSilently()
+      setSyncResult(await connectorsApi.triggerScan(token, providerId))
+    } catch (err) {
+      setError(connectorErrorMessage(err, 'Scan failed.'))
+      if (rethrow) throw err
+    } finally {
+      setSyncing(false)
     }
   }
+
+  const scanTone = syncResult ? { success: tone.teal, warning: tone.amber, error: tone.red }[syncResult.status] : tone.muted
 
   return (
     <div className="fade-in" data-testid="remote-environment-page" style={{ maxWidth: 1200, margin: '0 auto' }}>
-      {/* Breadcrumb Navigation */}
-      <nav aria-label="Breadcrumb" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
-        <Link to="/settings" style={{ color: 'var(--muted)', textDecoration: 'none' }}>
-          Settings
-        </Link>
-        <span>/</span>
-        <Link to="/settings?tab=connectors" data-testid="link-back-connectors" style={{ color: 'var(--muted)', textDecoration: 'none' }}>
-          Connectors
-        </Link>
-        <span>/</span>
-        <span style={{ color: 'var(--text)', fontWeight: 600 }}>
-          {env.providerName} ({env.envName})
-        </span>
-      </nav>
+      <Breadcrumb label={providerName} />
+      {error && <ErrorBanner message={error} />}
+      {loading ? (
+        <div style={{ color: 'var(--muted)', padding: 24 }}>Loading connector...</div>
+      ) : error && !connector && !syncResult ? null : !connector ? (
+        <div className="card" data-testid="live-not-connected" style={cardStyle}>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--text)' }}>
+            {providerName} is not connected for your tenant.{' '}
+            <Link to={`/settings?tab=connectors&configure=${providerId}`}>Configure it in Connectors</Link>.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="card" style={{ ...cardStyle, padding: 24, marginBottom: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+                  <h1 data-testid="env-title" style={{ fontSize: 24, fontWeight: 700, margin: 0, color: 'var(--text)' }}>
+                    {connector.display_name ?? providerName}
+                  </h1>
+                  <span style={{ ...pill, ...(connector.status === 'connected' ? tone.teal : tone.red) }}>{connector.status}</span>
+                  <span data-testid="live-scan-status" style={{ ...pill, ...scanTone }}>
+                    {syncResult ? `Last scan: ${syncResult.status}` : 'Not yet scanned'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)' }}>
+                  <span>Provider: {providerName}</span>
+                  <span>•</span>
+                  <span style={{ fontFamily: 'monospace' }}>Connector ID: {connector.connector_id}</span>
+                  <span>•</span>
+                  <span>Last scanned: {fmtTs(syncResult?.synced_at)}</span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-secondary btn-sm" data-testid="btn-env-sync-logs" onClick={() => setShowLogs(true)}>
+                  Sync Logs
+                </button>
+                <button type="button" className="btn btn-primary btn-sm" data-testid="btn-env-sync-now" onClick={() => void handleSyncNow()} disabled={syncing}>
+                  {syncing ? 'Scanning...' : 'Sync Now'}
+                </button>
+                <Link to="/settings?tab=connectors" className="btn btn-secondary btn-sm" style={{ textDecoration: 'none' }}>
+                  Back to Connectors
+                </Link>
+              </div>
+            </div>
+          </div>
 
-      {/* Header Banner & Status */}
-      <div
-        className="card"
-        style={{
-          padding: 24,
-          marginBottom: 24,
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: 8,
-        }}
-      >
+          <Section title="Last scan" subtitle="What the most recent scan of this connector observed.">
+            {syncResult ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                <Tile label="Agents" testId="live-records-agents">{count(syncResult.records_scanned.agents)}</Tile>
+                <Tile label="Models" testId="live-records-models">{count(syncResult.records_scanned.models)}</Tile>
+                <Tile label="Environments">{count(syncResult.records_scanned.environments)}</Tile>
+                <Tile label="Tools">{count(syncResult.records_scanned.tools)}</Tile>
+                <Tile label="Policies">
+                  {syncResult.policies_evaluated
+                    ? `${syncResult.policies_evaluated.egress_rules} evaluated, ${syncResult.policies_evaluated.violations} violations`
+                    : 'None evaluated'}
+                </Tile>
+                <Tile label="Duration">{syncResult.duration_ms} ms</Tile>
+              </div>
+            ) : (
+              <p data-testid="live-last-scan-empty" style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
+                Not yet scanned. Use Sync Now to run the first scan.
+              </p>
+            )}
+          </Section>
+
+          <Section title="Connector" subtitle="The connector record as stored for your tenant.">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 12 }}>
+              <Tile label="Created">{fmtTs(connector.created_at)}</Tile>
+              <Tile label="Last tested">{fmtTs(connector.last_tested_at)}</Tile>
+              <Tile label="Credential expires">{connector.credential_expires_at ? fmtTs(connector.credential_expires_at) : 'Not reported'}</Tile>
+            </div>
+            <pre style={{ ...tileStyle, margin: 0, fontSize: 12, fontFamily: 'monospace', color: 'var(--text)', overflowX: 'auto' }}>
+              {JSON.stringify(connector.metadata, null, 2)}
+            </pre>
+          </Section>
+
+          <Section title="Environment & governance" subtitle="Hosting, credits, network egress and CEL policy results.">
+            <p data-testid="live-env-not-available" style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
+              Credit balance, network egress configuration and CEL policy results are not available from this provider through
+              the connectors API, so none are shown.
+            </p>
+          </Section>
+
+          <Section title="Connected Agents & Workloads" subtitle="Agents reported by the last scan.">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--text)' }}>
+                {syncResult ? `${count(syncResult.records_scanned.agents)} agents reported by the last scan.` : 'No scan has run yet.'}
+              </p>
+              <button type="button" className="btn btn-secondary btn-sm" disabled title="Claim discovered agents from Discovery">
+                Claim to Tenant
+              </button>
+            </div>
+            <p data-testid="live-claim-explanation" style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--muted)' }}>
+              The scan reports agent counts, not agent identities, so there is nothing to claim here. Claim discovered agents from{' '}
+              <Link to="/discovery">Discovery</Link>.
+            </p>
+          </Section>
+        </>
+      )}
+      {showLogs && (
+        <SyncLogsModal
+          isOpen
+          providerId={providerId}
+          providerName={providerName}
+          onClose={() => setShowLogs(false)}
+          onRescan={() => handleSyncNow(true)}
+        />
+      )}
+    </div>
+  )
+}
+
+const ENV_TABS = ['all', 'general', 'network', 'packages', 'agents'] as const
+type EnvTabId = (typeof ENV_TABS)[number]
+
+function parseTab(value: string | null): EnvTabId {
+  const t = (value ?? 'all').toLowerCase()
+  return (ENV_TABS as readonly string[]).includes(t) ? (t as EnvTabId) : 'all'
+}
+
+function DemoEnvironmentView({ providerId, env }: { providerId: string; env: RemoteEnvironmentFixture }) {
+  const { getAccessTokenSilently } = useAuth0()
+  // The ?tab= query parameter is the source of truth, so a tab can be linked to.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = parseTab(searchParams.get('tab'))
+  const setActiveTab = (tab: EnvTabId) =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (tab === 'all') next.delete('tab')
+        else next.set('tab', tab)
+        return next
+      },
+      { replace: true },
+    )
+  const [syncStatus, setSyncStatus] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [showLogs, setShowLogs] = useState(false)
+  const [claimedAgents, setClaimedAgents] = useState<Record<string, boolean>>({})
+  const passing = env.celPolicies.filter((p) => p.status === 'PASS').length
+
+  const handleSyncNow = async (rethrow = false) => {
+    setError(null)
+    try {
+      const token = await getAccessTokenSilently()
+      await connectorsApi.triggerScan(token, providerId)
+      setSyncStatus('Synchronized just now')
+    } catch (err) {
+      setError(connectorErrorMessage(err, 'Scan failed.'))
+      if (rethrow) throw err
+    }
+  }
+
+  const show = (tab: typeof activeTab) => activeTab === 'all' || activeTab === tab
+
+  return (
+    <div className="fade-in" data-testid="remote-environment-page" style={{ maxWidth: 1200, margin: '0 auto' }}>
+      <Breadcrumb label={`${env.providerName} (${env.envName})`} />
+      {error && <ErrorBanner message={error} />}
+
+      <div className="card" style={{ ...cardStyle, padding: 24, marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
               <h1 data-testid="env-title" style={{ fontSize: 24, fontWeight: 700, margin: 0, color: 'var(--text)' }}>
                 {env.envName}
               </h1>
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '3px 10px',
-                  borderRadius: 99,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  background: 'rgba(16, 185, 129, 0.12)',
-                  color: 'var(--teal, #10b981)',
-                  border: '1px solid rgba(16, 185, 129, 0.25)',
-                }}
-              >
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--teal, #10b981)' }} />
-                {syncStatus || env.status}
-              </span>
-              <span
-                data-testid="env-credit-balance"
-                style={{
-                  padding: '3px 10px',
-                  borderRadius: 99,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  background: 'rgba(6, 182, 212, 0.12)',
-                  color: 'var(--cyan, #06b6d4)',
-                  border: '1px solid rgba(6, 182, 212, 0.25)',
-                }}
-              >
+              <span style={{ ...pill, ...tone.teal }}>{syncStatus || env.status}</span>
+              <span data-testid="env-credit-balance" style={{ ...pill, ...tone.cyan }}>
                 {env.creditBalance}
               </span>
             </div>
-
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)' }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <span>
                 <strong>Hosting:</strong> {env.hosting} Hosting
               </span>
               <span>•</span>
               <span>Organization: {env.orgName}</span>
               <span>•</span>
-              <span data-testid="env-badge-id" style={{ fontFamily: 'monospace' }}>ID: {env.envId}</span>
+              <span data-testid="env-badge-id" style={{ fontFamily: 'monospace' }}>
+                ID: {env.envId}
+              </span>
               <span>•</span>
               <span>Last updated: {env.lastUpdated}</span>
-              <span>(Last updated 16 minutes ago)</span>
             </div>
           </div>
-
-          {/* Action Bar */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              data-testid="btn-env-sync-logs"
-              onClick={() => setShowLogs(!showLogs)}
-              style={{ fontSize: 12, padding: '6px 14px' }}
-            >
-              {showLogs ? 'Hide Logs' : 'Sync Logs'}
+            <button type="button" className="btn btn-secondary btn-sm" data-testid="btn-env-sync-logs" onClick={() => setShowLogs(true)}>
+              Sync Logs
             </button>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              data-testid="btn-env-sync-now"
-              onClick={handleSyncNow}
-              style={{ fontSize: 12, padding: '6px 14px' }}
-            >
+            <button type="button" className="btn btn-primary btn-sm" data-testid="btn-env-sync-now" onClick={() => void handleSyncNow()}>
               Sync Now
             </button>
-            <Link
-              to="/settings?tab=connectors"
-              className="btn btn-secondary btn-sm"
-              style={{ fontSize: 12, padding: '6px 14px', textDecoration: 'none' }}
-            >
+            <Link to="/settings?tab=connectors" className="btn btn-secondary btn-sm" style={{ textDecoration: 'none' }}>
               Back to Connectors
             </Link>
           </div>
         </div>
-
-        {/* Sync Logs Drawer / Panel */}
-        {showLogs && (
-          <div
-            data-testid="sync-logs-panel"
-            style={{
-              marginTop: 18,
-              padding: 14,
-              borderRadius: 6,
-              background: 'var(--surface2, #0f172a)',
-              border: '1px solid var(--border)',
-              fontSize: 12,
-              fontFamily: 'monospace',
-            }}
-          >
-            <div style={{ fontWeight: 600, color: 'var(--cyan)', marginBottom: 8 }}>Synchronization Audit Logs</div>
-            <div style={{ color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div>[2026-10-16 12:24:00 UTC] Handshake verified with {env.providerName} control plane.</div>
-              <div>[2026-10-16 12:24:01 UTC] Egress policy scanned: package managers enabled, 0 outbound host rules.</div>
-              <div>[2026-10-16 12:24:02 UTC] CEL policy evaluation complete: 3/3 constraints verified.</div>
-              <div>[2026-10-16 12:24:03 UTC] Discovered 2 active runtime agents linked to environment {env.envId}.</div>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Tabs / Filter Bar */}
-      <div
-        role="tablist"
-        aria-label="Environment sections"
-        style={{
-          display: 'flex',
-          gap: 8,
-          marginBottom: 20,
-          borderBottom: '1px solid var(--border)',
-          paddingBottom: 8,
-        }}
-      >
+      <div role="tablist" aria-label="Environment sections" style={{ display: 'flex', gap: 8, marginBottom: 20, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
         {[
           { id: 'all', label: 'All Sections' },
           { id: 'general', label: 'General' },
@@ -449,7 +387,7 @@ export default function RemoteEnvironmentPage() {
             role="tab"
             data-testid={`env-tab-${tab.id}`}
             aria-selected={activeTab === tab.id}
-            onClick={() => handleTabClick(tab.id as EnvTabId)}
+            onClick={() => setActiveTab(tab.id as EnvTabId)}
             style={{
               background: 'none',
               border: 'none',
@@ -460,7 +398,6 @@ export default function RemoteEnvironmentPage() {
               cursor: 'pointer',
               borderBottom: activeTab === tab.id ? '2px solid var(--cyan)' : '2px solid transparent',
               marginBottom: -9,
-              transition: 'all 0.15s ease',
             }}
           >
             {tab.label}
@@ -468,501 +405,135 @@ export default function RemoteEnvironmentPage() {
         ))}
       </div>
 
-      {/* Section 1: General */}
-      {(activeTab === 'all' || activeTab === 'general') && (
-        <section
-          className="card"
-          style={{
-            padding: 22,
-            marginBottom: 20,
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 8,
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: 16,
-              cursor: 'pointer',
-            }}
-            onClick={() => toggleSection('general')}
-          >
-            <div>
-              <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, color: 'var(--text)' }}>General</h2>
-              <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>
-                What this environment is, and where it runs.
-              </p>
-            </div>
-            <button
-              type="button"
-              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 14 }}
-              aria-label="Toggle General Section"
-            >
-              {collapsedSections.general ? '▶ Expand' : '▼ Collapse'}
-            </button>
+      {show('general') && (
+        <Section title="General" subtitle="What this environment is, and where it runs.">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+            <Tile label="Hosting">
+              {env.hosting}
+              <div style={{ fontSize: 11.5, fontWeight: 400, color: 'var(--muted)', marginTop: 4 }}>{env.hostingNote}</div>
+            </Tile>
+            <Tile label="Name">{env.envName}</Tile>
+            <Tile label="Description">{env.description}</Tile>
+            <Tile label="Workspace / Org ID">
+              <span style={{ fontFamily: 'monospace' }}>{env.workspaceId}</span>
+            </Tile>
           </div>
-
-          {!collapsedSections.general && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
-              <div style={{ padding: 14, background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
-                  Hosting
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{env.hosting}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>{env.hostingNote}</div>
-              </div>
-
-              <div style={{ padding: 14, background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
-                  Name
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{env.envName}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Canonical environment identifier</div>
-              </div>
-
-              <div style={{ padding: 14, background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
-                  Description
-                </div>
-                <div style={{ fontSize: 13, color: 'var(--text)' }}>{env.description}</div>
-              </div>
-
-              <div style={{ padding: 14, background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
-                  Workspace ID
-                </div>
-                <div style={{ fontSize: 13, fontFamily: 'monospace', color: 'var(--text)' }}>{env.workspaceId}</div>
-              </div>
-            </div>
-          )}
-        </section>
+        </Section>
       )}
 
-      {/* Section 2: Network Egress & CEL Governance */}
-      {(activeTab === 'all' || activeTab === 'network') && (
-        <section
-          data-testid="network-egress-section"
-          className="card"
-          style={{
-            padding: 22,
-            marginBottom: 20,
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 8,
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: 16,
-              cursor: 'pointer',
-            }}
-            onClick={() => toggleSection('network')}
-          >
-            <div>
-              <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, color: 'var(--text)' }}>
-                Network Egress & CEL Governance
-              </h2>
-              <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>
-                What the container can reach over the network and CEL policy conformance.
-              </p>
-            </div>
-            <button
-              type="button"
-              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 14 }}
-              aria-label="Toggle Network Egress Section"
-            >
-              {collapsedSections.network ? '▶ Expand' : '▼ Collapse'}
-            </button>
-          </div>
-
-          {!collapsedSections.network && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-              {/* Egress Baseline Box */}
-              <div
-                style={{
-                  padding: 14,
-                  background: 'var(--surface2)',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                }}
-              >
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>
-                  Outbound Policy
-                </div>
-                <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-                  {env.outboundPolicy}
-                </div>
+      {show('network') && (
+        <Section title="Network Egress & CEL Governance" subtitle="What the container can reach over the network and CEL policy conformance." testId="network-egress-section">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <Tile label="Outbound Policy">{env.outboundPolicy}</Tile>
+            <div style={tileStyle}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Allowed hosts</span>
+                <span data-testid="allowed-hosts-list" style={{ fontSize: 12, fontWeight: 600, color: 'var(--cyan)' }}>
+                  {env.allowedHosts.length}/{env.maxAllowedHosts} configured
+                </span>
               </div>
-
-              {/* Rules Grid */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
-                {/* Rule: Package managers */}
-                <div style={{ padding: 14, background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-                      Allow package managers (PyPI, npm)
+              {env.allowedHosts.length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>No explicit host overrides.</div>
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {env.allowedHosts.map((h) => (
+                    <span key={h} style={{ fontSize: 12, fontFamily: 'monospace' }}>
+                      {h}
                     </span>
-                    <span
-                      data-testid="package-managers-badge"
-                      style={{
-                        padding: '2px 8px',
-                        borderRadius: 4,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        background: 'rgba(16, 185, 129, 0.15)',
-                        color: 'var(--teal, #10b981)',
-                        border: '1px solid rgba(16, 185, 129, 0.3)',
-                      }}
-                    >
-                      ENABLED
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    Reach PyPI, npm, and the other package registries.
-                  </div>
-                </div>
-
-                {/* Rule: MCP servers */}
-                <div style={{ padding: 14, background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-                      Allow MCP servers configured on agent
-                    </span>
-                    <span
-                      data-testid="mcp-servers-badge"
-                      style={{
-                        padding: '2px 8px',
-                        borderRadius: 4,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        background: 'rgba(16, 185, 129, 0.15)',
-                        color: 'var(--teal, #10b981)',
-                        border: '1px solid rgba(16, 185, 129, 0.3)',
-                      }}
-                    >
-                      ENABLED
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    Reach the MCP servers configured on the agent.
-                  </div>
-                </div>
-              </div>
-
-              {/* Allowed Hosts */}
-              <div style={{ padding: 14, background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Allowed hosts</span>
-                  <span data-testid="allowed-hosts-list" style={{ fontSize: 12, fontWeight: 600, color: 'var(--cyan)' }}>
-                    {env.allowedHosts.length}/{env.maxAllowedHosts} configured
-                  </span>
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
-                  Hostnames or IPv4 addresses, one per line. *.example.com covers subdomains (e.g. api.example.com, *.internal.example.com)
-                </div>
-                {env.allowedHosts.length === 0 ? (
-                  <div style={{ padding: '10px 12px', background: 'var(--surface)', borderRadius: 4, border: '1px dashed var(--border)', fontSize: 12, color: 'var(--muted)' }}>
-                    No explicit host overrides. Container traffic strictly confined to package managers and authenticated MCP servers.
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {env.allowedHosts.map((h) => (
-                      <span key={h} style={{ padding: '2px 8px', background: 'var(--surface)', borderRadius: 4, fontSize: 12, fontFamily: 'monospace' }}>
-                        {h}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* CEL Policy Assessment Card */}
-              <div
-                data-testid="cel-policy-card"
-                style={{
-                  padding: 16,
-                  borderRadius: 6,
-                  background: 'color-mix(in srgb, var(--teal, #10b981) 4%, var(--surface2))',
-                  border: '1px solid color-mix(in srgb, var(--teal, #10b981) 25%, var(--border))',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <div>
-                    <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text)' }}>
-                      CEL Policy Assessment (Signal Loom Governance Engine)
-                    </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
-                      Continuous Common Expression Language verification of remote container boundary constraints.
-                    </div>
-                  </div>
-                  <span
-                    style={{
-                      padding: '3px 10px',
-                      borderRadius: 99,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      background: 'rgba(16, 185, 129, 0.15)',
-                      color: 'var(--teal, #10b981)',
-                      border: '1px solid rgba(16, 185, 129, 0.3)',
-                    }}
-                  >
-                    3 / 3 POLICIES PASS
-                  </span>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {env.celPolicies.map((pol) => (
-                    <div
-                      key={pol.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        justifyContent: 'space-between',
-                        gap: 12,
-                        padding: '10px 12px',
-                        background: 'var(--surface)',
-                        borderRadius: 5,
-                        border: '1px solid var(--border)',
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', fontFamily: 'monospace' }}>
-                          {pol.name}
-                        </div>
-                        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
-                          {pol.description}
-                        </div>
-                      </div>
-                      <span
-                        style={{
-                          padding: '2px 8px',
-                          borderRadius: 4,
-                          fontSize: 11,
-                          fontWeight: 700,
-                          background: pol.status === 'PASS' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                          color: pol.status === 'PASS' ? 'var(--teal, #10b981)' : 'var(--error, #ef4444)',
-                          border: pol.status === 'PASS' ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {pol.status}
-                      </span>
-                    </div>
                   ))}
                 </div>
+              )}
+            </div>
+            <div data-testid="cel-policy-card" style={{ ...tileStyle, border: '1px solid var(--teal-border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text)' }}>CEL Policy Assessment (Signal Loom Governance Engine)</div>
+                <span style={{ ...pill, fontSize: 11, ...(passing === env.celPolicies.length ? tone.teal : tone.red) }}>
+                  {passing} / {env.celPolicies.length} POLICIES PASS
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {env.celPolicies.map((pol) => (
+                  <div
+                    key={pol.id}
+                    style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, padding: '10px 12px', background: 'var(--surface)', borderRadius: 5, border: '1px solid var(--border)' }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', fontFamily: 'monospace' }}>{pol.name}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>{pol.description}</div>
+                    </div>
+                    <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', ...(pol.status === 'PASS' ? tone.teal : tone.red) }}>
+                      {pol.status}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
-          )}
-        </section>
+          </div>
+        </Section>
       )}
 
-      {/* Section 3: Container Packages & Metadata */}
-      {(activeTab === 'all' || activeTab === 'packages') && (
-        <section
-          className="card"
-          style={{
-            padding: 22,
-            marginBottom: 20,
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 8,
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: 16,
-              cursor: 'pointer',
-            }}
-            onClick={() => toggleSection('packages')}
-          >
-            <div>
-              <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, color: 'var(--text)' }}>
-                Container Packages & Metadata
-              </h2>
-              <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>
-                Preinstalled runtime packages and operator bookkeeping metadata.
-              </p>
+      {show('packages') && (
+        <Section title="Container Packages & Metadata" subtitle="Preinstalled runtime packages and operator bookkeeping metadata.">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+            <Tile label="Packages">{env.packagesDescription}</Tile>
+            <div style={tileStyle}>
+              <div style={tileLabel}>Metadata</div>
+              <pre style={{ margin: 0, fontSize: 12, fontFamily: 'monospace', color: 'var(--text)', overflowX: 'auto' }}>
+                {JSON.stringify(env.metadata, null, 2)}
+              </pre>
             </div>
-            <button
-              type="button"
-              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 14 }}
-              aria-label="Toggle Packages and Metadata Section"
-            >
-              {collapsedSections.packages ? '▶ Expand' : '▼ Collapse'}
-            </button>
           </div>
-
-          {!collapsedSections.packages && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-              {/* Packages */}
-              <div style={{ padding: 14, background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
-                  Packages
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
-                  Installed into the container before sessions start.
-                </div>
-                <div style={{ fontSize: 13, color: 'var(--text)' }}>
-                  {env.packagesDescription}
-                </div>
-              </div>
-
-              {/* Metadata */}
-              <div style={{ padding: 14, background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
-                  Metadata
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
-                  Key-value pairs for your own bookkeeping, not shown to the agent.
-                </div>
-                <pre
-                  style={{
-                    background: 'var(--surface)',
-                    padding: 10,
-                    borderRadius: 4,
-                    border: '1px solid var(--border)',
-                    margin: 0,
-                    fontSize: 12,
-                    fontFamily: 'monospace',
-                    color: 'var(--text)',
-                    overflowX: 'auto',
-                  }}
-                >
-                  {JSON.stringify(env.metadata, null, 2)}
-                </pre>
-              </div>
-            </div>
-          )}
-        </section>
+        </Section>
       )}
 
-      {/* Section 4: Connected Agents & Workloads */}
-      {(activeTab === 'all' || activeTab === 'agents') && (
-        <section
-          className="card"
-          style={{
-            padding: 22,
-            marginBottom: 20,
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 8,
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: 16,
-              cursor: 'pointer',
-            }}
-            onClick={() => toggleSection('agents')}
-          >
-            <div>
-              <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, color: 'var(--text)' }}>
-                Connected Agents & Workloads
-              </h2>
-              <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>
-                Agents discovered running in this remote container environment.
-              </p>
-            </div>
-            <button
-              type="button"
-              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 14 }}
-              aria-label="Toggle Connected Agents Section"
-            >
-              {collapsedSections.agents ? '▶ Expand' : '▼ Collapse'}
-            </button>
-          </div>
-
-          {!collapsedSections.agents && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {connectedAgents.map((ag) => (
-                <div
-                  key={ag.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '12px 14px',
-                    background: 'var(--surface2)',
-                    borderRadius: 6,
-                    border: '1px solid var(--border)',
-                    flexWrap: 'wrap',
-                    gap: 12,
-                  }}
-                >
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{ag.name}</span>
-                      <span
-                        style={{
-                          padding: '1px 6px',
-                          borderRadius: 99,
-                          fontSize: 10.5,
-                          fontWeight: 700,
-                          textTransform: 'uppercase',
-                          background: ag.status === 'active' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.15)',
-                          color: ag.status === 'active' ? 'var(--teal, #10b981)' : 'var(--muted)',
-                        }}
-                      >
-                        {ag.status}
-                      </span>
-                      {ag.model && (
-                        <span
-                          style={{
-                            padding: '1px 6px',
-                            borderRadius: 4,
-                            fontSize: 11,
-                            fontFamily: 'monospace',
-                            background: 'var(--surface)',
-                            border: '1px solid var(--border)',
-                            color: 'var(--text)',
-                          }}
-                        >
-                          {ag.model}
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'monospace', marginTop: 4 }}>
-                      Session: {ag.sessionId} • Last active {ag.lastActive}
-                      {ag.createdBy && ` • Created by ${ag.createdBy}`}
-                    </div>
+      {show('agents') && (
+        <Section title="Connected Agents & Workloads" subtitle="Agents discovered running in this remote container environment.">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {env.connectedAgents.map((ag) => (
+              <div
+                key={ag.id}
+                style={{ ...tileStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, padding: '12px 14px' }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{ag.name}</span>
+                    <span style={{ padding: '1px 6px', borderRadius: 99, fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', ...(ag.status === 'active' ? tone.teal : tone.muted) }}>
+                      {ag.status}
+                    </span>
+                    {ag.model && <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text)' }}>{ag.model}</span>}
                   </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Link
-                      to={`/agents?selected=${encodeURIComponent(ag.id)}&drawer=${encodeURIComponent(ag.id)}`}
-                      className="btn btn-secondary btn-sm"
-                      data-testid={`btn-view-dossier-${ag.id}`}
-                      style={{ fontSize: 11.5, padding: '4px 10px', textDecoration: 'none' }}
-                    >
-                      View Dossier ↗
-                    </Link>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      data-testid={`btn-claim-agent-${ag.id}`}
-                      onClick={() => handleClaimAgent(ag.id)}
-                      disabled={claimedAgents[ag.id] || claimingAgents[ag.id]}
-                      style={{ fontSize: 11.5, padding: '4px 10px' }}
-                    >
-                      {claimedAgents[ag.id] ? 'Claimed ✓' : (claimingAgents[ag.id] ? 'Claiming...' : 'Claim to Tenant')}
-                    </button>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'monospace', marginTop: 4 }}>
+                    Session: {ag.sessionId} • Last active {ag.lastActive}
+                    {ag.createdBy && ` • Created by ${ag.createdBy}`}
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </section>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Link
+                    to={`/agents?selected=${encodeURIComponent(ag.id)}&drawer=${encodeURIComponent(ag.id)}`}
+                    className="btn btn-secondary btn-sm"
+                    data-testid={`btn-view-dossier-${ag.id}`}
+                    style={{ textDecoration: 'none' }}
+                  >
+                    View Dossier ↗
+                  </Link>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    data-testid={`btn-claim-agent-${ag.id}`}
+                    onClick={() => setClaimedAgents((prev) => ({ ...prev, [ag.id]: true }))}
+                    disabled={claimedAgents[ag.id]}
+                  >
+                    {claimedAgents[ag.id] ? 'Claimed ✓' : 'Claim to Tenant'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {showLogs && (
+        <SyncLogsModal isOpen providerId={providerId} providerName={env.providerName} onClose={() => setShowLogs(false)} onRescan={() => handleSyncNow(true)} />
       )}
     </div>
   )

@@ -240,6 +240,7 @@ export default function AgentTrustTopologyPage() {
   const [selected, setSelected] = useState<Selection>({ type: 'edge', id: 'spire-planner' })
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [drawerNodeId, setDrawerNodeId] = useState<string | null>(null)
+  const [deepLinkMiss, setDeepLinkMiss] = useState<string | null>(null)
 
   useEffect(() => subscribeDemoMode(setDemo), [])
   useEffect(() => {
@@ -274,11 +275,16 @@ export default function AgentTrustTopologyPage() {
   useEffect(() => {
     const actor = searchParams.get('actor') || searchParams.get('agent') || searchParams.get('node')
     if (actor && allNodes.length > 0) {
-      const match = allNodes.find(n => n.id === actor || n.id.toLowerCase().includes(actor.toLowerCase()) || n.label?.toLowerCase().includes(actor.toLowerCase()))
+      // Exact identity only: a fragment such as "plan" must not select "planner".
+      const match = allNodes.find(n => n.id === actor || n.id.endsWith(`:${actor}`) || n.label === actor)
       if (match) {
+        setDeepLinkMiss(null)
         setSelected({ type: 'node', id: match.id })
         return
       }
+      setDeepLinkMiss(actor)
+    } else {
+      setDeepLinkMiss(null)
     }
     if (allEdges.some(edge => edge.id === selected.id) || allNodes.some(node => node.id === selected.id)) return
     const first = allEdges[0] ?? allNodes[0]
@@ -390,6 +396,11 @@ export default function AgentTrustTopologyPage() {
       `}</style>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Agent Trust Topology</h1>
+        {deepLinkMiss && (
+          <span role="status" data-testid="topology-deeplink-not-found" style={{ fontSize: 12, color: 'var(--muted)' }}>
+            No node matches <code>{deepLinkMiss}</code>; nothing was selected for it.
+          </span>
+        )}
         <HelpHint label="What runtime-observed, fixture-tested and modeled mean" testId="topology-evidence-help">
           Every box and arrow here carries one of three evidence states. Runtime-observed: a collector saw it in the live cluster. Fixture-tested: a test proved the contract holds, not that it is running right now. Modeled: it is what the design says should exist and nobody checked. Only runtime-observed is evidence.
         </HelpHint>

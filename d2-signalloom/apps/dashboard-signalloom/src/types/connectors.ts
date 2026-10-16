@@ -63,7 +63,11 @@ export interface TenantConnector {
   status: ConnectorStatus
   credential_expires_at: string | null
   last_tested_at: string | null
+  // Time of the last fully successful scan; a failed or partial scan leaves it
+  // unchanged and records its outcome in last_scan_status / last_scan_error.
   last_scan_at: string | null
+  last_scan_status?: 'success' | 'warning' | 'error' | null
+  last_scan_error?: string | null
   metadata: Record<string, unknown>
   created_at: string
 }

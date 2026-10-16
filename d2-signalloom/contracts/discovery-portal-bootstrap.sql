@@ -5902,3 +5902,181 @@ INSERT INTO public.tenant_settings (
     '{"strictly_necessary": true, "analytics": true}'::jsonb
 ) ON CONFLICT (tenant_id) DO NOTHING;
 -- END 068_seed_governance_frameworks.sql
+
+-- BEGIN 069_connector_scan_audit_event_type.sql
+-- 069 — admit the 'connector.scan_requested' audit event type
+--
+-- POST /connectors/{provider_id}/scan asks an upstream provider (Anthropic)
+-- to enumerate the tenant's agents and models with the tenant's stored
+-- credentials. The request is audited before the outbound call through
+-- _audit_outbound_request, like policy.bundle_submitted and rbac.scan_requested.
+--
+-- Replaces audit_events_event_type_check with the 067 vocabulary plus this
+-- type. Same guarded shape as 063/067: the new type is its own sentinel, so
+-- re-running is a no-op and a database already carrying it is left alone.
+BEGIN;
+
+DO $body$
+DECLARE
+  constraint_name TEXT;
+BEGIN
+  SELECT con.conname INTO constraint_name
+    FROM pg_constraint con
+   WHERE con.conrelid = 'public.audit_events'::regclass
+     AND con.contype = 'c'
+     AND pg_get_constraintdef(con.oid) LIKE '%event_type%'
+   LIMIT 1;
+
+  IF constraint_name IS NOT NULL
+     AND pg_get_constraintdef((
+           SELECT con.oid FROM pg_constraint con
+            WHERE con.conrelid = 'public.audit_events'::regclass
+              AND con.conname = constraint_name
+         )) NOT LIKE '%connector.scan_requested%'
+  THEN
+    EXECUTE format('ALTER TABLE public.audit_events DROP CONSTRAINT %I', constraint_name);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint con
+     WHERE con.conrelid = 'public.audit_events'::regclass
+       AND con.contype = 'c'
+       AND pg_get_constraintdef(con.oid) LIKE '%connector.scan_requested%'
+  ) THEN
+    ALTER TABLE public.audit_events
+      ADD CONSTRAINT audit_events_event_type_check
+      CHECK (event_type IN (
+        'afm.cluster_import_requested',
+        'actor.promote_requested',
+        'agent.claimed',
+        'agent.created',
+        'agent.credential_issued',
+        'agent.credential_revoked',
+        'agent.stun_failed',
+        'agent.stun_simulated',
+        'agent.stunned',
+        'agent.transition_failed',
+        'agent.transitioned',
+        'api_key.created',
+        'api_key.rotated',
+        'audit.cross_tenant_read',
+        'compliance.reassess_requested',
+        'compliance.scan_completed',
+        'compliance_check',
+        'connector.scan_requested',
+        'consent.accepted',
+        'cookie.preferences_updated',
+        'demo.distancelatency.phase_run',
+        'demo.distancelatency.reset_requested',
+        'demo.phase_run',
+        'demo.reset_requested',
+        'demo.signalfusion.phase_run',
+        'demo.signalfusion.reset_requested',
+        'demo.supercred.phase_run',
+        'demo.supercred.reset_requested',
+        'directory_connected',
+        'discovery_enroll_requested',
+        'eap_environment.lease_extended',
+        'eap_environment.provisioned',
+        'eap_environment.reaping_triggered',
+        'eap_environment.registered',
+        'eap_environment.teardown_requested',
+        'eap_environment.ttl_extended',
+        'eap_environment.webhook_triggered',
+        'eap_scenario.executed',
+        'eap_tenant.isolation_provisioned',
+        'eap_tenant.isolation_torn_down',
+        'enrollment',
+        'external_agent.claim_rejected',
+        'external_agent.claimed',
+        'external_agent.enrolled',
+        'external_agent.registered',
+        'external_agent.revoked',
+        'external_agent.status_updated',
+        'external_agent.token_issued',
+        'feature_flags.updated',
+        'fleet.recover_requested',
+        'fleet.resume_requested',
+        'invite.created',
+        'invite.redeemed',
+        'nhi.dismissed',
+        'nhi.enrolled',
+        'onboarding_completed',
+        'onboarding_skipped',
+        'operator.created',
+        'operator.removed',
+        'operator.sign_in_denied',
+        'operator.sign_in_succeeded',
+        'policy.bundle_submitted',
+        'policy.rollback_requested',
+        'rbac.scan_requested',
+        'state_transition',
+        'support.requested',
+        'tenant.frameworks_updated',
+        'tenant.preferences_updated',
+        'tenant.risk_profile_updated',
+        'tenant_created',
+        'token_issued',
+        'token_refused',
+        'user.currency_updated',
+        'user.deleted',
+        'user.invited',
+        'user.role_updated',
+        'user.status_updated',
+        'user.updated',
+        'user_provisioned',
+        'violation.acknowledged',
+        'violation_detected'
+      ));
+  END IF;
+END $body$;
+
+COMMIT;
+-- END 069_connector_scan_audit_event_type.sql
+
+-- BEGIN 070_tenant_connectors.sql
+-- 070 — tenant_connectors: connectors, sealed credentials and last scan, per tenant
+--
+-- Before this, a live deployment kept every tenant's connectors, their
+-- credentials and their scan results in fe-signalloom process memory
+-- (routers/connectors.py). A pod restart forgot all of it: a tenant that had
+-- configured and tested Anthropic Claude saw "Not configured" after the next
+-- deploy. It also handed every live tenant five demo connectors marked
+-- "connected" with invented timestamps.
+--
+-- One row per (tenant, provider); connector_id is unique within the tenant.
+-- Every query filters on tenant_id.
+--
+-- credentials_ciphertext is never plaintext: it is
+-- connector_credentials.seal_credentials output, AES-256-GCM in the
+-- `vault:v1:` wire format, with the tenant and connector as associated data so
+-- a ciphertext moved to another row does not decrypt. The key is mounted from
+-- Secret fe-signalloom-connector-credential-key, never stored here.
+--
+-- Timestamps are observations: last_tested_at and last_scan_at are written only
+-- when a test or a fully successful scan happened; NULL means it has not.
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS public.tenant_connectors (
+    tenant_id              TEXT         NOT NULL,
+    connector_id           TEXT         NOT NULL,
+    provider_id            TEXT         NOT NULL,
+    display_name           TEXT,
+    status                 TEXT         NOT NULL
+                                        CHECK (status IN ('connected', 'disconnected', 'error')),
+    credential_expires_at  TIMESTAMPTZ,
+    last_tested_at         TIMESTAMPTZ,
+    last_scan_at           TIMESTAMPTZ,
+    last_scan_status       TEXT         CHECK (last_scan_status IN ('success', 'warning', 'error')),
+    last_scan_error        TEXT,
+    last_scan_result       JSONB,
+    metadata               JSONB        NOT NULL DEFAULT '{}'::jsonb,
+    credentials_ciphertext TEXT         CHECK (credentials_ciphertext LIKE 'vault:v1:%'),
+    created_at             TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at             TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_id, connector_id),
+    UNIQUE (tenant_id, provider_id)
+);
+
+COMMIT;
+-- END 070_tenant_connectors.sql

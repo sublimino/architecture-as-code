@@ -216,6 +216,12 @@ spec:
             # call, so a rotation needs no restart. A path, never the value.
             - name: SIGNAL_INGEST_KEY_FILE
               value: /etc/fe-signalloom/ingest-key/token
+            # AES-256-GCM key sealing tenant connector credentials in Postgres
+            # (src/connector_credentials.py, table tenant_connectors). A path,
+            # never the value. Minted by `make connector-credential-key`;
+            # absent, credential writes answer 503 credential_store_unavailable.
+            - name: CONNECTOR_CREDENTIAL_KEY_FILE
+              value: /etc/fe-signalloom/connector-credential-key/key
             # AFM import gateway key configuration: JSON array of authorized
             # keys, each bound to exactly one cluster (src/afm_import.py). The
             # binding is checked against the payload's "source_cluster", the
@@ -251,6 +257,9 @@ spec:
               readOnly: true
             - name: afm-importer-key
               mountPath: /etc/fe-signalloom/afm-importer-key
+              readOnly: true
+            - name: connector-credential-key
+              mountPath: /etc/fe-signalloom/connector-credential-key
               readOnly: true
             # Same ConfigMap fleet-manager mounts at /etc/fleet
             # (../fleet-manager/base/configmap.yaml) -- the single source of
@@ -336,6 +345,13 @@ spec:
         - name: afm-importer-key
           secret:
             secretName: fe-signalloom-afm-importer-key
+            optional: true
+            defaultMode: 0440
+        # optional: an unminted key leaves the portal up and connector
+        # credential writes answering 503, never stored in plaintext.
+        - name: connector-credential-key
+          secret:
+            secretName: fe-signalloom-connector-credential-key
             optional: true
             defaultMode: 0440
         # fleet-config is the ConfigMap fleet-manager/base/configmap.yaml

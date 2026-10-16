@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { isDemoMode, isProductionEnv } from './demoMode'
+import { remoteEnvironmentFixtures, type RemoteEnvironmentFixture } from './fakeData'
 import type {
   ConnectorCreateRequest,
   ConnectorCreateResponse,
@@ -41,17 +42,21 @@ async function req<T>(
 // connector it would belong to, since nothing has been saved yet.
 export type ProviderCredentialTestResult = Omit<ConnectorTestResult, 'connector_id'>
 
+// endpoint, status_code and details are wire telemetry: the server sends them
+// as null to anyone who is not a superadmin.
 export interface SyncLogEntry {
   id: string
   timestamp: string
   level: 'info' | 'warn' | 'error' | 'debug'
   message: string
-  endpoint?: string
-  status_code?: number
-  duration_ms?: number
-  details?: Record<string, unknown>
+  endpoint?: string | null
+  status_code?: number | null
+  duration_ms?: number | null
+  details?: Record<string, unknown> | null
 }
 
+// A null count means the scan did not observe that kind of record (the
+// upstream call failed or the provider has no such API), never zero.
 export interface SyncResult {
   provider_id: string
   synced_at: string
@@ -120,6 +125,7 @@ export interface ConnectorsApi {
   ): Promise<ProviderCredentialTestResult>
   toggleConnector(token: string, id: string, enabled?: boolean): Promise<TenantConnector>
   triggerScan(token: string, providerId: string): Promise<SyncResult>
+  /** The last scan's result, or null when the connector has never been scanned. */
   getSyncLogs(token: string, providerId: string): Promise<SyncResult | null>
   getStatus(token: string): Promise<{
     status: string
@@ -174,21 +180,15 @@ const liveConnectorsApi: ConnectorsApi = {
     })
   },
 
-  triggerScan: async (token, providerId) => {
-    try {
-      return await req<SyncResult>(`/connectors/${providerId}/scan`, token, { method: 'POST' })
-    } catch (err) {
-      console.warn(`[connectorsClient] live triggerScan failed for ${providerId}, falling back to mock result:`, err)
-      return getMockSyncResult(providerId)
-    }
-  },
+  triggerScan: (token, providerId) =>
+    req<SyncResult>(`/connectors/${providerId}/scan`, token, { method: 'POST' }),
 
   getSyncLogs: async (token, providerId) => {
     try {
       return await req<SyncResult>(`/connectors/${providerId}/logs`, token)
     } catch (err) {
-      console.warn(`[connectorsClient] live getSyncLogs failed for ${providerId}, falling back to mock result:`, err)
-      return getMockSyncResult(providerId)
+      if (apiErrorCode(err) === 'never_scanned') return null
+      throw err
     }
   },
 
@@ -544,6 +544,8 @@ const mockConnectorsApi: ConnectorsApi = {
 
 function getMockSyncResult(providerId: string): SyncResult {
   const now = new Date().toISOString()
+  const claudeAgents = remoteEnvironmentFixtures.claude.connectedAgents.length
+  const openaiAgents = remoteEnvironmentFixtures.openai.connectedAgents.length
   if (providerId === 'claude') {
     return {
       provider_id: 'claude',
@@ -551,8 +553,8 @@ function getMockSyncResult(providerId: string): SyncResult {
       duration_ms: 142,
       status: 'success',
       records_scanned: {
-        agents: 3,
-        models: 4,
+        agents: claudeAgents,
+        models: 3,
         environments: 1,
         tools: 2,
       },
@@ -636,10 +638,10 @@ function getMockSyncResult(providerId: string): SyncResult {
           id: 'log-claude-7',
           timestamp: now,
           level: 'info',
-          message: 'Sync completed successfully. 3 agents, 4 models, 1 environment, 2 tools discovered.',
+          message: `Sync completed successfully. ${claudeAgents} agents, 3 models, 1 environment, 2 tools discovered.`,
           details: {
-            agents: 3,
-            models: 4,
+            agents: claudeAgents,
+            models: 3,
             environments: 1,
             tools: 2,
           },
@@ -655,7 +657,7 @@ function getMockSyncResult(providerId: string): SyncResult {
       duration_ms: 168,
       status: 'success',
       records_scanned: {
-        agents: 2,
+        agents: openaiAgents,
         models: 3,
         environments: 1,
         tools: 3,
@@ -693,7 +695,7 @@ function getMockSyncResult(providerId: string): SyncResult {
           status_code: 200,
           duration_ms: 135,
           details: {
-            assistants_count: 2,
+            assistants_count: openaiAgents,
             code_interpreter_enabled: true,
             file_search_enabled: true,
           },
@@ -819,12 +821,24 @@ function getMockSyncResult(providerId: string): SyncResult {
   }
 }
 
-export function isConnectorsMockMode(): boolean {
-  const envMode = (import.meta.env.VITE_CONNECTORS_API_MODE as string | undefined)?.toLowerCase()
+export function resolveConnectorsMockMode(envMode: string | undefined, production: boolean, demo: boolean): boolean {
+  if (production) return false
   if (envMode === 'live') return false
   if (envMode === 'mock') return true
-  if (isProductionEnv) return false
-  return isDemoMode()
+  return demo
+}
+
+export function isConnectorsMockMode(): boolean {
+  const envMode = (import.meta.env.VITE_CONNECTORS_API_MODE as string | undefined)?.toLowerCase()
+  return resolveConnectorsMockMode(envMode, isProductionEnv, isDemoMode())
+}
+
+/**
+ * The demo remote-environment fixture for a provider, or null in live mode.
+ * Pages get demo content only through this gate, never by importing fakeData.
+ */
+export function demoRemoteEnvironment(providerId: RemoteEnvironmentProviderId): RemoteEnvironmentFixture | null {
+  return isConnectorsMockMode() ? remoteEnvironmentFixtures[providerId] : null
 }
 
 export const connectorsApi: ConnectorsApi = {
@@ -836,8 +850,10 @@ export const connectorsApi: ConnectorsApi = {
     isConnectorsMockMode() ? mockConnectorsApi.createConnector(token, body) : liveConnectorsApi.createConnector(token, body),
   deleteConnector: (token, id) =>
     isConnectorsMockMode() ? mockConnectorsApi.deleteConnector(token, id) : liveConnectorsApi.deleteConnector(token, id),
-  testConnector: (token, id) =>
-    isConnectorsMockMode() ? mockConnectorsApi.testConnector(token, id) : liveConnectorsApi.testConnector(token, id),
+  testConnector: (token, id, credentials) =>
+    isConnectorsMockMode()
+      ? mockConnectorsApi.testConnector(token, id, credentials)
+      : liveConnectorsApi.testConnector(token, id, credentials),
   testProviderCredentials: (token, providerId, credentials) =>
     isConnectorsMockMode()
       ? mockConnectorsApi.testProviderCredentials(token, providerId, credentials)

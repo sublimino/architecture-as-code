@@ -4,6 +4,7 @@ import {
   matchAgentByQuery,
   resolveAgentOrInstance,
   getAgentFramework,
+  agentMatchesIdentity,
 } from './agentQuerySelectors'
 import type { AgentResponse } from '../types/api'
 
@@ -326,5 +327,44 @@ describe('id: selector matches on identity only', () => {
   it('still matches the exact id and the tenant-qualified suffix', () => {
     expect(matchAgentByQuery(claudeModelAgent, 'id:tenant-acme:claude-agent-fin-analyst')).toBe(true)
     expect(matchAgentByQuery(claudeModelAgent, 'id:claude-agent-fin-analyst')).toBe(true)
+  })
+})
+
+describe('id: selector is exact identity, never a substring', () => {
+  const finAnalyst = {
+    ...mockAgents[1],
+    id: 'tenant-acme:claude-agent-fin-analyst',
+    name: 'Daily News Jokester',
+  } as AgentResponse
+
+  it('does not match a fragment of the id', () => {
+    expect(matchAgentByQuery(finAnalyst, 'id:claude-agent')).toBe(false)
+    expect(matchAgentByQuery(finAnalyst, 'id:fin-analyst')).toBe(false)
+    expect(matchAgentByQuery(finAnalyst, 'id:tenant-acme')).toBe(false)
+  })
+
+  it('resolves an unknown id to nothing even when a lookalike is loaded', () => {
+    const res = resolveAgentOrInstance([finAnalyst, mockAgents[1]], 'id:agent')
+    expect(res.matchedAgent).toBeUndefined()
+    expect(res.allMatches).toEqual([])
+  })
+})
+
+describe('agentMatchesIdentity (deep-link drawer identity)', () => {
+  const a = { ...mockAgents[1], id: 'tenant-demo:agent_01FoEhnKF9QsC5DGmuELhm7G', name: 'Daily News Jokester' } as AgentResponse
+
+  it('accepts the exact id, the exact name, and the tenant-qualified suffix', () => {
+    expect(agentMatchesIdentity(a, 'tenant-demo:agent_01FoEhnKF9QsC5DGmuELhm7G')).toBe(true)
+    expect(agentMatchesIdentity(a, 'agent_01FoEhnKF9QsC5DGmuELhm7G')).toBe(true)
+    expect(agentMatchesIdentity(a, 'Daily News Jokester')).toBe(true)
+  })
+
+  it('rejects any other agent, fragment, or empty reference', () => {
+    const other = { ...mockAgents[1], id: 'agent-nono-evidenced-8b4674c45-67mmg', name: 'Demo Agent (Nono Evidenced)' } as AgentResponse
+    expect(agentMatchesIdentity(other, 'agent_01FoEhnKF9QsC5DGmuELhm7G')).toBe(false)
+    expect(agentMatchesIdentity(a, '01FoEhnKF9QsC5DGmuELhm7G')).toBe(false)
+    expect(agentMatchesIdentity(a, 'tenant-demo')).toBe(false)
+    expect(agentMatchesIdentity(a, '')).toBe(false)
+    expect(agentMatchesIdentity(null, 'agent_01FoEhnKF9QsC5DGmuELhm7G')).toBe(false)
   })
 })

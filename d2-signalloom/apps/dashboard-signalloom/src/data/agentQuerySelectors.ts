@@ -187,6 +187,16 @@ export function isClaudeAgent(agent: AgentResponse): boolean {
   )
 }
 
+/**
+ * True only when `ref` names this agent: its exact id, its exact name, or the
+ * id without a `<tenant>:` qualifier. A deep link must open the agent it names
+ * or nothing; a fragment or a different agent is never a match.
+ */
+export function agentMatchesIdentity(agent: AgentResponse | null | undefined, ref: string): boolean {
+  if (!agent || !ref) return false
+  return agent.id === ref || agent.name === ref || agent.id.endsWith(`:${ref}`)
+}
+
 // The framework the server reported. A claude model name or type does not make
 // an agent claude-managed; only runtime.framework can say so.
 export function getAgentFramework(agent: AgentResponse): string {
@@ -206,8 +216,7 @@ function matchClause(agent: AgentResponse, clause: QueryClause): boolean {
       // Identity only: an unknown id must not resolve to whichever agent looks similar.
       return (
         agent.id.toLowerCase() === cleanVal ||
-        agent.id.toLowerCase().replace(/^[^:]+:/, '') === cleanVal ||
-        agent.id.toLowerCase().includes(cleanVal)
+        agent.id.toLowerCase().replace(/^[^:]+:/, '') === cleanVal
       )
     }
     case 'name':

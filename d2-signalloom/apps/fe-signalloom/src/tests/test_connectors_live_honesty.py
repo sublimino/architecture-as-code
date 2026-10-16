@@ -83,6 +83,7 @@ def _client(monkeypatch: pytest.MonkeyPatch, *, live: bool = True):
         return pool
 
     monkeypatch.setattr(api_compat, "_get_pool", _pool)
+    monkeypatch.setattr(settings, "database_url", "")  # fixture mode means no DSN, not an unreachable one
     for tenant in ("tenant-a", "tenant-b"):
         api_compat.reset_tenant_state(tenant)
     reset_connectors_for_testing()

@@ -12,6 +12,7 @@ import logging
 import os
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Any, Literal
 
@@ -1578,6 +1579,9 @@ class RemoteAgent(BaseModel):
     last_seen_at: str
     last_changed_at: str
     gone_at: str | None
+    # The registry agent this remote agent is claimed as (migration 072), or None.
+    claimed_agent_id: str | None = None
+    claimed_at: str | None = None
 
 
 class RemoteSyncState(BaseModel):
@@ -1651,6 +1655,147 @@ async def list_connector_remote_agents(
     agents, state = await remote_agent_sync.list_remote_agents(pool, tenant_id, row["connector_id"])
     return RemoteAgentsResponse(provider_id=row["provider_id"], connector_id=row["connector_id"],
                                 sync_state=state, agents=agents)
+
+
+class RemoteAgentClaimResponse(BaseModel):
+    """The registry agent a remote provider agent is claimed as. ``created`` is False on a repeat claim."""
+    agent_id: str
+    agent_name: str
+    display_name: str
+    provider_id: str
+    connector_id: str
+    external_id: str
+    kind: str
+    model: str | None
+    claimed_at: str | None
+    created: bool
+
+
+# The model vendor behind each connector provider, for agent_registry.model_provider.
+_MODEL_PROVIDER = {"claude": "anthropic", "openai": "openai"}
+# Deterministic registry ids: uuid5 over tenant, provider and provider id.
+_REMOTE_AGENT_NS = uuid.uuid5(uuid.NAMESPACE_URL, "https://signalloom.ai/remote-agents")
+
+
+def _remote_agent_registry_identity(tenant_id: str, provider_id: str, external_id: str) -> tuple[uuid.UUID, str]:
+    """(id, name) for the registry record of a claimed remote agent.
+
+    Both are a pure function of (tenant, provider, external id): a retry or a
+    concurrent claim converges on one row, a reconnected connector re-links the
+    same agent, and two tenants that connect the same provider organisation get
+    two records. The name carries the tenant so it is unique even under the
+    original global UNIQUE (name) that migration 035 replaced.
+    """
+    return (uuid.uuid5(_REMOTE_AGENT_NS, f"{tenant_id}\x1f{provider_id}\x1f{external_id}"),
+            f"{provider_id}:{external_id}@{tenant_id}")
+
+
+def _claim_response(row: Any, provider_id: str, connector_id: str, agent_id: str, name: str,
+                    created: bool) -> RemoteAgentClaimResponse:
+    return RemoteAgentClaimResponse(
+        agent_id=agent_id, agent_name=name, display_name=row["name"] or row["external_id"],
+        provider_id=provider_id, connector_id=connector_id, external_id=row["external_id"], kind=row["kind"],
+        model=row["model"], claimed_at=remote_agent_sync.iso(row["claimed_at"]), created=created,
+    )
+
+
+@router.post("/api/v1/connectors/{provider_id}/remote-agents/{external_id}/claim",
+             response_model=RemoteAgentClaimResponse, status_code=201)
+@router.post("/api/connectors/{provider_id}/remote-agents/{external_id}/claim",
+             response_model=RemoteAgentClaimResponse, status_code=201)
+@router.post("/connectors/{provider_id}/remote-agents/{external_id}/claim",
+             response_model=RemoteAgentClaimResponse, status_code=201)
+async def claim_remote_agent(
+    provider_id: str,
+    external_id: str,
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+) -> Any:
+    """Claim a remote agent continuous sync observed into the caller's tenant.
+
+    201 with the new registry agent; 200 with the same agent on a repeat claim.
+    404 when the connector or the remote agent is not the caller's, 409 when the
+    provider no longer lists it. Fixture mode has no remote state (the same as
+    GET remote-agents), so every claim there is 404 remote_agent_not_found.
+    """
+    tenant_id = principal.tenant
+    pool = await _store_pool("Claiming a remote agent")
+    if pool is None:
+        _ensure_tenant_connectors_seeded(tenant_id)
+        with _CONN_LOCK:
+            match = next((c for c in _TENANT_CONNECTORS_DATA.get(tenant_id, [])
+                          if c["connector_id"] == provider_id or c["provider_id"] == provider_id), None)
+        if match is None:
+            raise APIError(404, "connector_not_configured", f"No connector '{provider_id}' for this tenant")
+        raise APIError(404, "remote_agent_not_found", f"No remote agent '{external_id}' on this connector")
+
+    conn_row = await pool.fetchrow(_SQL_GET, tenant_id, provider_id)
+    if conn_row is None:
+        raise APIError(404, "connector_not_configured", f"No connector '{provider_id}' for this tenant")
+    connector_id, real_provider = conn_row["connector_id"], conn_row["provider_id"]
+    agent_uuid, name = _remote_agent_registry_identity(tenant_id, real_provider, external_id)
+
+    async with _write(pool) as conn:
+        row = await conn.fetchrow(remote_agent_sync.SQL_EXISTING_ONE, tenant_id, connector_id, external_id)
+        if row is None:
+            raise APIError(404, "remote_agent_not_found", f"No remote agent '{external_id}' on this connector")
+        if row["claimed_agent_id"] is not None:
+            return JSONResponse(status_code=200, content=_claim_response(
+                row, real_provider, connector_id, str(row["claimed_agent_id"]), name, False).model_dump())
+        if row["gone_at"] is not None:
+            raise APIError(409, "remote_agent_gone",
+                           f"Remote agent '{external_id}' is no longer listed by the provider")
+
+        display_name = row["name"] or external_id
+        provenance = {"provider_id": real_provider, "connector_id": connector_id, "external_id": external_id,
+                      "kind": row["kind"], "model": row["model"]}
+        # Keyed by the deterministic id and scoped on conflict by tenant_id = $1, so a
+        # retry or a concurrent claim converges on one row and never touches another
+        # tenant's. Literal here so the audit-provenance guard sees the write.
+        registered = await conn.fetchrow(
+            "INSERT /* remote_agent_store:registry_upsert */ INTO public.agent_registry (tenant_id, id, name, "
+            "display_name, description, status, lifecycle_state, model_provider, model_name, owner, owner_id, "
+            "config, last_transition_at, created_at, updated_at) "
+            "VALUES ($1, $2, $3, $4, $5, 'active', 'enrolled', $6, $7, $8, $9, $10::jsonb, NOW(), NOW(), NOW()) "
+            "ON CONFLICT (id) DO UPDATE SET "
+            "model_name = COALESCE(EXCLUDED.model_name, public.agent_registry.model_name), "
+            "owner = COALESCE(public.agent_registry.owner, EXCLUDED.owner), "
+            "owner_id = COALESCE(public.agent_registry.owner_id, EXCLUDED.owner_id), "
+            "config = public.agent_registry.config || EXCLUDED.config, updated_at = NOW() "
+            "WHERE public.agent_registry.tenant_id = $1 RETURNING id",
+            tenant_id, agent_uuid, name, display_name,
+            f"{row['kind'].capitalize()} {external_id} on {real_provider}, claimed from Discovery",
+            _MODEL_PROVIDER.get(real_provider, real_provider), row["model"], principal.actor,
+            api_compat._try_uuid(principal.user_id) if principal.user_id else None,
+            json.dumps({"remote_agent": provenance}),
+        )
+        if registered is None:
+            # The deterministic id is held by another tenant's row: not reachable
+            # with a tenant-qualified uuid5, refused rather than overwritten.
+            raise APIError(409, "claim_conflict", f"Remote agent '{external_id}' cannot be registered")
+        # Set only while unset, and only on a row the provider still lists.
+        linked = await conn.fetchrow(
+            f"UPDATE /* remote_agent_store:claim_link */ public.remote_agents SET claimed_agent_id = $4, "
+            "claimed_at = $5 WHERE tenant_id = $1 AND connector_id = $2 AND external_id = $3 "
+            f"AND gone_at IS NULL AND claimed_agent_id IS NULL RETURNING {remote_agent_sync.RA_COLUMNS}",
+            tenant_id, connector_id, external_id, agent_uuid, datetime.now(timezone.utc))
+        if linked is None:
+            # A concurrent claim linked it first: answer with that link.
+            current = await conn.fetchrow(remote_agent_sync.SQL_EXISTING_ONE, tenant_id, connector_id, external_id)
+            if current is None or current["claimed_agent_id"] is None:
+                raise APIError(409, "remote_agent_gone",
+                               f"Remote agent '{external_id}' is no longer listed by the provider")
+            return JSONResponse(status_code=200, content=_claim_response(
+                current, real_provider, connector_id, str(current["claimed_agent_id"]), name, False).model_dump())
+        await api_compat._audit_log(
+            conn, tenant_id, "agent.claimed", str(agent_uuid), display_name, principal.actor,
+            {"action": "claimed", "source": "remote_agent", **provenance,
+             "remote_name": row["name"], "remote_status": row["status"], "agent_name": name,
+             "owner": principal.actor},
+        )
+
+    remote_agent_sync.EVENTS.publish(tenant_id, "remote_agent.upserted", {
+        "provider_id": real_provider, "connector_id": connector_id, "agent": remote_agent_sync.agent_from_row(linked)})
+    return _claim_response(linked, real_provider, connector_id, str(agent_uuid), name, True)
 
 
 ANTHROPIC_WEBHOOK_KEY_ENV = "ANTHROPIC_WEBHOOK_SIGNING_KEY"
@@ -1769,6 +1914,7 @@ def install_connectors_api(app: Any) -> None:
             get_connector_logs,
             stream_connector_events,
             list_connector_remote_agents,
+            claim_remote_agent,
             anthropic_webhook,
         ):
             return

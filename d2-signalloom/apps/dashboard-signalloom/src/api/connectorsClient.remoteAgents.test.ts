@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { AxiosError, AxiosHeaders } from 'axios'
-import { connectorsApi, liveConnectorsApi, mockConnectorsApi, http, type RemoteAgentsSnapshot } from './connectorsClient'
+import { claimRemoteAgent, connectorsApi, liveConnectorsApi, mockConnectorsApi, http, type RemoteAgentsSnapshot } from './connectorsClient'
 import { setDemoMode } from './demoMode'
 import { remoteEnvironmentFixtures } from './fakeData'
 
@@ -75,5 +75,39 @@ describe('listRemoteAgents (mode dispatch)', () => {
 
   it('has no demo snapshot for providers without a remote environment', async () => {
     await expect(mockConnectorsApi.listRemoteAgents('demo', 'okta')).resolves.toBeNull()
+  })
+})
+
+describe('claimRemoteAgent', () => {
+  const CLAIM = {
+    agent_id: '5b1c0d9e-0000-5000-8000-000000000001', agent_name: 'claude:agent_1@tenant-a', display_name: 'Triage',
+    provider_id: 'claude', connector_id: 'conn-claude-01', external_id: 'agent_1', kind: 'agent',
+    model: 'claude-opus-4-7', claimed_at: '2026-10-16T10:00:00Z', created: true,
+  }
+
+  it('POSTs the claim for that provider and external id with the bearer token', async () => {
+    setDemoMode(false)
+    const spy = vi.spyOn(http, 'request').mockResolvedValue({ data: CLAIM })
+    await expect(claimRemoteAgent('tok', 'claude', 'agent/1')).resolves.toEqual(CLAIM)
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: '/api/connectors/claude/remote-agents/agent%2F1/claim',
+        method: 'POST',
+        headers: expect.objectContaining({ Authorization: 'Bearer tok' }),
+      }),
+    )
+  })
+
+  it('propagates a refusal (409 remote_agent_gone) rather than reporting success', async () => {
+    setDemoMode(false)
+    vi.spyOn(http, 'request').mockRejectedValue(httpError(409, 'remote_agent_gone'))
+    await expect(claimRemoteAgent('tok', 'claude', 'agent_1')).rejects.toBeInstanceOf(AxiosError)
+  })
+
+  it('never fakes a claim in demo mode', async () => {
+    setDemoMode(true)
+    const spy = vi.spyOn(http, 'request')
+    await expect(claimRemoteAgent('demo', 'claude', 'agent_1')).rejects.toThrow(/demo/i)
+    expect(spy).not.toHaveBeenCalled()
   })
 })

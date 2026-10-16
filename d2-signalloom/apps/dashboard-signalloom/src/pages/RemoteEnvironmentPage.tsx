@@ -460,7 +460,18 @@ function RemoteAgentsPanel({ providerId }: { providerId: string }) {
                     <span style={{ ...pill, ...agentTone(a), whiteSpace: 'nowrap' }}>
                       {a.gone_at ? `Gone ${fmtTs(a.gone_at)}` : a.status ?? 'status not reported'}
                     </span>
-                    {a.external_id && (
+                    {a.claimed_agent_id ? (
+                      // Claimed into the tenant registry (POST .../claim): link to that agent.
+                      <Link
+                        to={`/agents?selected=${encodeURIComponent(a.claimed_agent_id)}`}
+                        className="btn btn-secondary btn-sm"
+                        data-testid={`remote-claimed-link-${a.external_id}`}
+                        title="Open the registry agent this was claimed as"
+                        style={{ textDecoration: 'none', color: 'var(--teal)' }}
+                      >
+                        Claimed →
+                      </Link>
+                    ) : a.external_id && (
                       // Claiming happens in Discovery; this page only links there.
                       <Link
                         to={`/discovery?provider=${encodeURIComponent(providerId)}&selected=${encodeURIComponent(a.external_id)}`}

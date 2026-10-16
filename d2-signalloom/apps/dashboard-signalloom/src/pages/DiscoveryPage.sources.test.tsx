@@ -5,7 +5,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import DiscoveryPage from './DiscoveryPage'
 import { api } from '../api/client'
 import { isDemoMode } from '../api/demoMode'
-import { connectorsApi, getDiscoverySourceSyncState } from '../api/connectorsClient'
+import { claimRemoteAgent, connectorsApi, getDiscoverySourceSyncState } from '../api/connectorsClient'
 import type { DiscoveryWorkload, DiscoveryWorkloadsResponse } from '../types/api'
 import type { TenantConnector } from '../types/connectors'
 
@@ -50,6 +50,7 @@ vi.mock('../api/connectorsClient', async (importOriginal) => {
       getSyncLogs: vi.fn(),
     },
     getDiscoverySourceSyncState: vi.fn(),
+    claimRemoteAgent: vi.fn(),
   }
 })
 
@@ -222,6 +223,30 @@ describe('Discovery sources strip', () => {
     )
   })
 
+  it.each([
+    // W11's sync_state.mode is poll | poll+stream | backoff; the interval is next_poll_at - last_poll_at.
+    [{ mode: 'poll', last_poll_at: iso(-10_000), next_poll_at: iso(20_000) }, 'Polling every 30 s'],
+    [{ mode: 'poll', last_poll_at: iso(-60_000), next_poll_at: iso(29_000) }, 'Polling every 89 s'],
+    [{ mode: 'poll', last_poll_at: iso(-60_000), next_poll_at: iso(30_000) }, 'Polling every 2 min'],
+    [{ mode: 'poll+stream', last_poll_at: iso(-10_000), next_poll_at: iso(20_000) }, 'Live sessions + polling every 30 s'],
+    [{ mode: 'poll+stream', last_poll_at: null, next_poll_at: null }, 'Live sessions + polling'],
+    [{ mode: 'backoff', last_poll_at: iso(-10_000), next_poll_at: iso(60_000), consecutive_failures: 3 },
+      'Backing off after errors (3 consecutive failures)'],
+    [{ mode: 'backoff', last_poll_at: null, next_poll_at: null, consecutive_failures: 1 },
+      'Backing off after errors (1 consecutive failure)'],
+    [{ mode: 'backoff', last_poll_at: null, next_poll_at: null }, 'Backing off after errors'],
+  ])('labels sync state %j as "%s"', async (partial, label) => {
+    mocked(getDiscoverySourceSyncState).mockImplementation(async (_t: string, providerId: string) =>
+      providerId === 'claude'
+        ? { provider_id: 'claude', connector_id: 'conn-claude',
+            sync_state: { last_success_at: null, last_error: null, ...partial } }
+        : null,
+    )
+    renderPage()
+    const badge = await screen.findByTestId('discovery-source-claude-sync')
+    expect(badge).toHaveTextContent(new RegExp(`^${label.replace(/[()+]/g, '\\$&')}$`))
+  })
+
   it('Re-scan scans only that provider, shows ButtonWait while pending, then refetches workloads', async () => {
     let resolveScan: (v: unknown) => void = () => {}
     mocked(connectorsApi.triggerScan).mockImplementation(
@@ -287,12 +312,80 @@ describe('Remote agents in the live workloads list', () => {
     expect(screen.getByTestId('discovery-row-asst_9')).toHaveTextContent('OpenAI')
   })
 
-  it('disables claim on provider-hosted agents with the precise reason, and keeps it for k8s rows', async () => {
+  it('demo mode keeps claim disabled on provider-hosted agents with the reason, and enabled for k8s rows', async () => {
+    mocked(isDemoMode).mockReturnValue(true)
     renderPage()
     const claim = await screen.findByTestId('enroll-workload-btn-agent_01')
     expect(claim).toBeDisabled()
     expect(screen.getByTestId('claim-unavailable-reason-agent_01')).toHaveTextContent(/namespace/i)
+    expect(screen.queryByTestId('claim-remote-btn-agent_01')).not.toBeInTheDocument()
     expect(screen.getByTestId('enroll-workload-btn-k8s-1')).not.toBeDisabled()
+  })
+})
+
+describe('Claiming a provider-hosted agent (live)', () => {
+  const CLAIMED = {
+    agent_id: '9f0e5a52-6c1b-5d7e-8a43-1f2e3d4c5b6a', agent_name: 'claude:agent_01@tenant-a', display_name: 'support-triage',
+    provider_id: 'claude', connector_id: 'conn-claude', external_id: 'agent_01', kind: 'agent',
+    model: 'claude-sonnet-4-5', claimed_at: iso(0), created: true,
+  }
+
+  it('offers a working Claim instead of the disabled control and its reason; k8s rows keep enroll', async () => {
+    renderPage()
+    const claim = await screen.findByTestId('claim-remote-btn-agent_01')
+    expect(claim).not.toBeDisabled()
+    expect(claim).toHaveTextContent('Claim')
+    expect(screen.queryByTestId('enroll-workload-btn-agent_01')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('claim-unavailable-reason-agent_01')).not.toBeInTheDocument()
+    expect(screen.getByTestId('enroll-workload-btn-k8s-1')).not.toBeDisabled()
+  })
+
+  it('claims through the connectors API with ButtonWait in flight, then shows Claimed linking to the agent', async () => {
+    let resolve: (v: unknown) => void = () => {}
+    mocked(claimRemoteAgent).mockImplementation(() => new Promise((r) => { resolve = r }))
+    renderPage()
+    const claim = await screen.findByTestId('claim-remote-btn-agent_01')
+    await userEvent.click(claim)
+
+    expect(claimRemoteAgent).toHaveBeenCalledTimes(1)
+    expect(claimRemoteAgent).toHaveBeenCalledWith('test-token', 'claude', 'agent_01')
+    expect(within(claim).getByTestId('claim-remote-wait-agent_01')).toBeInTheDocument()
+    expect(claim).toBeDisabled()
+
+    resolve(CLAIMED)
+    const link = await screen.findByTestId('remote-claimed-link-agent_01')
+    expect(link).toHaveTextContent('Claimed')
+    expect(link).toHaveAttribute('href', `/agents?selected=${CLAIMED.agent_id}`)
+    expect(screen.queryByTestId('claim-remote-btn-agent_01')).not.toBeInTheDocument()
+    // The other provider row is untouched.
+    expect(screen.getByTestId('claim-remote-btn-asst_9')).not.toBeDisabled()
+  })
+
+  it('shows a failed claim on the row and lets the operator retry', async () => {
+    mocked(claimRemoteAgent).mockRejectedValueOnce(new Error('Remote agent agent_01 is no longer listed by the provider'))
+    renderPage()
+    await userEvent.click(await screen.findByTestId('claim-remote-btn-agent_01'))
+    const err = await screen.findByTestId('claim-remote-error-agent_01')
+    expect(err).toHaveAttribute('role', 'alert')
+    expect(err).toHaveTextContent('no longer listed by the provider')
+    expect(screen.getByTestId('claim-remote-btn-agent_01')).not.toBeDisabled()
+    expect(screen.queryByTestId('remote-claimed-link-agent_01')).not.toBeInTheDocument()
+  })
+
+  it('a row the backend already reports claimed shows Claimed with its link, no Claim button', async () => {
+    mocked(api.discovery.workloads).mockResolvedValue({
+      ...liveResponse,
+      workloads: [
+        remoteWorkload({
+          id: 'agent_01', status: 'governed',
+          metadata: { provider_id: 'claude', connector_id: 'conn-claude', claimed_agent_id: 'agent-uuid-1' },
+        }),
+      ],
+    })
+    renderPage()
+    const link = await screen.findByTestId('remote-claimed-link-agent_01')
+    expect(link).toHaveAttribute('href', '/agents?selected=agent-uuid-1')
+    expect(screen.queryByTestId('claim-remote-btn-agent_01')).not.toBeInTheDocument()
   })
 })
 

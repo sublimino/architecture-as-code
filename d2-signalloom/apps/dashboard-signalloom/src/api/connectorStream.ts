@@ -114,6 +114,8 @@ export function toConnectorStreamEvent(msg: SseMessage): ConnectorStreamEvent | 
   } catch {
     return null
   }
+  // stream.reset carries no provider: it is about the whole stream.
+  if (msg.event === 'stream.reset') return isRecord(body) ? { type: 'stream.reset' } : null
   if (!isRecord(body) || !isString(body.provider_id) || !isString(body.connector_id)) return null
   const { provider_id, connector_id } = body
   switch (msg.event) {

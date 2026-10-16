@@ -48,7 +48,9 @@ const LOADING: RemoteAgentsView = { status: 'loading', error: null, connectorId:
 const IDLE: StreamConnection = { status: 'idle', error: null, retryInMs: null }
 const INITIAL: ConnectorStreamState = { connection: IDLE, providers: {} }
 
-function applyEvent(view: RemoteAgentsView, ev: ConnectorStreamEvent): RemoteAgentsView {
+type ProviderStreamEvent = Exclude<ConnectorStreamEvent, { type: 'stream.reset' }>
+
+function applyEvent(view: RemoteAgentsView, ev: ProviderStreamEvent): RemoteAgentsView {
   switch (ev.type) {
     case 'remote_agent.upserted': {
       const i = view.agents.findIndex((a) => a.external_id === ev.agent.external_id)
@@ -70,7 +72,7 @@ function createConnectorStreamStore() {
   const listeners = new Set<() => void>()
   const refs = new Map<string, number>()
   // Snapshot fetches in flight, with the events seen since the earliest began.
-  const inflight = new Map<string, { seq: number; buffer: ConnectorStreamEvent[] }>()
+  const inflight = new Map<string, { seq: number; buffer: ProviderStreamEvent[] }>()
   let getToken: (() => Promise<string>) | null = null
   let stream: ConnectorStreamHandle | null = null
   let streamId = 0
@@ -126,6 +128,11 @@ function createConnectorStreamStore() {
   }
 
   function onEvent(ev: ConnectorStreamEvent) {
+    if (ev.type === 'stream.reset') {
+      // The server could not replay what we missed: refetch every snapshot.
+      refs.forEach((_n, providerId) => load(providerId))
+      return
+    }
     const view = state.providers[ev.provider_id]
     if (!view) return
     if (view.connectorId && ev.connector_id !== view.connectorId) {
@@ -232,15 +239,29 @@ function createConnectorStreamStore() {
 
 export const connectorStreamStore = createConnectorStreamStore()
 
-/** Upstream sync mode as a short phrase: what the backend is doing, not the browser. */
+/** The backend's poll interval, from its own last and next poll times; null when unobserved. */
+export function pollIntervalLabel(s: Pick<ConnectorSyncState, 'last_poll_at' | 'next_poll_at'>): string | null {
+  if (!s.last_poll_at || !s.next_poll_at) return null
+  const secs = Math.round((Date.parse(s.next_poll_at) - Date.parse(s.last_poll_at)) / 1000)
+  if (!Number.isFinite(secs) || secs <= 0) return null
+  return secs < 90 ? `${secs} s` : `${Math.round(secs / 60)} min`
+}
+
+/**
+ * Upstream sync mode as a short phrase: what the backend is doing, not the browser.
+ * Backend modes (remote_agent_sync): poll | poll+stream | backoff.
+ */
 export function syncModeLabel(s: ConnectorSyncState): string {
   if (s.mode === 'stream') return 'Live (provider stream)'
   if (s.mode === 'webhook') return 'Live (provider webhooks)'
-  if (s.mode === 'poll') {
-    const from = s.last_poll_at ? Date.parse(s.last_poll_at) : NaN
-    const to = s.next_poll_at ? Date.parse(s.next_poll_at) : NaN
-    const secs = Math.round((to - from) / 1000)
-    return Number.isFinite(secs) && secs > 0 ? `Polling every ${secs} s` : 'Polling'
+  const every = pollIntervalLabel(s)
+  if (s.mode === 'poll') return every ? `Polling every ${every}` : 'Polling'
+  if (s.mode === 'poll+stream') return every ? `Live sessions + polling every ${every}` : 'Live sessions + polling'
+  if (s.mode === 'backoff') {
+    const n = s.consecutive_failures
+    return typeof n === 'number' && n > 0
+      ? `Backing off after errors (${n} consecutive failure${n === 1 ? '' : 's'})`
+      : 'Backing off after errors'
   }
   return `Sync mode: ${s.mode}`
 }

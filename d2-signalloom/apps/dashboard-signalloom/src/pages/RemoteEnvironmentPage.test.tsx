@@ -287,6 +287,31 @@ describe('RemoteEnvironmentPage (live remote agents)', () => {
     for (const s of FIXTURE_STRINGS) expect(text, s).not.toContain(s)
   })
 
+  it('shows a claimed agent as Claimed linking to its registry agent, with no Claim in Discovery link', async () => {
+    vi.mocked(connectorsApi.listRemoteAgents).mockResolvedValue(
+      snap({ agents: [agent('s1', { claimed_agent_id: 'agent-uuid-1', claimed_at: '2026-10-16T10:05:00Z' }), agent('s2')] }),
+    )
+    await ready()
+    const claimed = screen.getByTestId('remote-claimed-link-s1')
+    expect(claimed).toHaveTextContent('Claimed')
+    expect(claimed).toHaveAttribute('href', '/agents?selected=agent-uuid-1')
+    expect(screen.queryByTestId('claim-in-discovery-s1')).not.toBeInTheDocument()
+    // The unclaimed row keeps its link to Discovery.
+    expect(screen.getByTestId('claim-in-discovery-s2')).toBeInTheDocument()
+    expect(screen.queryByTestId('remote-claimed-link-s2')).not.toBeInTheDocument()
+  })
+
+  it('turns a row to Claimed when the claim arrives over the stream', async () => {
+    await ready()
+    send('remote_agent.upserted', {
+      provider_id: 'claude', connector_id: 'conn-live-7',
+      agent: agent('s2', { status: 'running', claimed_agent_id: 'agent-uuid-2', claimed_at: '2026-10-16T10:06:00Z' }),
+    })
+    const claimed = await screen.findByTestId('remote-claimed-link-s2')
+    expect(claimed).toHaveAttribute('href', '/agents?selected=agent-uuid-2')
+    expect(screen.queryByTestId('claim-in-discovery-s2')).not.toBeInTheDocument()
+  })
+
   it('applies upserts in place and announces the change politely', async () => {
     await ready()
     send('remote_agent.upserted', { provider_id: 'claude', connector_id: 'conn-live-7', agent: agent('s1', { status: 'running' }) })

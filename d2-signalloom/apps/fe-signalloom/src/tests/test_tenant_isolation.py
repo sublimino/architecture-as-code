@@ -1020,6 +1020,13 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     # the ANTHROPIC_WEBHOOK_ORGANIZATIONS map, and an unmapped org is 404.
     ("GET", "/api/connectors/{provider_id}/remote-agents"),
     ("GET", "/api/v1/connectors/{provider_id}/remote-agents"),
+    # Remote agent claim: reads remote_agents and writes agent_registry with
+    # statements tagged remote_agent_store, scoped by tenant_id = $1 (the
+    # registry upsert's conflict update included); test_remote_agent_claim.py
+    # proves another tenant gets 404 and two tenants claiming the same provider
+    # id get two distinct registry agents.
+    ("POST", "/api/connectors/{provider_id}/remote-agents/{external_id}/claim"),
+    ("POST", "/api/v1/connectors/{provider_id}/remote-agents/{external_id}/claim"),
     ("GET", "/api/connectors/stream"),
     ("GET", "/api/v1/connectors/stream"),
     ("POST", "/api/connectors/claude/webhook"),

@@ -19,6 +19,14 @@ interface Props {
     credentials: Record<string, string>,
     testMode: 'live' | 'simulated',
   ) => Promise<{ ok: boolean; message: string }>
+  initialAuthMode?: AuthMode
+  initialApiKey?: string
+  initialWorkspaceId?: string
+  initialIssuerUrl?: string
+  initialClientId?: string
+  initialClientSecret?: string
+  initialScopes?: string
+  initialTestMode?: TestMode
 }
 
 type AuthMode = 'api_key' | 'oidc'
@@ -31,42 +39,58 @@ export default function ConnectorConfigureModal({
   onClose,
   onSave,
   onTestConnection,
+  initialAuthMode,
+  initialApiKey,
+  initialWorkspaceId,
+  initialIssuerUrl,
+  initialClientId,
+  initialClientSecret,
+  initialScopes,
+  initialTestMode,
 }: Props) {
   if (!isOpen) return null
 
   const isAiProvider = provider.provider_id === 'claude' || provider.provider_id === 'openai'
 
   // Tabs: AI providers default to 'api_key', traditional IdPs to 'oidc'
-  const [authMode, setAuthMode] = useState<AuthMode>(isAiProvider ? 'api_key' : 'oidc')
-  const [testMode, setTestMode] = useState<TestMode>('live')
+  const [authMode, setAuthMode] = useState<AuthMode>(
+    initialAuthMode ?? (isAiProvider ? 'api_key' : 'oidc'),
+  )
+  const [testMode, setTestMode] = useState<TestMode>(initialTestMode ?? 'live')
 
   // API Key fields
-  const [apiKey, setApiKey] = useState<string>('')
+  const [apiKey, setApiKey] = useState<string>(initialApiKey ?? '')
   const [showApiKey, setShowApiKey] = useState<boolean>(false)
-  const [workspaceOrOrgId, setWorkspaceOrOrgId] = useState<string>('')
+  const [workspaceOrOrgId, setWorkspaceOrOrgId] = useState<string>(initialWorkspaceId ?? '')
 
   // OIDC fields
   const [issuerUrl, setIssuerUrl] = useState<string>(
-    provider.provider_id === 'claude'
-      ? 'https://api.anthropic.com/v1'
-      : provider.provider_id === 'openai'
-      ? 'https://api.openai.com/v1'
-      : 'https://dex.inf-signalloom.svc.cluster.local:5556/dex',
+    initialIssuerUrl ?? (
+      provider.provider_id === 'claude'
+        ? 'https://api.anthropic.com/v1'
+        : provider.provider_id === 'openai'
+        ? 'https://api.openai.com/v1'
+        : 'https://dex.inf-signalloom.svc.cluster.local:5556/dex'
+    ),
   )
   const [clientId, setClientId] = useState<string>(
-    provider.provider_id === 'claude'
-      ? 'wrkspc_default'
-      : provider.provider_id === 'openai'
-      ? 'signalloom-openai-reader'
-      : 'signalloom-dashboard',
+    initialClientId ?? (
+      provider.provider_id === 'claude'
+        ? 'wrkspc_default'
+        : provider.provider_id === 'openai'
+        ? 'signalloom-openai-reader'
+        : 'signalloom-dashboard'
+    ),
   )
-  const [clientSecret, setClientSecret] = useState<string>('')
+  const [clientSecret, setClientSecret] = useState<string>(initialClientSecret ?? '')
   const [scopes, setScopes] = useState<string>(
-    provider.provider_id === 'claude'
-      ? 'models.read messages.read batches.read'
-      : provider.provider_id === 'openai'
-      ? 'assistants.read models.read threads.read'
-      : 'openid profile email groups federated:id',
+    initialScopes ?? (
+      provider.provider_id === 'claude'
+        ? 'models.read messages.read batches.read'
+        : provider.provider_id === 'openai'
+        ? 'assistants.read models.read threads.read'
+        : 'openid profile email groups federated:id'
+    ),
   )
 
   // Generic provider fields
@@ -427,6 +451,7 @@ export default function ConnectorConfigureModal({
                     <input
                       type="radio"
                       name="testMode"
+                      data-testid="radio-connector-test-live"
                       value="live"
                       checked={testMode === 'live'}
                       onChange={() => setTestMode('live')}
@@ -455,6 +480,7 @@ export default function ConnectorConfigureModal({
                     <input
                       type="radio"
                       name="testMode"
+                      data-testid="radio-connector-test-simulated"
                       value="simulated"
                       checked={testMode === 'simulated'}
                       onChange={() => setTestMode('simulated')}

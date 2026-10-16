@@ -311,6 +311,33 @@ describe('SyncLogsModal', () => {
     })
   })
 
+  it('shows the design-system wait while a rescan is in flight, then returns to idle', async () => {
+    let resolveRescan: ((value: SyncResult) => void) | undefined
+    vi.mocked(connectorsApi.triggerScan).mockImplementation(
+      () =>
+        new Promise<SyncResult>((resolve) => {
+          resolveRescan = resolve
+        }),
+    )
+    render(
+      <SyncLogsModal isOpen providerId="claude" providerName="Anthropic Claude" onClose={onClose} />,
+    )
+
+    const btn = await screen.findByTestId('btn-modal-rescan')
+    fireEvent.click(btn)
+
+    await waitFor(() => expect(btn).toBeDisabled())
+    expect(btn.getAttribute('aria-busy')).toBe('true')
+    expect(screen.getByTestId('sync-logs-rescan-wait-grid')).toBeTruthy()
+    expect(screen.queryByText('Scanning...')).toBeNull()
+
+    resolveRescan?.(mockSyncResult)
+
+    await waitFor(() => expect(btn).not.toBeDisabled())
+    expect(btn.getAttribute('aria-busy')).not.toBe('true')
+    expect(screen.queryByTestId('sync-logs-rescan-wait-grid')).toBeNull()
+  })
+
   it('closes on escape key or clicking close button', async () => {
     render(
       <SyncLogsModal

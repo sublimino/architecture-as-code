@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { cleanup, render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import Settings, { SETTINGS_TABS } from './Settings'
 import PixelLoader from '../components/PixelLoader'
 import { api } from '../api/client'
-import { connectorsApi } from '../api/connectorsClient'
+import { connectorsApi, type SyncResult } from '../api/connectorsClient'
 import {
   DEFAULT_LOAD_TIMES,
   LOAD_TIMES_OPTIONS,
@@ -446,6 +446,43 @@ describe('Settings: Service Connectors', () => {
     expect(connectorsApi.triggerScan).toHaveBeenCalledWith('test-token', 'okta')
     await waitFor(() => expect(screen.getByTestId('scan-connector-okta')).not.toBeDisabled())
     expect(screen.queryByTestId('scan-error-okta')).not.toBeInTheDocument()
+  })
+
+  it('shows the design-system wait on the busy row only, while a scan is in flight', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
+      { connector_id: 'conn-2', provider_id: 'openai', display_name: 'OpenAI', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
+    ])
+    let resolveScan: ((value: SyncResult) => void) | undefined
+    vi.mocked(connectorsApi.triggerScan).mockImplementation(
+      () =>
+        new Promise<SyncResult>((resolve) => {
+          resolveScan = resolve
+        }),
+    )
+    renderSettings(['/settings?tab=connectors'])
+    const oktaBtn = await screen.findByTestId('scan-connector-okta')
+    const openaiBtn = screen.getByTestId('scan-connector-openai')
+    await userEvent.click(oktaBtn)
+
+    // The row that was clicked goes busy...
+    await waitFor(() => expect(oktaBtn).toBeDisabled())
+    expect(oktaBtn.getAttribute('aria-busy')).toBe('true')
+    expect(within(oktaBtn).getByTestId('scan-connector-wait-okta-grid')).toBeTruthy()
+
+    // ...and the other connector's row stays idle.
+    expect(openaiBtn).not.toBeDisabled()
+    expect(openaiBtn.getAttribute('aria-busy')).not.toBe('true')
+    expect(within(openaiBtn).queryByTestId('scan-connector-wait-openai-grid')).toBeNull()
+
+    resolveScan?.({
+      provider_id: 'okta', synced_at: '2026-10-16T12:00:00Z', duration_ms: 5, status: 'success',
+      records_scanned: { agents: 1, models: 1, environments: null, tools: null }, policies_evaluated: null, logs: [],
+    })
+
+    await waitFor(() => expect(oktaBtn).not.toBeDisabled())
+    expect(oktaBtn.getAttribute('aria-busy')).not.toBe('true')
+    expect(within(oktaBtn).queryByTestId('scan-connector-wait-okta-grid')).toBeNull()
   })
 
   it('shows the last scan error the server recorded for the connector', async () => {

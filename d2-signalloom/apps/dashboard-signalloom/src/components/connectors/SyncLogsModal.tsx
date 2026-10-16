@@ -3,6 +3,7 @@ import { connectorsApi, connectorErrorMessage, type SyncResult } from '../../api
 import { useServerSuperadmin } from '../../auth/superadmin'
 import { useAuth0 } from '../../auth/oidc'
 import ProviderLogo from '../onboarding/ProviderLogo'
+import ButtonWait from '../ButtonWait'
 
 export interface SyncLogsModalProps {
   isOpen: boolean
@@ -446,9 +447,13 @@ export default function SyncLogsModal({
                 className="btn btn-primary btn-sm"
                 onClick={handleRescan}
                 disabled={loading || rescanning}
-                style={{ fontSize: 12, padding: '5px 12px', minWidth: 84 }}
+                aria-busy={rescanning}
+                style={{ fontSize: 12, padding: '5px 12px', minWidth: 84, justifyContent: 'center' }}
               >
-                {rescanning ? 'Scanning...' : 'Scan Now'}
+                {/* The shared in-button wait, not a bespoke "Scanning…" word. See ButtonWait. */}
+                {rescanning
+                  ? <ButtonWait testId="sync-logs-rescan-wait" label="Scanning" />
+                  : 'Scan Now'}
               </button>
             </div>
           </div>

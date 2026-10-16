@@ -265,9 +265,9 @@ export default function SyncLogsModal({
               <div style={{ fontSize: 12, color: 'var(--muted, #94a3b8)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span>Sync & Telemetry Logs</span>
                 <span>•</span>
-                <span>Last Synced: {syncResult ? formatTimeAgo(syncResult.synced_at) : '—'}</span>
+                <span>Last Synced: {syncResult ? formatTimeAgo(syncResult.synced_at) : 'Never'}</span>
                 <span>•</span>
-                <span>Duration: {syncResult ? `${syncResult.duration_ms} ms` : '—'}</span>
+                <span>Duration: {syncResult ? `${syncResult.duration_ms} ms` : '-'}</span>
               </div>
             </div>
           </div>

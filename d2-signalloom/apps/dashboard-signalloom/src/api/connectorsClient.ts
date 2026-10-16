@@ -870,3 +870,47 @@ export const connectorsApi: ConnectorsApi = {
 
 export { mockConnectorsApi, liveConnectorsApi, http }
 
+// ── Discovery page: per-source sync state (W13, read-only) ──────────────────
+// Kept as one self-contained block so it merges cleanly beside the shared
+// remote-agent store. It reads GET /connectors/{provider_id}/remote-agents
+// only for its sync_state; the agents themselves reach the Discovery page as
+// rows of GET /discovery/workloads. Once the shared store's listRemoteAgents
+// is on the same line, this can collapse onto it.
+
+export interface DiscoverySourceSyncState {
+  mode: string
+  last_poll_at: string | null
+  last_success_at: string | null
+  last_error: string | null
+  next_poll_at: string | null
+}
+
+export interface DiscoverySourceSnapshot {
+  provider_id: string
+  connector_id: string
+  sync_state: DiscoverySourceSyncState | null
+}
+
+/**
+ * The backend sync engine's state for one provider, or null when there is
+ * none to report: the connector is not configured (404
+ * connector_not_configured) or the connectors API is in mock mode, where no
+ * sync engine exists and none is invented.
+ */
+export async function getDiscoverySourceSyncState(
+  token: string,
+  providerId: string,
+): Promise<DiscoverySourceSnapshot | null> {
+  if (isConnectorsMockMode()) return null
+  try {
+    const res = await req<DiscoverySourceSnapshot>(
+      `/connectors/${encodeURIComponent(providerId)}/remote-agents`,
+      token,
+    )
+    return { provider_id: res.provider_id, connector_id: res.connector_id, sync_state: res.sync_state ?? null }
+  } catch (err) {
+    if (apiErrorCode(err) === 'connector_not_configured') return null
+    throw err
+  }
+}
+

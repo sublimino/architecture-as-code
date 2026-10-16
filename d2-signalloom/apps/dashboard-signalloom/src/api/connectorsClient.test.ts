@@ -336,21 +336,22 @@ describe('connectorsClient mode dispatch & honesty', () => {
 
       // Test claude sync logs
       const claudeResult = await connectorsApi.getSyncLogs('demo-token', 'claude')
-      expect(claudeResult.provider_id).toBe('claude')
-      expect(claudeResult.status).toBe('success')
-      expect(claudeResult.records_scanned).toEqual({
+      expect(claudeResult).not.toBeNull()
+      expect(claudeResult!.provider_id).toBe('claude')
+      expect(claudeResult!.status).toBe('success')
+      expect(claudeResult!.records_scanned).toEqual({
         agents: 3,
         models: 4,
         environments: 1,
         tools: 2,
       })
-      expect(claudeResult.policies_evaluated).toEqual({
+      expect(claudeResult!.policies_evaluated).toEqual({
         egress_rules: 2,
         violations: 0,
       })
 
       // Verify specific required log signatures
-      const messages = claudeResult.logs.map((l) => l.message).join(' ')
+      const messages = claudeResult!.logs.map((l) => l.message).join(' ')
       expect(messages).toContain('claude-3-5-sonnet-20241022')
       expect(messages).toContain('batch message processing queues')
       expect(messages).toContain('env_01CyCigBbDRSLTzSCyyHQ7eT')
@@ -358,7 +359,7 @@ describe('connectorsClient mode dispatch & honesty', () => {
       expect(messages).toContain('MCP servers allowed, package managers allowed')
 
       // Check debug wire traces in claude
-      const modelsLog = claudeResult.logs.find((l) => l.endpoint === 'GET /v1/models')
+      const modelsLog = claudeResult!.logs.find((l) => l.endpoint === 'GET /v1/models')
       expect(modelsLog).toBeDefined()
       expect(modelsLog?.status_code).toBe(200)
       expect(modelsLog?.duration_ms).toBeGreaterThan(0)
@@ -371,16 +372,18 @@ describe('connectorsClient mode dispatch & honesty', () => {
 
       // Test OpenAI sync logs
       const openaiResult = await connectorsApi.getSyncLogs('demo-token', 'openai')
-      expect(openaiResult.provider_id).toBe('openai')
-      expect(openaiResult.records_scanned.agents).toBe(2)
-      const openaiMessages = openaiResult.logs.map((l) => l.message).join(' ')
+      expect(openaiResult).not.toBeNull()
+      expect(openaiResult!.provider_id).toBe('openai')
+      expect(openaiResult!.records_scanned.agents).toBe(2)
+      const openaiMessages = openaiResult!.logs.map((l) => l.message).join(' ')
       expect(openaiMessages).toContain('gpt-4o')
 
       // Test Dex sync logs
       const dexResult = await connectorsApi.getSyncLogs('demo-token', 'dex')
-      expect(dexResult.provider_id).toBe('dex')
-      expect(dexResult.records_scanned.environments).toBe(1)
-      const dexMessages = dexResult.logs.map((l) => l.message).join(' ')
+      expect(dexResult).not.toBeNull()
+      expect(dexResult!.provider_id).toBe('dex')
+      expect(dexResult!.records_scanned.environments).toBe(1)
+      const dexMessages = dexResult!.logs.map((l) => l.message).join(' ')
       expect(dexMessages).toContain('Dex')
     })
 
@@ -414,7 +417,8 @@ describe('connectorsClient mode dispatch & honesty', () => {
           method: 'GET',
         }),
       )
-      expect(logRes.provider_id).toBe('claude')
+      expect(logRes).not.toBeNull()
+      expect(logRes!.provider_id).toBe('claude')
     })
 
     it('gracefully handles network failures in triggerScan and getSyncLogs by falling back to mock SyncResult', async () => {
@@ -441,9 +445,10 @@ describe('connectorsClient mode dispatch & honesty', () => {
         }),
       )
       expect(logRes).toBeDefined()
-      expect(logRes.provider_id).toBe('claude')
-      expect(logRes.status).toBe('success')
-      expect(logRes.logs.length).toBeGreaterThan(0)
+      expect(logRes).not.toBeNull()
+      expect(logRes!.provider_id).toBe('claude')
+      expect(logRes!.status).toBe('success')
+      expect(logRes!.logs.length).toBeGreaterThan(0)
     })
   })
 })

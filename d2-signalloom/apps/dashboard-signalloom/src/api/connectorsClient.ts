@@ -58,15 +58,15 @@ export interface SyncResult {
   duration_ms: number
   status: 'success' | 'warning' | 'error'
   records_scanned: {
-    agents: number
-    models: number
-    environments: number
-    tools: number
+    agents: number | null
+    models: number | null
+    environments: number | null
+    tools: number | null
   }
   policies_evaluated: {
     egress_rules: number
     violations: number
-  }
+  } | null
   logs: SyncLogEntry[]
 }
 
@@ -108,6 +108,7 @@ export interface ConnectorsApi {
   listProviders(token: string): Promise<ConnectorProvider[]>
   listConnectors(token: string): Promise<TenantConnector[]>
   createConnector(token: string, body: ConnectorCreateRequest): Promise<TenantConnector>
+  deleteConnector(token: string, id: string): Promise<void>
   testConnector(token: string, id: string, credentials?: Record<string, string>): Promise<ConnectorTestResult>
   // Tests credentials before anything is saved. The server answers 501
   // test_unsupported when the provider has no real verifier; a caller must
@@ -119,7 +120,7 @@ export interface ConnectorsApi {
   ): Promise<ProviderCredentialTestResult>
   toggleConnector(token: string, id: string, enabled?: boolean): Promise<TenantConnector>
   triggerScan(token: string, providerId: string): Promise<SyncResult>
-  getSyncLogs(token: string, providerId: string): Promise<SyncResult>
+  getSyncLogs(token: string, providerId: string): Promise<SyncResult | null>
   getStatus(token: string): Promise<{
     status: string
     synced_at: string

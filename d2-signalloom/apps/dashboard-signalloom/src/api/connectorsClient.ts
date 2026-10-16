@@ -846,8 +846,10 @@ export const connectorsApi: ConnectorsApi = {
     isConnectorsMockMode() ? mockConnectorsApi.createConnector(token, body) : liveConnectorsApi.createConnector(token, body),
   deleteConnector: (token, id) =>
     isConnectorsMockMode() ? mockConnectorsApi.deleteConnector(token, id) : liveConnectorsApi.deleteConnector(token, id),
-  testConnector: (token, id) =>
-    isConnectorsMockMode() ? mockConnectorsApi.testConnector(token, id) : liveConnectorsApi.testConnector(token, id),
+  testConnector: (token, id, credentials) =>
+    isConnectorsMockMode()
+      ? mockConnectorsApi.testConnector(token, id, credentials)
+      : liveConnectorsApi.testConnector(token, id, credentials),
   testProviderCredentials: (token, providerId, credentials) =>
     isConnectorsMockMode()
       ? mockConnectorsApi.testProviderCredentials(token, providerId, credentials)

@@ -62,6 +62,15 @@ describe('connectorsClient mode dispatch & honesty', () => {
   })
 
   describe('connectorsApi routing', () => {
+    it('forwards supplied credentials through testConnector in live mode', async () => {
+      demoModeModule.setDemoMode(false)
+      const liveSpy = vi.spyOn(liveConnectorsApi, 'testConnector').mockResolvedValue({
+        connector_id: 'conn-1', valid: true, scopes_ok: true,
+      } as Awaited<ReturnType<typeof liveConnectorsApi.testConnector>>)
+      await connectorsApi.testConnector('tok', 'conn-1', { api_key: 'sk-typed' })
+      expect(liveSpy).toHaveBeenCalledWith('tok', 'conn-1', { api_key: 'sk-typed' })
+    })
+
     it('routes listProviders to mockConnectorsApi in demo mode', async () => {
       demoModeModule.setDemoMode(true)
       const mockSpy = vi.spyOn(mockConnectorsApi, 'listProviders')

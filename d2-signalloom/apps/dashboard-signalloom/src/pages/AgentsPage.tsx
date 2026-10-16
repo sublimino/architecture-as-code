@@ -1334,7 +1334,7 @@ function GovernedTab({
           </span>
           <button
             type="button"
-            className="btn"
+            className="btn btn-secondary"
             aria-label="Dismiss agent link notice"
             data-testid={deepLinkNotice.kind === 'not-found' ? 'agent-deeplink-not-found-dismiss' : 'agent-deeplink-lookup-failed-dismiss'}
             onClick={handleDismissDeepLinkNotice}

@@ -23,6 +23,14 @@ describe('ConnectorHelpPage', () => {
     expect(screen.getAllByText(/Application\.Read\.All/).length).toBeGreaterThan(0)
   })
 
+  it('renders the Claude guide the connector wizard links to, stating what it reads', () => {
+    renderAt('/help/connectors/claude')
+    expect(screen.getByRole('heading', { level: 1, name: /Anthropic Claude/i })).toBeInTheDocument()
+    expect(screen.getAllByText(/\/v1\/agents/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/\/v1\/models/).length).toBeGreaterThan(0)
+    expect(screen.queryByText('Coming soon')).not.toBeInTheDocument()
+  })
+
   it('renders a Coming soon EmptyState for stub providers', () => {
     for (const provider of ['google', 'aws', 'gcp']) {
       const { unmount } = renderAt(`/help/connectors/${provider}`)

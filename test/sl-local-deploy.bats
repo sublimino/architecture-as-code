@@ -328,12 +328,26 @@ FAKE
   [[ "$output" =~ "- signalloom-warden (Sentinel DaemonSet)" ]]
 }
 
+@test "warden workload rolls out daemonset/signalloom-warden" {
+  run "$script" -w warden --no-reconcile
+  [ "$status" -eq 0 ]
+  grep -q "rollout restart daemonset/signalloom-warden" "$CALL_LOG"
+  grep -q "rollout status daemonset/signalloom-warden" "$CALL_LOG"
+}
+
 # ─── Test 8: supercred-runner workload ────────────────────────────────────────
 
 @test "supercred-runner workload builds and loads via make" {
   run "$script" -w supercred-runner --no-reconcile
   [ "$status" -eq 0 ]
   grep -q "make demo-signalloom-supercred-runner-image CLUSTER_NAME=osramp" "$CALL_LOG"
+}
+
+@test "supercred-runner workload rolls out deployment/supercred-demo-runner" {
+  run "$script" -w supercred-runner --no-reconcile
+  [ "$status" -eq 0 ]
+  grep -q "rollout restart deployment/supercred-demo-runner" "$CALL_LOG"
+  grep -q "rollout status deployment/supercred-demo-runner" "$CALL_LOG"
 }
 
 @test "supercred-runner workload is included in all" {

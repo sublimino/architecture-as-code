@@ -581,6 +581,9 @@ fi
 if [[ "${TARGET_INGEST}" == "true" ]]; then
   TARGET_DEPLOYMENTS+=("signal-ingest")
 fi
+if [[ "${TARGET_SUPERCRED_RUNNER}" == "true" ]]; then
+  TARGET_DEPLOYMENTS+=("supercred-demo-runner")
+fi
 for dapp in "${DYNAMIC_APPS[@]:-}"; do
   [[ -n "$dapp" ]] && TARGET_DEPLOYMENTS+=("$dapp")
 done
@@ -612,6 +615,9 @@ for dep in "${TARGET_DEPLOYMENTS[@]}"; do
         fi
         tag="${tag:-latest}"
         dep_images+=("zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/signal-ingest:${tag}")
+        ;;
+      supercred-demo-runner)
+        dep_images+=("supercred-demo-runner:local")
         ;;
       *)
         if [[ -f "d2-signalloom/apps/${dep}/base/deployment.yaml" ]]; then
@@ -665,6 +671,16 @@ fi
 if [[ "${TARGET_INGEST}" == "true" ]]; then
   "${KUBECTL_BIN}" -n fe-signalloom rollout restart deployment/signal-ingest
   "${KUBECTL_BIN}" -n fe-signalloom rollout status deployment/signal-ingest --timeout=180s
+fi
+
+if [[ "${TARGET_SUPERCRED_RUNNER}" == "true" ]]; then
+  "${KUBECTL_BIN}" -n fe-signalloom rollout restart deployment/supercred-demo-runner
+  "${KUBECTL_BIN}" -n fe-signalloom rollout status deployment/supercred-demo-runner --timeout=180s
+fi
+
+if [[ "${TARGET_WARDEN}" == "true" ]]; then
+  "${KUBECTL_BIN}" -n inf-signalloom-warden rollout restart daemonset/signalloom-warden
+  "${KUBECTL_BIN}" -n inf-signalloom-warden rollout status daemonset/signalloom-warden --timeout=180s
 fi
 
 for dapp in "${DYNAMIC_APPS[@]:-}"; do

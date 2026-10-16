@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { api } from '../api/client'
 import RemoteEnvironmentPage from './RemoteEnvironmentPage'
 
 function renderPage(initialEntries = ['/settings/connectors/claude']) {
@@ -102,16 +103,39 @@ describe('RemoteEnvironmentPage', () => {
     renderPage(['/settings/connectors/claude'])
 
     expect(screen.getByRole('heading', { name: /Connected Agents & Workloads/i })).toBeInTheDocument()
-    expect(screen.getByText('claude-code-researcher')).toBeInTheDocument()
+    expect(screen.getByText('Daily News Jokester')).toBeInTheDocument()
     expect(screen.getByText(/ses_01CyCigBbDRSLTzSCyyHQ7eT/i)).toBeInTheDocument()
-    expect(screen.getByText('data-sync-agent')).toBeInTheDocument()
     expect(screen.getByText('active')).toBeInTheDocument()
-    expect(screen.getByText('idle')).toBeInTheDocument()
+    expect(screen.getByText('claude-opus-5-5')).toBeInTheDocument()
+    expect(screen.getByText(/Andrew Martin \(User\)/i)).toBeInTheDocument()
+
+    const dossierLink = screen.getByRole('link', { name: /View Dossier/i })
+    expect(dossierLink).toHaveAttribute('href', '/agents?selected=agent_01FoEhnKF9QsC5DGmuELhm7G')
+
+    const claimBtn = screen.getByRole('button', { name: /Claim to Tenant/i })
+    fireEvent.click(claimBtn)
+    expect(screen.getByRole('button', { name: /Claimed ✓/i })).toBeDisabled()
   })
 
   it('defaults to claude when providerId is not specified or fallback', () => {
     renderPage(['/settings/connectors'])
 
     expect(screen.getByText(/Anthropic Claude \(cloud-dev\)/i)).toBeInTheDocument()
+  })
+
+  it('dynamically pulls back updated remote agent name via API call', async () => {
+    const getSpy = vi.spyOn(api.agents, 'get').mockResolvedValueOnce({
+      id: 'agent_01FoEhnKF9QsC5DGmuELhm7G',
+      name: 'Daily News Jokester (Live Renamed)',
+      tenant_id: 'default',
+      lifecycle_state: 'active',
+      compliance_summary: { total_controls: 12, passing: 12, failing: 0, pending: 0, posture_score: 100 },
+    } as any)
+
+    renderPage(['/settings/connectors/claude'])
+
+    expect(await screen.findByText('Daily News Jokester (Live Renamed)')).toBeInTheDocument()
+    expect(getSpy).toHaveBeenCalledWith(expect.any(String), 'agent_01FoEhnKF9QsC5DGmuELhm7G')
+    getSpy.mockRestore()
   })
 })

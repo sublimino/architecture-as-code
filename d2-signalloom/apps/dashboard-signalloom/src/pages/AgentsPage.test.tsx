@@ -1773,3 +1773,144 @@ describe('AgentsPage — server session tenant and unlinked filter', () => {
     ])
   })
 })
+
+describe('AgentsPage — Claude Managed Parity & Runtime Display', () => {
+  it('renders Daily News Jokester with runtime claude-managed', async () => {
+    const jokester = makeAgent({
+      id: 'agent_01FoEhnKF9QsC5DGmuELhm7G',
+      name: 'Daily News Jokester',
+      model_name: 'claude-opus-5-5',
+      owner: 'Andrew Martin (User)',
+      record_class: 'discovered',
+      is_registry_linked: false,
+      lifecycle_state: 'active',
+      runtime: {
+        namespace: 'cloud-dev',
+        framework: 'claude-managed',
+        model: 'claude-opus-5-5',
+        execution_mode: 'autonomous',
+      },
+    })
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: [jokester], total: 1 })
+    renderPage()
+
+    await screen.findByText('Daily News Jokester')
+    const row = screen.getByTestId('agent-row-agent_01FoEhnKF9QsC5DGmuELhm7G')
+    expect(within(row).getByText('claude-managed')).toBeInTheDocument()
+  })
+
+  it('displays claude-managed for Claude agents identified by framework, type, or model name', async () => {
+    const agentFramework = makeAgent({
+      id: 'agent-fw',
+      name: 'Agent Framework',
+      runtime: {
+        namespace: 'cloud-dev',
+        framework: 'claude-managed',
+        execution_mode: 'autonomous',
+      },
+    })
+    const agentType = makeAgent({
+      id: 'agent-type',
+      name: 'Agent Type',
+      type: 'claude',
+      runtime: {
+        namespace: 'cloud-dev',
+        framework: undefined,
+        execution_mode: 'autonomous',
+      },
+    })
+    const agentModel = makeAgent({
+      id: 'agent-model',
+      name: 'Agent Model',
+      model_name: 'claude-3-5-sonnet-20241022',
+      runtime: {
+        namespace: 'cloud-dev',
+        framework: undefined,
+        execution_mode: 'autonomous',
+      },
+    })
+    vi.mocked(api.agents.list).mockResolvedValue({
+      agents: [agentFramework, agentType, agentModel],
+      total: 3,
+    })
+    renderPage()
+
+    await screen.findByText('Agent Framework')
+    const rowFw = screen.getByTestId('agent-row-agent-fw')
+    const rowType = screen.getByTestId('agent-row-agent-type')
+    const rowModel = screen.getByTestId('agent-row-agent-model')
+
+    expect(within(rowFw).getByText('claude-managed')).toBeInTheDocument()
+    expect(within(rowType).getByText('claude-managed')).toBeInTheDocument()
+    expect(within(rowModel).getByText('claude-managed')).toBeInTheDocument()
+  })
+
+  it('sorts and filters claude-managed agents seamlessly', async () => {
+    const jokester = makeAgent({
+      id: 'agent_01FoEhnKF9QsC5DGmuELhm7G',
+      name: 'Daily News Jokester',
+      model_name: 'claude-opus-5-5',
+      runtime: {
+        namespace: 'cloud-dev',
+        framework: 'claude-managed',
+        execution_mode: 'autonomous',
+      },
+    })
+    const otherAgent = makeAgent({
+      id: 'agent-other',
+      name: 'Zeta Other Agent',
+      runtime: {
+        namespace: 'prod-eu',
+        framework: 'LangGraph',
+        execution_mode: 'autonomous',
+      },
+    })
+    vi.mocked(api.agents.list).mockResolvedValue({
+      agents: [jokester, otherAgent],
+      total: 2,
+    })
+    renderPage()
+
+    await screen.findByText('Daily News Jokester')
+
+    // Filter by searching claude-managed
+    const searchInput = screen.getByPlaceholderText(/Search agents/i)
+    await userEvent.type(searchInput, 'claude-managed')
+
+    const rowJokester = screen.getByTestId('agent-row-agent_01FoEhnKF9QsC5DGmuELhm7G').closest('tbody')
+    const rowOther = screen.getByTestId('agent-row-agent-other').closest('tbody')
+
+    expect(rowJokester).toHaveAttribute('aria-hidden', 'false')
+    expect(rowOther).toHaveAttribute('aria-hidden', 'true')
+
+    // Clear search
+    await userEvent.clear(searchInput)
+    expect(rowJokester).toHaveAttribute('aria-hidden', 'false')
+    expect(rowOther).toHaveAttribute('aria-hidden', 'false')
+
+    // Test sorting by runtime
+    const runtimeSortHeader = screen.getByTestId('sort-header-runtime')
+    await userEvent.click(runtimeSortHeader)
+    const rows = screen.getAllByRole('button', { name: /View evidence for/i })
+    expect(rows[0]).toHaveTextContent('Daily News Jokester')
+  })
+
+  it('opens drawer and focuses agent when ?selected= is passed in URL', async () => {
+    const jokester = makeAgent({
+      id: 'agent_01FoEhnKF9QsC5DGmuELhm7G',
+      name: 'Daily News Jokester',
+      model_name: 'claude-opus-5-5',
+      runtime: {
+        namespace: 'cloud-dev',
+        framework: 'claude-managed',
+        execution_mode: 'autonomous',
+      },
+    })
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: [jokester], total: 1 })
+    renderPage(['/agents?selected=agent_01FoEhnKF9QsC5DGmuELhm7G'])
+
+    await screen.findByText('Daily News Jokester')
+    expect(await screen.findByTestId('agent-evidence-drawer')).toBeInTheDocument()
+  })
+})
+

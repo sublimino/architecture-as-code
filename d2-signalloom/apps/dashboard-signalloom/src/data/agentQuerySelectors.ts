@@ -179,6 +179,21 @@ export function parseAgentSelectorQuery(input: string): ParsedAgentQuery {
   }
 }
 
+export function isClaudeAgent(agent: AgentResponse): boolean {
+  return (
+    agent.runtime?.framework === 'claude-managed' ||
+    agent.type === 'claude' ||
+    Boolean(agent.model_name?.includes('claude'))
+  )
+}
+
+export function getAgentFramework(agent: AgentResponse): string {
+  if (isClaudeAgent(agent)) {
+    return 'claude-managed'
+  }
+  return agent.runtime?.framework ?? agent.framework ?? agent.type ?? 'Custom'
+}
+
 /**
  * Matches a single agent against a query clause.
  */
@@ -223,8 +238,9 @@ function matchClause(agent: AgentResponse, clause: QueryClause): boolean {
       return cluster === val || cluster.includes(val)
     }
     case 'framework': {
-      const fw = (agent.runtime?.framework ?? agent.framework ?? '').toLowerCase()
-      return fw.includes(val)
+      const fw = getAgentFramework(agent).toLowerCase()
+      const rawFw = (agent.runtime?.framework ?? agent.framework ?? '').toLowerCase()
+      return fw.includes(val) || rawFw.includes(val)
     }
     case 'model': {
       const m = (agent.model_name ?? agent.runtime?.model ?? '').toLowerCase()

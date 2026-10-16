@@ -17,7 +17,8 @@ import LoadingState, { loadPhase } from '../components/LoadingState'
 import HelpHint from '../components/HelpHint'
 import AgentEvidenceDrawer from '../components/AgentEvidenceDrawer'
 import { useSignalSummary } from '../hooks/useSignalSummary'
-import { parseAgentSelectorQuery, matchAgentByQuery } from '../data/agentQuerySelectors'
+import { parseAgentSelectorQuery, matchAgentByQuery, getAgentFramework, isClaudeAgent } from '../data/agentQuerySelectors'
+export { getAgentFramework, isClaudeAgent }
 import { hasGitOpsMetadata, isAgentTenantMismatch, getSafeStorageItem } from '../data/workloadFilters'
 import { getTenantIdFromToken } from '../auth/tenant'
 import { useServerTenant } from '../auth/superadmin'
@@ -344,7 +345,7 @@ function AgentStatCards({
   // 3. Observed Workloads
   const operationalCount = meta?.operational_count ?? total
   const namespaces = new Set(agents.map(a => a.runtime?.namespace || a.namespace || 'default'))
-  const frameworks = new Set(agents.map(a => a.runtime?.framework || a.framework || a.type || 'Custom'))
+  const frameworks = new Set(agents.map(a => getAgentFramework(a)))
 
   // 4. Evidence Coverage
   const k8sStatus = sourceHealthDetail?.k8s_discovery?.status ?? (sourceHealth === 'unavailable' ? 'unavailable' : 'healthy')
@@ -497,7 +498,7 @@ export function AgentTableRow({ agent, shown, claiming, onSelect, onEdit, onClai
 
   // 2. Runtime column
   const namespace = agent.runtime?.namespace || agent.namespace || 'default'
-  const framework = agent.runtime?.framework || agent.framework || agent.type || 'Custom'
+  const framework = getAgentFramework(agent)
   const model = agent.runtime?.model || agent.model_name || (agent.runtime?.node ? `node: ${agent.runtime.node}` : null)
 
   // 3. Responsibility column (truthful language)
@@ -987,6 +988,8 @@ function GovernedTab({
     if (s) return s
     const sel = searchParams.get('selector')
     if (sel) return sel
+    const selected = searchParams.get('selected')
+    if (selected) return `id:${selected}`
     const id = searchParams.get('id')
     if (id) return `id:${id}`
     const sa = searchParams.get('sa')
@@ -1024,6 +1027,7 @@ function GovernedTab({
   useEffect(() => {
     const s = searchParams.get('search')
     const sel = searchParams.get('selector')
+    const selected = searchParams.get('selected')
     const id = searchParams.get('id')
     const sa = searchParams.get('sa')
     const spiffe = searchParams.get('spiffe')
@@ -1033,6 +1037,8 @@ function GovernedTab({
       setSearch(s)
     } else if (sel) {
       setSearch(sel)
+    } else if (selected) {
+      setSearch(`id:${selected}`)
     } else if (id) {
       setSearch(`id:${id}`)
     } else if (sa) {
@@ -1044,9 +1050,9 @@ function GovernedTab({
     }
   }, [searchParams])
 
-  // Auto-open drawer if ?drawer=<id> or ?agent=<id> is in URL
+  // Auto-open drawer if ?drawer=<id>, ?agent=<id>, or ?selected=<id> is in URL
   useEffect(() => {
-    const drawerId = searchParams.get('drawer') || searchParams.get('agent')
+    const drawerId = searchParams.get('drawer') || searchParams.get('agent') || searchParams.get('selected')
     if (drawerId) {
       if (agents.length > 0) {
         const match = agents.find(a => a.id === drawerId || a.name === drawerId)
@@ -1209,6 +1215,10 @@ function GovernedTab({
         return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }) * dir
       }
       if (sortKey === 'runtime') {
+        const aFw = getAgentFramework(a)
+        const bFw = getAgentFramework(b)
+        const cmp = aFw.localeCompare(bFw, undefined, { sensitivity: 'base' })
+        if (cmp !== 0) return cmp * dir
         const aNs = a.runtime?.namespace || a.namespace || 'default'
         const bNs = b.runtime?.namespace || b.namespace || 'default'
         return aNs.localeCompare(bNs, undefined, { sensitivity: 'base' }) * dir

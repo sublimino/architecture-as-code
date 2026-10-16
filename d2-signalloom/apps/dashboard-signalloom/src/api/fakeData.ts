@@ -316,6 +316,43 @@ export const openaiAgentFixture: AgentResponse = {
   },
 }
 
+export const dailyNewsJokesterAgentFixture: AgentResponse = {
+  id: 'agent_01FoEhnKF9QsC5DGmuELhm7G',
+  name: 'Daily News Jokester',
+  type: 'claude-managed',
+  owner: 'Andrew Martin (User)',
+  tenant_id: TENANT,
+  lifecycle_state: 'active',
+  last_transition_at: NOW,
+  last_transition_by: 'Andrew Martin (User)',
+  eu_ai_act_risk_class: 'limited',
+  compliance_summary: { total_controls: 12, passing: 12, failing: 0, pending: 0, posture_score: 100 },
+  model_name: 'claude-opus-5-5',
+  created_at: NOW,
+  record_class: 'discovered',
+  is_registry_linked: false,
+  runtime: {
+    namespace: 'cloud-dev',
+    framework: 'claude-managed',
+    model: 'claude-opus-5-5',
+    execution_mode: 'autonomous',
+  },
+  operational_state: {
+    runtime_status: 'running',
+    containment: {
+      process_freeze: 'inactive',
+      network_isolation: 'inactive',
+      credential_revocation: 'inactive',
+    },
+  },
+  responsibility: {
+    owner_name: 'Andrew Martin (User)',
+    owner_id: 'andrew@signalloom.demo',
+    team: 'AI Engineering',
+    assignment_status: 'assigned',
+  },
+}
+
 function buildInitialAgents(): DemoAgentRecord[] {
   return [
     { agent: agent('agent-inventory', 'Inventory Agent', 'active', 'limited'), activeCredentialCount: 1 },
@@ -327,6 +364,13 @@ function buildInitialAgents(): DemoAgentRecord[] {
     { agent: splitBrainFrozenAgentFixture, activeCredentialCount: 0 },
   ]
 }
+
+export const allFakeAgents: AgentResponse[] = [
+  ...buildInitialAgents().map((r) => r.agent),
+  claudeAgentFixture,
+  openaiAgentFixture,
+  dailyNewsJokesterAgentFixture,
+]
 
 let demoAgents = buildInitialAgents()
 
@@ -368,6 +412,9 @@ function readAgent(path: string): AgentResponse | undefined {
   const agentId = readAgentId(path)
   if (!agentId) return undefined
   if (agentId === 'agent-cardvault' || agentId.endsWith(':agent-cardvault')) return undefined
+  if (agentId === 'agent_01FoEhnKF9QsC5DGmuELhm7G' || agentId.endsWith(':agent_01FoEhnKF9QsC5DGmuELhm7G')) {
+    return cloneAgent(dailyNewsJokesterAgentFixture)
+  }
   if (agentId === 'claude-agent-fin-analyst' || agentId.endsWith(':claude-agent-fin-analyst')) {
     return cloneAgent(claudeAgentFixture)
   }

@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { api } from '../api/client'
+import { useAuth0 } from '../auth/oidc'
 
 interface RemoteEnvironmentConfig {
   providerId: string
@@ -33,6 +35,8 @@ interface RemoteEnvironmentConfig {
     status: 'active' | 'idle'
     sessionId: string
     lastActive: string
+    model?: string
+    createdBy?: string
   }>
 }
 
@@ -83,18 +87,13 @@ const DEFAULT_CONFIGS: Record<string, RemoteEnvironmentConfig> = {
     ],
     connectedAgents: [
       {
-        id: 'agent_01',
-        name: 'claude-code-researcher',
+        id: 'agent_01FoEhnKF9QsC5DGmuELhm7G',
+        name: 'Daily News Jokester',
         status: 'active',
+        model: 'claude-opus-5-5',
+        createdBy: 'Andrew Martin (User)',
         sessionId: 'ses_01CyCigBbDRSLTzSCyyHQ7eT',
-        lastActive: '2m ago',
-      },
-      {
-        id: 'agent_02',
-        name: 'data-sync-agent',
-        status: 'idle',
-        sessionId: 'ses_01CyCigBbDRSLTzSCyyHQ7eX',
-        lastActive: '1h ago',
+        lastActive: '2 hours ago',
       },
     ],
   },
@@ -159,18 +158,63 @@ export default function RemoteEnvironmentPage() {
   const normalizedProvider = (providerId || 'claude').toLowerCase()
   const env = DEFAULT_CONFIGS[normalizedProvider] || DEFAULT_CONFIGS.claude
 
+  const { getAccessTokenSilently } = useAuth0()
+  const [connectedAgents, setConnectedAgents] = useState(env.connectedAgents)
   const [activeTab, setActiveTab] = useState<'all' | 'general' | 'network' | 'packages' | 'agents'>('all')
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({})
   const [syncStatus, setSyncStatus] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState(false)
   const [claimedAgents, setClaimedAgents] = useState<Record<string, boolean>>({})
 
+  useEffect(() => {
+    setConnectedAgents(env.connectedAgents)
+  }, [env.connectedAgents])
+
+  const syncAgentsFromApi = useCallback(async () => {
+    try {
+      let token = ''
+      try {
+        token = await getAccessTokenSilently()
+      } catch {}
+      const updated = await Promise.all(
+        env.connectedAgents.map(async (ag) => {
+          try {
+            const remoteAgent = await api.agents.get(token, ag.id)
+            if (remoteAgent && remoteAgent.name) {
+              return {
+                ...ag,
+                name: remoteAgent.name,
+                model: remoteAgent.model_name || remoteAgent.runtime?.model || ag.model,
+                status: (remoteAgent.lifecycle_state === 'active' ? 'active' : ag.status) as 'active' | 'idle',
+              }
+            }
+          } catch {
+            // Keep default if agent get fails
+          }
+          return ag
+        })
+      )
+      setConnectedAgents(updated)
+    } catch {
+      // Fallback gracefully
+    }
+  }, [env.connectedAgents, getAccessTokenSilently])
+
+  useEffect(() => {
+    let cancelled = false
+    void syncAgentsFromApi()
+    return () => {
+      cancelled = true
+    }
+  }, [syncAgentsFromApi])
+
   const toggleSection = (section: string) => {
     setCollapsedSections((prev) => ({ ...prev, [section]: !prev[section] }))
   }
 
-  const handleSyncNow = () => {
+  const handleSyncNow = async () => {
     setSyncStatus('Synchronized just now')
+    await syncAgentsFromApi()
   }
 
   const handleClaimAgent = (agentId: string) => {
@@ -772,7 +816,7 @@ export default function RemoteEnvironmentPage() {
 
           {!collapsedSections.agents && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {env.connectedAgents.map((ag) => (
+              {connectedAgents.map((ag) => (
                 <div
                   key={ag.id}
                   style={{
@@ -788,7 +832,7 @@ export default function RemoteEnvironmentPage() {
                   }}
                 >
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{ag.name}</span>
                       <span
                         style={{
@@ -803,15 +847,31 @@ export default function RemoteEnvironmentPage() {
                       >
                         {ag.status}
                       </span>
+                      {ag.model && (
+                        <span
+                          style={{
+                            padding: '1px 6px',
+                            borderRadius: 4,
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                            background: 'var(--surface)',
+                            border: '1px solid var(--border)',
+                            color: 'var(--text)',
+                          }}
+                        >
+                          {ag.model}
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'monospace', marginTop: 4 }}>
                       Session: {ag.sessionId} • Last active {ag.lastActive}
+                      {ag.createdBy && ` • Created by ${ag.createdBy}`}
                     </div>
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Link
-                      to="/agents"
+                      to={`/agents?selected=${ag.id}`}
                       className="btn btn-secondary btn-sm"
                       style={{ fontSize: 11.5, padding: '4px 10px', textDecoration: 'none' }}
                     >

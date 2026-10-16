@@ -407,4 +407,13 @@ describe('SyncLogsModal', () => {
     expect(dialog.parentElement).toHaveClass('modal-overlay')
   })
 
+  // ── Design-system audit A2: shared sync-status pill ─────────────────────
+
+  it('renders the header status badge via the shared SyncStatusPill tag', async () => {
+    render(<SyncLogsModal isOpen providerId="claude" providerName="Anthropic Claude" onClose={onClose} />)
+    const badge = await screen.findByTestId('sync-status-badge')
+    expect(badge).toHaveTextContent('Success')
+    expect(badge).toHaveClass('tag')
+  })
+
 })

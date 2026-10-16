@@ -770,6 +770,18 @@ describe('Settings: Service Connectors', () => {
     const entraBadge = screen.getByTestId('sync-status-ad_entra')
     expect(entraBadge).toHaveTextContent('Disconnected')
   })
+
+  // ── Design-system audit A2: shared sync-status pill ─────────────────────
+
+  it('renders the connector sync-status badge via the shared SyncStatusPill tag', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: '2026-10-02T00:00:00Z', metadata: {}, created_at: '2026-01-01' },
+    ])
+    renderSettings(['/settings?tab=connectors'])
+    const badge = await screen.findByTestId('sync-status-okta')
+    expect(badge).toHaveClass('tag')
+  })
+
 })
 
 

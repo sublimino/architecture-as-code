@@ -24,6 +24,7 @@ import OnboardingWizard from '../components/onboarding/OnboardingWizard'
 import SyncLogsModal from '../components/connectors/SyncLogsModal'
 import ButtonWait from '../components/ButtonWait'
 import RemoteSyncBadge from '../components/connectors/RemoteSyncBadge'
+import SyncStatusPill, { type SyncTone } from '../components/connectors/SyncStatusPill'
 
 const POLL_MS = 15 * 60 * 1000
 
@@ -977,16 +978,15 @@ export default function Settings() {
                   const isDisconnected = connector?.status === 'disconnected'
 
                   // A tested connector is not a scanned one: only last_scan_at means Synced.
-                  const mutedBadge = { color: 'var(--muted)', background: 'var(--surface)', border: '1px solid var(--border-subtle)' }
                   let syncStatusText = 'Not configured'
-                  let syncBadge = mutedBadge
+                  let syncTone: SyncTone = 'muted'
                   if (isConnected && connector) {
                     if (connector.last_scan_at) {
                       syncStatusText = 'Synced'
-                      syncBadge = { color: 'var(--teal)', background: 'var(--teal-bg)', border: '1px solid var(--teal-border)' }
+                      syncTone = 'teal'
                     } else {
                       syncStatusText = 'Not yet scanned'
-                      syncBadge = { color: 'var(--warning)', background: 'var(--amber-bg)', border: '1px solid var(--amber-border)' }
+                      syncTone = 'amber'
                     }
                   } else if (isDisconnected) {
                     syncStatusText = 'Disconnected'
@@ -1007,19 +1007,7 @@ export default function Settings() {
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{p.display_name}</span>
-                            <span
-                              data-testid={`sync-status-${p.provider_id}`}
-                              style={{
-                                fontSize: 11,
-                                fontWeight: 600,
-                                padding: '2px 8px',
-                                borderRadius: 10,
-                                ...syncBadge,
-                                letterSpacing: '0.02em',
-                              }}
-                            >
-                              {syncStatusText}
-                            </span>
+                            <SyncStatusPill tone={syncTone} label={syncStatusText} testId={`sync-status-${p.provider_id}`} />
                             {isConnected && isRemoteEnvironmentProvider(p.provider_id) && <RemoteSyncBadge providerId={p.provider_id} />}
                           </div>
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
@@ -1028,7 +1016,27 @@ export default function Settings() {
                               : null}
                           </div>
                           {scanError && (
-                            <div role="alert" data-testid={`scan-error-${p.provider_id}`} style={{ fontSize: 11, color: 'var(--error)', marginTop: 2 }}>
+                            <div
+                              role="alert"
+                              data-testid={`scan-error-${p.provider_id}`}
+                              style={{
+                                fontSize: 11,
+                                // Design-system audit rule 11 / finding ST3:
+                                // `--error` as body text measured 3.03:1 in
+                                // dark on this row's --surface2, under the
+                                // 4.5:1 AA floor. A dot carries the colour;
+                                // the message reads in `--text`.
+                                color: 'var(--text)',
+                                marginTop: 2,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                              }}
+                            >
+                              <span
+                                aria-hidden="true"
+                                style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--error)', flexShrink: 0 }}
+                              />
                               {scanError}
                             </div>
                           )}

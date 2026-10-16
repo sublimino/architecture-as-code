@@ -5,6 +5,7 @@ import { useAuth0 } from '../../auth/oidc'
 import ProviderLogo from '../onboarding/ProviderLogo'
 import ButtonWait from '../ButtonWait'
 import LoadingState from '../LoadingState'
+import SyncStatusPill, { type SyncTone } from './SyncStatusPill'
 
 export interface SyncLogsModalProps {
   isOpen: boolean
@@ -48,7 +49,9 @@ const levelTone: Record<string, (typeof tone)[keyof typeof tone]> = {
   error: tone.red,
 }
 
-const statusTone = { success: tone.teal, warning: tone.amber, error: tone.red }
+// A2 (design-system audit): the header status badge is the shared
+// SyncStatusPill, not a hand-rolled pill (finding S3).
+const STATUS_PILL_TONE: Record<string, SyncTone> = { success: 'teal', warning: 'amber', error: 'red' }
 const statusLabel = { success: 'Success', warning: 'Warning', error: 'Error' }
 
 const pillStyle = {
@@ -188,7 +191,6 @@ export default function SyncLogsModal({
   if (!isOpen) return null
 
   const status = syncResult?.status
-  const badge = status ? statusTone[status] : null
 
   return (
     <div
@@ -233,22 +235,8 @@ export default function SyncLogsModal({
                 <h2 id="sync-logs-title" style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text)' }}>
                   {providerName}
                 </h2>
-                {status && badge && (
-                  <span
-                    data-testid="sync-status-badge"
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 600,
-                      textTransform: 'uppercase',
-                      padding: '2px 8px',
-                      borderRadius: 'var(--radius)',
-                      background: badge.bg,
-                      color: badge.color,
-                      border: `1px solid ${badge.border}`,
-                    }}
-                  >
-                    {statusLabel[status]}
-                  </span>
+                {status && (
+                  <SyncStatusPill tone={STATUS_PILL_TONE[status]} label={statusLabel[status]} testId="sync-status-badge" />
                 )}
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>

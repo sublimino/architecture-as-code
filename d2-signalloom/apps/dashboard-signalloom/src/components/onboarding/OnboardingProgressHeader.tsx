@@ -27,7 +27,7 @@ export default function OnboardingProgressHeader({
   const progressPct = totalSteps > 0 ? Math.round((stepNumber / totalSteps) * 100) : 0
 
   return (
-    <header style={{ borderBottom: '1px solid var(--border)', marginBottom: 28, background: 'var(--surface)' }}>
+    <header data-testid="onboarding-progress-header" style={{ borderBottom: '1px solid var(--border)', marginBottom: 28, background: 'var(--surface)' }}>
       <div
         style={{
           display: 'flex',

@@ -500,9 +500,9 @@ export default function OnboardingWizard({
             data-testid="onboarding-settings-completed-banner"
             style={{
               padding: '20px 24px',
-              borderRadius: 'var(--sl-radius-lg, 12px)',
-              background: 'var(--sl-color-bg-subtle, rgba(255, 255, 255, 0.05))',
-              border: '1px solid var(--sl-color-border, #333)',
+              borderRadius: 'var(--radius)',
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
             }}
           >
             <p
@@ -510,7 +510,7 @@ export default function OnboardingWizard({
                 margin: 0,
                 fontSize: '15px',
                 lineHeight: 1.5,
-                color: 'var(--sl-color-text, #fff)',
+                color: 'var(--text)',
                 fontWeight: 500,
               }}
             >
@@ -546,10 +546,10 @@ export default function OnboardingWizard({
                 data-testid="onboarding-replay-banner"
                 style={{
                   padding: '12px 16px',
-                  borderRadius: 'var(--sl-radius-md, 8px)',
-                  background: 'var(--sl-color-bg-subtle, rgba(255, 255, 255, 0.05))',
-                  border: '1px solid var(--sl-color-border, #333)',
-                  color: 'var(--sl-color-text-secondary, #999)',
+                  borderRadius: 'var(--radius)',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--muted)',
                   fontSize: '0.875rem',
                   lineHeight: 1.5,
                 }}

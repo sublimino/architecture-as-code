@@ -43,6 +43,7 @@ import { WEAVE_ROUTES } from './fakeWeaveData'
 import { FAIR_ROUTES } from './fakeFairData'
 import { networkTestsFixture, networkTestsScanFixture } from './fakeNetworkTestsData'
 import { demoActivityEvents, recordDemoActivity } from './demoActivity'
+import type { AgentClaimResponse } from './agentClaim'
 import { simulatedAgentIdentity } from './supercredTypes'
 import { FAKE_CODING_AGENT_TELEMETRY, FAKE_CODING_AGENT_AGGREGATE } from './fakeCodingAgentData'
 import type { FleetTopology, RiskSummary } from './fleetApi'
@@ -1573,6 +1574,57 @@ function dismissDiscoveredWorkload(path: string): { account_id: string; status: 
   return { account_id: accountId, status: 'dismissed' }
 }
 
+function claimAgentFixture(path: string, _body?: unknown): AgentClaimResponse {
+  const agentId = path.split('/')[2] || 'agent_01FoEhnKF9QsC5DGmuELhm7G'
+  const claimId = `claim-${agentId}-${Date.now()}`
+  recordDemoActivity({
+    event_type: 'agent.claimed',
+    agent_id: agentId,
+    agent_name: 'Daily News Jokester',
+    actor: DEMO_ACTOR,
+    detail: {
+      action: 'claimed',
+      claim_id: claimId,
+      source: 'remote_environment',
+    },
+  })
+  return {
+    claim_id: claimId,
+    agent_id: agentId,
+    tenant_id: TENANT,
+    status: 'claimed',
+    spiffe_id: `spiffe://signalloom.demo/ns/cloud-dev/sa/${agentId}`,
+    claimed_at: NOW,
+  } as unknown as AgentClaimResponse
+}
+
+function claimDiscoveryFixture(body?: unknown): { claim_id: string; tenant_id: string; agent_id: string; namespace: string; spiffe_id: string; status: string; claimed_at: string } {
+  const reqObj = (body as { agent_id?: string; namespace?: string }) ?? {}
+  const agentId = reqObj.agent_id || 'agent_01FoEhnKF9QsC5DGmuELhm7G'
+  const ns = reqObj.namespace || 'cloud-dev'
+  const claimId = `claim-${agentId}-${Date.now()}`
+  recordDemoActivity({
+    event_type: 'agent.claimed',
+    agent_id: agentId,
+    agent_name: 'Daily News Jokester',
+    actor: DEMO_ACTOR,
+    detail: {
+      action: 'claimed',
+      claim_id: claimId,
+      source: 'remote_environment',
+    },
+  })
+  return {
+    claim_id: claimId,
+    tenant_id: TENANT,
+    agent_id: agentId,
+    namespace: ns,
+    spiffe_id: `spiffe://signalloom.demo/ns/${ns}/sa/${agentId}`,
+    status: 'claimed',
+    claimed_at: NOW,
+  }
+}
+
 function getDiscoveredAccount(path: string): NHIAccountDetail | undefined {
   const accountId = decodeURIComponent(path.split('/')[3] || '')
   if (!accountId) return undefined
@@ -1977,6 +2029,8 @@ const ROUTES: Match[] = [
   { method: 'GET', test: re(/^\/audit\/events\.csv$/), data: () => fakeAuditExportCsv() },
   // discovery (SLMS-P1-2)
   { method: 'GET', test: re(/^\/discovery\/workloads$/), data: (path) => listDiscoveryWorkloads(path) },
+  { method: 'POST', test: re(/^\/discovery\/claim$/), data: (_path, body) => claimDiscoveryFixture(body) },
+  { method: 'POST', test: re(/^\/agents\/[^/]+\/claim$/), data: (path, body) => claimAgentFixture(path, body) },
   { method: 'POST', test: re(/^\/agents\/autoclaim-discovered$/), data: (_path, body) => autoclaimDiscoveredWorkloads(body) },
   // nhi
   { method: 'GET', test: re(/^\/nhi\/scans$/), data: () => nhiScans },

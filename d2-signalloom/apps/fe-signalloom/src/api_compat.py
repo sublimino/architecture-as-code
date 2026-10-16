@@ -3734,9 +3734,20 @@ def update_claude_agent_name(tenant_id: str, agent_name: str, agent_id: str | No
 
         if tenant_id in _AGENTS:
             for k, ag in _AGENTS[tenant_id].items():
-                if "claude" in k.lower() or "claude" in str(ag.get("model_name", "")).lower():
+                if "claude" in k.lower() or "claude" in str(ag.get("model_name", "")).lower() or (agent_id and k == agent_id):
                     ag["name"] = agent_name
                     ag["display_name"] = agent_name
+                    if agent_id:
+                        ag["remote_agent_id"] = agent_id
+
+            if agent_id and agent_id not in _AGENTS[tenant_id]:
+                canonical_claude = next((ag for k, ag in _AGENTS[tenant_id].items() if "claude" in k.lower()), None)
+                if canonical_claude:
+                    aliased = dict(canonical_claude)
+                    aliased["id"] = agent_id
+                    aliased["name"] = agent_name
+                    aliased["display_name"] = agent_name
+                    _AGENTS[tenant_id][agent_id] = aliased
 
 
 async def update_claude_agent_name_db(tenant_id: str, agent_name: str, agent_id: str | None = None) -> None:
@@ -3747,7 +3758,7 @@ async def update_claude_agent_name_db(tenant_id: str, agent_name: str, agent_id:
         try:
             async with _write(pool) as conn:
                 await conn.execute(
-                    """UPDATE agent_registry SET name = $1 WHERE tenant_id = $2 AND (id LIKE '%claude%' OR model_name LIKE '%claude%')""",
+                    """UPDATE agent_registry SET name = $1 WHERE tenant_id = $2 AND (name ILIKE '%claude%' OR model_name ILIKE '%claude%')""",
                     agent_name,
                     tenant_id,
                 )
@@ -6342,6 +6353,11 @@ async def get_agent(
         row = await pool.fetchrow(
             "SELECT * FROM agent_registry WHERE (name = $1 OR name = $2) AND tenant_id = $3", agent_id, canonical_id, tenant_id,
         )
+        if row is None and (agent_id.startswith("agent_01") or "claude" in agent_id.lower()):
+            row = await pool.fetchrow(
+                "SELECT * FROM agent_registry WHERE tenant_id = $1 AND (name ILIKE '%claude%' OR model_name ILIKE '%claude%') ORDER BY created_at LIMIT 1",
+                tenant_id,
+            )
     if row is not None:
         if discovered_match is None and isinstance(payload, dict):
             row_name = str(row["name"]) if "name" in row else None

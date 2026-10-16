@@ -71,7 +71,7 @@ export interface ConnectorsApi {
   listConnectors(token: string): Promise<TenantConnector[]>
   createConnector(token: string, body: ConnectorCreateRequest): Promise<TenantConnector>
   deleteConnector(token: string, id: string): Promise<void>
-  testConnector(token: string, id: string): Promise<ConnectorTestResult>
+  testConnector(token: string, id: string, credentials?: Record<string, string>): Promise<ConnectorTestResult>
   toggleConnector(token: string, id: string, enabled?: boolean): Promise<TenantConnector>
   triggerScan(token: string, providerId: string): Promise<SyncResult>
   getSyncLogs(token: string, providerId: string): Promise<SyncResult>
@@ -109,8 +109,11 @@ const liveConnectorsApi: ConnectorsApi = {
     await req<ConnectorDeleteResponse>(`/connectors/${id}`, token, { method: 'DELETE' })
   },
 
-  testConnector: (token, id) =>
-    req<ConnectorTestResult>(`/connectors/${id}/test`, token, { method: 'POST' }),
+  testConnector: (token, id, credentials) =>
+    req<ConnectorTestResult>(`/connectors/${id}/test`, token, {
+      method: 'POST',
+      data: credentials ? { credentials } : undefined,
+    }),
 
   toggleConnector: async (token, id, enabled) => {
     return req<TenantConnector>(`/connectors/${id}/toggle`, token, {
@@ -398,11 +401,13 @@ const mockConnectorsApi: ConnectorsApi = {
     return delay(undefined, 80)
   },
 
-  testConnector: async (_token, id) => {
-    const invalid = mockInvalidCredentials.get(id) ?? false
+  testConnector: async (_token, id, credentials) => {
+    const invalid =
+      (mockInvalidCredentials.get(id) ?? false) ||
+      Boolean(credentials && Object.values(credentials).some((v) => v.toLowerCase().includes('invalid')))
     const expiresAt = invalid ? null : futureIso(90)
     mockConnectors = mockConnectors.map((c) =>
-      c.connector_id === id
+      c.connector_id === id || c.provider_id === id
         ? {
             ...c,
             last_tested_at: new Date().toISOString(),
@@ -418,6 +423,13 @@ const mockConnectorsApi: ConnectorsApi = {
       error_msg: invalid ? 'Invalid credentials (mock).' : null,
       credential_expires_at: expiresAt,
       needs_rotation: false,
+      message: invalid
+        ? '✗ Authentication failed: Invalid credentials'
+        : id === 'claude'
+        ? '✓ Verified connection to Anthropic Claude API. Discovered live agent: Daily News Jokester'
+        : id === 'openai'
+        ? '✓ Verified connection to OpenAI Platform API. Discovered live agent: Customer Support Triage Assistant'
+        : `✓ Connection verified for ${id}.`,
     }
     return delay(result, 100)
   },

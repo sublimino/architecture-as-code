@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { api } from '../api/client'
 import RemoteEnvironmentPage from './RemoteEnvironmentPage'
@@ -99,7 +99,7 @@ describe('RemoteEnvironmentPage', () => {
     expect(screen.getByText(/"cluster": "osramp-kind"/i)).toBeInTheDocument()
   })
 
-  it('renders Connected Agents & Workloads section with running agent metadata and claim controls', () => {
+  it('renders Connected Agents & Workloads section with running agent metadata and claim controls', async () => {
     renderPage(['/settings/connectors/claude'])
 
     expect(screen.getByRole('heading', { name: /Connected Agents & Workloads/i })).toBeInTheDocument()
@@ -110,11 +110,44 @@ describe('RemoteEnvironmentPage', () => {
     expect(screen.getByText(/Andrew Martin \(User\)/i)).toBeInTheDocument()
 
     const dossierLink = screen.getByRole('link', { name: /View Dossier/i })
-    expect(dossierLink).toHaveAttribute('href', '/agents?selected=agent_01FoEhnKF9QsC5DGmuELhm7G')
+    expect(dossierLink).toHaveAttribute('href', '/agents?selected=agent_01FoEhnKF9QsC5DGmuELhm7G&drawer=agent_01FoEhnKF9QsC5DGmuELhm7G')
 
-    const claimBtn = screen.getByRole('button', { name: /Claim to Tenant/i })
+    const claimSpy = vi.spyOn(api.agents, 'claim').mockResolvedValueOnce({
+      claim_id: 'claim-test-1',
+      tenant_id: 'default',
+      status: 'claimed',
+      claimed_at: new Date().toISOString(),
+    } as any)
+
+    const claimBtn = screen.getByTestId('btn-claim-agent-agent_01FoEhnKF9QsC5DGmuELhm7G')
     fireEvent.click(claimBtn)
-    expect(screen.getByRole('button', { name: /Claimed ✓/i })).toBeDisabled()
+    await waitFor(() => {
+      expect(claimSpy).toHaveBeenCalledWith(expect.any(String), 'agent_01FoEhnKF9QsC5DGmuELhm7G', expect.objectContaining({
+        pod_name: 'agent_01FoEhnKF9QsC5DGmuELhm7G',
+      }))
+    })
+    expect(await screen.findByRole('button', { name: /Claimed ✓/i })).toBeDisabled()
+    claimSpy.mockRestore()
+  })
+
+  it('deep links to specific tab via URL search parameter and allows switching tabs', () => {
+    renderPage(['/settings/connectors/claude?tab=agents'])
+
+    // Agents tab should be active
+    const agentsTab = screen.getByTestId('env-tab-agents')
+    expect(agentsTab).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('heading', { name: /Connected Agents & Workloads/i })).toBeInTheDocument()
+
+    // General and Network sections should NOT be rendered when tab=agents
+    expect(screen.queryByRole('heading', { name: /General/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /Network Egress & CEL Governance/i })).not.toBeInTheDocument()
+
+    // Clicking Network tab switches view
+    const networkTab = screen.getByTestId('env-tab-network')
+    fireEvent.click(networkTab)
+    expect(networkTab).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('heading', { name: /Network Egress & CEL Governance/i })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /Connected Agents & Workloads/i })).not.toBeInTheDocument()
   })
 
   it('defaults to claude when providerId is not specified or fallback', () => {

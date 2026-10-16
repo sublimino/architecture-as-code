@@ -1912,5 +1912,26 @@ describe('AgentsPage — Claude Managed Parity & Runtime Display', () => {
     await screen.findByText('Daily News Jokester')
     expect(await screen.findByTestId('agent-evidence-drawer')).toBeInTheDocument()
   })
+
+  it('opens drawer and displays row when ?selected= matches claude agent with cluster id tenant-demo:claude-agent-fin-analyst', async () => {
+    const claudeAgent = makeAgent({
+      id: 'tenant-demo:claude-agent-fin-analyst',
+      name: 'Daily News Jokester',
+      model_name: 'claude-opus-5-5',
+      type: 'claude',
+      runtime: {
+        namespace: 'cloud-dev',
+        framework: 'claude-managed',
+        execution_mode: 'autonomous',
+      },
+    })
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: [claudeAgent], total: 1 })
+    renderPage(['/agents?selected=agent_01FoEhnKF9QsC5DGmuELhm7G&drawer=agent_01FoEhnKF9QsC5DGmuELhm7G'])
+
+    // The agent row should not be filtered out
+    expect(await screen.findByText('Daily News Jokester')).toBeInTheDocument()
+    // The evidence drawer should open
+    expect(await screen.findByTestId('agent-evidence-drawer')).toBeInTheDocument()
+  })
 })
 

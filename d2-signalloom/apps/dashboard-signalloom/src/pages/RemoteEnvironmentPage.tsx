@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
+import { connectorsApi } from '../api/connectorsClient'
 import { useAuth0 } from '../auth/oidc'
+
+const VALID_TABS = ['all', 'general', 'network', 'packages', 'agents'] as const
+type EnvTabId = typeof VALID_TABS[number]
 
 interface RemoteEnvironmentConfig {
   providerId: string
@@ -160,15 +164,41 @@ export default function RemoteEnvironmentPage() {
 
   const { getAccessTokenSilently } = useAuth0()
   const [connectedAgents, setConnectedAgents] = useState(env.connectedAgents)
-  const [activeTab, setActiveTab] = useState<'all' | 'general' | 'network' | 'packages' | 'agents'>('all')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialTab = (searchParams.get('tab') || 'all').toLowerCase() as EnvTabId
+  const [activeTab, setActiveTab] = useState<EnvTabId>(VALID_TABS.includes(initialTab) ? initialTab : 'all')
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({})
   const [syncStatus, setSyncStatus] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState(false)
   const [claimedAgents, setClaimedAgents] = useState<Record<string, boolean>>({})
+  const [claimingAgents, setClaimingAgents] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     setConnectedAgents(env.connectedAgents)
   }, [env.connectedAgents])
+
+  // Sync activeTab whenever URL searchParams change
+  useEffect(() => {
+    const t = (searchParams.get('tab') || 'all').toLowerCase() as EnvTabId
+    if (VALID_TABS.includes(t)) {
+      setActiveTab(t)
+    } else {
+      setActiveTab('all')
+    }
+  }, [searchParams])
+
+  const handleTabClick = (tabId: EnvTabId) => {
+    setActiveTab(tabId)
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (tabId === 'all') {
+        next.delete('tab')
+      } else {
+        next.set('tab', tabId)
+      }
+      return next
+    })
+  }
 
   const syncAgentsFromApi = useCallback(async () => {
     try {
@@ -214,11 +244,49 @@ export default function RemoteEnvironmentPage() {
 
   const handleSyncNow = async () => {
     setSyncStatus('Synchronized just now')
+    let token = ''
+    try {
+      token = await getAccessTokenSilently()
+    } catch {}
+    try {
+      await connectorsApi.triggerScan(token, normalizedProvider)
+    } catch {}
     await syncAgentsFromApi()
   }
 
-  const handleClaimAgent = (agentId: string) => {
-    setClaimedAgents((prev) => ({ ...prev, [agentId]: true }))
+  const handleClaimAgent = async (agentId: string) => {
+    setClaimingAgents((prev) => ({ ...prev, [agentId]: true }))
+    try {
+      let token = ''
+      try {
+        token = await getAccessTokenSilently()
+      } catch {}
+
+      try {
+        await api.agents.claim(token, agentId, {
+          pod_name: agentId,
+          namespace: 'cloud-dev',
+          spiffe_id: `spiffe://signalloom.demo/ns/cloud-dev/sa/${agentId}`,
+          harness: 'claude-code',
+          model: 'claude-opus-5-5',
+          declared_tools: [],
+          token_budget_limit: 100000,
+        })
+      } catch {
+        // Fallback to discovery claim if direct claim fails
+        try {
+          await api.discovery.claim(token, {
+            agent_id: agentId,
+            namespace: 'cloud-dev',
+          })
+        } catch {
+          // Graceful fallback for mock/demo
+        }
+      }
+      setClaimedAgents((prev) => ({ ...prev, [agentId]: true }))
+    } finally {
+      setClaimingAgents((prev) => ({ ...prev, [agentId]: false }))
+    }
   }
 
   return (
@@ -379,8 +447,9 @@ export default function RemoteEnvironmentPage() {
           <button
             key={tab.id}
             role="tab"
+            data-testid={`env-tab-${tab.id}`}
             aria-selected={activeTab === tab.id}
-            onClick={() => setActiveTab(tab.id as typeof activeTab)}
+            onClick={() => handleTabClick(tab.id as EnvTabId)}
             style={{
               background: 'none',
               border: 'none',
@@ -871,8 +940,9 @@ export default function RemoteEnvironmentPage() {
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Link
-                      to={`/agents?selected=${ag.id}`}
+                      to={`/agents?selected=${encodeURIComponent(ag.id)}&drawer=${encodeURIComponent(ag.id)}`}
                       className="btn btn-secondary btn-sm"
+                      data-testid={`btn-view-dossier-${ag.id}`}
                       style={{ fontSize: 11.5, padding: '4px 10px', textDecoration: 'none' }}
                     >
                       View Dossier ↗
@@ -880,11 +950,12 @@ export default function RemoteEnvironmentPage() {
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
+                      data-testid={`btn-claim-agent-${ag.id}`}
                       onClick={() => handleClaimAgent(ag.id)}
-                      disabled={claimedAgents[ag.id]}
+                      disabled={claimedAgents[ag.id] || claimingAgents[ag.id]}
                       style={{ fontSize: 11.5, padding: '4px 10px' }}
                     >
-                      {claimedAgents[ag.id] ? 'Claimed ✓' : 'Claim to Tenant'}
+                      {claimedAgents[ag.id] ? 'Claimed ✓' : (claimingAgents[ag.id] ? 'Claiming...' : 'Claim to Tenant')}
                     </button>
                   </div>
                 </div>

@@ -245,4 +245,50 @@ test.describe("Signal Loom Rapid Demo Smoke Suite (SLON-P2-4)", () => {
       page.locator("h2, h3, div").filter({ hasText: /Activity Timeline|Audit Trail|Telemetry/i }).first(),
     ).toBeVisible({ timeout: 10_000 });
   });
+
+  test("remote environment console: deep link tabs, claim agent into tenant, and navigate to dossier", async ({
+    page,
+  }) => {
+    await login(page, { demoMode: true });
+
+    // Navigate to remote environment page deep-linked to agents tab
+    await page.goto(`${BASE}/settings/connectors/claude?tab=agents`, { waitUntil: "domcontentloaded" });
+
+    // 1. Verify tab deep linking: 'agents' tab is selected and section is visible
+    const agentsTab = page.locator('[data-testid="env-tab-agents"]');
+    await expect(agentsTab).toBeVisible({ timeout: 10_000 });
+    await expect(agentsTab).toHaveAttribute("aria-selected", "true");
+
+    const connectedAgentsHeading = page.locator("h2").filter({ hasText: /Connected Agents & Workloads/i });
+    await expect(connectedAgentsHeading).toBeVisible();
+
+    // General section should not be visible when tab=agents
+    await expect(page.locator("h2").filter({ hasText: /^General$/i })).not.toBeVisible();
+
+    // Verify agent is discovered and visible
+    await expect(page.getByText("Daily News Jokester").first()).toBeVisible();
+
+    // 2. Claim to tenant action
+    const claimBtn = page.locator('[data-testid^="btn-claim-agent-"]').first();
+    await expect(claimBtn).toBeVisible();
+    await expect(claimBtn).toHaveText(/Claim to Tenant/i);
+    await claimBtn.click();
+
+    // Button should transition to claimed and be disabled
+    await expect(claimBtn).toHaveText(/Claimed ✓/i, { timeout: 10_000 });
+    await expect(claimBtn).toBeDisabled();
+
+    // 3. View Dossier navigation
+    const dossierBtn = page.locator('[data-testid^="btn-view-dossier-"]').first();
+    await expect(dossierBtn).toBeVisible();
+    await dossierBtn.click();
+
+    // Should navigate to /agents with selected query params
+    await page.waitForURL(/\/agents\?selected=/, { timeout: 10_000 });
+
+    // Verify agent is in the inventory table and the drawer opens
+    await expect(page.getByText("Daily News Jokester").first()).toBeVisible({ timeout: 10_000 });
+    const evidenceDrawer = page.locator('[data-testid="agent-evidence-drawer"]');
+    await expect(evidenceDrawer).toBeVisible({ timeout: 10_000 });
+  });
 });

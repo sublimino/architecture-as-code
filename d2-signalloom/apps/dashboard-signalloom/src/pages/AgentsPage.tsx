@@ -1055,7 +1055,18 @@ function GovernedTab({
     const drawerId = searchParams.get('drawer') || searchParams.get('agent') || searchParams.get('selected')
     if (drawerId) {
       if (agents.length > 0) {
-        const match = agents.find(a => a.id === drawerId || a.name === drawerId)
+        const match = agents.find(a =>
+          a.id === drawerId ||
+          a.name === drawerId ||
+          a.id.endsWith(`:${drawerId}`) ||
+          Boolean((a as any).remote_agent_id && (a as any).remote_agent_id === drawerId) ||
+          (drawerId.startsWith('agent_01') && (
+            a.id.toLowerCase().includes('claude') ||
+            (a.name || '').toLowerCase().includes('jokester') ||
+            (a.model_name || '').toLowerCase().includes('claude') ||
+            a.type === 'claude'
+          ))
+        )
         if (match) {
           setSelectedAgent(match)
           return

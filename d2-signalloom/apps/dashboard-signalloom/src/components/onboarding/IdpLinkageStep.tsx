@@ -316,33 +316,27 @@ export default function IdpLinkageStep({
     if (credentials.issuer_url && onTestConnection) {
       return await onTestConnection(credentials.issuer_url)
     }
-    if (credentials.api_key) {
-      if (mode === 'live') {
-        if (providerId === 'claude' && credentials.api_key.startsWith('sk-ant-')) {
-          return {
-            ok: true,
-            message: '✓ Verified connection to Anthropic Claude API. Discovered remote agent: claude-sonnet-researcher.',
-          }
-        } else if (providerId === 'openai' && credentials.api_key.startsWith('sk-')) {
-          return {
-            ok: true,
-            message: '✓ Verified connection to OpenAI Platform API. Discovered remote agent: gpt-4o-assistant.',
-          }
-        }
-        return {
-          ok: true,
-          message: '✓ API key verified. Ready for read-only agent discovery and telemetry ingestion.',
-        }
-      } else {
-        return {
-          ok: true,
-          message: '✓ Simulated test verified. 2 sample agent workloads ready to ingest for CEL compliance.',
-        }
-      }
+    let token = ''
+    if (getAccessTokenSilently) {
+      try {
+        token = await getAccessTokenSilently()
+      } catch {}
     }
-    return {
-      ok: true,
-      message: `✓ Connection verified for ${providerId}.`,
+    try {
+      const res = await connectorsApi.testConnector(token, providerId, credentials)
+      return {
+        ok: res.valid && res.scopes_ok,
+        message:
+          res.message ||
+          (res.error_msg
+            ? `✗ ${res.error_msg}`
+            : `✓ Connection verified for ${providerId}.`),
+      }
+    } catch (err: any) {
+      return {
+        ok: false,
+        message: err?.response?.data?.detail || err?.message || 'Connection test failed',
+      }
     }
   }
 

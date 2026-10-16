@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import ConnectorConfigureModal from './ConnectorConfigureModal'
+import { connectorsApi } from '../api/connectorsClient'
 import type { ConnectorProvider, TenantConnector } from '../types/connectors'
 
 describe('ConnectorConfigureModal', () => {
@@ -161,5 +162,77 @@ describe('ConnectorConfigureModal', () => {
     expect(screen.queryByTestId('connector-save-error')).not.toBeInTheDocument()
     expect(mockOnSave).toHaveBeenCalled()
     expect(mockOnClose).toHaveBeenCalled()
+  })
+
+  it('calls connectorsApi.testConnector with entered API key and displays live discovered agent name', async () => {
+    const user = userEvent.setup()
+    const testSpy = vi.spyOn(connectorsApi, 'testConnector').mockResolvedValueOnce({
+      connector_id: 'conn-claude-01',
+      valid: true,
+      scopes_ok: true,
+      error_msg: null,
+      credential_expires_at: null,
+      needs_rotation: false,
+      message: '✓ Verified connection to Anthropic Claude API. Discovered live agent: Live Console Renamed Agent',
+    })
+
+    render(
+      <ConnectorConfigureModal
+        isOpen={true}
+        provider={mockProvider}
+        onClose={mockOnClose}
+        onSave={mockOnSave}
+      />,
+    )
+
+    const apiKeyInput = screen.getByTestId('input-connector-api-key')
+    await user.type(apiKeyInput, 'sk-ant-live-key-42')
+
+    const testBtn = screen.getByTestId('btn-modal-test-connection')
+    await user.click(testBtn)
+
+    expect(testSpy).toHaveBeenCalledWith(
+      '',
+      'claude',
+      expect.objectContaining({
+        api_key: 'sk-ant-live-key-42',
+      }),
+    )
+
+    expect(await screen.findByTestId('test-connection-success')).toHaveTextContent(
+      'Live Console Renamed Agent',
+    )
+  })
+
+  it('displays error message when connectorsApi.testConnector rejects invalid credentials', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(connectorsApi, 'testConnector').mockResolvedValueOnce({
+      connector_id: 'conn-claude-01',
+      valid: false,
+      scopes_ok: false,
+      error_msg: 'Invalid Anthropic API key (HTTP 401 Unauthorized)',
+      credential_expires_at: null,
+      needs_rotation: false,
+      message: '✗ Authentication failed: Invalid Anthropic API key',
+    })
+
+    render(
+      <ConnectorConfigureModal
+        isOpen={true}
+        provider={mockProvider}
+        onClose={mockOnClose}
+        onSave={mockOnSave}
+      />,
+    )
+
+    const apiKeyInput = screen.getByTestId('input-connector-api-key')
+    await user.type(apiKeyInput, 'sk-ant-bad-key')
+
+    const testBtn = screen.getByTestId('btn-modal-test-connection')
+    await user.click(testBtn)
+
+    expect(await screen.findByTestId('test-connection-error')).toHaveTextContent(
+      'Invalid Anthropic API key',
+    )
   })
 })

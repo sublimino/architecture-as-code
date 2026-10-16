@@ -105,6 +105,7 @@ export interface ConnectorTestResult {
   error_msg: string | null
   credential_expires_at: string | null
   needs_rotation: boolean
+  message?: string | null
 }
 
 export type OnboardingStatusType = 'pending' | 'completed' | 'skipped'

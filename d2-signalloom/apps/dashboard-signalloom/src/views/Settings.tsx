@@ -1077,6 +1077,18 @@ export default function Settings() {
                 connector={connectors.find((c) => c.provider_id === configuringProvider.provider_id)}
                 onClose={() => setConfiguringProvider(null)}
                 onSave={handleSaveConnector}
+                onTestConnection={async (providerId, credentials, mode) => {
+                  const token = await getAccessTokenSilently()
+                  const res = await connectorsApi.testConnector(token, providerId, credentials)
+                  return {
+                    ok: res.valid && res.scopes_ok,
+                    message:
+                      res.message ||
+                      (res.error_msg
+                        ? `✗ ${res.error_msg}`
+                        : `✓ Connection verified for ${providerId}.`),
+                  }
+                }}
               />
             )}
             {syncLogProvider && (

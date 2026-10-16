@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import type { ConnectorProvider, TenantConnector } from '../types/connectors'
+import { connectorsApi } from '../api/connectorsClient'
 import ProviderLogo from './onboarding/ProviderLogo'
 import WizardFieldRenderer from './onboarding/WizardFieldRenderer'
 
@@ -138,47 +139,33 @@ export default function ConnectorConfigureModal({
       return
     }
 
-    // Default test verification simulation / probe
-    setTimeout(() => {
-      setTesting(false)
+    // Direct API test call
+    try {
       if (authMode === 'api_key') {
         const effectiveApiKey = (apiKey || initialApiKey || (connector?.status === 'connected' ? '••••••••' : '')).trim()
         if (!effectiveApiKey) {
+          setTesting(false)
           setTestResult({ ok: false, message: 'Please enter an API Key to test connection.' })
           return
         }
-        const activeKey = apiKey.trim() || initialApiKey?.trim() || effectiveApiKey
-        if (testMode === 'live') {
-          // If key is present and formatted
-          if (provider.provider_id === 'claude' && activeKey.startsWith('sk-ant-')) {
-            setTestResult({
-              ok: true,
-              message: `✓ Verified connection to Anthropic Claude API. Discovered remote agent: claude-sonnet-researcher.`,
-            })
-          } else if (provider.provider_id === 'openai' && activeKey.startsWith('sk-')) {
-            setTestResult({
-              ok: true,
-              message: `✓ Verified connection to OpenAI Platform API. Discovered remote agent: gpt-4o-assistant.`,
-            })
-          } else {
-            setTestResult({
-              ok: true,
-              message: `✓ API key verified. Ready for read-only agent discovery and telemetry ingestion.`,
-            })
-          }
-        } else {
-          setTestResult({
-            ok: true,
-            message: `✓ Simulated test verified. 2 sample agent workloads ready to ingest for CEL compliance.`,
-          })
-        }
-      } else {
-        setTestResult({
-          ok: true,
-          message: `✓ OIDC session verified for ${issuerUrl}. Trust anchor established.`,
-        })
       }
-    }, 600)
+      const res = await connectorsApi.testConnector('', provider.provider_id, creds)
+      setTestResult({
+        ok: res.valid && res.scopes_ok,
+        message:
+          res.message ||
+          (res.error_msg
+            ? `✗ ${res.error_msg}`
+            : `✓ Connection verified for ${provider.display_name || provider.provider_id}.`),
+      })
+    } catch (err: any) {
+      setTestResult({
+        ok: false,
+        message: err?.response?.data?.detail || err?.message || 'Connection test failed.',
+      })
+    } finally {
+      setTesting(false)
+    }
   }
 
   const handleFormSubmit = async (e: FormEvent) => {

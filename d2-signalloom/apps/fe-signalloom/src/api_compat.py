@@ -3308,18 +3308,22 @@ def _agent_response_from_row(
     row_credentials = _credential_revocation(stun_detail, bool(cred_revoked))
 
     kernel = _kernel_view(discovered_overlay, stunned=canonical_state == "Suspended")
-    if isinstance(row.get("operational_state"), dict):
-        operational_state = OperationalStateMetadata(**row["operational_state"])
-    elif isinstance(row.get("operational_state"), OperationalStateMetadata):
-        operational_state = row["operational_state"]
-    else:
-        operational_state = OperationalStateMetadata(
-            runtime_status="stopped" if kernel["kernel_state"] == "frozen" else ("running" if (phase == "Running" or canonical_state == "Governed") else ("stopped" if canonical_state in ("Suspended", "Revoked") else "degraded")),
-            containment=ContainmentMeasures(
-                **row_containment,
-                **row_credentials,
-            ),
-        )
+    # Containment truth wins. A row may carry a fixture runtime_status (the
+    # seeded demo AI agents do), but it is only honoured when nothing about
+    # containment says otherwise: a frozen kernel, a stun record or a
+    # suspended/revoked lifecycle always decides. Containment measures are
+    # never taken from the row.
+    derived_status = "stopped" if kernel["kernel_state"] == "frozen" else ("running" if (phase == "Running" or canonical_state == "Governed") else ("stopped" if canonical_state in ("Suspended", "Revoked") else "degraded"))
+    row_state = row.get("operational_state")
+    row_status = row_state.runtime_status if isinstance(row_state, OperationalStateMetadata) else (row_state.get("runtime_status") if isinstance(row_state, dict) else None)
+    contained = kernel["kernel_state"] == "frozen" or is_frozen or canonical_state in ("Suspended", "Revoked")
+    operational_state = OperationalStateMetadata(
+        runtime_status=row_status if (row_status and not contained) else derived_status,
+        containment=ContainmentMeasures(
+            **row_containment,
+            **row_credentials,
+        ),
+    )
 
     normalized_score = compliance.posture_score if (compliance.total_controls > 0 and compliance.posture_score is not None) else None
     assessment_summary = AssessmentSummaryMetadata(
@@ -3724,30 +3728,23 @@ _AUDIT_SEQ = itertools.count(1)
 
 
 def update_claude_agent_name(tenant_id: str, agent_name: str, agent_id: str | None = None) -> None:
-    """Update discovered Claude agent name across in-memory state and registry."""
+    """Record a Claude agent discovered for ``tenant_id`` (fixture store only).
+
+    The tenant's discovery record remembers the latest discovered agent, and an
+    in-memory agent is renamed only when it carries that exact
+    ``external_agent_id``. Never rename by pattern: matching every agent whose
+    id or model mentions "claude" relabelled unrelated agents with one
+    external agent's name.
+    """
     with _STORE_LOCK:
-        if tenant_id not in _CLAUDE_DISCOVERED_AGENTS:
-            _CLAUDE_DISCOVERED_AGENTS[tenant_id] = {}
-        _CLAUDE_DISCOVERED_AGENTS[tenant_id]["name"] = agent_name
-        if agent_id:
-            _CLAUDE_DISCOVERED_AGENTS[tenant_id]["id"] = agent_id
-
-        if tenant_id in _AGENTS:
-            for k, ag in _AGENTS[tenant_id].items():
-                if "claude" in k.lower() or "claude" in str(ag.get("model_name", "")).lower() or (agent_id and k == agent_id):
-                    ag["name"] = agent_name
-                    ag["display_name"] = agent_name
-                    if agent_id:
-                        ag["remote_agent_id"] = agent_id
-
-            if agent_id and agent_id not in _AGENTS[tenant_id]:
-                canonical_claude = next((ag for k, ag in _AGENTS[tenant_id].items() if "claude" in k.lower()), None)
-                if canonical_claude:
-                    aliased = dict(canonical_claude)
-                    aliased["id"] = agent_id
-                    aliased["name"] = agent_name
-                    aliased["display_name"] = agent_name
-                    _AGENTS[tenant_id][agent_id] = aliased
+        _CLAUDE_DISCOVERED_AGENTS[tenant_id] = {"name": agent_name, **({"id": agent_id} if agent_id else {})}
+        if not agent_id:
+            return
+        for ag in _AGENTS.get(tenant_id, {}).values():
+            if ag.get("external_agent_id") == agent_id or ag.get("id") == agent_id or ag.get("remote_agent_id") == agent_id:
+                ag["name"] = agent_name
+                ag["display_name"] = agent_name
+                ag["remote_agent_id"] = agent_id
 
 
 async def update_claude_agent_name_db(tenant_id: str, agent_name: str, agent_id: str | None = None) -> None:

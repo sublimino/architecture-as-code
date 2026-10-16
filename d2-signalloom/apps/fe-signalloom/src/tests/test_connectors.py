@@ -476,11 +476,8 @@ def test_connector_scan_claude(monkeypatch):
         assert logs[0]["id"] == "log-1"
         assert "cloud-dev" in logs[0]["message"]
         assert logs[1]["id"] == "log-2"
-        assert logs[1]["endpoint"] == "GET /v1/environments/env_01CyCigBbDRSLTzSCyyHQ7eT"
-        assert logs[1]["details"]["env_id"] == "env_01CyCigBbDRSLTzSCyyHQ7eT"
-        assert logs[1]["details"]["network"]["package_managers"] is True
-        assert logs[1]["details"]["network"]["mcp_servers"] is True
-        assert logs[1]["details"]["network"]["allowed_hosts"] == []
+        # Fixture demo trace, but wire fields are superadmin-only and alice is not one.
+        assert (logs[1]["endpoint"], logs[1]["status_code"], logs[1]["details"]) == (None, None, None)
         assert logs[2]["id"] == "log-3"
         assert "Daily News Jokester" in logs[2]["message"]
         assert "agent_01FoEhnKF9QsC5DGmuELhm7G" in logs[2]["message"]

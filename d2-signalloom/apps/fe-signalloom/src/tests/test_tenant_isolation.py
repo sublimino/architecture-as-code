@@ -999,6 +999,17 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("POST", "/api/v1/connectors/{connector_id}/test"),
     ("DELETE", "/api/connectors/{connector_id}"),
     ("DELETE", "/api/v1/connectors/{connector_id}"),
+    # Scan, scan logs and supplied-credential test. Connector state is an
+    # in-memory per-tenant store, not database-backed; a tenant can scan only
+    # its own connected connector (404 connector_not_configured otherwise) and
+    # never with another tenant's or the server's key -- covered by
+    # test_connectors_live_honesty.py.
+    ("POST", "/api/connectors/{provider_id}/scan"),
+    ("POST", "/api/v1/connectors/{provider_id}/scan"),
+    ("GET", "/api/connectors/{provider_id}/logs"),
+    ("GET", "/api/v1/connectors/{provider_id}/logs"),
+    ("POST", "/api/connectors/providers/{provider_id}/test"),
+    ("POST", "/api/v1/connectors/providers/{provider_id}/test"),
     # cAdvisor pod telemetry (cadvisor_poller.py): authenticated (router-level
     # Depends(authenticated_principal)) AND tenant-partitioned since the
     # remote-cluster work, but still not database-backed, which is why it stays

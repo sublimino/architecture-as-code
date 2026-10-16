@@ -179,3 +179,61 @@ c = {x["id"]: x for x in json.loads(sys.argv[1])["checks"]}
 assert c["test_alignment"]["status"] == "FAIL"
 PY
 }
+
+@test "collector falls back to nono wrap when unshare probe fails" {
+	cat >"$FIXTURE_BIN/unshare" <<'EOF'
+#!/usr/bin/env bash
+echo "unshare: cannot open /proc/self/uid_map: Permission denied" >&2
+exit 1
+EOF
+	cat >"$FIXTURE_BIN/nono" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == "wrap" ]]; then
+	shift
+	while [[ "$1" == --* || "$1" == "-s" ]]; do
+		if [[ "$1" == "--allow" ]]; then
+			shift 2
+		else
+			shift
+		fi
+	done
+	[[ "${1:-}" == "--" ]] && shift
+	exec "$@"
+fi
+exit 1
+EOF
+	chmod +x "$FIXTURE_BIN/unshare" "$FIXTURE_BIN/nono"
+	run_fixture pass
+	[ "$status" -eq 0 ]
+	assert_protocol
+	python3 - "$output" <<'PY'
+import json, sys
+c = {x["id"]: x for x in json.loads(sys.argv[1])["checks"]}
+assert c["test_alignment"]["status"] == "PASS"
+assert c["test_alignment"]["reason_code"] == "passed"
+PY
+}
+
+@test "collector reports permission_denied when both unshare and nono are denied" {
+	cat >"$FIXTURE_BIN/unshare" <<'EOF'
+#!/usr/bin/env bash
+echo "unshare: permission denied" >&2
+exit 1
+EOF
+	cat >"$FIXTURE_BIN/nono" <<'EOF'
+#!/usr/bin/env bash
+echo "nono: permission denied" >&2
+exit 1
+EOF
+	chmod +x "$FIXTURE_BIN/unshare" "$FIXTURE_BIN/nono"
+	run_fixture pass
+	[ "$status" -eq 0 ]
+	assert_protocol
+	python3 - "$output" <<'PY'
+import json, sys
+c = {x["id"]: x for x in json.loads(sys.argv[1])["checks"]}
+assert c["test_alignment"]["status"] == "BLOCKED"
+assert c["test_alignment"]["reason_code"] == "permission_denied"
+PY
+}
+

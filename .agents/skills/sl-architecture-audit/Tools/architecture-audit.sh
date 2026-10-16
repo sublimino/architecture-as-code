@@ -46,8 +46,11 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || fail "cannot resol
 report_helper="$script_dir/report.py"
 [[ -f "$report_helper" ]] || fail "report helper is unavailable"
 
+unshare_name="${ARCH_AUDIT_UNSHARE:-unshare}"
+nono_name="${ARCH_AUDIT_NONO:-nono}"
 timeout_bin="$(command -v timeout || true)"
-unshare_bin="$(command -v unshare || true)"
+unshare_bin="$(command -v "$unshare_name" || true)"
+nono_bin="$(command -v "$nono_name" || true)"
 python_bin="$(command -v python3 || true)"
 make_name="${ARCH_AUDIT_MAKE:-make}"
 bats_name="${ARCH_AUDIT_BATS:-bats}"
@@ -61,18 +64,39 @@ results="$run_dir/results.tsv"
 : >"$results" || fail "cannot initialize results"
 
 offline_reason=""
-if [[ -z "$unshare_bin" ]]; then
-	offline_reason="missing_tool"
-else
+offline_isolation=()
+
+unshare_probe_exit=0
+nono_probe_exit=0
+
+if [[ -n "$unshare_bin" ]]; then
 	"$timeout_bin" --kill-after=1 "${command_timeout}s" \
 		"$unshare_bin" --user --map-root-user --net -- true \
-		>"$run_dir/offline-probe.log" 2>&1
-	probe_exit=$?
-	case "$probe_exit" in
-		0) ;;
-		124|137) offline_reason="timeout" ;;
-		*) offline_reason="permission_denied" ;;
-	esac
+		>"$run_dir/offline-probe-unshare.log" 2>&1
+	unshare_probe_exit=$?
+	if ((unshare_probe_exit == 0)); then
+		offline_isolation=("$unshare_bin" --user --map-root-user --net --)
+	fi
+fi
+
+if ((${#offline_isolation[@]} == 0)) && [[ -n "$nono_bin" ]]; then
+	"$timeout_bin" --kill-after=1 "${command_timeout}s" \
+		"$nono_bin" wrap -s --allow-cwd --allow /tmp --allow "$repo_root" --allow "$run_dir" --block-net -- true \
+		>"$run_dir/offline-probe-nono.log" 2>&1
+	nono_probe_exit=$?
+	if ((nono_probe_exit == 0)); then
+		offline_isolation=("$nono_bin" wrap -s --allow-cwd --allow /tmp --allow "$repo_root" --allow "$run_dir" --block-net --)
+	fi
+fi
+
+if ((${#offline_isolation[@]} == 0)); then
+	if [[ -z "$unshare_bin" && -z "$nono_bin" ]]; then
+		offline_reason="missing_tool"
+	elif [[ "$unshare_probe_exit" == "124" || "$unshare_probe_exit" == "137" || "$nono_probe_exit" == "124" || "$nono_probe_exit" == "137" ]]; then
+		offline_reason="timeout"
+	else
+		offline_reason="permission_denied"
+	fi
 fi
 
 append_blocked() {
@@ -95,8 +119,9 @@ run_check() {
 	local status exit_code reason findings log_bytes
 	local -a pipe_codes
 	"$timeout_bin" --kill-after=1 "${command_timeout}s" \
-		"$unshare_bin" --user --map-root-user --net -- \
+		"${offline_isolation[@]}" \
 		env -i PATH="$PATH" HOME="${HOME:-/nonexistent}" TMPDIR="$run_dir" \
+		TERM="${TERM:-dumb}" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
 		LANG=C LC_ALL=C "$tool" "$@" \
 		2>&1 | head -c 1048576 >"$run_dir/$id.log"
 	pipe_codes=("${PIPESTATUS[@]}")

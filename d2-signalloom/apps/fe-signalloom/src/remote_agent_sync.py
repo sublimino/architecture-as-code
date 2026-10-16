@@ -75,6 +75,31 @@ ANTHROPIC_STATUS_EVENTS = frozenset({
 })
 
 
+WORKSPACE_REQUIRED_CODE = "workspace_required"
+WORKSPACE_REQUIRED_MESSAGE = ("This Anthropic key is organisation-scoped: enter the Workspace ID "
+                              "(Console → Settings → Workspaces) and test again.")
+
+
+def anthropic_headers(key: str, workspace_id: str | None = None) -> dict[str, str]:
+    """Headers for every Anthropic call; ``anthropic-workspace-id`` only when a workspace is known.
+
+    An organisation-scoped key (not bound to one workspace) is refused with a
+    400 unless the request names the workspace (verified live 2026-10-16).
+    """
+    headers = {"x-api-key": key, **ANTHROPIC_HEADERS}
+    if workspace_id and workspace_id.strip():
+        headers["anthropic-workspace-id"] = workspace_id.strip()
+    return headers
+
+
+def anthropic_workspace_required(status: int | None, body: str) -> bool:
+    """True for Anthropic's 400 "This API key is not scoped to a workspace ..."."""
+    if status != 400:
+        return False
+    text = body.lower()
+    return "not scoped to a workspace" in text or "anthropic-workspace-id" in text
+
+
 def sync_interval_seconds() -> float:
     raw = os.environ.get("CONNECTOR_SYNC_INTERVAL_SECONDS", "")
     try:
@@ -149,10 +174,12 @@ class CallLog:
 
 
 class ProviderError(Exception):
-    def __init__(self, message: str, *, status: int | None = None, retry_after: float | None = None) -> None:
+    def __init__(self, message: str, *, status: int | None = None, retry_after: float | None = None,
+                 code: str | None = None) -> None:
         super().__init__(message)
         self.status = status
         self.retry_after = retry_after
+        self.code = code
 
     @property
     def retryable(self) -> bool:
@@ -200,6 +227,9 @@ async def _get_json(
     if allow_404 and resp.status_code == 404:
         calls.append(CallLog(f"GET {url}", 404, elapsed))
         return None
+    if anthropic_workspace_required(resp.status_code, resp.text):
+        calls.append(CallLog(f"GET {url}", 400, elapsed, error=WORKSPACE_REQUIRED_MESSAGE))
+        raise ProviderError(WORKSPACE_REQUIRED_MESSAGE, status=400, code=WORKSPACE_REQUIRED_CODE)
     if resp.status_code != 200:
         calls.append(CallLog(f"GET {url}", resp.status_code, elapsed, error=f"HTTP {resp.status_code}"))
         raise ProviderError(f"GET {url} answered HTTP {resp.status_code}", status=resp.status_code,
@@ -296,8 +326,8 @@ class AnthropicAdapter(ProviderAdapter):
     def credential(self, creds: dict[str, str]) -> str | None:
         return creds.get("api_key") or None
 
-    def _headers(self, key: str) -> dict[str, str]:
-        return {"x-api-key": key, **ANTHROPIC_HEADERS}
+    def _headers(self, key: str, creds: dict[str, str] | None = None) -> dict[str, str]:
+        return anthropic_headers(key, (creds or {}).get("workspace_id"))
 
     def _agent(self, a: dict[str, Any]) -> RemoteItem:
         raw = _pick(a, self._AGENT_RAW)
@@ -329,7 +359,7 @@ class AnthropicAdapter(ProviderAdapter):
         if not key:
             listing.errors.append(ProviderError("No Anthropic API key is stored for this connector; no request was made.", status=401))
             return listing
-        headers = self._headers(key)
+        headers = self._headers(key, creds)
 
         def follow(payload: dict[str, Any]) -> dict[str, Any] | None:
             nxt = payload.get("next_page")
@@ -361,7 +391,7 @@ class AnthropicAdapter(ProviderAdapter):
         path = {"agent": "/v1/agents/", "session": "/v1/sessions/"}.get(kind)
         if path is None:
             raise ProviderError(f"Anthropic has no '{kind}' resource to fetch", status=400)
-        payload = await _get_json(http, f"{ANTHROPIC_API}{path}{external_id}", self._headers(key), None, [], now,
+        payload = await _get_json(http, f"{ANTHROPIC_API}{path}{external_id}", self._headers(key, creds), None, [], now,
                                   allow_404=True)
         if payload is None:
             return None
@@ -377,9 +407,12 @@ class AnthropicAdapter(ProviderAdapter):
         if not key:
             raise ProviderError("No Anthropic API key is stored for this connector.", status=401)
         url = f"{ANTHROPIC_API}/v1/sessions/{external_id}/events/stream"
-        headers = {**self._headers(key), "accept": "text/event-stream"}
+        headers = {**self._headers(key, creds), "accept": "text/event-stream"}
         async with http.stream("GET", url, headers=headers, timeout=httpx.Timeout(UPSTREAM_TIMEOUT, read=None)) as resp:
             if resp.status_code != 200:
+                body = (await resp.aread()).decode("utf-8", "replace")
+                if anthropic_workspace_required(resp.status_code, body):
+                    raise ProviderError(WORKSPACE_REQUIRED_MESSAGE, status=400, code=WORKSPACE_REQUIRED_CODE)
                 raise ProviderError(f"GET {url} answered HTTP {resp.status_code}", status=resp.status_code)
             async for event_type in parse_sse_types(resp.aiter_lines()):
                 if event_type in ANTHROPIC_STATUS_EVENTS:
@@ -640,8 +673,20 @@ SQL_DUE = (
     "WHERE status = 'connected' AND credentials_ciphertext IS NOT NULL AND provider_id = ANY($1::text[]) "
     "ORDER BY tenant_id, connector_id"
 )
+def with_connector_workspace(creds: dict[str, str], connector: Any) -> dict[str, str]:
+    """``creds`` plus the connector metadata's ``workspace_id`` when the credentials carry none."""
+    if creds.get("workspace_id"):
+        return creds
+    try:
+        metadata = _json(connector["metadata"]) or {}
+    except (KeyError, TypeError, ValueError):
+        return creds
+    workspace = metadata.get("workspace_id") if isinstance(metadata, dict) else None
+    return {**creds, "workspace_id": workspace} if isinstance(workspace, str) and workspace.strip() else creds
+
+
 SQL_CONNECTOR = (
-    "/* remote_agent_store:connector */ SELECT connector_id, provider_id, status, credentials_ciphertext "
+    "/* remote_agent_store:connector */ SELECT connector_id, provider_id, status, credentials_ciphertext, metadata "
     "FROM public.tenant_connectors WHERE tenant_id = $1 AND (connector_id = $2 OR provider_id = $2) "
     "ORDER BY (connector_id = $2) DESC LIMIT 1"
 )
@@ -914,7 +959,8 @@ class RemoteAgentSync:
                         # Another replica polled; follow its schedule.
                         self._due[_connector_key(tenant_id, connector_id)] = next_at
                         return None
-                creds = creds_override if creds_override is not None else self._open(tenant_id, connector)
+                creds = (with_connector_workspace(creds_override, connector) if creds_override is not None
+                         else self._open(tenant_id, connector))
                 return await self._sync_locked(conn, tenant_id, connector_id, provider_id, adapter, creds, previous)
             finally:
                 if locked:
@@ -924,13 +970,14 @@ class RemoteAgentSync:
     def _open(tenant_id: str, connector: Any) -> dict[str, str]:
         ciphertext = connector["credentials_ciphertext"]
         if not ciphertext:
-            return {}
+            return with_connector_workspace({}, connector)
         try:
-            return connector_credentials.open_credentials(tenant_id, connector["connector_id"], ciphertext)
+            creds = connector_credentials.open_credentials(tenant_id, connector["connector_id"], ciphertext)
         except (connector_credentials.CredentialStoreUnavailable, connector_credentials.CredentialDecryptError) as exc:
             logger.warning("remote agent sync: credentials for %s/%s cannot be opened: %s",
                            tenant_id, connector["connector_id"], exc)
             return {}
+        return with_connector_workspace(creds, connector)
 
     async def _sync_locked(self, conn: Any, tenant_id: str, connector_id: str, provider_id: str,
                            adapter: ProviderAdapter, creds: dict[str, str], previous: Any) -> SyncOutcome:

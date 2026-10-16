@@ -135,6 +135,8 @@ class ConnectorTestResult(BaseModel):
     credential_expires_at: str | None = None
     needs_rotation: bool = False
     message: str | None = None
+    # Machine-readable reason for a failed verdict, e.g. ``workspace_required``.
+    error_code: str | None = None
 
 
 class ConnectorTestRequest(BaseModel):
@@ -284,7 +286,13 @@ STANDARD_PROVIDERS: list[ConnectorProvider] = [
         wizard_config=WizardStepConfig(
             fields=[
                 WizardFieldSpec(name="api_key", label="Anthropic API Key", type="password", required=True, placeholder="sk-ant-..."),
-                WizardFieldSpec(name="workspace_id", label="Workspace ID (optional)", type="text", required=False, placeholder="wrkspc_xxxxxxxxxxxx"),
+                # Optional in the schema because a workspace-scoped key needs none, but an
+                # organisation-scoped key is refused by every endpoint without it.
+                WizardFieldSpec(name="workspace_id", label="Workspace ID (required for organisation-scoped keys)", type="text",
+                                required=False, placeholder="wrkspc_xxxxxxxxxxxx",
+                                help_text="Required when the key is organisation-scoped (not tied to one workspace): Anthropic refuses "
+                                          "every request from such a key unless it names the workspace. Find it in Console → Settings → Workspaces. "
+                                          "Sent as the anthropic-workspace-id header on every call."),
                 WizardFieldSpec(name="admin_api_key", label="Admin API Key (optional)", type="password", required=False, placeholder="sk-ant-admin..."),
             ],
             permissions=["models:read", "batches:read"],
@@ -947,7 +955,7 @@ def _supplied_credentials(body: Any) -> dict[str, str]:
     return {str(k): str(v) for k, v in creds.items() if v} if isinstance(creds, dict) else {}
 
 
-async def _fetch_live_anthropic_telemetry(api_key: str) -> dict[str, Any] | None:
+async def _fetch_live_anthropic_telemetry(api_key: str, workspace_id: str | None = None) -> dict[str, Any] | None:
     """Fixture mode only: list agents with the tenant's own key for the demo overlay.
 
     Returns None unless Anthropic answered 200 with a named agent; it never
@@ -957,7 +965,7 @@ async def _fetch_live_anthropic_telemetry(api_key: str) -> dict[str, Any] | None
         return None
     try:
         async with httpx.AsyncClient(timeout=_UPSTREAM_TIMEOUT) as client:
-            resp = await client.get(f"{ANTHROPIC_API}/v1/agents", headers={"x-api-key": api_key, **_ANTHROPIC_HEADERS})
+            resp = await client.get(f"{ANTHROPIC_API}/v1/agents", headers=remote_agent_sync.anthropic_headers(api_key, workspace_id))
             if resp.status_code != 200:
                 return None
             data = resp.json()
@@ -970,40 +978,48 @@ async def _fetch_live_anthropic_telemetry(api_key: str) -> dict[str, Any] | None
     return None
 
 
-async def _probe(url: str, headers: dict[str, str]) -> tuple[int | None, int, str | None]:
-    """One real GET. Returns (status or None, measured ms, transport error or None)."""
+async def _probe(url: str, headers: dict[str, str]) -> tuple[int | None, int, str | None, str]:
+    """One real GET. Returns (status or None, measured ms, transport error or None, body text)."""
     started = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=_UPSTREAM_TIMEOUT) as client:
             resp = await client.get(url, headers=headers)
-        return resp.status_code, int((time.monotonic() - started) * 1000), None
+        return resp.status_code, int((time.monotonic() - started) * 1000), None, resp.text
     except httpx.HTTPError as exc:
-        return None, int((time.monotonic() - started) * 1000), type(exc).__name__
+        return None, int((time.monotonic() - started) * 1000), type(exc).__name__, ""
 
 
 # (valid, scopes_ok, error_msg, message, tested). ``tested`` is True only when
 # the upstream answered, i.e. the credential was really put to the provider.
-Verdict = tuple[bool, bool, str | None, str | None, bool]
+# The sixth element is a machine-readable error code, or None.
+Verdict = tuple[bool, bool, str | None, str | None, bool, str | None]
 
 
 def _probe_verdict(service: str, status: int | None, error: str | None) -> Verdict:
     """A verdict from a real probe outcome only."""
     if status is None:
-        return False, False, f"Could not reach the {service} API ({error}); the credential was not tested.", None, False
+        return False, False, f"Could not reach the {service} API ({error}); the credential was not tested.", None, False, None
     if status == 200:
-        return True, True, None, f"{service} API accepted the credential (HTTP 200).", True
+        return True, True, None, f"{service} API accepted the credential (HTTP 200).", True, None
     if status == 401:
-        return False, False, f"{service} API rejected the credential (HTTP 401).", None, True
+        return False, False, f"{service} API rejected the credential (HTTP 401).", None, True, None
     if status == 403:
-        return True, False, f"{service} API authenticated the credential but refused the required permission (HTTP 403).", None, True
-    return False, False, f"Unexpected HTTP {status} from the {service} API; the credential was not verified.", None, True
+        return True, False, f"{service} API authenticated the credential but refused the required permission (HTTP 403).", None, True, None
+    return False, False, f"Unexpected HTTP {status} from the {service} API; the credential was not verified.", None, True, None
 
 
 async def _verify_claude(creds: dict[str, str]) -> Verdict:
     key = creds.get("api_key")
     if not key:
-        return False, False, "No Anthropic API key was supplied or stored; nothing was tested.", None, False
-    status, _, error = await _probe(f"{ANTHROPIC_API}/v1/models", {"x-api-key": key, "anthropic-version": "2023-06-01"})
+        return False, False, "No Anthropic API key was supplied or stored; nothing was tested.", None, False, None
+    headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
+    if (creds.get("workspace_id") or "").strip():
+        headers["anthropic-workspace-id"] = creds["workspace_id"].strip()
+    status, _, error, body = await _probe(f"{ANTHROPIC_API}/v1/models", headers)
+    if remote_agent_sync.anthropic_workspace_required(status, body):
+        # The key authenticated as an organisation key; it is not invalid, it needs a workspace.
+        return (False, False, remote_agent_sync.WORKSPACE_REQUIRED_MESSAGE, None, True,
+                remote_agent_sync.WORKSPACE_REQUIRED_CODE)
     return _probe_verdict("Anthropic", status, error)
 
 
@@ -1012,8 +1028,8 @@ async def _verify_openai(creds: dict[str, str]) -> Verdict:
     # the wizard field became ``api_key``; both hold an org Admin key.
     key = creds.get("api_key") or creds.get("admin_api_key")
     if not key:
-        return False, False, "No OpenAI Admin API key was supplied or stored; nothing was tested.", None, False
-    status, _, error = await _probe(f"{OPENAI_API}/v1/organization/admin_api_keys", {"Authorization": f"Bearer {key}"})
+        return False, False, "No OpenAI Admin API key was supplied or stored; nothing was tested.", None, False, None
+    status, _, error, _body = await _probe(f"{OPENAI_API}/v1/organization/admin_api_keys", {"Authorization": f"Bearer {key}"})
     return _probe_verdict("OpenAI Admin", status, error)
 
 
@@ -1052,8 +1068,9 @@ async def test_supplied_credentials(
     verifier = _VERIFIERS.get(provider_id)
     if verifier is None:
         raise APIError(501, "test_unsupported", f"No credential verifier exists for provider '{provider_id}'")
-    valid, scopes_ok, error_msg, message, _tested = await verifier(_supplied_credentials(body))
-    return ConnectorTestResult(connector_id=None, valid=valid, scopes_ok=scopes_ok, error_msg=error_msg, message=message)
+    valid, scopes_ok, error_msg, message, _tested, error_code = await verifier(_supplied_credentials(body))
+    return ConnectorTestResult(connector_id=None, valid=valid, scopes_ok=scopes_ok, error_msg=error_msg, message=message,
+                               error_code=error_code)
 
 
 @router.post("/api/v1/connectors/{connector_id}/test", response_model=ConnectorTestResult)
@@ -1083,14 +1100,14 @@ async def test_connector(
         verifier = _VERIFIERS.get(match["provider_id"])
         if verifier is None:
             raise APIError(501, "test_unsupported", f"No credential verifier exists for provider '{match['provider_id']}'")
-        creds = _supplied_credentials(body) or _open_stored(tenant_id, row)
-        valid, scopes_ok, error_msg, message, tested = await verifier(creds)
+        creds = remote_agent_sync.with_connector_workspace(_supplied_credentials(body) or _open_stored(tenant_id, row), row)
+        valid, scopes_ok, error_msg, message, tested, error_code = await verifier(creds)
         if tested:
             # The provider answered: this is when the credential was tested.
             await pool.execute(_SQL_STAMP_TESTED, tenant_id, match["connector_id"], datetime.now(timezone.utc))
         return ConnectorTestResult(
             connector_id=match["connector_id"], valid=valid, scopes_ok=scopes_ok, error_msg=error_msg,
-            credential_expires_at=expires_at_str, message=message,
+            credential_expires_at=expires_at_str, message=message, error_code=error_code,
         )
 
     # Fixture mode (no database): the demo path.
@@ -1109,12 +1126,13 @@ async def test_connector(
             credential_expires_at=expires_at_str, needs_rotation=problem[1],
         )
 
-    creds = _supplied_credentials(body) or _stored_credentials(tenant_id, match)
+    creds = remote_agent_sync.with_connector_workspace(
+        _supplied_credentials(body) or _stored_credentials(tenant_id, match), match)
 
     # The stored state passed, so the demo reports it valid.
     test_message = None
     if match.get("provider_id") == "claude":
-        live_telemetry = await _fetch_live_anthropic_telemetry(creds.get("api_key", ""))
+        live_telemetry = await _fetch_live_anthropic_telemetry(creds.get("api_key", ""), creds.get("workspace_id"))
         if live_telemetry:
             update_claude_agent_name(tenant_id, live_telemetry["agent_name"], live_telemetry.get("agent_id"))
             test_message = f"✓ Verified connection to Anthropic Claude API. Discovered live agent: {live_telemetry['agent_name']}"
@@ -1317,13 +1335,13 @@ def _redact_for(principal: Principal, result: SyncResult) -> SyncResult:
 _KIND_LABEL = {"agent": "agents", "session": "sessions"}
 
 
-async def _list_anthropic_models(key: str, logs: list[SyncLogEntry]) -> int | None:
+async def _list_anthropic_models(key: str, logs: list[SyncLogEntry], workspace_id: str | None = None) -> int | None:
     """``GET /v1/models`` with the tenant's key: the one listing a scan adds to the sync."""
     url = f"{ANTHROPIC_API}/v1/models"
     started = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=_UPSTREAM_TIMEOUT) as client:
-            resp = await client.get(url, headers={"x-api-key": key, **_ANTHROPIC_HEADERS})
+            resp = await client.get(url, headers=remote_agent_sync.anthropic_headers(key, workspace_id))
     except httpx.HTTPError as exc:
         logs.append(SyncLogEntry(
             id=f"log-{len(logs) + 1}", timestamp=_now_iso(), level="error",
@@ -1332,6 +1350,13 @@ async def _list_anthropic_models(key: str, logs: list[SyncLogEntry]) -> int | No
         ))
         return None
     elapsed = int((time.monotonic() - started) * 1000)
+    if remote_agent_sync.anthropic_workspace_required(resp.status_code, resp.text):
+        logs.append(SyncLogEntry(
+            id=f"log-{len(logs) + 1}", timestamp=_now_iso(), level="error",
+            message=remote_agent_sync.WORKSPACE_REQUIRED_MESSAGE, endpoint=f"GET {url}", status_code=400,
+            duration_ms=elapsed, details={"error_code": remote_agent_sync.WORKSPACE_REQUIRED_CODE},
+        ))
+        return None
     items = None
     if resp.status_code == 200:
         try:
@@ -1362,6 +1387,7 @@ async def _scan_live(pool: Any, tenant_id: str, row: Any, creds: dict[str, str])
     """
     provider_id = row["provider_id"]
     adapter = remote_agent_sync.ADAPTERS[provider_id]
+    creds = remote_agent_sync.with_connector_workspace(creds, row)
     started = time.monotonic()
     now = _now_iso()
     if not adapter.credential(creds):
@@ -1379,12 +1405,14 @@ async def _scan_live(pool: Any, tenant_id: str, row: Any, creds: dict[str, str])
     logs: list[SyncLogEntry] = []
     for call in listing.calls:
         failed = call.error is not None
+        workspace = call.error == remote_agent_sync.WORKSPACE_REQUIRED_MESSAGE
         logs.append(SyncLogEntry(
             id=f"log-{len(logs) + 1}", timestamp=_now_iso(), level="error" if failed else "info",
-            message=(f"{call.endpoint} failed ({call.error})." if failed
+            message=(call.error if workspace else f"{call.endpoint} failed ({call.error})." if failed
                      else f"Listed {call.count} {adapter.display_name} records."),
             endpoint=call.endpoint, status_code=call.status_code, duration_ms=call.duration_ms,
-            details=None if failed else {"count": call.count},
+            details=({"error_code": remote_agent_sync.WORKSPACE_REQUIRED_CODE} if workspace
+                     else None if failed else {"count": call.count}),
         ))
     for error in listing.errors:
         if error.status is None or error.status == 200 or not listing.calls:
@@ -1396,7 +1424,7 @@ async def _scan_live(pool: Any, tenant_id: str, row: Any, creds: dict[str, str])
         counts[_KIND_LABEL.get(kind, kind)] = outcome.counts.get(kind, 0) if kind in listing.complete_kinds else None
     observed = [kind in listing.complete_kinds for kind in listing.attempted_kinds]
     if provider_id == "claude":
-        counts["models"] = await _list_anthropic_models(adapter.credential(creds) or "", logs)
+        counts["models"] = await _list_anthropic_models(adapter.credential(creds) or "", logs, creds.get("workspace_id"))
         observed.append(counts["models"] is not None)
     status: Literal["success", "warning", "error"] = (
         "success" if all(observed) and not listing.errors else ("warning" if any(observed) else "error"))
@@ -1476,7 +1504,7 @@ async def scan_connector(
         creds = _supplied_credentials(body) or _stored_credentials(tenant_id, match)
         live_telemetry = None
         if canonical_provider == "claude":
-            live_telemetry = await _fetch_live_anthropic_telemetry(creds.get("api_key", ""))
+            live_telemetry = await _fetch_live_anthropic_telemetry(creds.get("api_key", ""), creds.get("workspace_id"))
             if live_telemetry:
                 update_claude_agent_name(tenant_id, live_telemetry["agent_name"], live_telemetry.get("agent_id"))
         result = _generate_sync_result(

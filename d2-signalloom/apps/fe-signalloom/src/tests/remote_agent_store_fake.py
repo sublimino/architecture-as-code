@@ -128,7 +128,7 @@ class FakeRemoteAgentPool(FakeConnectorPool):
             rows = [r for (t, _), r in self.connectors.items() if t == tenant]
             hit = next((r for r in rows if r["connector_id"] == args[1]), None) or next(
                 (r for r in rows if r["provider_id"] == args[1]), None)
-            return [{k: hit[k] for k in ("connector_id", "provider_id", "status", "credentials_ciphertext")}] if hit else []
+            return [{k: hit[k] for k in ("connector_id", "provider_id", "status", "credentials_ciphertext", "metadata")}] if hit else []
 
         if op in ("existing", "list"):
             rows = [dict(r) for (t, c, _), r in self.remote_agents.items() if t == tenant and c == args[1]]

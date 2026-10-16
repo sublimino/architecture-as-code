@@ -5,18 +5,25 @@ discover the managed agents and models visible to that key.
 
 ## What Signal Loom reads, and why
 
-A scan makes two read-only requests to the Anthropic API with the stored key,
-and nothing else:
+Signal Loom keeps the connector in sync continuously (every 30 seconds by
+default) and on demand when you press **Scan**. It makes read-only requests to
+the Anthropic API with the stored key, and nothing else:
 
 | Request | Why it matters |
 |---|---|
-| `GET https://api.anthropic.com/v1/agents` (managed agents beta) | Lists the managed agents the key can see: these are the non-human workloads Signal Loom tracks |
-| `GET https://api.anthropic.com/v1/models` | Lists the models available to the key |
+| `GET https://api.anthropic.com/v1/agents` (managed agents beta) | Lists the managed agents the key can see, archived ones included: these are the non-human workloads Signal Loom tracks |
+| `GET https://api.anthropic.com/v1/sessions` (managed agents beta) | Lists the agent sessions and their status (running, idle, terminated) |
+| `GET https://api.anthropic.com/v1/sessions/{id}/events/stream` | Followed only while a session is running, so a status change shows within seconds |
+| `GET https://api.anthropic.com/v1/models` | Lists the models available to the key (on a manual scan) |
+
+Every request carries the `anthropic-workspace-id` header when a Workspace ID
+is configured (see Step 2).
 
 What the scan reports back:
 
-- **Agents**: the number of agents returned by `/v1/agents`, only when that
-  request succeeded.
+- **Agents** and **Sessions**: the number returned by `/v1/agents` and
+  `/v1/sessions`, only when every page of that listing was read. An agent or
+  session the provider stops listing is marked gone, never deleted.
 - **Models**: the number of models returned by `/v1/models`, only when that
   request succeeded.
 - **Environments, tools and policy results**: not observed. The Anthropic
@@ -28,10 +35,9 @@ fail or no key is stored, it is reported as an **error**. The scan logs
 show which request failed. Signal Loom never substitutes sample data for
 a failed scan.
 
-> **Not used in this version:** the optional **Workspace ID** and **Admin API
-> Key** fields are stored with the connector but no request uses them yet.
-> Message batches are not read, whatever the permission list on the setup
-> screen suggests.
+> **Not used in this version:** the optional **Admin API Key** field is stored
+> with the connector but no request uses it yet. Message batches are not read,
+> whatever the permission list on the setup screen suggests.
 
 ## Step 1: Create an API key
 
@@ -51,7 +57,14 @@ can revoke it without affecting anything else.
 On the connector setup screen in your Signal Loom dashboard:
 
 - **Anthropic API Key**: from Step 1. This is the only credential a scan uses.
-- **Workspace ID** (optional): stored for your reference, not used.
+- **Workspace ID**: **required if the key is organisation-scoped** (not tied
+  to one workspace). Anthropic refuses every request from such a key unless
+  the request names the workspace, so Signal Loom sends it as the
+  `anthropic-workspace-id` header on every call. Find it in **Console →
+  Settings → Workspaces** (it starts with `wrkspc_`). A key created inside a
+  workspace does not need it. Without it, **Test** and **Scan** report
+  `workspace_required`: "This Anthropic key is organisation-scoped: enter the
+  Workspace ID (Console → Settings → Workspaces) and test again."
 - **Admin API Key** (optional): stored, not used.
 
 Signal Loom stores the key encrypted. It is never displayed again after

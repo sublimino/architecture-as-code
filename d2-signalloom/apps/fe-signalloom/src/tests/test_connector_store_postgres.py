@@ -109,6 +109,7 @@ def test_postgres_fresh_tenant_is_empty_and_a_connector_survives_a_restart(monke
     key = _key_file(tmp_path)
     with respx.mock(assert_all_called=False) as mock:
         mock.get(f"{ANTHROPIC}/v1/agents").mock(return_value=httpx.Response(200, json={"data": [{"id": "a1", "name": "One"}]}))
+        sessions = mock.get(f"{ANTHROPIC}/v1/sessions").mock(return_value=httpx.Response(200, json={"data": [], "next_page": None}))
         probe = mock.get(f"{ANTHROPIC}/v1/models").mock(return_value=httpx.Response(200, json={"data": [{"id": "m1"}]}))
         with _client(monkeypatch, pg, key) as client:
             assert _listed(client, "alice") == []
@@ -121,7 +122,7 @@ def test_postgres_fresh_tenant_is_empty_and_a_connector_survives_a_restart(monke
             assert (row["connector_id"], row["status"], row["last_scan_at"]) == (conn_id, "connected", scan["synced_at"])
             assert row["last_tested_at"] is None and row["credential_expires_at"] is None
             assert client.get("/api/v1/connectors/claude/logs", headers=_token("alice")).json()["records_scanned"] == {
-                "agents": 1, "models": 1, "environments": None, "tools": None}
+                "agents": 1, "sessions": 0, "models": 1, "environments": None, "tools": None}
             before = len(probe.calls)
             assert client.post(f"/api/v1/connectors/{conn_id}/test", headers=_token("alice")).json()["valid"] is True
             assert [c.request.headers["x-api-key"] for c in probe.calls[before:]] == [SECRET]

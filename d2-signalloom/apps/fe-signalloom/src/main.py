@@ -40,6 +40,8 @@ from signal_policy import install_signal_policy_api
 from tenant_isolation import install_tenant_isolation_api
 
 from risk import install_risk_api
+import remote_agent_sync
+from api_compat import settings as _settings
 
 
 @asynccontextmanager
@@ -51,9 +53,14 @@ async def lifespan(app: FastAPI):
     # The cAdvisor poller was installed as routes but never started, so every
     # telemetry route answered 503 "no successful cAdvisor scrape yet" (2026-10-03).
     await GLOBAL_CADVISOR_POLLER.start()
+    # Continuous remote agent sync: live mode only (a configured database).
+    # Fixture mode, and tests that fake a pool without a DSN, never poll a provider.
+    if _settings.database_url:
+        remote_agent_sync.SYNC.start()
     try:
         yield
     finally:
+        await remote_agent_sync.SYNC.stop()
         await GLOBAL_CADVISOR_POLLER.stop()
         await GLOBAL_REAPER_DAEMON.stop()
         await close_db_pool()

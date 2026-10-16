@@ -69,6 +69,14 @@ ANONYMOUS_ROUTES: dict[tuple[str, str], str] = {
         "frozen host privacy boundary contract, read by a host before it enrols; also on "
         "HostCredentialScopeMiddleware.ALLOWED_HOST_PATHS in host_credential.py"
     ),
+    ("POST", "/api/connectors/claude/webhook"): (
+        "Anthropic webhook receiver: authenticated by the Standard Webhooks HMAC signature "
+        "(ANTHROPIC_WEBHOOK_SIGNING_KEY), not a bearer token, because Anthropic is the caller. "
+        "404 when no key is configured, 400 on a bad signature, 404 for an unmapped organisation"
+    ),
+    ("POST", "/api/v1/connectors/claude/webhook"): (
+        "Anthropic webhook receiver /api/v1 alias; same signature authentication as above"
+    ),
 }
 
 #: Operations this app forwards to another service *without* checking the
@@ -593,6 +601,9 @@ def test_guard_anonymous_routes_are_served_without_a_token(method: str, path: st
         assert response.status_code == 200
     elif path == "/readyz":
         assert response.status_code in {200, 503}, "readyz without a database is 503, never an auth failure"
+    elif path.endswith("/connectors/claude/webhook"):
+        # Signature-authenticated: unsigned and unconfigured is 404 (disabled) or 400, never served.
+        assert response.status_code in {400, 404}
     else:
         assert response.status_code == 200
 

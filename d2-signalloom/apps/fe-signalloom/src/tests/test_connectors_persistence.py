@@ -30,6 +30,7 @@ from api_compat import settings
 from db.connection import set_pool_for_testing
 from routers.connectors import reset_connectors_for_testing
 from tests.connector_store_fake import FakeConnectorPool
+from tests.remote_agent_store_fake import FakeRemoteAgentPool
 from tests.test_connectors_live_honesty import ANTHROPIC, _JWKClient, _mock_good_claude, _token
 
 SECRET = "sk-ant-alice-SECRET-never-on-the-wire"
@@ -62,7 +63,7 @@ def _client(monkeypatch: pytest.MonkeyPatch, pool: Any, key_file: Path | None):
 
     monkeypatch.setattr(api_compat, "_get_pool", _pool)
     _forget_process_state()
-    set_pool_for_testing(FakeConnectorPool())
+    set_pool_for_testing(FakeRemoteAgentPool())
     from main import app
 
     try:
@@ -98,14 +99,14 @@ def _listed(client: TestClient, who: str) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 def test_a_fresh_live_tenant_lists_zero_connectors(monkeypatch, tmp_path):
-    with _client(monkeypatch, FakeConnectorPool(), _key_file(tmp_path)) as client:
+    with _client(monkeypatch, FakeRemoteAgentPool(), _key_file(tmp_path)) as client:
         assert _listed(client, "alice") == []
         status = client.get("/api/v1/connectors/status", headers=_token("alice")).json()
         assert (status["total_connectors"], status["active_connectors"], status["connectors"]) == (0, 0, [])
 
 
 def test_a_fresh_live_tenant_cannot_toggle_or_scan_a_demo_connector(monkeypatch, tmp_path):
-    with _client(monkeypatch, FakeConnectorPool(), _key_file(tmp_path)) as client:
+    with _client(monkeypatch, FakeRemoteAgentPool(), _key_file(tmp_path)) as client:
         for path in ("/api/v1/connectors/conn-aws-01/toggle", "/api/v1/connectors/conn-github-01/scan"):
             assert client.post(path, headers=_token("alice")).status_code == 404
 
@@ -115,9 +116,10 @@ def test_a_fresh_live_tenant_cannot_toggle_or_scan_a_demo_connector(monkeypatch,
 # ---------------------------------------------------------------------------
 
 def test_a_configured_connector_survives_a_restart_with_its_key_and_last_scan(monkeypatch, tmp_path):
-    pool, key = FakeConnectorPool(), _key_file(tmp_path)
+    pool, key = FakeRemoteAgentPool(), _key_file(tmp_path)
     with respx.mock(assert_all_called=False) as mock:
         mock.get(f"{ANTHROPIC}/v1/agents").mock(return_value=httpx.Response(200, json={"data": [{"id": "a1", "name": "One"}]}))
+        sessions = mock.get(f"{ANTHROPIC}/v1/sessions").mock(return_value=httpx.Response(200, json={"data": [], "next_page": None}))
         probe = mock.get(f"{ANTHROPIC}/v1/models").mock(return_value=httpx.Response(200, json={"data": [{"id": "m1"}]}))
         with _client(monkeypatch, pool, key) as client:
             conn_id = _create(client, "alice", "claude", {"api_key": SECRET})
@@ -144,7 +146,7 @@ def test_a_configured_connector_survives_a_restart_with_its_key_and_last_scan(mo
 
 
 def test_a_disabled_connector_stays_disabled_across_a_restart(monkeypatch, tmp_path):
-    pool, key = FakeConnectorPool(), _key_file(tmp_path)
+    pool, key = FakeRemoteAgentPool(), _key_file(tmp_path)
     with _client(monkeypatch, pool, key) as client:
         conn_id = _create(client, "alice", "claude", {"api_key": SECRET})
         resp = client.post(f"/api/v1/connectors/{conn_id}/toggle", headers=_token("alice"), json={"enabled": False})
@@ -154,7 +156,7 @@ def test_a_disabled_connector_stays_disabled_across_a_restart(monkeypatch, tmp_p
 
 
 def test_disconnect_deletes_the_stored_credentials_and_scan_result(monkeypatch, tmp_path):
-    pool = FakeConnectorPool()
+    pool = FakeRemoteAgentPool()
     with respx.mock(assert_all_called=False) as mock, _client(monkeypatch, pool, _key_file(tmp_path)) as client:
         _mock_good_claude(mock)
         conn_id = _create(client, "alice", "claude", {"api_key": SECRET})
@@ -171,7 +173,7 @@ def test_disconnect_deletes_the_stored_credentials_and_scan_result(monkeypatch, 
 # ---------------------------------------------------------------------------
 
 def test_one_tenants_connector_is_invisible_and_untouchable_to_another(monkeypatch, tmp_path):
-    pool = FakeConnectorPool()
+    pool = FakeRemoteAgentPool()
     with respx.mock(assert_all_called=False) as mock, _client(monkeypatch, pool, _key_file(tmp_path)) as client:
         upstream = mock.route(host="api.anthropic.com").mock(return_value=httpx.Response(200, json={"data": []}))
         conn_id = _create(client, "alice", "claude", {"api_key": SECRET})
@@ -196,7 +198,7 @@ def test_one_tenants_connector_is_invisible_and_untouchable_to_another(monkeypat
 # ---------------------------------------------------------------------------
 
 def test_credentials_are_stored_only_as_tenant_bound_aes_gcm_ciphertext(monkeypatch, tmp_path):
-    pool, key = FakeConnectorPool(), _key_file(tmp_path)
+    pool, key = FakeRemoteAgentPool(), _key_file(tmp_path)
     with _client(monkeypatch, pool, key) as client:
         conn_id = _create(client, "alice", "claude", {"api_key": SECRET})
         stored = pool.row("tenant-a", conn_id)["credentials_ciphertext"]
@@ -211,7 +213,7 @@ def test_credentials_are_stored_only_as_tenant_bound_aes_gcm_ciphertext(monkeypa
 def test_credentials_never_appear_in_any_response_or_log(monkeypatch, tmp_path, caplog):
     caplog.set_level(logging.DEBUG)
     with respx.mock(assert_all_called=False) as mock, \
-            _client(monkeypatch, FakeConnectorPool(), _key_file(tmp_path)) as client:
+            _client(monkeypatch, FakeRemoteAgentPool(), _key_file(tmp_path)) as client:
         _mock_good_claude(mock)
         headers = _token("root")
         bodies = [client.post("/api/v1/connectors", headers=headers,
@@ -231,7 +233,7 @@ def test_credentials_never_appear_in_any_response_or_log(monkeypatch, tmp_path, 
 
 
 def test_without_a_key_a_live_credential_write_is_503_and_stores_nothing(monkeypatch):
-    pool = FakeConnectorPool()
+    pool = FakeRemoteAgentPool()
     with _client(monkeypatch, pool, None) as client:
         resp = client.post("/api/v1/connectors", headers=_token("alice"),
                            json={"provider_id": "claude", "credentials": {"api_key": SECRET}})
@@ -244,7 +246,7 @@ def test_without_a_key_a_live_credential_write_is_503_and_stores_nothing(monkeyp
 def test_a_malformed_key_file_is_503_not_a_fallback(monkeypatch, tmp_path):
     bad = tmp_path / "short"
     bad.write_text("deadbeef\n")
-    pool = FakeConnectorPool()
+    pool = FakeRemoteAgentPool()
     with _client(monkeypatch, pool, bad) as client:
         resp = client.post("/api/v1/connectors", headers=_token("alice"),
                            json={"provider_id": "claude", "credentials": {"api_key": SECRET}})
@@ -254,13 +256,13 @@ def test_a_malformed_key_file_is_503_not_a_fallback(monkeypatch, tmp_path):
 
 
 def test_without_a_key_a_connector_with_no_credentials_still_saves(monkeypatch):
-    with _client(monkeypatch, FakeConnectorPool(), None) as client:
+    with _client(monkeypatch, FakeRemoteAgentPool(), None) as client:
         _create(client, "alice", "claude")
         assert [c["provider_id"] for c in _listed(client, "alice")] == ["claude"]
 
 
 def test_a_key_that_disappears_after_saving_makes_the_stored_test_503(monkeypatch, tmp_path):
-    pool, key = FakeConnectorPool(), _key_file(tmp_path)
+    pool, key = FakeRemoteAgentPool(), _key_file(tmp_path)
     with _client(monkeypatch, pool, key) as client:
         conn_id = _create(client, "alice", "claude", {"api_key": SECRET})
     with respx.mock(assert_all_called=False) as mock, _client(monkeypatch, pool, None) as client:

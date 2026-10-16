@@ -1010,6 +1010,20 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("GET", "/api/v1/connectors/{provider_id}/logs"),
     ("POST", "/api/connectors/providers/{provider_id}/test"),
     ("POST", "/api/v1/connectors/providers/{provider_id}/test"),
+    # Remote agent sync (remote_agent_sync.py). remote-agents reads
+    # public.remote_agents; every statement is tagged remote_agent_store and
+    # FakeRemoteAgentPool rejects any not scoped by tenant_id = $1, and
+    # test_remote_agents_api.py / test_remote_agent_sync.py prove two tenants
+    # never see each other's rows. The stream is an in-process pub/sub keyed
+    # by principal.tenant (test_the_stream_replays_only_the_callers_tenant).
+    # The webhook has no JWT caller: Anthropic signs it, the tenant comes from
+    # the ANTHROPIC_WEBHOOK_ORGANIZATIONS map, and an unmapped org is 404.
+    ("GET", "/api/connectors/{provider_id}/remote-agents"),
+    ("GET", "/api/v1/connectors/{provider_id}/remote-agents"),
+    ("GET", "/api/connectors/stream"),
+    ("GET", "/api/v1/connectors/stream"),
+    ("POST", "/api/connectors/claude/webhook"),
+    ("POST", "/api/v1/connectors/claude/webhook"),
     # cAdvisor pod telemetry (cadvisor_poller.py): authenticated (router-level
     # Depends(authenticated_principal)) AND tenant-partitioned since the
     # remote-cluster work, but still not database-backed, which is why it stays

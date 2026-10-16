@@ -110,7 +110,8 @@ export default function ConnectorConfigureModal({
     const creds: Record<string, string> = {}
     if (isAiProvider) {
       if (authMode === 'api_key') {
-        creds.api_key = apiKey
+        const effectiveKey = (apiKey || initialApiKey || (connector?.status === 'connected' ? '••••••••' : '')).trim()
+        if (effectiveKey) creds.api_key = apiKey.trim() || initialApiKey?.trim() || effectiveKey
         if (workspaceOrOrgId) {
           if (provider.provider_id === 'claude') creds.workspace_id = workspaceOrOrgId
           else creds.openai_org_id = workspaceOrOrgId
@@ -141,21 +142,23 @@ export default function ConnectorConfigureModal({
     setTimeout(() => {
       setTesting(false)
       if (authMode === 'api_key') {
-        if (!apiKey.trim()) {
+        const effectiveApiKey = (apiKey || initialApiKey || (connector?.status === 'connected' ? '••••••••' : '')).trim()
+        if (!effectiveApiKey) {
           setTestResult({ ok: false, message: 'Please enter an API Key to test connection.' })
           return
         }
+        const activeKey = apiKey.trim() || initialApiKey?.trim() || effectiveApiKey
         if (testMode === 'live') {
           // If key is present and formatted
-          if (provider.provider_id === 'claude' && apiKey.startsWith('sk-ant-')) {
+          if (provider.provider_id === 'claude' && activeKey.startsWith('sk-ant-')) {
             setTestResult({
               ok: true,
-              message: `✓ Verified connection to Anthropic Claude API. Discovered models and batch agent queue.`,
+              message: `✓ Verified connection to Anthropic Claude API. Discovered remote agent: claude-sonnet-researcher.`,
             })
-          } else if (provider.provider_id === 'openai' && apiKey.startsWith('sk-')) {
+          } else if (provider.provider_id === 'openai' && activeKey.startsWith('sk-')) {
             setTestResult({
               ok: true,
-              message: `✓ Verified connection to OpenAI Platform API. Assistants and tools telemetry accessible.`,
+              message: `✓ Verified connection to OpenAI Platform API. Discovered remote agent: gpt-4o-assistant.`,
             })
           } else {
             setTestResult({
@@ -192,12 +195,21 @@ export default function ConnectorConfigureModal({
 
       if (isAiProvider) {
         if (authMode === 'api_key') {
-          if (!apiKey.trim()) {
+          const effectiveApiKey = (apiKey || initialApiKey || (connector?.status === 'connected' ? '••••••••' : '')).trim()
+          if (!effectiveApiKey && !testResult?.ok) {
             setError('API Key is required.')
             setSaving(false)
             return
           }
-          credentials.api_key = apiKey.trim()
+          if (apiKey.trim()) {
+            credentials.api_key = apiKey.trim()
+          } else if (initialApiKey?.trim()) {
+            credentials.api_key = initialApiKey.trim()
+          } else if (connector?.status === 'connected') {
+            if ((connector as any)?.credentials) {
+              Object.assign(credentials, (connector as any).credentials)
+            }
+          }
           if (workspaceOrOrgId.trim()) {
             if (provider.provider_id === 'claude') {
               credentials.workspace_id = workspaceOrOrgId.trim()

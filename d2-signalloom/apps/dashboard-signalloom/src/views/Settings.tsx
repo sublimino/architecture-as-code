@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
@@ -370,6 +370,31 @@ export default function Settings() {
       setScanningProviderId(null)
     }
   }
+
+  const deepLinkHandledRef = useRef(false)
+  useEffect(() => {
+    if (deepLinkHandledRef.current || providers.length === 0 || activeTab !== 'connectors') return
+    const configTargetId = searchParams.get('provider') || searchParams.get('configure')
+    const logsTargetId = searchParams.get('logs')
+
+    if (configTargetId) {
+      const target = providers.find((p) => p.provider_id === configTargetId)
+      if (target) {
+        deepLinkHandledRef.current = true
+        setConfiguringProvider(target)
+        return
+      }
+    }
+
+    if (logsTargetId) {
+      const target = providers.find((p) => p.provider_id === logsTargetId)
+      if (target) {
+        deepLinkHandledRef.current = true
+        setSyncLogProvider(target)
+        return
+      }
+    }
+  }, [providers, activeTab, searchParams])
 
   useEffect(() => {
     load()
@@ -901,8 +926,30 @@ export default function Settings() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {providers.map((p) => {
-                  const connector = connectors.find((c) => c.provider_id === p.provider_id && c.status === 'connected')
-                  const isConnected = !!connector
+                  const connector = connectors.find((c) => c.provider_id === p.provider_id)
+                  const isConnected = connector?.status === 'connected'
+                  const isDisconnected = connector?.status === 'disconnected'
+
+                  let syncStatusText = 'Not configured'
+                  let syncBadgeColor = 'var(--muted)'
+                  let syncBadgeBg = 'rgba(148, 163, 184, 0.12)'
+
+                  if (isConnected && connector) {
+                    if (connector.last_scan_at || connector.last_tested_at) {
+                      syncStatusText = 'Synced'
+                      syncBadgeColor = 'var(--teal)'
+                      syncBadgeBg = 'rgba(16, 185, 129, 0.16)'
+                    } else {
+                      syncStatusText = 'Pending Sync'
+                      syncBadgeColor = 'var(--amber)'
+                      syncBadgeBg = 'rgba(245, 158, 11, 0.16)'
+                    }
+                  } else if (isDisconnected) {
+                    syncStatusText = 'Disconnected'
+                    syncBadgeColor = 'var(--muted)'
+                    syncBadgeBg = 'rgba(148, 163, 184, 0.16)'
+                  }
+
                   return (
                     <div
                       key={p.provider_id}
@@ -911,16 +958,33 @@ export default function Settings() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <ProviderLogo providerId={p.provider_id} displayName={p.display_name} size={32} />
                         <div>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{p.display_name}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{p.display_name}</span>
+                            <span
+                              data-testid={`sync-status-${p.provider_id}`}
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 600,
+                                padding: '2px 8px',
+                                borderRadius: 10,
+                                color: syncBadgeColor,
+                                background: syncBadgeBg,
+                                border: `1px solid ${syncBadgeColor}33`,
+                                letterSpacing: '0.02em',
+                              }}
+                            >
+                              {syncStatusText}
+                            </span>
+                          </div>
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                            {isConnected
+                            {isConnected && connector
                               ? connector.last_tested_at ? `Connected · Last tested ${fmtTs(connector.last_tested_at)}` : 'Connected'
-                              : 'Not configured'}
+                              : null}
                           </div>
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        {isConnected && (
+                        {isConnected && connector && (
                           <>
                             <button
                               type="button"
@@ -931,33 +995,35 @@ export default function Settings() {
                             >
                               View Environment
                             </button>
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              data-testid={`scan-connector-${p.provider_id}`}
-                              onClick={() => handleScanConnector(p.provider_id)}
-                              disabled={scanningProviderId === p.provider_id}
-                              style={{ fontSize: 12, padding: '5px 12px' }}
-                            >
-                              {scanningProviderId === p.provider_id ? (
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                                  <span
-                                    style={{
-                                      width: 10,
-                                      height: 10,
-                                      border: '2px solid currentColor',
-                                      borderRightColor: 'transparent',
-                                      borderRadius: '50%',
-                                      display: 'inline-block',
-                                      animation: 'spin 0.75s linear infinite',
-                                    }}
-                                  />
-                                  Scanning...
-                                </span>
-                              ) : (
-                                'Scan Now'
-                              )}
-                            </button>
+                            {connector?.metadata?.has_credentials !== false && (
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                data-testid={`scan-connector-${p.provider_id}`}
+                                onClick={() => handleScanConnector(p.provider_id)}
+                                disabled={scanningProviderId === p.provider_id}
+                                style={{ fontSize: 12, padding: '5px 12px' }}
+                              >
+                                {scanningProviderId === p.provider_id ? (
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                    <span
+                                      style={{
+                                        width: 10,
+                                        height: 10,
+                                        border: '2px solid currentColor',
+                                        borderRightColor: 'transparent',
+                                        borderRadius: '50%',
+                                        display: 'inline-block',
+                                        animation: 'spin 0.75s linear infinite',
+                                      }}
+                                    />
+                                    Scanning...
+                                  </span>
+                                ) : (
+                                  'Scan Now'
+                                )}
+                              </button>
+                            )}
                             <button
                               type="button"
                               className="btn btn-secondary btn-sm"
@@ -981,7 +1047,7 @@ export default function Settings() {
                         <FrameworkToggle
                           active={isConnected}
                           onToggle={() => {
-                            if (isConnected) {
+                            if (isConnected && connector) {
                               setDisconnectTarget(connector)
                             } else {
                               setConfiguringProvider(p)

@@ -5,6 +5,8 @@ import awsLogo from '../../assets/logos/aws.png'
 import gcpLogo from '../../assets/logos/gcp.png'
 import openaiLogo from '../../assets/logos/openai.png'
 import claudeLogo from '../../assets/logos/claude.svg'
+import kubernetesLogo from '../../assets/logos/kubernetes.svg'
+import githubLogo from '../../assets/logos/github.svg'
 
 // All marks below are Wendy-supplied official brand assets, except Google
 // Workspace which remains the Simple Icons "G" mark (CC0/permissive) since
@@ -18,6 +20,9 @@ const LOGOS: Record<string, string> = {
   openai: openaiLogo,
   claude: claudeLogo,
   anthropic: claudeLogo,
+  k8s: kubernetesLogo,
+  kubernetes: kubernetesLogo,
+  github: githubLogo,
 }
 
 interface Props {

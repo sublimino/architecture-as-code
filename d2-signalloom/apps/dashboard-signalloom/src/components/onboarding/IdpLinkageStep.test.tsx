@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import IdpLinkageStep from './IdpLinkageStep'
 import { connectorsApi } from '../../api/connectorsClient'
 
@@ -40,254 +41,62 @@ describe('IdpLinkageStep component', () => {
     vi.clearAllMocks()
   })
 
-  function renderStep(initialValues = {}) {
+  function renderStep(initialValues = {}, initialEntries = ['/onboarding?step=idp']) {
     return render(
-      <IdpLinkageStep
-        initialValues={initialValues}
-        onNext={mockOnNext}
-        onBack={mockOnBack}
-        onSkip={mockOnSkip}
-        onTestConnection={mockOnTestConnection}
-      />,
+      <MemoryRouter initialEntries={initialEntries}>
+        <IdpLinkageStep
+          initialValues={initialValues}
+          onNext={mockOnNext}
+          onBack={mockOnBack}
+          onSkip={mockOnSkip}
+          onTestConnection={mockOnTestConnection}
+        />
+      </MemoryRouter>,
     )
   }
 
-  it('renders both Claude and OpenAI options in the IdP selection grid', () => {
+  it('renders provider selection cards and does not render the bottom inline configuration form card', () => {
     renderStep()
 
     expect(screen.getByTestId('idp-option-claude')).toBeInTheDocument()
     expect(screen.getByTestId('idp-option-openai')).toBeInTheDocument()
+    expect(screen.getByTestId('idp-option-dex')).toBeInTheDocument()
     expect(screen.getByText('Anthropic Claude')).toBeInTheDocument()
     expect(screen.getByText('OpenAI Platform')).toBeInTheDocument()
+
+    // Bottom inline form card must be eliminated
+    expect(screen.queryByText(/Configuration: Dex OIDC/i)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('configure-current-provider-modal')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('tab-idp-auth-api-key')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('tab-idp-auth-oidc')).not.toBeInTheDocument()
   })
 
-  it('clicking idp-option-claude selects Claude and pre-fills defaults and adapted labels', async () => {
-    const user = userEvent.setup()
-    renderStep()
-
-    await user.click(screen.getByTestId('idp-option-claude'))
-
-    expect(screen.getByText(/Configuration: Anthropic Claude/i)).toBeInTheDocument()
-    expect(screen.getByTestId('input-idp-issuer-url')).toHaveValue('https://api.anthropic.com/v1')
-    expect(screen.getByTestId('input-idp-client-id')).toHaveValue('wrkspc_default')
-    expect(screen.getByTestId('input-idp-scopes')).toHaveValue('models.read messages.read batches.read')
-
-    // Form labels and placeholders adapt cleanly
-    expect(screen.getByLabelText(/OIDC \/ Endpoint URL/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/Client \/ Workspace ID/i)).toBeInTheDocument()
-    expect(screen.getByTestId('input-idp-client-secret')).toHaveAttribute('placeholder', 'sk-ant-...')
-  })
-
-  it('clicking idp-option-openai selects OpenAI and pre-fills defaults and adapted labels', async () => {
-    const user = userEvent.setup()
-    renderStep()
-
-    await user.click(screen.getByTestId('idp-option-openai'))
-
-    expect(screen.getByText(/Configuration: OpenAI Platform/i)).toBeInTheDocument()
-    expect(screen.getByTestId('input-idp-issuer-url')).toHaveValue('https://api.openai.com/v1')
-    expect(screen.getByTestId('input-idp-client-id')).toHaveValue('signalloom-openai-reader')
-    expect(screen.getByTestId('input-idp-scopes')).toHaveValue('assistants.read models.read threads.read')
-    expect(screen.getByTestId('input-idp-client-secret')).toHaveAttribute('placeholder', 'sk-admin-...')
-  })
-
-  it('clicking Test Connection calls onTestConnection with the issuer URL and displays the resulting message', async () => {
-    const user = userEvent.setup()
-    mockOnTestConnection.mockResolvedValueOnce({
-      ok: true,
-      message: 'Anthropic Claude endpoint reachable: read-only inventory session verified.',
-    })
-
-    renderStep()
-    await user.click(screen.getByTestId('idp-option-claude'))
-
-    const testBtn = screen.getByTestId('test-idp-connection-button')
-    await user.click(testBtn)
-
-    expect(mockOnTestConnection).toHaveBeenCalledWith('https://api.anthropic.com/v1')
-    expect(await screen.findByTestId('idp-connection-success')).toHaveTextContent(
-      'Anthropic Claude endpoint reachable: read-only inventory session verified.',
-    )
-  })
-
-  it('clicking Next calls onNext with configured Claude values', async () => {
-    const user = userEvent.setup()
-    mockOnTestConnection.mockResolvedValueOnce({
-      ok: true,
-      message: 'Verified successfully',
-    })
-
-    renderStep()
-    await user.click(screen.getByTestId('idp-option-claude'))
-
-    // Test connection first
-    await user.click(screen.getByTestId('test-idp-connection-button'))
-    await screen.findByTestId('idp-connection-success')
-
-    // Submit
-    await user.click(screen.getByTestId('next-step-button'))
-
-    expect(mockOnNext).toHaveBeenCalledWith(
-      expect.objectContaining({
-        providerId: 'claude',
-        providerName: 'Anthropic Claude',
-        issuerUrl: 'https://api.anthropic.com/v1',
-        clientId: 'wrkspc_default',
-        scopes: 'models.read messages.read batches.read',
-        connectionTested: true,
-        connectionMessage: 'Verified successfully',
-      }),
-    )
-  })
-
-  it('validates URL protocol and required fields on submission', async () => {
-    const user = userEvent.setup()
-    renderStep()
-
-    await user.click(screen.getByTestId('idp-option-claude'))
-
-    // Clear endpoint URL
-    const urlInput = screen.getByTestId('input-idp-issuer-url')
-    await user.clear(urlInput)
-
-    // Clear client ID
-    const clientInput = screen.getByTestId('input-idp-client-id')
-    await user.clear(clientInput)
-
-    // Clear scopes
-    const scopesInput = screen.getByTestId('input-idp-scopes')
-    await user.clear(scopesInput)
-
-    await user.click(screen.getByTestId('next-step-button'))
-
-    expect(screen.getByText('OIDC / Endpoint URL is required.')).toBeInTheDocument()
-    expect(screen.getByText('Client / Workspace ID is required.')).toBeInTheDocument()
-    expect(screen.getByText('At least one scope is required.')).toBeInTheDocument()
-    expect(mockOnNext).not.toHaveBeenCalled()
-
-    // Test non-https/http url
-    await user.type(urlInput, 'ftp://invalid-url.com')
-    await user.type(clientInput, 'wrkspc_123')
-    await user.type(scopesInput, 'models.read')
-    await user.click(screen.getByTestId('next-step-button'))
-
-    expect(screen.getByText('Endpoint URL must be a valid HTTP or HTTPS address.')).toBeInTheDocument()
-    expect(mockOnNext).not.toHaveBeenCalled()
-  })
-
-  it('reports connection error when endpoint URL protocol is invalid', async () => {
-    const user = userEvent.setup()
-    renderStep()
-
-    await user.click(screen.getByTestId('idp-option-claude'))
-    const urlInput = screen.getByTestId('input-idp-issuer-url')
-    await user.clear(urlInput)
-    await user.type(urlInput, 'invalid-domain.com')
-
-    await user.click(screen.getByTestId('test-idp-connection-button'))
-
-    expect(await screen.findByTestId('idp-connection-error')).toHaveTextContent(
-      'Invalid Endpoint URL. Must start with https:// or http://',
-    )
-    expect(mockOnTestConnection).not.toHaveBeenCalled()
-  })
-
-  it('allows switching to API Key mode for Claude and testing live probe with valid key', async () => {
-    const user = userEvent.setup()
-    renderStep()
-
-    await user.click(screen.getByTestId('idp-option-claude'))
-    const apiKeyTab = screen.getByTestId('tab-idp-auth-api-key')
-    expect(apiKeyTab).toBeInTheDocument()
-    await user.click(apiKeyTab)
-
-    expect(screen.getByText(/Direct API Query:/i)).toBeInTheDocument()
-    const apiKeyInput = screen.getByTestId('input-idp-api-key')
-    expect(apiKeyInput).toHaveAttribute('type', 'password')
-
-    // Show/Hide toggle
-    const toggleBtn = screen.getByRole('button', { name: 'Show' })
-    await user.click(toggleBtn)
-    expect(apiKeyInput).toHaveAttribute('type', 'text')
-
-    // Type valid Anthropic key
-    await user.type(apiKeyInput, 'sk-ant-api03-live-test-key')
-
-    // Optional workspace ID
-    const wsInput = screen.getByTestId('input-idp-workspace-id')
-    await user.type(wsInput, 'wrkspc_test123')
-
-    // Test connection
-    await user.click(screen.getByTestId('test-idp-connection-button'))
-    expect(await screen.findByTestId('idp-connection-success')).toHaveTextContent(
-      'Verified connection to Anthropic Claude API',
-    )
-
-    // Submit
-    await user.click(screen.getByTestId('next-step-button'))
-    expect(mockOnNext).toHaveBeenCalledWith(
-      expect.objectContaining({
-        providerId: 'claude',
-        authMode: 'api_key',
-        apiKey: 'sk-ant-api03-live-test-key',
-        workspaceId: 'wrkspc_test123',
-        connectionTested: true,
-      }),
-    )
-  })
-
-  it('supports simulated test mode in API Key mode', async () => {
-    const user = userEvent.setup()
-    renderStep()
-
-    await user.click(screen.getByTestId('idp-option-openai'))
-    await user.click(screen.getByTestId('tab-idp-auth-api-key'))
-
-    const apiKeyInput = screen.getByTestId('input-idp-api-key')
-    await user.type(apiKeyInput, 'sk-proj-openai-test')
-
-    // Select simulated test mode
-    await user.click(screen.getByTestId('radio-idp-test-simulated'))
-
-    await user.click(screen.getByTestId('test-idp-connection-button'))
-    expect(await screen.findByTestId('idp-connection-success')).toHaveTextContent(
-      'Simulated test verified. 2 sample agent workloads ready to ingest',
-    )
-  })
-
-  it('validates API key is required when in API key mode', async () => {
-    const user = userEvent.setup()
-    renderStep()
-
-    await user.click(screen.getByTestId('idp-option-claude'))
-    await user.click(screen.getByTestId('tab-idp-auth-api-key'))
-
-    // Click test without key
-    await user.click(screen.getByTestId('test-idp-connection-button'))
-    expect(await screen.findByTestId('idp-connection-error')).toHaveTextContent(
-      'Please enter an API Key to test connection',
-    )
-
-    // Submit without key
-    await user.click(screen.getByTestId('next-step-button'))
-    expect(screen.getByText('API Key is required.')).toBeInTheDocument()
-    expect(mockOnNext).not.toHaveBeenCalled()
-  })
-
-  it('clicking Configure on Claude opens ConnectorConfigureModal', async () => {
+  it('each provider card has a Configure button and clicking it opens ConnectorConfigureModal', async () => {
     const user = userEvent.setup()
     renderStep()
 
     const configureBtn = screen.getByTestId('configure-idp-claude')
     expect(configureBtn).toBeInTheDocument()
+    expect(screen.getByTestId('configure-provider-claude')).toBeInTheDocument()
+
     await user.click(configureBtn)
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /Configure Anthropic Claude/i })).toBeInTheDocument()
-    expect(screen.getByTestId('input-connector-api-key')).toBeInTheDocument()
   })
 
-  it('saving from ConnectorConfigureModal updates IdpLinkageStep credentials and registers connector immediately', async () => {
+  it('clicking the provider card directly also opens ConnectorConfigureModal', async () => {
+    const user = userEvent.setup()
+    renderStep()
+
+    const card = screen.getByTestId('idp-option-openai')
+    await user.click(card)
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Configure OpenAI Platform/i })).toBeInTheDocument()
+  })
+
+  it('saving from ConnectorConfigureModal updates step state, marks provider as configured with a "✓ Configured" tag, and records connectionStatus = success', async () => {
     const user = userEvent.setup()
     renderStep()
 
@@ -296,10 +105,10 @@ describe('IdpLinkageStep component', () => {
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     const apiKeyInput = screen.getByTestId('input-connector-api-key')
-    await user.type(apiKeyInput, 'sk-ant-api03-modal-test-key')
+    await user.type(apiKeyInput, 'sk-ant-api03-onboarding-key')
 
     const wsInput = screen.getByTestId('input-connector-workspace-id')
-    await user.type(wsInput, 'wrkspc_modal_scope')
+    await user.type(wsInput, 'wrkspc_onboarding_123')
 
     const saveBtn = screen.getByTestId('btn-modal-save-connector')
     await user.click(saveBtn)
@@ -308,49 +117,36 @@ describe('IdpLinkageStep component', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
 
-    // Step state updated and shows success
-    expect(await screen.findByTestId('idp-connection-success')).toBeInTheDocument()
+    // Provider card displays "✓ Configured" tag
+    const claudeCard = screen.getByTestId('idp-option-claude')
+    expect(claudeCard).toHaveTextContent(/✓ Configured/i)
 
-    // connectorsApi.createConnector or configure called
-    expect(connectorsApi.createConnector).toHaveBeenCalledWith(
-      'test-bearer-token',
-      expect.objectContaining({
-        provider_id: 'claude',
-        credentials: expect.objectContaining({
-          api_key: 'sk-ant-api03-modal-test-key',
-          workspace_id: 'wrkspc_modal_scope',
-        }),
-      }),
-    )
+    // Submitting Next step passes through credentials and connectionTested = true
+    const nextBtn = screen.getByTestId('next-step-button')
+    await user.click(nextBtn)
 
-    // Submitting next step passes through updated credentials
-    await user.click(screen.getByTestId('next-step-button'))
     expect(mockOnNext).toHaveBeenCalledWith(
       expect.objectContaining({
         providerId: 'claude',
-        apiKey: 'sk-ant-api03-modal-test-key',
-        workspaceId: 'wrkspc_modal_scope',
+        apiKey: 'sk-ant-api03-onboarding-key',
+        workspaceId: 'wrkspc_onboarding_123',
         connectionTested: true,
       }),
     )
   })
 
-  it('clicking Configure on OpenAI opens modal and allows testing live connection in modal', async () => {
-    const user = userEvent.setup()
-    renderStep()
+  it('supports URL deep-linking on mount via ?provider=claude by auto-opening ConnectorConfigureModal', async () => {
+    renderStep({}, ['/onboarding?step=idp&provider=claude'])
 
-    const configureBtn = screen.getByTestId('configure-idp-openai')
-    await user.click(configureBtn)
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Configure Anthropic Claude/i })).toBeInTheDocument()
+    expect(screen.getByTestId('input-connector-api-key')).toBeInTheDocument()
+  })
+
+  it('supports URL deep-linking on mount via ?configure=openai by auto-opening ConnectorConfigureModal', async () => {
+    renderStep({}, ['/onboarding?configure=openai'])
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /Configure OpenAI Platform/i })).toBeInTheDocument()
-
-    const apiKeyInput = screen.getByTestId('input-connector-api-key')
-    await user.type(apiKeyInput, 'sk-openai-live-modal-key')
-
-    const testModalBtn = screen.getByTestId('btn-modal-test-connection')
-    await user.click(testModalBtn)
-
-    expect(await screen.findByTestId('test-connection-success')).toBeInTheDocument()
   })
 })

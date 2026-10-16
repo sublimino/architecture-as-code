@@ -556,6 +556,128 @@ describe('Settings: Service Connectors', () => {
     expect(screen.getByText(/Sync & Telemetry Logs/i)).toBeInTheDocument()
     expect(await screen.findByText('Okta sync telemetry entry')).toBeInTheDocument()
   })
+
+  it('supports URL deep-linking on mount via ?tab=connectors&provider=openai by automatically opening ConnectorConfigureModal', async () => {
+    renderSettings(['/settings?tab=connectors&provider=openai'])
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText(/Configure OpenAI/i)).toBeInTheDocument()
+  })
+
+  it('supports URL deep-linking on mount via ?tab=connectors&configure=openai by automatically opening ConnectorConfigureModal', async () => {
+    renderSettings(['/settings?tab=connectors&configure=openai'])
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText(/Configure OpenAI/i)).toBeInTheDocument()
+  })
+
+  it('supports URL deep-linking on mount via ?tab=connectors&logs=okta by automatically opening SyncLogsModal', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
+    ])
+    vi.mocked(connectorsApi.getSyncLogs).mockResolvedValue({
+      provider_id: 'okta',
+      synced_at: '2026-10-16T12:00:00Z',
+      duration_ms: 100,
+      status: 'success',
+      records_scanned: { agents: 1, models: 0, environments: 1, tools: 0 },
+      policies_evaluated: { egress_rules: 1, violations: 0 },
+      logs: [],
+    })
+
+    renderSettings(['/settings?tab=connectors&logs=okta'])
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText(/Sync & Telemetry Logs/i)).toBeInTheDocument()
+  })
+
+  it('displays clear sync status badges (Synced, Pending Sync, Disconnected, Not configured)', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      {
+        connector_id: 'conn-okta',
+        provider_id: 'okta',
+        display_name: 'Okta',
+        status: 'connected',
+        credential_expires_at: null,
+        last_tested_at: null,
+        last_scan_at: '2026-10-16T10:00:00Z',
+        metadata: {},
+        created_at: '2026-01-01',
+      },
+      {
+        connector_id: 'conn-openai',
+        provider_id: 'openai',
+        display_name: 'OpenAI',
+        status: 'connected',
+        credential_expires_at: null,
+        last_tested_at: null,
+        last_scan_at: null,
+        metadata: {},
+        created_at: '2026-01-01',
+      },
+      {
+        connector_id: 'conn-entra',
+        provider_id: 'ad_entra',
+        display_name: 'Microsoft Entra ID',
+        status: 'disconnected',
+        credential_expires_at: null,
+        last_tested_at: null,
+        last_scan_at: null,
+        metadata: {},
+        created_at: '2026-01-01',
+      },
+    ])
+
+    renderSettings(['/settings?tab=connectors'])
+    await screen.findByText('Service Connectors')
+
+    // Okta has last_scan_at -> Synced badge
+    const oktaBadge = screen.getByTestId('sync-status-okta')
+    expect(oktaBadge).toHaveTextContent('Synced')
+
+    // OpenAI connected without scans/tests -> Pending Sync badge
+    const openaiBadge = screen.getByTestId('sync-status-openai')
+    expect(openaiBadge).toHaveTextContent('Pending Sync')
+
+    // Entra is disconnected -> Disconnected badge
+    const entraBadge = screen.getByTestId('sync-status-ad_entra')
+    expect(entraBadge).toHaveTextContent('Disconnected')
+  })
+
+  it('guards Scan Now button: renders when has_credentials is not false, hides when false', async () => {
+    // 1. With credentials configured
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      {
+        connector_id: 'conn-okta',
+        provider_id: 'okta',
+        display_name: 'Okta',
+        status: 'connected',
+        credential_expires_at: null,
+        last_tested_at: null,
+        last_scan_at: null,
+        metadata: { has_credentials: true },
+        created_at: '2026-01-01',
+      },
+    ])
+    const { unmount } = renderSettings(['/settings?tab=connectors'])
+    expect(await screen.findByTestId('scan-connector-okta')).toBeInTheDocument()
+    unmount()
+
+    // 2. With has_credentials: false
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      {
+        connector_id: 'conn-okta',
+        provider_id: 'okta',
+        display_name: 'Okta',
+        status: 'connected',
+        credential_expires_at: null,
+        last_tested_at: null,
+        last_scan_at: null,
+        metadata: { has_credentials: false },
+        created_at: '2026-01-01',
+      },
+    ])
+    renderSettings(['/settings?tab=connectors'])
+    await screen.findByText('Connected')
+    expect(screen.queryByTestId('scan-connector-okta')).not.toBeInTheDocument()
+  })
 })
 
 /**

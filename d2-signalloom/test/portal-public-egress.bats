@@ -196,6 +196,9 @@ REQUIRED_EXCEPT='["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","100.64.0.0/10",
 @test "allow-portal-dependencies no longer claims that public 443 is denied" {
 	# That comment was true before SA-TODO-001 and is false after it. A
 	# reader who trusts it would miss the exemption.
-	run grep -F 'public egress on 443 remains denied' "$base_policy"
-	[ "$status" -ne 0 ]
+	[ -s "$base_policy" ]
+	run grep -cF 'public egress on 443 remains denied' "$base_policy"
+	[ "$output" = "0" ]
+	# And the corrected comment names the exemption instead.
+	grep -qF 'allow-portal-public-https-egress exemption (SA-TODO-001)' "$base_policy"
 }

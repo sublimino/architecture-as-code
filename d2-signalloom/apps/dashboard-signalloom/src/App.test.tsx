@@ -80,6 +80,7 @@ vi.mock('./pages/RbacAnalysisPage', () => ({ default: () => <div data-testid="rb
 vi.mock('./pages/RbacExplorerPage', () => ({ default: () => <div data-testid="rbac-explorer-page">Rbac Explorer Page</div> }))
 vi.mock('./pages/CollusionAccessPage', () => ({ default: () => <div data-testid="collusion-access-page">Collusion Access Page</div> }))
 vi.mock('./pages/DiscoveryPage', () => ({ default: () => <div data-testid="discovery-page">Discovery Page</div> }))
+vi.mock('./pages/RemoteEnvironmentPage', () => ({ default: () => <div data-testid="remote-env-page">Remote Env</div> }))
 
 /**
  * The markers of the ring that used to render here: its keyframe, and the
@@ -399,6 +400,29 @@ describe('FeatureGate route guards and NotFound fallback', () => {
 
     await waitFor(() => expect(screen.getByTestId('discovery-page')).toBeInTheDocument())
     expect(screen.queryByTestId('not-found')).toBeNull()
+  })
+
+  it('gates /settings/connectors/:providerId behind page_federated_services', async () => {
+    auth.getAccessTokenSilently = () => Promise.resolve('test-token')
+    featuresMock.flags.page_federated_services = false
+
+    const { unmount } = renderAt('/settings/connectors/claude')
+    await waitFor(() => expect(screen.getByTestId('not-found')).toBeInTheDocument())
+    expect(screen.queryByTestId('remote-env-page')).toBeNull()
+    unmount()
+
+    featuresMock.flags.page_federated_services = true
+    renderAt('/settings/connectors/claude')
+    await waitFor(() => expect(screen.getByTestId('remote-env-page')).toBeInTheDocument())
+  })
+
+  it('does not serve the remote environment page at the dead /connectors/:providerId path', async () => {
+    auth.getAccessTokenSilently = () => Promise.resolve('test-token')
+    featuresMock.flags.page_federated_services = true
+    renderAt('/connectors/claude')
+    // Mount the real route first so a regression would have rendered by now.
+    await new Promise((r) => setTimeout(r, 50))
+    expect(screen.queryByTestId('remote-env-page')).toBeNull()
   })
 
   it('renders AppLoader and does NOT render 404 while feature flags are resolving', async () => {

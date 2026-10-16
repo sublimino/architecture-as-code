@@ -192,6 +192,16 @@ select option { background: var(--surface); }
   background: var(--border-subtle);
 }
 
+/* `.btn-sm` was used by 7+ call sites as a compact-size modifier and had no
+   rule anywhere, so it was a dead class: every "small" button fell back to
+   full `.btn` padding/font-size and each call site patched the gap with its
+   own inline `fontSize`/`padding` pair. One definition, deleted at every
+   inline call site (design-system audit, rule 5). */
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
 .tag {
   display: inline-flex;
   align-items: center;

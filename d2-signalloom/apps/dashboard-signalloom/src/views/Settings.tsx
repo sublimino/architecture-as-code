@@ -1043,7 +1043,6 @@ export default function Settings() {
                                 className="btn btn-secondary btn-sm"
                                 data-testid={`view-environment-${p.provider_id}`}
                                 onClick={() => navigate(`/settings/connectors/${p.provider_id}`)}
-                                style={{ fontSize: 12, padding: '5px 12px' }}
                               >
                                 View Environment
                               </button>
@@ -1055,7 +1054,7 @@ export default function Settings() {
                               onClick={() => handleScanConnector(p.provider_id)}
                               disabled={scanningProviderId === p.provider_id}
                               aria-busy={scanningProviderId === p.provider_id}
-                              style={{ fontSize: 12, padding: '5px 12px', minWidth: SCAN_BUTTON_W, justifyContent: 'center' }}
+                              style={{ minWidth: SCAN_BUTTON_W, justifyContent: 'center' }}
                             >
                               {/* The shared in-button wait, not a bespoke "Scanning…"
                                   span: see ButtonWait. Only this row's button is busy —
@@ -1069,7 +1068,6 @@ export default function Settings() {
                               className="btn btn-secondary btn-sm"
                               data-testid={`view-logs-${p.provider_id}`}
                               onClick={() => setSyncLogProvider(p)}
-                              style={{ fontSize: 12, padding: '5px 12px' }}
                             >
                               See Log
                             </button>
@@ -1080,7 +1078,6 @@ export default function Settings() {
                           className="btn btn-secondary btn-sm"
                           data-testid={`configure-connector-${p.provider_id}`}
                           onClick={() => setConfiguringProvider(p)}
-                          style={{ fontSize: 12, padding: '5px 12px' }}
                         >
                           Configure
                         </button>

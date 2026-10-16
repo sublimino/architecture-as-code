@@ -437,7 +437,6 @@ export default function SyncLogsModal({
                 className="btn btn-secondary btn-sm"
                 onClick={handleCopyLogs}
                 disabled={!syncResult}
-                style={{ fontSize: 12, padding: '5px 12px' }}
               >
                 {copied ? 'Copied!' : 'Copy Logs'}
               </button>
@@ -448,7 +447,7 @@ export default function SyncLogsModal({
                 onClick={handleRescan}
                 disabled={loading || rescanning}
                 aria-busy={rescanning}
-                style={{ fontSize: 12, padding: '5px 12px', minWidth: 84, justifyContent: 'center' }}
+                style={{ minWidth: 84, justifyContent: 'center' }}
               >
                 {/* The shared in-button wait, not a bespoke "Scanning…" word. See ButtonWait. */}
                 {rescanning

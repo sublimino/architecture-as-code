@@ -4,11 +4,11 @@ import { useParams, Link } from 'react-router-dom'
 import {
   connectorsApi,
   connectorErrorMessage,
-  isConnectorsMockMode,
+  demoRemoteEnvironment,
   isRemoteEnvironmentProvider,
   type SyncResult,
 } from '../api/connectorsClient'
-import { remoteEnvironmentFixtures, type RemoteEnvironmentFixture } from '../api/fakeData'
+import type { RemoteEnvironmentFixture } from '../api/fakeData'
 import { useAuth0 } from '../auth/oidc'
 import type { TenantConnector } from '../types/connectors'
 import SyncLogsModal from '../components/connectors/SyncLogsModal'
@@ -112,11 +112,9 @@ export default function RemoteEnvironmentPage() {
       </div>
     )
   }
-  return isConnectorsMockMode() ? (
-    <DemoEnvironmentView providerId={id} env={remoteEnvironmentFixtures[id]} />
-  ) : (
-    <LiveEnvironmentView providerId={id} />
-  )
+  const demoEnv = demoRemoteEnvironment(id)
+  return demoEnv ? <DemoEnvironmentView providerId={id} env={demoEnv} /> : <LiveEnvironmentView providerId={id} />
+
 }
 
 function LiveEnvironmentView({ providerId }: { providerId: string }) {

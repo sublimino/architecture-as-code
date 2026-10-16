@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { isDemoMode, isProductionEnv } from './demoMode'
-import { remoteEnvironmentFixtures } from './fakeData'
+import { remoteEnvironmentFixtures, type RemoteEnvironmentFixture } from './fakeData'
 import type {
   ConnectorCreateRequest,
   ConnectorCreateResponse,
@@ -785,6 +785,14 @@ export function isConnectorsMockMode(): boolean {
   if (envMode === 'mock') return true
   if (isProductionEnv) return false
   return isDemoMode()
+}
+
+/**
+ * The demo remote-environment fixture for a provider, or null in live mode.
+ * Pages get demo content only through this gate, never by importing fakeData.
+ */
+export function demoRemoteEnvironment(providerId: RemoteEnvironmentProviderId): RemoteEnvironmentFixture | null {
+  return isConnectorsMockMode() ? remoteEnvironmentFixtures[providerId] : null
 }
 
 export const connectorsApi: ConnectorsApi = {

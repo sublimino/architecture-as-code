@@ -3308,18 +3308,22 @@ def _agent_response_from_row(
     row_credentials = _credential_revocation(stun_detail, bool(cred_revoked))
 
     kernel = _kernel_view(discovered_overlay, stunned=canonical_state == "Suspended")
-    if isinstance(row.get("operational_state"), dict):
-        operational_state = OperationalStateMetadata(**row["operational_state"])
-    elif isinstance(row.get("operational_state"), OperationalStateMetadata):
-        operational_state = row["operational_state"]
-    else:
-        operational_state = OperationalStateMetadata(
-            runtime_status="stopped" if kernel["kernel_state"] == "frozen" else ("running" if (phase == "Running" or canonical_state == "Governed") else ("stopped" if canonical_state in ("Suspended", "Revoked") else "degraded")),
-            containment=ContainmentMeasures(
-                **row_containment,
-                **row_credentials,
-            ),
-        )
+    # Containment truth wins. A row may carry a fixture runtime_status (the
+    # seeded demo AI agents do), but it is only honoured when nothing about
+    # containment says otherwise: a frozen kernel, a stun record or a
+    # suspended/revoked lifecycle always decides. Containment measures are
+    # never taken from the row.
+    derived_status = "stopped" if kernel["kernel_state"] == "frozen" else ("running" if (phase == "Running" or canonical_state == "Governed") else ("stopped" if canonical_state in ("Suspended", "Revoked") else "degraded"))
+    row_state = row.get("operational_state")
+    row_status = row_state.runtime_status if isinstance(row_state, OperationalStateMetadata) else (row_state.get("runtime_status") if isinstance(row_state, dict) else None)
+    contained = kernel["kernel_state"] == "frozen" or is_frozen or canonical_state in ("Suspended", "Revoked")
+    operational_state = OperationalStateMetadata(
+        runtime_status=row_status if (row_status and not contained) else derived_status,
+        containment=ContainmentMeasures(
+            **row_containment,
+            **row_credentials,
+        ),
+    )
 
     normalized_score = compliance.posture_score if (compliance.total_controls > 0 and compliance.posture_score is not None) else None
     assessment_summary = AssessmentSummaryMetadata(

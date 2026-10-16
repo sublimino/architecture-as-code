@@ -1,141 +1,171 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
-import { api } from '../api/client'
+import { AxiosError, AxiosHeaders } from 'axios'
+import { connectorsApi, type SyncResult } from '../api/connectorsClient'
+import { setDemoMode } from '../api/demoMode'
+import type { ConnectorProvider, TenantConnector } from '../types/connectors'
 import RemoteEnvironmentPage from './RemoteEnvironmentPage'
 
-function renderPage(initialEntries = ['/settings/connectors/claude']) {
+const getToken = vi.fn()
+vi.mock('../auth/oidc', () => ({
+  useAuth0: () => ({ user: { email: 'u@example.test' }, getAccessTokenSilently: getToken }),
+}))
+
+// Strings that exist only in the demo fixture. None may appear in live mode.
+const FIXTURE_STRINGS = [
+  'US$23.57',
+  "Andy's Individual Org",
+  'env_01CyCigBbDRSLTzSCyyHQ7eT',
+  'Daily News Jokester',
+  'POLICIES PASS',
+  'Last updated 16 minutes ago',
+  'cis-5.2.8',
+]
+
+const provider: ConnectorProvider = {
+  provider_id: 'claude',
+  display_name: 'Anthropic Claude',
+  wizard_config: { fields: [], permissions: [], docs_link: '/help/connectors/claude', help_text: '' },
+}
+
+const connector: TenantConnector = {
+  connector_id: 'conn-live-7',
+  provider_id: 'claude',
+  display_name: 'Claude (tenant prod)',
+  status: 'connected',
+  credential_expires_at: null,
+  last_tested_at: '2026-10-16T09:00:00Z',
+  last_scan_at: '2026-10-16T10:00:00Z',
+  metadata: { workspace_id: 'wrkspc_live_42' },
+  created_at: '2026-10-01T00:00:00Z',
+}
+
+const lastScan: SyncResult = {
+  provider_id: 'claude',
+  synced_at: '2026-10-16T10:00:00Z',
+  duration_ms: 812,
+  status: 'warning',
+  records_scanned: { agents: 7, models: null, environments: null, tools: null },
+  policies_evaluated: null,
+  logs: [],
+}
+
+function httpError(status: number, code: string): AxiosError {
+  return new AxiosError(`Request failed with status code ${status}`, 'ERR_BAD_RESPONSE', undefined, undefined, {
+    status,
+    statusText: '',
+    headers: {},
+    config: { headers: new AxiosHeaders() },
+    data: { error: { code, message: code } },
+  })
+}
+
+function renderPage(path = '/settings/connectors/claude') {
   return render(
-    <MemoryRouter initialEntries={initialEntries}>
+    <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/settings/connectors/:providerId" element={<RemoteEnvironmentPage />} />
-        <Route path="/settings/connectors" element={<RemoteEnvironmentPage />} />
-        <Route path="/connectors/:providerId" element={<RemoteEnvironmentPage />} />
       </Routes>
-    </MemoryRouter>
+    </MemoryRouter>,
   )
 }
 
-describe('RemoteEnvironmentPage', () => {
-  it('renders environment header, badges, and credit balance', () => {
-    renderPage(['/settings/connectors/claude'])
+beforeEach(() => {
+  vi.restoreAllMocks()
+  getToken.mockReset().mockResolvedValue('test-token')
+})
 
-    // Breadcrumb
-    expect(screen.getByText('Settings')).toBeInTheDocument()
-    expect(screen.getByText('Connectors')).toBeInTheDocument()
-    expect(screen.getByText(/Anthropic Claude \(cloud-dev\)/i)).toBeInTheDocument()
+afterEach(() => {
+  setDemoMode(true)
+})
 
-    // Environment name
+describe('RemoteEnvironmentPage (demo mode)', () => {
+  beforeEach(() => setDemoMode(true))
+
+  it('renders the demo fixture environment', async () => {
+    renderPage()
     expect(screen.getByRole('heading', { level: 1, name: /cloud-dev/i })).toBeInTheDocument()
-
-    // Badges
-    expect(screen.getByText(/Cloud Hosting/i)).toBeInTheDocument()
-    expect(screen.getByText(/Organization: Andy's Individual Org/i)).toBeInTheDocument()
-    expect(screen.getByText(/ID: env_01CyCigBbDRSLTzSCyyHQ7eT/i)).toBeInTheDocument()
-    expect(screen.getByText(/Last updated: 16m ago/i)).toBeInTheDocument()
-
-    // Status and Credits
-    expect(screen.getByText(/Active · Synchronized/i)).toBeInTheDocument()
     expect(screen.getByText('US$23.57')).toBeInTheDocument()
-  })
-
-  it('renders action bar with sync buttons and back to connectors link', () => {
-    renderPage(['/settings/connectors/claude'])
-
-    const syncNowBtn = screen.getByTestId('btn-env-sync-now')
-    const syncLogsBtn = screen.getByTestId('btn-env-sync-logs')
-    const backLink = screen.getByTestId('link-back-connectors')
-
-    expect(syncNowBtn).toBeInTheDocument()
-    expect(syncLogsBtn).toBeInTheDocument()
-    expect(backLink).toBeInTheDocument()
-    expect(backLink).toHaveAttribute('href', expect.stringContaining('/settings?tab=connectors'))
-
-    // Trigger sync now action
-    fireEvent.click(syncNowBtn)
-    expect(screen.getByText(/Synchronized just now/i)).toBeInTheDocument()
-
-    // Trigger sync logs toggle
-    fireEvent.click(syncLogsBtn)
-    expect(screen.getByText(/Synchronization Audit Logs/i)).toBeInTheDocument()
-  })
-
-  it('renders General section with hosting details', () => {
-    renderPage(['/settings/connectors/claude'])
-
-    expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument()
-    expect(screen.getByText("Can't be changed after creation")).toBeInTheDocument()
-    expect(screen.getByText('What sessions in this environment are for')).toBeInTheDocument()
-    expect(screen.getByText(/wrkspc_01/i)).toBeInTheDocument()
-  })
-
-  it('renders Network Egress and CEL Governance section with package managers, MCP servers, and allowed hosts', () => {
-    renderPage(['/settings/connectors/claude'])
-
-    expect(screen.getByRole('heading', { name: /Network Egress & CEL Governance/i })).toBeInTheDocument()
-    expect(screen.getByText(/Outbound traffic is blocked except for what's allowed below/i)).toBeInTheDocument()
-
-    expect(screen.getByText(/Allow package managers \(PyPI, npm\)/i)).toBeInTheDocument()
-    expect(screen.getByText(/Allow MCP servers configured on agent/i)).toBeInTheDocument()
-    expect(screen.getByText(/0\/16 configured/i)).toBeInTheDocument()
-    expect(screen.getByText(/Hostnames or IPv4 addresses, one per line/i)).toBeInTheDocument()
-
-    // CEL Policy Assessment Card
-    expect(screen.getByTestId('cel-policy-card')).toBeInTheDocument()
-    expect(screen.getByText(/cis-5.2.8: NET_RAW capability not held/i)).toBeInTheDocument()
-    expect(screen.getByText(/egress-confinement: No unrestricted 0.0.0.0\/0 egress/i)).toBeInTheDocument()
-    expect(screen.getByText(/mcp-attestation: MCP servers require SPIFFE identity/i)).toBeInTheDocument()
-
-    const passBadges = screen.getAllByText('PASS')
-    expect(passBadges.length).toBeGreaterThanOrEqual(3)
-  })
-
-  it('renders Container Packages & Metadata section', () => {
-    renderPage(['/settings/connectors/claude'])
-
-    expect(screen.getByRole('heading', { name: /Container Packages & Metadata/i })).toBeInTheDocument()
-    expect(screen.getByText('No packages beyond the standard image.')).toBeInTheDocument()
-    expect(screen.getByText(/"owner": "andy"/i)).toBeInTheDocument()
-    expect(screen.getByText(/"cluster": "osramp-kind"/i)).toBeInTheDocument()
-  })
-
-  it('renders Connected Agents & Workloads section with running agent metadata and claim controls', () => {
-    renderPage(['/settings/connectors/claude'])
-
-    expect(screen.getByRole('heading', { name: /Connected Agents & Workloads/i })).toBeInTheDocument()
+    expect(screen.getByText(/Organization: Andy's Individual Org/)).toBeInTheDocument()
+    expect(screen.getByText('3 / 3 POLICIES PASS')).toBeInTheDocument()
     expect(screen.getByText('Daily News Jokester')).toBeInTheDocument()
-    expect(screen.getByText(/ses_01CyCigBbDRSLTzSCyyHQ7eT/i)).toBeInTheDocument()
-    expect(screen.getByText('active')).toBeInTheDocument()
-    expect(screen.getByText('claude-opus-5-5')).toBeInTheDocument()
-    expect(screen.getByText(/Andrew Martin \(User\)/i)).toBeInTheDocument()
-
-    const dossierLink = screen.getByRole('link', { name: /View Dossier/i })
-    expect(dossierLink).toHaveAttribute('href', '/agents?selected=agent_01FoEhnKF9QsC5DGmuELhm7G')
-
-    const claimBtn = screen.getByRole('button', { name: /Claim to Tenant/i })
-    fireEvent.click(claimBtn)
-    expect(screen.getByRole('button', { name: /Claimed ✓/i })).toBeDisabled()
   })
 
-  it('defaults to claude when providerId is not specified or fallback', () => {
-    renderPage(['/settings/connectors'])
+  it('runs Sync Now through the connectors client', async () => {
+    const scan = vi.spyOn(connectorsApi, 'triggerScan')
+    renderPage()
+    fireEvent.click(screen.getByTestId('btn-env-sync-now'))
+    await waitFor(() => expect(scan).toHaveBeenCalledWith('test-token', 'claude'))
+    expect(await screen.findByText(/Synchronized just now/i)).toBeInTheDocument()
+  })
+})
 
-    expect(screen.getByText(/Anthropic Claude \(cloud-dev\)/i)).toBeInTheDocument()
+describe('RemoteEnvironmentPage (live mode)', () => {
+  beforeEach(() => {
+    setDemoMode(false)
+    vi.spyOn(connectorsApi, 'listProviders').mockResolvedValue([provider])
+    vi.spyOn(connectorsApi, 'listConnectors').mockResolvedValue([connector])
+    vi.spyOn(connectorsApi, 'getSyncLogs').mockResolvedValue(lastScan)
   })
 
-  it('dynamically pulls back updated remote agent name via API call', async () => {
-    const getSpy = vi.spyOn(api.agents, 'get').mockResolvedValueOnce({
-      id: 'agent_01FoEhnKF9QsC5DGmuELhm7G',
-      name: 'Daily News Jokester (Live Renamed)',
-      tenant_id: 'default',
-      lifecycle_state: 'active',
-      compliance_summary: { total_controls: 12, passing: 12, failing: 0, pending: 0, posture_score: 100 },
-    } as any)
+  it('renders only API data and never the demo fixture', async () => {
+    renderPage()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Claude (tenant prod)' })).toBeInTheDocument()
+    expect(screen.getByTestId('live-records-agents')).toHaveTextContent('7')
+    expect(screen.getByTestId('live-records-models')).toHaveTextContent(/not observed/i)
+    expect(screen.getByText(/wrkspc_live_42/)).toBeInTheDocument()
+    expect(screen.getByTestId('live-env-not-available')).toHaveTextContent(/not available from this provider/i)
+    const text = document.body.textContent ?? ''
+    for (const s of FIXTURE_STRINGS) expect(text, s).not.toContain(s)
+  })
 
-    renderPage(['/settings/connectors/claude'])
+  it('shows an explicit not-yet-scanned state when the connector was never scanned', async () => {
+    vi.mocked(connectorsApi.getSyncLogs).mockResolvedValue(null)
+    renderPage()
+    expect(await screen.findByTestId('live-last-scan-empty')).toHaveTextContent(/not yet scanned/i)
+  })
 
-    expect(await screen.findByText('Daily News Jokester (Live Renamed)')).toBeInTheDocument()
-    expect(getSpy).toHaveBeenCalledWith(expect.any(String), 'agent_01FoEhnKF9QsC5DGmuELhm7G')
-    getSpy.mockRestore()
+  it('runs Sync Now through triggerScan and surfaces failures visibly', async () => {
+    const scan = vi.spyOn(connectorsApi, 'triggerScan').mockRejectedValueOnce(httpError(501, 'scan_unsupported'))
+    renderPage()
+    fireEvent.click(await screen.findByTestId('btn-env-sync-now'))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/not supported/i)
+
+    scan.mockResolvedValueOnce({ ...lastScan, status: 'success', records_scanned: { ...lastScan.records_scanned, agents: 9 } })
+    fireEvent.click(screen.getByTestId('btn-env-sync-now'))
+    await waitFor(() => expect(screen.getByTestId('live-records-agents')).toHaveTextContent('9'))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('does not offer a fake claim: the scan reports counts, not agent identities', async () => {
+    renderPage()
+    const claim = await screen.findByRole('button', { name: /Claim to Tenant/i })
+    expect(claim).toBeDisabled()
+    expect(screen.getByTestId('live-claim-explanation')).toHaveTextContent(/Discovery/)
+  })
+
+  it('surfaces a failed connector lookup as an error', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockRejectedValue(httpError(500, 'internal_error'))
+    renderPage()
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(screen.queryByTestId('live-records-agents')).not.toBeInTheDocument()
+  })
+
+  it('says the provider is not connected when the tenant has no connector for it', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([])
+    renderPage()
+    expect(await screen.findByTestId('live-not-connected')).toHaveTextContent(/not connected/i)
+  })
+})
+
+describe('RemoteEnvironmentPage (unknown provider)', () => {
+  it.each([true, false])('renders not-found instead of another provider (demo=%s)', async (demo) => {
+    setDemoMode(demo)
+    const list = vi.spyOn(connectorsApi, 'listConnectors')
+    renderPage('/settings/connectors/okta')
+    expect(screen.getByTestId('remote-env-not-found')).toBeInTheDocument()
+    expect(screen.queryByText(/Anthropic Claude/)).not.toBeInTheDocument()
+    expect(list).not.toHaveBeenCalled()
   })
 })

@@ -10530,10 +10530,15 @@ async def list_discovery_workloads(
                         spiffe_id=None,
                         model=r["model"],
                         last_seen_at=_ts(r["last_seen_at"]),
+                        # Governed once claimed into the registry (migration 072).
+                        status="governed" if r["claimed_agent_id"] is not None else "discovered",
+                        discovery_state="governed" if r["claimed_agent_id"] is not None else "discovered",
                         metadata={
                             "provider_id": r["provider_id"],
                             "connector_id": r["connector_id"],
                             "external_id": r["external_id"],
+                            "claimed_agent_id": (str(r["claimed_agent_id"])
+                                                 if r["claimed_agent_id"] is not None else None),
                             "kind": r["kind"],
                             "remote_status": r["status"],
                             "version": r["version"],

@@ -66,7 +66,9 @@ def test_a_scan_stores_the_listing_and_the_read_api_returns_it_for_that_tenant_o
         by_id = {a["external_id"]: a for a in body["agents"]}
         assert set(by_id) == {"agent_1", "sess_1"}
         assert set(by_id["sess_1"]) == {"external_id", "kind", "name", "model", "status", "version",
-                                        "external_updated_at", "first_seen_at", "last_seen_at", "last_changed_at", "gone_at"}
+                                        "external_updated_at", "first_seen_at", "last_seen_at", "last_changed_at", "gone_at",
+                                        "claimed_agent_id", "claimed_at"}
+        assert by_id["sess_1"]["claimed_agent_id"] is None and by_id["sess_1"]["claimed_at"] is None
         assert (by_id["sess_1"]["kind"], by_id["sess_1"]["status"], by_id["sess_1"]["model"]) == (
             "session", "idle", "claude-sonnet-4-6")
         assert _remote(client, "bob").status_code == 404

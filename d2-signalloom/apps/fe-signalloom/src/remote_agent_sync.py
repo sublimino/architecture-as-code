@@ -664,7 +664,8 @@ async def sse_frames(
 
 _RA = "public.remote_agents"
 _RA_COLS = ("external_id, kind, name, model, status, version, external_updated_at, "
-            "first_seen_at, last_seen_at, last_changed_at, gone_at")
+            "first_seen_at, last_seen_at, last_changed_at, gone_at, claimed_agent_id, claimed_at")
+RA_COLUMNS = _RA_COLS  # the wire columns, for statements issued outside this module
 
 # The scheduler's view across tenants: which connectors to poll. It reads only
 # identifiers; every statement for an individual connector is tenant-scoped.
@@ -720,7 +721,8 @@ SQL_LIST = (
 )
 SQL_DISCOVERY = (
     "/* remote_agent_store:discovery */ SELECT ra.connector_id, ra.provider_id, ra.external_id, ra.kind, ra.name, "
-    "ra.model, ra.status, ra.version, ra.external_updated_at, ra.first_seen_at, ra.last_seen_at "
+    "ra.model, ra.status, ra.version, ra.external_updated_at, ra.first_seen_at, ra.last_seen_at, "
+    "ra.claimed_agent_id "
     f"FROM {_RA} ra JOIN public.tenant_connectors tc "
     "ON tc.tenant_id = ra.tenant_id AND tc.connector_id = ra.connector_id "
     "WHERE ra.tenant_id = $1 AND ra.gone_at IS NULL AND tc.status = 'connected' "
@@ -754,6 +756,8 @@ def agent_from_row(row: Any) -> dict[str, Any]:
         "external_updated_at": iso(row["external_updated_at"]), "first_seen_at": iso(row["first_seen_at"]),
         "last_seen_at": iso(row["last_seen_at"]), "last_changed_at": iso(row["last_changed_at"]),
         "gone_at": iso(row["gone_at"]),
+        "claimed_agent_id": str(row["claimed_agent_id"]) if row["claimed_agent_id"] is not None else None,
+        "claimed_at": iso(row["claimed_at"]),
     }
 
 

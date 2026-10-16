@@ -23,7 +23,7 @@ from tests.connector_store_fake import FakeConnectorPool
 
 _MARKER = re.compile(r"/\*\s*remote_agent_store:([a-z_]+)\s*\*/")
 _RA_COLS = ("external_id", "kind", "name", "model", "status", "version", "external_updated_at",
-            "first_seen_at", "last_seen_at", "last_changed_at", "gone_at")
+            "first_seen_at", "last_seen_at", "last_changed_at", "gone_at", "claimed_agent_id", "claimed_at")
 _UNSCOPED_OPS = {"due", "lock", "unlock"}
 
 
@@ -35,6 +35,8 @@ class FakeRemoteAgentPool(FakeConnectorPool):
         self.locks: set[tuple[str, str]] = set()
         self.held_elsewhere: set[tuple[str, str]] = set()
         self.ops: list[str] = []
+        # agent_registry rows written by the remote-agent claim, keyed by id.
+        self.registry: dict[str, dict[str, Any]] = {}
 
     # -- dispatch ----------------------------------------------------------
 
@@ -151,6 +153,9 @@ class FakeRemoteAgentPool(FakeConnectorPool):
                 "version": version, "external_updated_at": ext_updated,
                 "first_seen_at": prior["first_seen_at"] if prior else at,
                 "last_seen_at": at, "last_changed_at": at, "gone_at": None, "raw": json.loads(raw),
+                # The conflict update does not touch the claim link.
+                "claimed_agent_id": prior["claimed_agent_id"] if prior else None,
+                "claimed_at": prior["claimed_at"] if prior else None,
             }
             self.remote_agents[key] = row
             return [{k: row[k] for k in _RA_COLS}]
@@ -181,8 +186,34 @@ class FakeRemoteAgentPool(FakeConnectorPool):
                 if t == tenant and r["gone_at"] is None and conn is not None and conn["status"] == "connected":
                     out.append({k: r[k] for k in ("connector_id", "provider_id", "external_id", "kind", "name", "model",
                                                   "status", "version", "external_updated_at", "first_seen_at",
-                                                  "last_seen_at")})
+                                                  "last_seen_at", "claimed_agent_id")})
             return out
+
+        if op == "registry_upsert":
+            (_, agent_id, name, display_name, description, model_provider, model_name, owner, owner_id, config) = args
+            key = str(agent_id)
+            prior = self.registry.get(key)
+            if prior is not None and prior["tenant_id"] != tenant:
+                return []  # ON CONFLICT ... WHERE tenant_id = $1: another tenant's row is untouched
+            if prior is None and any(r["tenant_id"] == tenant and r["name"] == name for r in self.registry.values()):
+                raise AssertionError(f"duplicate agent_registry (tenant_id, name) {tenant}/{name}")
+            row = {"id": key, "tenant_id": tenant, "name": name, "display_name": display_name,
+                   "description": description, "model_provider": model_provider, "model_name": model_name,
+                   "owner": owner if prior is None else (prior["owner"] or owner),
+                   "owner_id": owner_id, "config": json.loads(config),
+                   "lifecycle_state": prior["lifecycle_state"] if prior else "enrolled",
+                   "status": prior["status"] if prior else "active"}
+            self.registry[key] = row
+            return [{"id": agent_id}]
+
+        if op == "claim_link":
+            _, connector_id, external_id, agent_id, at = args
+            r = self.remote_agents.get((tenant, connector_id, external_id))
+            if r is None or r["gone_at"] is not None or r["claimed_agent_id"] is not None:
+                return []
+            r["claimed_agent_id"] = agent_id
+            r["claimed_at"] = at
+            return [{k: r[k] for k in _RA_COLS}]
 
         if op == "state_get":
             r = self.sync_state.get((tenant, args[1]))

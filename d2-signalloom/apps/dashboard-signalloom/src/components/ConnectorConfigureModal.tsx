@@ -3,6 +3,7 @@ import type { ConnectorCreateRequest, ConnectorProvider, TenantConnector } from 
 import { useAuth0 } from '../auth/oidc'
 import ProviderLogo from './onboarding/ProviderLogo'
 import WizardFieldRenderer from './onboarding/WizardFieldRenderer'
+import { tint } from './StatusBadge'
 import {
   typedCredentials,
   verifyConnectorCredentials,
@@ -137,9 +138,6 @@ export default function ConnectorConfigureModal({
           maxHeight: '90vh',
           overflowY: 'auto',
           padding: 24,
-          background: 'var(--surface)',
-          borderRadius: 'var(--radius)',
-          border: '1px solid var(--border-subtle)',
         }}
         role="dialog"
         aria-modal="true"
@@ -179,8 +177,12 @@ export default function ConnectorConfigureModal({
             data-testid="connector-stored-credentials-note"
             style={{
               padding: '10px 12px',
-              background: 'var(--cyan-focus)',
-              border: '1px solid var(--cyan-border)',
+              // Themed tint(), not the unthemed --cyan-focus/-border alpha
+              // ramp (design-system audit, rule 2 / finding C6): those are
+              // fixed dark-palette hex values and show the wrong hue under
+              // the light theme.
+              background: tint('var(--cyan)', 0.1),
+              border: `1px solid ${tint('var(--cyan)', 0.33)}`,
               borderRadius: 'var(--radius-sm)',
               fontSize: 12,
               color: 'var(--text)',
@@ -233,8 +235,10 @@ export default function ConnectorConfigureModal({
               style={{
                 marginTop: 14,
                 padding: '8px 12px',
-                background: 'var(--red-focus)',
-                border: '1px solid var(--red-border)',
+                // Themed tint(), not the unthemed --red-focus/-border alpha
+                // ramp — see the comment on the stored-credentials note above.
+                background: tint('var(--error)', 0.1),
+                border: `1px solid ${tint('var(--error)', 0.3)}`,
                 borderRadius: 'var(--radius-sm)',
                 color: 'var(--error)',
                 fontSize: 12,

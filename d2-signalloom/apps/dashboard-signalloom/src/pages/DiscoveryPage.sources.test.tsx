@@ -222,6 +222,30 @@ describe('Discovery sources strip', () => {
     )
   })
 
+  it.each([
+    // W11's sync_state.mode is poll | poll+stream | backoff; the interval is next_poll_at - last_poll_at.
+    [{ mode: 'poll', last_poll_at: iso(-10_000), next_poll_at: iso(20_000) }, 'Polling every 30 s'],
+    [{ mode: 'poll', last_poll_at: iso(-60_000), next_poll_at: iso(29_000) }, 'Polling every 89 s'],
+    [{ mode: 'poll', last_poll_at: iso(-60_000), next_poll_at: iso(30_000) }, 'Polling every 2 min'],
+    [{ mode: 'poll+stream', last_poll_at: iso(-10_000), next_poll_at: iso(20_000) }, 'Live sessions + polling every 30 s'],
+    [{ mode: 'poll+stream', last_poll_at: null, next_poll_at: null }, 'Live sessions + polling'],
+    [{ mode: 'backoff', last_poll_at: iso(-10_000), next_poll_at: iso(60_000), consecutive_failures: 3 },
+      'Backing off after errors (3 consecutive failures)'],
+    [{ mode: 'backoff', last_poll_at: null, next_poll_at: null, consecutive_failures: 1 },
+      'Backing off after errors (1 consecutive failure)'],
+    [{ mode: 'backoff', last_poll_at: null, next_poll_at: null }, 'Backing off after errors'],
+  ])('labels sync state %j as "%s"', async (partial, label) => {
+    mocked(getDiscoverySourceSyncState).mockImplementation(async (_t: string, providerId: string) =>
+      providerId === 'claude'
+        ? { provider_id: 'claude', connector_id: 'conn-claude',
+            sync_state: { last_success_at: null, last_error: null, ...partial } }
+        : null,
+    )
+    renderPage()
+    const badge = await screen.findByTestId('discovery-source-claude-sync')
+    expect(badge).toHaveTextContent(new RegExp(`^${label.replace(/[()+]/g, '\\$&')}$`))
+  })
+
   it('Re-scan scans only that provider, shows ButtonWait while pending, then refetches workloads', async () => {
     let resolveScan: (v: unknown) => void = () => {}
     mocked(connectorsApi.triggerScan).mockImplementation(

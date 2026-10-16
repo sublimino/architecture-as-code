@@ -560,15 +560,27 @@ function fmtAgo(iso: string): string {
   return `${Math.floor(hours / 24)}d ago`
 }
 
+// The poll interval the engine scheduled (next_poll_at - last_poll_at), in
+// seconds below 90 s so a 30 s interval is not rounded to "1 min".
+function pollInterval(s: DiscoverySourceSyncState): string | null {
+  if (!s.last_poll_at || !s.next_poll_at) return null
+  const secs = Math.round((Date.parse(s.next_poll_at) - Date.parse(s.last_poll_at)) / 1000)
+  if (!Number.isFinite(secs) || secs <= 0) return null
+  return secs < 90 ? `${secs} s` : `${Math.round(secs / 60)} min`
+}
+
+// Backend modes (remote_agent_sync): poll | poll+stream | backoff.
 function syncModeLabel(s: DiscoverySourceSyncState | null): string | null {
   if (!s) return null
   if (s.mode === 'stream' || s.mode === 'webhook') return 'Live'
-  if (s.mode === 'poll') {
-    if (s.last_poll_at && s.next_poll_at) {
-      const mins = Math.round((new Date(s.next_poll_at).getTime() - new Date(s.last_poll_at).getTime()) / 60000)
-      if (mins >= 1) return `Polling every ${mins} min`
-    }
-    return 'Polling'
+  const every = pollInterval(s)
+  if (s.mode === 'poll') return every ? `Polling every ${every}` : 'Polling'
+  if (s.mode === 'poll+stream') return every ? `Live sessions + polling every ${every}` : 'Live sessions + polling'
+  if (s.mode === 'backoff') {
+    const n = s.consecutive_failures
+    return typeof n === 'number' && n > 0
+      ? `Backing off after errors (${n} consecutive failure${n === 1 ? '' : 's'})`
+      : 'Backing off after errors'
   }
   return s.mode
 }
@@ -591,7 +603,9 @@ const SYNC_TINT: Record<'live' | 'poll' | 'other', { bg: string; color: string; 
 function SyncBadge({ providerId, state }: { providerId: string; state: DiscoverySourceSyncState | null }) {
   const label = syncModeLabel(state)
   if (!label) return null
-  const tint = label === 'Live' ? SYNC_TINT.live : state?.mode === 'poll' ? SYNC_TINT.poll : SYNC_TINT.other
+  const mode = state?.mode
+  const tint =
+    label === 'Live' || mode === 'poll+stream' ? SYNC_TINT.live : mode === 'poll' ? SYNC_TINT.poll : SYNC_TINT.other
   return (
     <span
       data-testid={`discovery-source-${providerId}-sync`}

@@ -952,6 +952,8 @@ export interface DiscoverySourceSyncState {
   last_success_at: string | null
   last_error: string | null
   next_poll_at: string | null
+  /** Present on the backend's sync_state; drives the backoff label. */
+  consecutive_failures?: number
 }
 
 export interface DiscoverySourceSnapshot {

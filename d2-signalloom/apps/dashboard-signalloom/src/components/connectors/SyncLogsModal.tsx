@@ -32,10 +32,10 @@ function formatTimeAgo(isoString: string): string {
 }
 
 const levelBadgeStyles: Record<string, { bg: string; color: string; border: string }> = {
-  info: { bg: 'rgba(56, 189, 248, 0.12)', color: 'var(--cyan, #38bdf8)', border: 'rgba(56, 189, 248, 0.3)' },
-  debug: { bg: 'rgba(168, 85, 247, 0.12)', color: '#c084fc', border: 'rgba(168, 85, 247, 0.3)' },
-  warn: { bg: 'rgba(251, 191, 36, 0.12)', color: 'var(--warn, #fbbf24)', border: 'rgba(251, 191, 36, 0.3)' },
-  error: { bg: 'rgba(248, 113, 113, 0.12)', color: 'var(--error, #f87171)', border: 'rgba(248, 113, 113, 0.3)' },
+  info: { bg: 'rgba(56, 189, 248, 0.12)', color: 'var(--cyan)', border: 'rgba(56, 189, 248, 0.3)' },
+  debug: { bg: 'rgba(168, 85, 247, 0.12)', color: 'var(--violet)', border: 'rgba(168, 85, 247, 0.3)' },
+  warn: { bg: 'rgba(251, 191, 36, 0.12)', color: 'var(--warning)', border: 'rgba(251, 191, 36, 0.3)' },
+  error: { bg: 'rgba(248, 113, 113, 0.12)', color: 'var(--error)', border: 'rgba(248, 113, 113, 0.3)' },
 }
 
 export default function SyncLogsModal({
@@ -188,9 +188,9 @@ export default function SyncLogsModal({
 
   const status = syncResult?.status ?? 'success'
   const statusColors = {
-    success: { bg: 'rgba(45, 212, 191, 0.12)', text: 'var(--teal, #2dd4bf)', border: 'rgba(45, 212, 191, 0.3)' },
-    warning: { bg: 'rgba(251, 191, 36, 0.12)', text: 'var(--warn, #fbbf24)', border: 'rgba(251, 191, 36, 0.3)' },
-    error: { bg: 'rgba(248, 113, 113, 0.12)', text: 'var(--error, #f87171)', border: 'rgba(248, 113, 113, 0.3)' },
+    success: { bg: 'rgba(45, 212, 191, 0.12)', text: 'var(--teal)', border: 'rgba(45, 212, 191, 0.3)' },
+    warning: { bg: 'rgba(251, 191, 36, 0.12)', text: 'var(--warning)', border: 'rgba(251, 191, 36, 0.3)' },
+    error: { bg: 'rgba(248, 113, 113, 0.12)', text: 'var(--error)', border: 'rgba(248, 113, 113, 0.3)' },
   }[status]
 
   return (
@@ -443,9 +443,9 @@ export default function SyncLogsModal({
             style={{
               flex: 1,
               minHeight: 280,
-              background: '#090d16',
+              background: 'var(--surface2)',
               borderRadius: 6,
-              border: '1px solid var(--border, #334155)',
+              border: '1px solid var(--border)',
               padding: 12,
               fontFamily: 'monospace',
               fontSize: 12,
@@ -496,11 +496,11 @@ export default function SyncLogsModal({
                         >
                           {log.level}
                         </span>
-                        <span style={{ color: '#cbd5e1', wordBreak: 'break-word', lineHeight: 1.4 }}>
+                        <span style={{ color: 'var(--text)', wordBreak: 'break-word', lineHeight: 1.4 }}>
                           {log.message}
                         </span>
                       </div>
-                      <span style={{ color: '#64748b', fontSize: 11, flexShrink: 0 }}>
+                      <span style={{ color: 'var(--muted)', fontSize: 11, flexShrink: 0 }}>
                         {log.timestamp ? log.timestamp.split('T')[1]?.replace('Z', '') : ''}
                       </span>
                     </div>
@@ -513,7 +513,7 @@ export default function SyncLogsModal({
                           padding: '6px 8px',
                           background: 'rgba(0, 0, 0, 0.4)',
                           borderRadius: 4,
-                          borderLeft: '2px solid #a855f7',
+                          borderLeft: '2px solid var(--violet)',
                           display: 'flex',
                           flexDirection: 'column',
                           gap: 4,
@@ -521,7 +521,7 @@ export default function SyncLogsModal({
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 11 }}>
                           {log.endpoint && (
-                            <span style={{ color: '#38bdf8', fontWeight: 600 }}>{log.endpoint}</span>
+                            <span style={{ color: 'var(--cyan)', fontWeight: 600 }}>{log.endpoint}</span>
                           )}
                           {log.status_code && (
                             <span
@@ -534,7 +534,7 @@ export default function SyncLogsModal({
                             </span>
                           )}
                           {log.duration_ms != null && (
-                            <span style={{ color: '#94a3b8' }}>{log.duration_ms}ms</span>
+                            <span style={{ color: 'var(--muted)' }}>{log.duration_ms}ms</span>
                           )}
                         </div>
 
@@ -546,7 +546,7 @@ export default function SyncLogsModal({
                             <summary
                               style={{
                                 cursor: 'pointer',
-                                color: 'var(--cyan, #38bdf8)',
+                                color: 'var(--cyan)',
                                 fontSize: 11,
                                 outline: 'none',
                               }}
@@ -557,10 +557,10 @@ export default function SyncLogsModal({
                               style={{
                                 margin: '6px 0 0 0',
                                 padding: 8,
-                                background: '#020617',
+                                background: 'var(--surface)',
                                 borderRadius: 4,
-                                border: '1px solid #1e293b',
-                                color: '#e2e8f0',
+                                border: '1px solid var(--border)',
+                                color: 'var(--text)',
                                 fontSize: 11,
                                 overflowX: 'auto',
                                 whiteSpace: 'pre-wrap',

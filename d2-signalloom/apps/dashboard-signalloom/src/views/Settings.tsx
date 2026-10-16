@@ -919,6 +919,7 @@ export default function Settings() {
                           </div>
                         </div>
                       </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         {isConnected && (
                           <>
                             <button

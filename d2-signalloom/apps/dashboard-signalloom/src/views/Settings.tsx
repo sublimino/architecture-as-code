@@ -10,6 +10,7 @@ import LoadingState from '../components/LoadingState'
 import { LOAD_TIMES_OPTIONS, setLoadTimes, useLoadTimes, type LoadTimesSetting } from '../api/loadTimes'
 import ApiKeyRotateModal from '../components/ApiKeyRotateModal'
 import ConfirmDialog from '../components/ConfirmDialog'
+import ConnectorConfigureModal from '../components/ConnectorConfigureModal'
 import ProviderLogo from '../components/onboarding/ProviderLogo'
 import CurrencySetting from '../components/CurrencySetting'
 import { useAppContext } from '../App'
@@ -133,6 +134,7 @@ export default function Settings() {
   const [connectors, setConnectors] = useState<TenantConnector[]>([])
   const [disconnectTarget, setDisconnectTarget] = useState<TenantConnector | null>(null)
   const [disconnecting, setDisconnecting] = useState(false)
+  const [configuringProvider, setConfiguringProvider] = useState<ConnectorProvider | null>(null)
   const [cadenceHours, setCadenceHours] = useState(24)
   const [alertEmail, setAlertEmail] = useState('')
   const [alertThreshold, setAlertThreshold] = useState(1)
@@ -324,6 +326,31 @@ export default function Settings() {
       setDisconnecting(false)
       setDisconnectTarget(null)
     }
+  }
+
+  async function handleSaveConnector(payload: {
+    provider_id: string
+    display_name?: string
+    credentials: Record<string, string>
+    metadata?: Record<string, unknown>
+  }) {
+    const token = await getAccessTokenSilently()
+    const saved = await connectorsApi.createConnector(token, {
+      provider_id: payload.provider_id,
+      display_name: payload.display_name,
+      credentials: payload.credentials,
+      metadata: payload.metadata,
+    })
+    setConnectors((prev) => {
+      const idx = prev.findIndex((c) => c.provider_id === payload.provider_id)
+      if (idx >= 0) {
+        const copy = [...prev]
+        copy[idx] = saved
+        return copy
+      }
+      return [...prev, saved]
+    })
+    refreshOnboardingState()
   }
 
   useEffect(() => {
@@ -852,16 +879,27 @@ export default function Settings() {
                           </div>
                         </div>
                       </div>
-                      <FrameworkToggle
-                        active={isConnected}
-                        onToggle={() => {
-                          if (isConnected) {
-                            setDisconnectTarget(connector)
-                          } else {
-                            navigate('/onboarding')
-                          }
-                        }}
-                      />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          data-testid={`configure-connector-${p.provider_id}`}
+                          onClick={() => setConfiguringProvider(p)}
+                          style={{ fontSize: 12, padding: '5px 12px' }}
+                        >
+                          Configure
+                        </button>
+                        <FrameworkToggle
+                          active={isConnected}
+                          onToggle={() => {
+                            if (isConnected) {
+                              setDisconnectTarget(connector)
+                            } else {
+                              setConfiguringProvider(p)
+                            }
+                          }}
+                        />
+                      </div>
                     </div>
                   )
                 })}
@@ -875,6 +913,15 @@ export default function Settings() {
                 loading={disconnecting}
                 onConfirm={handleConfirmDisconnect}
                 onCancel={() => setDisconnectTarget(null)}
+              />
+            )}
+            {configuringProvider && (
+              <ConnectorConfigureModal
+                isOpen={Boolean(configuringProvider)}
+                provider={configuringProvider}
+                connector={connectors.find((c) => c.provider_id === configuringProvider.provider_id)}
+                onClose={() => setConfiguringProvider(null)}
+                onSave={handleSaveConnector}
               />
             )}
           </SectionCard>

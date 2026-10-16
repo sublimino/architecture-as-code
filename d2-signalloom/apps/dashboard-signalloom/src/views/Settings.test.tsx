@@ -342,13 +342,59 @@ describe('Settings: Service Connectors', () => {
     expect(switches[2]).toHaveAttribute('aria-checked', 'false')
   })
 
-  it('navigates to /onboarding when toggling ON an unconfigured provider', async () => {
+  it('opens configure modal when toggling ON an unconfigured provider', async () => {
     renderSettings(['/settings?tab=connectors'])
     await screen.findByText('Service Connectors')
     const switches = screen.getAllByRole('switch')
     // First switch is Entra (unconfigured)
     await userEvent.click(switches[0])
-    expect(mockNavigate).toHaveBeenCalledWith('/onboarding')
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText(/Configure Microsoft Entra ID/i)).toBeInTheDocument()
+  })
+
+  it('opens configure modal with API Key and OIDC tabs when clicking Configure on AI provider', async () => {
+    renderSettings(['/settings?tab=connectors'])
+    await screen.findByText('Service Connectors')
+    const configBtn = screen.getByTestId('configure-connector-openai')
+    await userEvent.click(configBtn)
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText(/Configure OpenAI/i)).toBeInTheDocument()
+    expect(screen.getByTestId('tab-auth-api-key')).toBeInTheDocument()
+    expect(screen.getByTestId('tab-auth-oidc')).toBeInTheDocument()
+  })
+
+  it('saves configured connector via modal and updates list', async () => {
+    vi.mocked(connectorsApi.createConnector).mockResolvedValueOnce({
+      connector_id: 'conn-openai-1',
+      provider_id: 'openai',
+      display_name: 'OpenAI',
+      status: 'connected',
+      credential_expires_at: null,
+      last_tested_at: null,
+      last_scan_at: null,
+      metadata: { auth_mode: 'api_key' },
+      created_at: '2026-01-01',
+    })
+
+    renderSettings(['/settings?tab=connectors'])
+    await screen.findByText('Service Connectors')
+    const configBtn = screen.getByTestId('configure-connector-openai')
+    await userEvent.click(configBtn)
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+
+    const apiKeyInput = screen.getByTestId('input-connector-api-key')
+    await userEvent.type(apiKeyInput, 'sk-proj-testkey')
+
+    const saveBtn = screen.getByTestId('btn-modal-save-connector')
+    await userEvent.click(saveBtn)
+
+    expect(connectorsApi.createConnector).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        provider_id: 'openai',
+        credentials: { api_key: 'sk-proj-testkey' },
+      }),
+    )
   })
 
   it('shows disconnect confirmation when toggling OFF a connected provider', async () => {

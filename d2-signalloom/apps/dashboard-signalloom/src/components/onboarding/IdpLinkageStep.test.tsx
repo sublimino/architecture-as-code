@@ -164,4 +164,86 @@ describe('IdpLinkageStep component', () => {
     )
     expect(mockOnTestConnection).not.toHaveBeenCalled()
   })
+
+  it('allows switching to API Key mode for Claude and testing live probe with valid key', async () => {
+    const user = userEvent.setup()
+    renderStep()
+
+    await user.click(screen.getByTestId('idp-option-claude'))
+    const apiKeyTab = screen.getByTestId('tab-idp-auth-api-key')
+    expect(apiKeyTab).toBeInTheDocument()
+    await user.click(apiKeyTab)
+
+    expect(screen.getByText(/Direct API Query:/i)).toBeInTheDocument()
+    const apiKeyInput = screen.getByTestId('input-idp-api-key')
+    expect(apiKeyInput).toHaveAttribute('type', 'password')
+
+    // Show/Hide toggle
+    const toggleBtn = screen.getByRole('button', { name: 'Show' })
+    await user.click(toggleBtn)
+    expect(apiKeyInput).toHaveAttribute('type', 'text')
+
+    // Type valid Anthropic key
+    await user.type(apiKeyInput, 'sk-ant-api03-live-test-key')
+
+    // Optional workspace ID
+    const wsInput = screen.getByTestId('input-idp-workspace-id')
+    await user.type(wsInput, 'wrkspc_test123')
+
+    // Test connection
+    await user.click(screen.getByTestId('test-idp-connection-button'))
+    expect(await screen.findByTestId('idp-connection-success')).toHaveTextContent(
+      'Verified connection to Anthropic Claude API',
+    )
+
+    // Submit
+    await user.click(screen.getByTestId('next-step-button'))
+    expect(mockOnNext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: 'claude',
+        authMode: 'api_key',
+        apiKey: 'sk-ant-api03-live-test-key',
+        workspaceId: 'wrkspc_test123',
+        connectionTested: true,
+      }),
+    )
+  })
+
+  it('supports simulated test mode in API Key mode', async () => {
+    const user = userEvent.setup()
+    renderStep()
+
+    await user.click(screen.getByTestId('idp-option-openai'))
+    await user.click(screen.getByTestId('tab-idp-auth-api-key'))
+
+    const apiKeyInput = screen.getByTestId('input-idp-api-key')
+    await user.type(apiKeyInput, 'sk-proj-openai-test')
+
+    // Select simulated test mode
+    await user.click(screen.getByTestId('radio-idp-test-simulated'))
+
+    await user.click(screen.getByTestId('test-idp-connection-button'))
+    expect(await screen.findByTestId('idp-connection-success')).toHaveTextContent(
+      'Simulated test verified. 2 sample agent workloads ready to ingest',
+    )
+  })
+
+  it('validates API key is required when in API key mode', async () => {
+    const user = userEvent.setup()
+    renderStep()
+
+    await user.click(screen.getByTestId('idp-option-claude'))
+    await user.click(screen.getByTestId('tab-idp-auth-api-key'))
+
+    // Click test without key
+    await user.click(screen.getByTestId('test-idp-connection-button'))
+    expect(await screen.findByTestId('idp-connection-error')).toHaveTextContent(
+      'Please enter an API Key to test connection',
+    )
+
+    // Submit without key
+    await user.click(screen.getByTestId('next-step-button'))
+    expect(screen.getByText('API Key is required.')).toBeInTheDocument()
+    expect(mockOnNext).not.toHaveBeenCalled()
+  })
 })

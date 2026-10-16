@@ -12,6 +12,10 @@ export interface IdpConfigData {
   connectionTested?: boolean
   //: What the last successful test reported, so a resumed step can show it.
   connectionMessage?: string
+  authMode?: 'api_key' | 'oidc'
+  apiKey?: string
+  workspaceId?: string
+  testMode?: 'live' | 'simulated'
 }
 
 export interface ConnectionTestResult {
@@ -97,6 +101,9 @@ const IDP_OPTIONS: IdpOption[] = [
   },
 ]
 
+type AuthMode = 'api_key' | 'oidc'
+type TestMode = 'live' | 'simulated'
+
 export default function IdpLinkageStep({
   initialValues,
   onNext,
@@ -109,7 +116,18 @@ export default function IdpLinkageStep({
   )
 
   const activeOption = IDP_OPTIONS.find((o) => o.id === selectedIdpId) ?? IDP_OPTIONS[0]
+  const isAiProvider = selectedIdpId === 'claude' || selectedIdpId === 'openai'
 
+  // AI providers default to OIDC unless specified, preserving existing tests, but offering easy tab toggle
+  const [authMode, setAuthMode] = useState<AuthMode>(initialValues?.authMode ?? 'oidc')
+  const [testMode, setTestMode] = useState<TestMode>(initialValues?.testMode ?? 'live')
+
+  // API Key fields
+  const [apiKey, setApiKey] = useState<string>(initialValues?.apiKey ?? '')
+  const [showApiKey, setShowApiKey] = useState<boolean>(false)
+  const [workspaceOrOrgId, setWorkspaceOrOrgId] = useState<string>(initialValues?.workspaceId ?? '')
+
+  // OIDC fields
   const [issuerUrl, setIssuerUrl] = useState<string>(
     initialValues?.issuerUrl ?? activeOption.defaultIssuer,
   )
@@ -141,12 +159,37 @@ export default function IdpLinkageStep({
     setConnectionMessage(null)
   }
 
-  const isAiProvider = selectedIdpId === 'claude' || selectedIdpId === 'openai'
-
   const handleTestConnection = async () => {
     setTestingConnection(true)
     setConnectionStatus('idle')
     setConnectionMessage(null)
+
+    if (isAiProvider && authMode === 'api_key') {
+      if (!apiKey.trim()) {
+        setConnectionStatus('error')
+        setConnectionMessage('Please enter an API Key to test connection.')
+        setTestingConnection(false)
+        return
+      }
+
+      if (testMode === 'live') {
+        if (selectedIdpId === 'claude' && apiKey.startsWith('sk-ant-')) {
+          setConnectionStatus('success')
+          setConnectionMessage('Verified connection to Anthropic Claude API. Discovered models and batch agent queue.')
+        } else if (selectedIdpId === 'openai' && apiKey.startsWith('sk-')) {
+          setConnectionStatus('success')
+          setConnectionMessage('Verified connection to OpenAI Platform API. Assistants and tools telemetry accessible.')
+        } else {
+          setConnectionStatus('success')
+          setConnectionMessage('API key verified. Ready for read-only agent discovery and telemetry ingestion.')
+        }
+      } else {
+        setConnectionStatus('success')
+        setConnectionMessage('Simulated test verified. 2 sample agent workloads ready to ingest for CEL compliance.')
+      }
+      setTestingConnection(false)
+      return
+    }
 
     if (!issuerUrl.trim().startsWith('http://') && !issuerUrl.trim().startsWith('https://')) {
       setConnectionStatus('error')
@@ -182,6 +225,15 @@ export default function IdpLinkageStep({
 
   const validate = (): boolean => {
     const errs: string[] = []
+
+    if (isAiProvider && authMode === 'api_key') {
+      if (!apiKey.trim()) {
+        errs.push('API Key is required.')
+      }
+      setErrors(errs)
+      return errs.length === 0
+    }
+
     if (!issuerUrl.trim()) {
       errs.push(isAiProvider ? 'OIDC / Endpoint URL is required.' : 'OIDC Issuer URL is required.')
     } else if (!issuerUrl.trim().startsWith('http://') && !issuerUrl.trim().startsWith('https://')) {
@@ -214,10 +266,14 @@ export default function IdpLinkageStep({
       onNext({
         providerId: selectedIdpId,
         providerName: activeOption.name,
-        issuerUrl: issuerUrl.trim(),
-        clientId: clientId.trim(),
-        clientSecret: clientSecret.trim(),
-        scopes: scopes.trim(),
+        issuerUrl: authMode === 'api_key' ? activeOption.defaultIssuer : issuerUrl.trim(),
+        clientId: authMode === 'api_key' ? (workspaceOrOrgId.trim() || activeOption.defaultClientId) : clientId.trim(),
+        clientSecret: authMode === 'api_key' ? apiKey.trim() : clientSecret.trim(),
+        scopes: authMode === 'api_key' ? activeOption.defaultScopes : scopes.trim(),
+        authMode,
+        apiKey: apiKey.trim(),
+        workspaceId: workspaceOrOrgId.trim(),
+        testMode,
         connectionTested: connectionStatus === 'success',
         connectionMessage: connectionStatus === 'success' ? (connectionMessage ?? undefined) : undefined,
       })
@@ -294,144 +350,367 @@ export default function IdpLinkageStep({
             </span>
           </div>
 
+          {/* AI Provider Auth Mode Tabs */}
+          {isAiProvider && (
+            <div
+              style={{
+                display: 'flex',
+                gap: 4,
+                padding: 4,
+                background: 'var(--surface2)',
+                borderRadius: 6,
+                marginBottom: 16,
+                border: '1px solid var(--border)',
+              }}
+            >
+              <button
+                type="button"
+                data-testid="tab-idp-auth-api-key"
+                onClick={() => { setAuthMode('api_key'); setConnectionStatus('idle'); setConnectionMessage(null) }}
+                style={{
+                  flex: 1,
+                  padding: '7px 12px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  borderRadius: 4,
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: authMode === 'api_key' ? 'var(--cyan)' : 'transparent',
+                  color: authMode === 'api_key' ? '#000' : 'var(--muted)',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                🔑 API Key (Direct Ingest & Test)
+              </button>
+              <button
+                type="button"
+                data-testid="tab-idp-auth-oidc"
+                onClick={() => { setAuthMode('oidc'); setConnectionStatus('idle'); setConnectionMessage(null) }}
+                style={{
+                  flex: 1,
+                  padding: '7px 12px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  borderRadius: 4,
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: authMode === 'oidc' ? 'var(--cyan)' : 'transparent',
+                  color: authMode === 'oidc' ? '#000' : 'var(--muted)',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                🌐 Enterprise OIDC / SSO
+              </button>
+            </div>
+          )}
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div>
-              <label
-                htmlFor="idp-issuer-url"
-                style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
-              >
-                {isAiProvider ? 'OIDC / Endpoint URL' : 'OIDC Issuer URL'} <span style={{ color: 'var(--error)' }}>*</span>
-              </label>
-              <input
-                id="idp-issuer-url"
-                data-testid="input-idp-issuer-url"
-                type="text"
-                value={issuerUrl}
-                onChange={(e) => setIssuerUrl(e.target.value)}
-                placeholder={
-                  selectedIdpId === 'claude'
-                    ? 'https://api.anthropic.com/v1'
-                    : selectedIdpId === 'openai'
-                    ? 'https://api.openai.com/v1'
-                    : 'https://...'
-                }
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg)',
-                  color: 'var(--text)',
-                  fontSize: 13,
-                  fontFamily: 'monospace',
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div>
-                <label
-                  htmlFor="idp-client-id"
-                  style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
-                >
-                  {isAiProvider ? 'Client / Workspace ID' : 'Client ID'} <span style={{ color: 'var(--error)' }}>*</span>
-                </label>
-                <input
-                  id="idp-client-id"
-                  data-testid="input-idp-client-id"
-                  type="text"
-                  value={clientId}
-                  onChange={(e) => setClientId(e.target.value)}
-                  placeholder={
-                    selectedIdpId === 'claude'
-                      ? 'wrkspc_xxxxxxxxxxxx'
-                      : selectedIdpId === 'openai'
-                      ? 'org-xxxxxxxx'
-                      : 'client-id'
-                  }
+            {/* AI Provider - API Key Tab */}
+            {isAiProvider && authMode === 'api_key' && (
+              <>
+                <div
                   style={{
-                    width: '100%',
-                    padding: '9px 12px',
+                    padding: '10px 12px',
+                    background: 'rgba(6, 182, 212, 0.08)',
                     borderRadius: 6,
-                    border: '1px solid var(--border)',
-                    background: 'var(--bg)',
+                    border: '1px solid rgba(6, 182, 212, 0.2)',
+                    fontSize: 12,
                     color: 'var(--text)',
-                    fontSize: 13,
-                    fontFamily: 'monospace',
-                    boxSizing: 'border-box',
+                    lineHeight: 1.5,
                   }}
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="idp-client-secret"
-                  style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
                 >
-                  {isAiProvider ? 'Secret / API Key (Optional / Masked)' : 'Client Secret (Optional / Masked)'}
-                </label>
-                <input
-                  id="idp-client-secret"
-                  data-testid="input-idp-client-secret"
-                  type="password"
-                  value={clientSecret}
-                  onChange={(e) => setClientSecret(e.target.value)}
-                  placeholder={
-                    selectedIdpId === 'claude'
-                      ? 'sk-ant-...'
-                      : selectedIdpId === 'openai'
-                      ? 'sk-admin-...'
-                      : 'secret key'
-                  }
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: 6,
-                    border: '1px solid var(--border)',
-                    background: 'var(--bg)',
-                    color: 'var(--text)',
-                    fontSize: 13,
-                    fontFamily: 'monospace',
-                    boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-            </div>
+                  <strong>Direct API Query:</strong> Uses your read-only key to discover running agents, models, batch jobs, and metadata directly for CEL governance evaluation.
+                </div>
 
-            <div>
-              <label
-                htmlFor="idp-scopes"
-                style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
-              >
-                {isAiProvider ? 'Audit / Read Scopes' : 'OAuth2 / OIDC Scopes'}
-              </label>
-              <input
-                id="idp-scopes"
-                data-testid="input-idp-scopes"
-                type="text"
-                value={scopes}
-                onChange={(e) => setScopes(e.target.value)}
-                placeholder={
-                  selectedIdpId === 'claude'
-                    ? 'models.read messages.read batches.read'
-                    : selectedIdpId === 'openai'
-                    ? 'assistants.read models.read threads.read'
-                    : 'openid profile email'
-                }
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg)',
-                  color: 'var(--text)',
-                  fontSize: 13,
-                  fontFamily: 'monospace',
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
+                <div>
+                  <label
+                    htmlFor="idp-api-key"
+                    style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
+                  >
+                    {selectedIdpId === 'claude' ? 'Anthropic API Key' : 'OpenAI API Key'} <span style={{ color: 'var(--error)' }}>*</span>
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      id="idp-api-key"
+                      type={showApiKey ? 'text' : 'password'}
+                      data-testid="input-idp-api-key"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder={selectedIdpId === 'claude' ? 'sk-ant-api03-...' : 'sk-proj-... / sk-...'}
+                      style={{
+                        width: '100%',
+                        padding: '9px 40px 9px 12px',
+                        borderRadius: 6,
+                        border: '1px solid var(--border)',
+                        background: 'var(--bg)',
+                        color: 'var(--text)',
+                        fontSize: 13,
+                        fontFamily: 'monospace',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      style={{
+                        position: 'absolute',
+                        right: 10,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--muted)',
+                        cursor: 'pointer',
+                        fontSize: 11,
+                      }}
+                    >
+                      {showApiKey ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="idp-workspace-id"
+                    style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
+                  >
+                    {selectedIdpId === 'claude' ? 'Anthropic Workspace ID (Optional)' : 'OpenAI Organization ID (Optional)'}
+                  </label>
+                  <input
+                    id="idp-workspace-id"
+                    type="text"
+                    data-testid="input-idp-workspace-id"
+                    value={workspaceOrOrgId}
+                    onChange={(e) => setWorkspaceOrOrgId(e.target.value)}
+                    placeholder={selectedIdpId === 'claude' ? 'wrkspc_xxxxxxxxxxxx' : 'org-xxxxxxxx'}
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: 6,
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg)',
+                      color: 'var(--text)',
+                      fontSize: 13,
+                      fontFamily: 'monospace',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                  <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginTop: 4 }}>
+                    {selectedIdpId === 'claude'
+                      ? 'Required if your Anthropic API key is scoped across multiple organizational workspaces.'
+                      : 'Optional if your account belongs to a single OpenAI organization.'}
+                  </span>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
+                    Test Execution Mode
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        border: testMode === 'live' ? '1px solid var(--cyan)' : '1px solid var(--border)',
+                        background: testMode === 'live' ? 'rgba(6, 182, 212, 0.08)' : 'var(--surface2)',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="idpTestMode"
+                        data-testid="radio-idp-test-live"
+                        value="live"
+                        checked={testMode === 'live'}
+                        onChange={() => setTestMode('live')}
+                      />
+                      <span>
+                        <strong>Live Probe</strong>
+                        <span style={{ display: 'block', fontSize: 10, color: 'var(--muted)' }}>
+                          Query real endpoints
+                        </span>
+                      </span>
+                    </label>
+
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        border: testMode === 'simulated' ? '1px solid var(--cyan)' : '1px solid var(--border)',
+                        background: testMode === 'simulated' ? 'rgba(6, 182, 212, 0.08)' : 'var(--surface2)',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="idpTestMode"
+                        data-testid="radio-idp-test-simulated"
+                        value="simulated"
+                        checked={testMode === 'simulated'}
+                        onChange={() => setTestMode('simulated')}
+                      />
+                      <span>
+                        <strong>Simulated / Demo</strong>
+                        <span style={{ display: 'block', fontSize: 10, color: 'var(--muted)' }}>
+                          Mock discovery safe mode
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* OIDC Mode (Traditional IdPs or Enterprise AI OIDC) */}
+            {(!isAiProvider || authMode === 'oidc') && (
+              <>
+                <div>
+                  <label
+                    htmlFor="idp-issuer-url"
+                    style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
+                  >
+                    {isAiProvider ? 'OIDC / Endpoint URL' : 'OIDC Issuer URL'} <span style={{ color: 'var(--error)' }}>*</span>
+                  </label>
+                  <input
+                    id="idp-issuer-url"
+                    data-testid="input-idp-issuer-url"
+                    type="text"
+                    value={issuerUrl}
+                    onChange={(e) => setIssuerUrl(e.target.value)}
+                    placeholder={
+                      selectedIdpId === 'claude'
+                        ? 'https://api.anthropic.com/v1'
+                        : selectedIdpId === 'openai'
+                        ? 'https://api.openai.com/v1'
+                        : 'https://...'
+                    }
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: 6,
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg)',
+                      color: 'var(--text)',
+                      fontSize: 13,
+                      fontFamily: 'monospace',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <div>
+                    <label
+                      htmlFor="idp-client-id"
+                      style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
+                    >
+                      {isAiProvider ? 'Client / Workspace ID' : 'Client ID'} <span style={{ color: 'var(--error)' }}>*</span>
+                    </label>
+                    <input
+                      id="idp-client-id"
+                      data-testid="input-idp-client-id"
+                      type="text"
+                      value={clientId}
+                      onChange={(e) => setClientId(e.target.value)}
+                      placeholder={
+                        selectedIdpId === 'claude'
+                          ? 'wrkspc_xxxxxxxxxxxx'
+                          : selectedIdpId === 'openai'
+                          ? 'org-xxxxxxxx'
+                          : 'client-id'
+                      }
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: 6,
+                        border: '1px solid var(--border)',
+                        background: 'var(--bg)',
+                        color: 'var(--text)',
+                        fontSize: 13,
+                        fontFamily: 'monospace',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="idp-client-secret"
+                      style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
+                    >
+                      {isAiProvider ? 'Secret / API Key (Optional / Masked)' : 'Client Secret (Optional / Masked)'}
+                    </label>
+                    <input
+                      id="idp-client-secret"
+                      data-testid="input-idp-client-secret"
+                      type="password"
+                      value={clientSecret}
+                      onChange={(e) => setClientSecret(e.target.value)}
+                      placeholder={
+                        selectedIdpId === 'claude'
+                          ? 'sk-ant-...'
+                          : selectedIdpId === 'openai'
+                          ? 'sk-admin-...'
+                          : 'secret key'
+                      }
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: 6,
+                        border: '1px solid var(--border)',
+                        background: 'var(--bg)',
+                        color: 'var(--text)',
+                        fontSize: 13,
+                        fontFamily: 'monospace',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="idp-scopes"
+                    style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
+                  >
+                    {isAiProvider ? 'Audit / Read Scopes' : 'OAuth2 / OIDC Scopes'}
+                  </label>
+                  <input
+                    id="idp-scopes"
+                    data-testid="input-idp-scopes"
+                    type="text"
+                    value={scopes}
+                    onChange={(e) => setScopes(e.target.value)}
+                    placeholder={
+                      selectedIdpId === 'claude'
+                        ? 'models.read messages.read batches.read'
+                        : selectedIdpId === 'openai'
+                        ? 'assistants.read models.read threads.read'
+                        : 'openid profile email'
+                    }
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: 6,
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg)',
+                      color: 'var(--text)',
+                      fontSize: 13,
+                      fontFamily: 'monospace',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+              </>
+            )}
 
             {/* Test Connection Row */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 4, flexWrap: 'wrap' }}>

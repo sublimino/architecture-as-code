@@ -416,4 +416,13 @@ describe('SyncLogsModal', () => {
     expect(badge).toHaveClass('tag')
   })
 
+  // ── Design-system audit A3: error text off red tint ─────────────────────
+
+  it('renders the sync-logs error banner body in --text, with --error carried by the border', async () => {
+    getToken.mockRejectedValue(new Error('re-authenticating'))
+    render(<SyncLogsModal isOpen providerId="claude" providerName="Anthropic Claude" onClose={onClose} />)
+    const banner = await screen.findByTestId('sync-logs-error')
+    expect(banner.getAttribute('style') ?? '').toContain('color: var(--text)')
+  })
+
 })

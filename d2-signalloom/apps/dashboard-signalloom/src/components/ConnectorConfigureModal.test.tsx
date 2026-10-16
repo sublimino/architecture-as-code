@@ -298,4 +298,37 @@ describe('ConnectorConfigureModal', () => {
     trigger.remove()
   })
 
+  // ── Design-system audit A3: error/warning text off red/amber tint ───────
+
+  it('renders the save error body in --text, with --error carried by the border rather than the text', async () => {
+    const user = userEvent.setup()
+    onSave.mockRejectedValue(new Error('403 forbidden'))
+    open()
+    await user.type(screen.getByTestId('wizard-field-api_key'), 'sk-ant-k')
+    await user.click(screen.getByTestId('btn-modal-save-connector'))
+    const banner = await screen.findByTestId('connector-save-error')
+    expect(banner.getAttribute('style') ?? '').toContain('color: var(--text)')
+  })
+
+  it('renders the test-connection result in --text with a status dot carrying the colour', async () => {
+    const user = userEvent.setup()
+    api.testProviderCredentials.mockResolvedValue({ ...ok, valid: false, scopes_ok: false, error_msg: 'invalid x-api-key' })
+    open()
+    await user.type(screen.getByTestId('wizard-field-api_key'), 'sk-ant-looks-fine')
+    await user.click(screen.getByTestId('btn-modal-test-connection'))
+
+    const result = await screen.findByTestId('test-connection-error')
+    expect(result.getAttribute('style') ?? '').toContain('color: var(--text)')
+    expect(result.querySelector('[data-testid="test-connection-result-dot"]')).toBeInTheDocument()
+  })
+
+  // rules-of-hooks is off repo-wide, and React 18 does not throw when an early
+  // return skips every hook (it silently remounts state), so the only reliable
+  // guard on the hook order of this file is the lint rule itself.
+  it('calls no hook after an early return (react-hooks/rules-of-hooks)', async () => {
+    const { ESLint } = await import('eslint')
+    const eslint = new ESLint({ overrideConfig: { rules: { 'react-hooks/rules-of-hooks': 'error' } } })
+    const [result] = await eslint.lintFiles([`${process.cwd()}/src/components/ConnectorConfigureModal.tsx`])
+    expect(result.messages.filter((m) => m.ruleId === 'react-hooks/rules-of-hooks')).toEqual([])
+  }, 30_000)
 })

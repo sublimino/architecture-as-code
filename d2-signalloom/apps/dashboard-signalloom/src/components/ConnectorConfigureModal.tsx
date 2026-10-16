@@ -38,6 +38,13 @@ const RESULT_COLOUR: Record<VerificationOutcome['status'], string> = {
   unchecked: 'var(--amber)',
 }
 
+// Design-system audit rule 11: only failed/unchecked need the dot-carries-the-
+// colour treatment (teal/verified already passes AA as direct text colour).
+const RESULT_DOT: Partial<Record<VerificationOutcome['status'], string>> = {
+  failed: 'var(--error)',
+  unchecked: 'var(--amber)',
+}
+
 export default function ConnectorConfigureModal({
   provider,
   connector,
@@ -239,8 +246,27 @@ export default function ConnectorConfigureModal({
                 <span
                   data-testid={RESULT_TESTID[testResult.status]}
                   role="status"
-                  style={{ fontSize: 12, color: RESULT_COLOUR[testResult.status], lineHeight: 1.4 }}
+                  style={{
+                    fontSize: 12,
+                    // Design-system audit rule 11 / finding C5: `--error` and
+                    // `--amber` measured 3.02-3.39:1 as text, under the 4.5:1
+                    // AA floor. `--teal` (verified) doesn't have that problem
+                    // and keeps its direct colour; failed/unchecked move the
+                    // body to `--text` and carry the colour on a dot instead.
+                    color: RESULT_DOT[testResult.status] ? 'var(--text)' : RESULT_COLOUR[testResult.status],
+                    lineHeight: 1.4,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
                 >
+                  {RESULT_DOT[testResult.status] && (
+                    <span
+                      aria-hidden="true"
+                      data-testid="test-connection-result-dot"
+                      style={{ width: 6, height: 6, borderRadius: '50%', background: RESULT_DOT[testResult.status], flexShrink: 0 }}
+                    />
+                  )}
                   {testResult.message}
                 </span>
               )}
@@ -259,7 +285,11 @@ export default function ConnectorConfigureModal({
                 background: tint('var(--error)', 0.1),
                 border: `1px solid ${tint('var(--error)', 0.3)}`,
                 borderRadius: 'var(--radius-sm)',
-                color: 'var(--error)',
+                // Design-system audit rule 11 / finding C4: `--error` as body
+                // text measured 3.39:1 in dark, under the 4.5:1 AA floor for
+                // 12px text. The red rule (the border above) carries the
+                // colour; the message itself reads in `--text`.
+                color: 'var(--text)',
                 fontSize: 12,
               }}
             >

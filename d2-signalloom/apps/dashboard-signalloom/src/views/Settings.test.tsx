@@ -782,6 +782,18 @@ describe('Settings: Service Connectors', () => {
     expect(badge).toHaveClass('tag')
   })
 
+  // ── Design-system audit A3: error text off red tint ─────────────────────
+
+  it('renders the scan-error body in --text, with --error carried by the border or a dot', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
+    ])
+    vi.mocked(connectorsApi.triggerScan).mockRejectedValue(new Error('upstream refused the scan'))
+    renderSettings(['/settings?tab=connectors'])
+    await userEvent.click(await screen.findByTestId('scan-connector-okta'))
+    const alert = await screen.findByTestId('scan-error-okta')
+    expect(alert.getAttribute('style') ?? '').toContain('color: var(--text)')
+  })
 })
 
 

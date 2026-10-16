@@ -271,7 +271,10 @@ export default function SyncLogsModal({
                 borderRadius: 'var(--radius-sm)',
                 background: 'var(--red-bg)',
                 border: '1px solid var(--red-border)',
-                color: 'var(--error)',
+                // Design-system audit rule 11: `--error` as body text measured
+                // 3.02:1 in dark, under the 4.5:1 AA floor. The red border
+                // carries the colour; the message reads in `--text`.
+                color: 'var(--text)',
                 fontSize: 12,
               }}
             >

@@ -68,6 +68,9 @@ const DEFAULT_PREFERENCES: PreferencesValues = {
 export interface OnboardingWizardProps {
   onCompleted?: () => void
   onSkipped?: () => void
+  allowReplay?: boolean
+  initialStepIndex?: number
+  mode?: 'standalone' | 'settings'
 }
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -78,7 +81,13 @@ function errorMessage(err: unknown, fallback: string): string {
   return fallback
 }
 
-export default function OnboardingWizard({ onCompleted, onSkipped }: OnboardingWizardProps) {
+export default function OnboardingWizard({
+  onCompleted,
+  onSkipped,
+  allowReplay = false,
+  initialStepIndex,
+  mode = 'standalone',
+}: OnboardingWizardProps) {
   const { getAccessTokenSilently, isAuthenticated } = useAuth0()
   const navigate = useNavigate()
   const location = useLocation()
@@ -86,13 +95,21 @@ export default function OnboardingWizard({ onCompleted, onSkipped }: OnboardingW
 
   const returnTo = (location.state as { returnTo?: string } | null)?.returnTo || '/overview'
 
+  const isReplayOrSettings = mode === 'settings' || Boolean(allowReplay)
+  const initialIndex =
+    typeof initialStepIndex === 'number' && initialStepIndex >= 0 && initialStepIndex < WIZARD_STEPS.length
+      ? initialStepIndex
+      : STEP_TENANT
+
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [tenantId, setTenantId] = useState<string | null>(null)
 
-  const [showWelcome, setShowWelcome] = useState<boolean>(true)
-  const [stepIndex, setStepIndex] = useState<number>(STEP_TENANT)
+  const [showWelcome, setShowWelcome] = useState<boolean>(!isReplayOrSettings)
+  const [stepIndex, setStepIndex] = useState<number>(initialIndex)
   const [isCompleted, setIsCompleted] = useState<boolean>(false)
+  const [previouslyCompleted, setPreviouslyCompleted] = useState<boolean>(false)
+  const [settingsCompleted, setSettingsCompleted] = useState<boolean>(false)
   const [submittingComplete, setSubmittingComplete] = useState<boolean>(false)
   const [apiError, setApiError] = useState<string | null>(null)
 
@@ -155,32 +172,44 @@ export default function OnboardingWizard({ onCompleted, onSkipped }: OnboardingW
         })
       }
 
-      if (status?.status === 'completed' || Boolean(status?.completed_at)) {
-        setIsCompleted(true)
-      } else if (state) {
-        const resumed = typeof state.step_index === 'number' && state.step_index >= 0 && state.step_index < WIZARD_STEPS.length
+      const wasCompleted = status?.status === 'completed' || Boolean(status?.completed_at)
+      if (wasCompleted) {
+        setPreviouslyCompleted(true)
+        if (!isReplayOrSettings) {
+          setIsCompleted(true)
+          return
+        }
+      }
+
+      const resumed =
+        typeof initialStepIndex === 'number' && initialStepIndex >= 0 && initialStepIndex < WIZARD_STEPS.length
+          ? initialStepIndex
+          : typeof state?.step_index === 'number' && state.step_index >= 0 && state.step_index < WIZARD_STEPS.length
           ? state.step_index
           : STEP_TENANT
-        setStepIndex(resumed)
-        // Someone who has already moved past the first step does not need the
-        // welcome again; a fresh tenant does.
-        const hasProgress = resumed > STEP_TENANT || (state.selected_provider_ids?.length ?? 0) > 0
+      setStepIndex(resumed)
+
+      if (isReplayOrSettings) {
+        setShowWelcome(false)
+      } else {
+        const hasProgress = resumed > STEP_TENANT || (state?.selected_provider_ids?.length ?? 0) > 0
         setShowWelcome(!hasProgress)
-        if (state.selected_provider_ids && state.selected_provider_ids.length > 0) {
-          const pid = state.selected_provider_ids[0]
-          setIdpConfig((prev) => ({ ...prev, providerId: pid }))
-        }
-        const stored = state.provider_run_state?.[state.selected_provider_ids?.[0] ?? 'dex']
-        if (stored?.status === 'connected') {
-          setIdpConfig((prev) => ({ ...prev, connectionTested: true }))
-        }
+      }
+
+      if (state?.selected_provider_ids && state.selected_provider_ids.length > 0) {
+        const pid = state.selected_provider_ids[0]
+        setIdpConfig((prev) => ({ ...prev, providerId: pid }))
+      }
+      const stored = state?.provider_run_state?.[state?.selected_provider_ids?.[0] ?? 'dex']
+      if (stored?.status === 'connected') {
+        setIdpConfig((prev) => ({ ...prev, connectionTested: true }))
       }
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Failed to load onboarding status from server.')
     } finally {
       setLoading(false)
     }
-  }, [isAuthenticated, getAccessTokenSilently])
+  }, [isAuthenticated, getAccessTokenSilently, isReplayOrSettings, initialStepIndex])
 
   useEffect(() => {
     void loadInitialState()
@@ -347,8 +376,14 @@ export default function OnboardingWizard({ onCompleted, onSkipped }: OnboardingW
       })
       await onboardingApi.complete(token)
       await refreshOnboardingState()
-      setIsCompleted(true)
-      if (onCompleted) onCompleted()
+      setPreviouslyCompleted(true)
+      if (mode === 'settings') {
+        setSettingsCompleted(true)
+        if (onCompleted) onCompleted()
+      } else {
+        setIsCompleted(true)
+        if (onCompleted) onCompleted()
+      }
     } catch (err) {
       setApiError(errorMessage(err, 'Failed to complete onboarding. Please try again.'))
     } finally {
@@ -429,8 +464,14 @@ export default function OnboardingWizard({ onCompleted, onSkipped }: OnboardingW
         currentStepIndex={stepIndex}
         totalSteps={WIZARD_STEPS.length}
         steps={WIZARD_STEPS}
+        allowReplay={isReplayOrSettings}
         onStepClick={(idx) => {
-          if (idx < stepIndex) goTo(idx)
+          if (isReplayOrSettings) {
+            setSettingsCompleted(false)
+            goTo(idx)
+          } else if (idx < stepIndex) {
+            goTo(idx)
+          }
         }}
         onSkip={handleSkip}
       />
@@ -453,62 +494,129 @@ export default function OnboardingWizard({ onCompleted, onSkipped }: OnboardingW
         </div>
       )}
 
-      <div style={{ padding: '0 20px' }}>
-        {stepIndex === STEP_TENANT && (
-          <TenantIdentityStep
-            initialValues={tenantProfile}
-            onNext={handleTenantIdentityNext}
-            onSkip={handleSkip}
-          />
-        )}
-
-        {stepIndex === STEP_IDP && (
-          <IdpLinkageStep
-            initialValues={idpConfig}
-            onNext={handleIdpNext}
-            onBack={() => goTo(STEP_TENANT)}
-            onSkip={handleSkip}
-            onTestConnection={testConnection}
-          />
-        )}
-
-        {stepIndex === STEP_PREFERENCES && (
-          <div style={{ maxWidth: 760, margin: '0 auto' }} data-testid="preferences-step">
-            <PreferencesStep
-              initialValues={preferences}
-              submitting={savingPreferences}
-              error={preferencesError}
-              onSubmit={(values) => void handlePreferencesSubmit(values)}
-              onBack={() => goTo(STEP_IDP)}
-            />
+      {settingsCompleted ? (
+        <div style={{ maxWidth: 760, margin: '0 auto 24px', padding: '0 20px' }}>
+          <div
+            data-testid="onboarding-settings-completed-banner"
+            style={{
+              padding: '20px 24px',
+              borderRadius: 'var(--sl-radius-lg, 12px)',
+              background: 'var(--sl-color-bg-subtle, rgba(255, 255, 255, 0.05))',
+              border: '1px solid var(--sl-color-border, #333)',
+            }}
+          >
+            <p
+              style={{
+                margin: 0,
+                fontSize: '15px',
+                lineHeight: 1.5,
+                color: 'var(--sl-color-text, #fff)',
+                fontWeight: 500,
+              }}
+            >
+              ✓ Onboarding configuration updated successfully. Your updated governance and onboarding configuration is now active across all agents.
+            </p>
+            <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                data-testid="modify-again-button"
+                onClick={() => setSettingsCompleted(false)}
+              >
+                Modify Again
+              </button>
+              {onCompleted && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  data-testid="settings-done-button"
+                  onClick={onCompleted}
+                >
+                  Done
+                </button>
+              )}
+            </div>
           </div>
-        )}
+        </div>
+      ) : (
+        <>
+          {previouslyCompleted && (
+            <div style={{ maxWidth: 760, margin: '0 auto 20px', padding: '0 20px' }}>
+              <div
+                data-testid="onboarding-replay-banner"
+                style={{
+                  padding: '12px 16px',
+                  borderRadius: 'var(--sl-radius-md, 8px)',
+                  background: 'var(--sl-color-bg-subtle, rgba(255, 255, 255, 0.05))',
+                  border: '1px solid var(--sl-color-border, #333)',
+                  color: 'var(--sl-color-text-secondary, #999)',
+                  fontSize: '0.875rem',
+                  lineHeight: 1.5,
+                }}
+              >
+                Onboarding previously completed. You can re-run any step, update your organization profile, change IdP connectors, update scan cadence, or modify containment policies at any time.
+              </div>
+            </div>
+          )}
 
-        {stepIndex === STEP_API_KEY && (
-          <div style={{ maxWidth: 760, margin: '0 auto' }} data-testid="api-key-step">
-            <ApiKeyStep
-              revealed={revealedKey}
-              revealing={revealingKey}
-              error={revealError}
-              onReveal={() => void handleRevealKey()}
-              onContinue={() => goTo(STEP_CONTAINMENT)}
-              onBack={() => goTo(STEP_PREFERENCES)}
-            />
+          <div style={{ padding: '0 20px' }}>
+            {stepIndex === STEP_TENANT && (
+              <TenantIdentityStep
+                initialValues={tenantProfile}
+                onNext={handleTenantIdentityNext}
+                onSkip={handleSkip}
+              />
+            )}
+
+            {stepIndex === STEP_IDP && (
+              <IdpLinkageStep
+                initialValues={idpConfig}
+                onNext={handleIdpNext}
+                onBack={() => goTo(STEP_TENANT)}
+                onSkip={handleSkip}
+                onTestConnection={testConnection}
+              />
+            )}
+
+            {stepIndex === STEP_PREFERENCES && (
+              <div style={{ maxWidth: 760, margin: '0 auto' }} data-testid="preferences-step">
+                <PreferencesStep
+                  initialValues={preferences}
+                  submitting={savingPreferences}
+                  error={preferencesError}
+                  onSubmit={(values) => void handlePreferencesSubmit(values)}
+                  onBack={() => goTo(STEP_IDP)}
+                />
+              </div>
+            )}
+
+            {stepIndex === STEP_API_KEY && (
+              <div style={{ maxWidth: 760, margin: '0 auto' }} data-testid="api-key-step">
+                <ApiKeyStep
+                  revealed={revealedKey}
+                  revealing={revealingKey}
+                  error={revealError}
+                  onReveal={() => void handleRevealKey()}
+                  onContinue={() => goTo(STEP_CONTAINMENT)}
+                  onBack={() => goTo(STEP_PREFERENCES)}
+                />
+              </div>
+            )}
+
+            {stepIndex === STEP_CONTAINMENT && (
+              <ContainmentPolicyConsentStep
+                tenantProfile={tenantProfile}
+                idpConfig={idpConfig}
+                initialValues={containmentPolicy}
+                submitting={submittingComplete}
+                onSubmit={handleComplete}
+                onBack={() => goTo(STEP_API_KEY)}
+                onSkip={handleSkip}
+              />
+            )}
           </div>
-        )}
-
-        {stepIndex === STEP_CONTAINMENT && (
-          <ContainmentPolicyConsentStep
-            tenantProfile={tenantProfile}
-            idpConfig={idpConfig}
-            initialValues={containmentPolicy}
-            submitting={submittingComplete}
-            onSubmit={handleComplete}
-            onBack={() => goTo(STEP_API_KEY)}
-            onSkip={handleSkip}
-          />
-        )}
-      </div>
+        </>
+      )}
     </div>
   )
 }

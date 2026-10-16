@@ -6,12 +6,13 @@ export interface StepDefinition {
   subtitle?: string
 }
 
-interface OnboardingProgressHeaderProps {
+export interface OnboardingProgressHeaderProps {
   currentStepIndex: number
   totalSteps: number
   steps: StepDefinition[]
   onStepClick?: (index: number) => void
   onSkip: () => void
+  allowReplay?: boolean
 }
 
 export default function OnboardingProgressHeader({
@@ -20,6 +21,7 @@ export default function OnboardingProgressHeader({
   steps,
   onStepClick,
   onSkip,
+  allowReplay = false,
 }: OnboardingProgressHeaderProps) {
   const stepNumber = currentStepIndex + 1
   const progressPct = totalSteps > 0 ? Math.round((stepNumber / totalSteps) * 100) : 0
@@ -51,7 +53,7 @@ export default function OnboardingProgressHeader({
             {steps.map((step, idx) => {
               const isCompleted = idx < currentStepIndex
               const isCurrent = idx === currentStepIndex
-              const isClickable = Boolean(onStepClick && isCompleted)
+              const isClickable = Boolean(onStepClick && (allowReplay || isCompleted))
 
               return (
                 <button

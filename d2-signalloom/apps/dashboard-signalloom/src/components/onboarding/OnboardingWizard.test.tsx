@@ -88,10 +88,10 @@ describe('OnboardingWizard component', () => {
     clientApi.apiKeys.revealInitial.mockResolvedValue({ key: 'sl_live_abcdef0123456789', prefix_hint: 'sl_live_abcdef', revealed_at: '2026-10-04T10:00:00Z' })
   })
 
-  function renderWizard() {
+  function renderWizard(props?: React.ComponentProps<typeof OnboardingWizard>) {
     return render(
       <MemoryRouter initialEntries={['/onboarding']}>
-        <OnboardingWizard />
+        <OnboardingWizard {...props} />
       </MemoryRouter>,
     )
   }
@@ -448,6 +448,89 @@ describe('OnboardingWizard component', () => {
         expect(mockRefreshOnboardingState).toHaveBeenCalled()
         expect(mockNavigate).toHaveBeenCalledWith('/overview', { replace: true })
       })
+    })
+  })
+
+  describe('Settings and replay mode', () => {
+    it('does not get trapped in CompletionCelebration when status is completed with allowReplay={true}', async () => {
+      vi.mocked(onboardingApi.getStatus).mockResolvedValueOnce({ status: 'completed', skipped_at: null, completed_at: '2026-09-10T08:00:00Z' })
+      renderWizard({ allowReplay: true })
+
+      await waitFor(() => expect(screen.getByTestId('onboarding-replay-banner')).toBeInTheDocument())
+      expect(screen.queryByTestId('completion-celebration')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('onboarding-welcome')).not.toBeInTheDocument()
+      expect(screen.getByText(/Onboarding previously completed. You can re-run any step/i)).toBeInTheDocument()
+      expect(screen.getByLabelText(/Organization \/ Tenant Name/i)).toBeInTheDocument()
+    })
+
+    it('does not get trapped in CompletionCelebration when status is completed with mode="settings"', async () => {
+      vi.mocked(onboardingApi.getStatus).mockResolvedValueOnce({ status: 'completed', skipped_at: null, completed_at: '2026-09-10T08:00:00Z' })
+      renderWizard({ mode: 'settings' })
+
+      await waitFor(() => expect(screen.getByTestId('onboarding-replay-banner')).toBeInTheDocument())
+      expect(screen.queryByTestId('completion-celebration')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('onboarding-welcome')).not.toBeInTheDocument()
+      expect(screen.getByLabelText(/Organization \/ Tenant Name/i)).toBeInTheDocument()
+    })
+
+    it('respects initialStepIndex in settings mode', async () => {
+      renderWizard({ mode: 'settings', initialStepIndex: 2 })
+      await waitFor(() => expect(screen.getByTestId('preferences-step')).toBeInTheDocument())
+      expect(screen.queryByTestId('onboarding-welcome')).not.toBeInTheDocument()
+    })
+
+    it('in mode="settings", clicking any step in the header navigates to that step', async () => {
+      const user = userEvent.setup()
+      renderWizard({ mode: 'settings' })
+      await waitFor(() => expect(screen.getByLabelText(/Organization \/ Tenant Name/i)).toBeInTheDocument())
+
+      // Operator can jump from step 0 directly to step 2 (Scan preferences)
+      const preferencesStepBtn = screen.getByRole('button', { name: /scan preferences/i })
+      await user.click(preferencesStepBtn)
+      await waitFor(() => expect(screen.getByTestId('preferences-step')).toBeInTheDocument())
+
+      // Operator can jump from step 2 to step 4 (Containment & Consent)
+      const containmentStepBtn = screen.getByRole('button', { name: /containment & consent/i })
+      await user.click(containmentStepBtn)
+      await waitFor(() => expect(screen.getByText('Containment Policy & Security Consent')).toBeInTheDocument())
+
+      // Operator can jump back to step 0 (Organization & Identity)
+      const identityStepBtn = screen.getByRole('button', { name: /organization & identity/i })
+      await user.click(identityStepBtn)
+      await waitFor(() => expect(screen.getByLabelText(/Organization \/ Tenant Name/i)).toBeInTheDocument())
+    })
+
+    it('completing in mode="settings" calls onCompleted and renders success banner with Modify Again and Done buttons', async () => {
+      const user = userEvent.setup()
+      const onCompleted = vi.fn()
+      renderWizard({ mode: 'settings', initialStepIndex: 4, onCompleted })
+
+      await waitFor(() => expect(screen.getByTestId('complete-onboarding-button')).toBeInTheDocument())
+      await user.click(screen.getByTestId('complete-onboarding-button'))
+
+      await waitFor(() => {
+        expect(onboardingApi.complete).toHaveBeenCalledWith('test-bearer-token')
+        expect(onCompleted).toHaveBeenCalled()
+        expect(screen.getByTestId('onboarding-settings-completed-banner')).toBeInTheDocument()
+      })
+
+      expect(screen.getByText(/Onboarding configuration updated successfully/i)).toBeInTheDocument()
+      expect(screen.queryByTestId('completion-celebration')).not.toBeInTheDocument()
+
+      // Clicking Modify Again resets completed banner to review/edit steps
+      const modifyAgainBtn = screen.getByRole('button', { name: /modify again/i })
+      await user.click(modifyAgainBtn)
+      await waitFor(() => {
+        expect(screen.queryByTestId('onboarding-settings-completed-banner')).not.toBeInTheDocument()
+        expect(screen.getByTestId('onboarding-replay-banner')).toBeInTheDocument()
+      })
+
+      // When completed again, clicking Done triggers onCompleted
+      await user.click(screen.getByTestId('complete-onboarding-button'))
+      await waitFor(() => expect(screen.getByTestId('onboarding-settings-completed-banner')).toBeInTheDocument())
+      const doneBtn = screen.getByRole('button', { name: /done/i })
+      await user.click(doneBtn)
+      expect(onCompleted).toHaveBeenCalledTimes(3)
     })
   })
 })

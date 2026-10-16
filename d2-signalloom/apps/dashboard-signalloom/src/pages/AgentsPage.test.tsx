@@ -1931,7 +1931,10 @@ describe('AgentsPage — Claude Managed Parity & Runtime Display', () => {
     expect(await screen.findByTestId('agent-evidence-drawer')).toBeInTheDocument()
   })
 
-  it('opens drawer and displays row when ?selected= matches claude agent with cluster id tenant-demo:claude-agent-fin-analyst', async () => {
+  // Replaces a test that pinned the defect: it expected a deep link to
+  // agent_01FoEhnKF9QsC5DGmuELhm7G to open tenant-demo:claude-agent-fin-analyst,
+  // a different agent that merely looked Claude-ish. Live means live.
+  it('does not open a lookalike claude agent for an unknown ?selected=&drawer= id; says so instead', async () => {
     const claudeAgent = makeAgent({
       id: 'tenant-demo:claude-agent-fin-analyst',
       name: 'Daily News Jokester',
@@ -1944,12 +1947,116 @@ describe('AgentsPage — Claude Managed Parity & Runtime Display', () => {
       },
     })
     vi.mocked(api.agents.list).mockResolvedValue({ agents: [claudeAgent], total: 1 })
+    vi.mocked(api.agents.get).mockRejectedValue(Object.assign(new Error('Not found'), { response: { status: 404 } }))
     renderPage(['/agents?selected=agent_01FoEhnKF9QsC5DGmuELhm7G&drawer=agent_01FoEhnKF9QsC5DGmuELhm7G'])
 
-    // The agent row should not be filtered out
-    expect(await screen.findByText('Daily News Jokester')).toBeInTheDocument()
-    // The evidence drawer should open
+    const notice = await screen.findByTestId('agent-deeplink-not-found')
+    expect(notice).toHaveAttribute('role', 'status')
+    expect(notice).toHaveTextContent('No agent matches agent_01FoEhnKF9QsC5DGmuELhm7G')
+    expect(screen.queryByTestId('agent-evidence-drawer')).not.toBeInTheDocument()
+    // The exact id: selector matches nothing, so the lookalike is not offered as the match.
+    expect(screen.getByText('No agents match your filter')).toBeInTheDocument()
+    expect(screen.queryByText('Daily News Jokester')).not.toBeInTheDocument()
+  })
+})
+
+describe('AgentsPage — deep-link drawer identity and close', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    clearSignalSummaryCache()
+    mockWeaveApi.getObservations.mockResolvedValue([])
+    mockWeaveApi.getActors.mockResolvedValue([])
+  })
+
+  const REQUESTED = 'agent_01FoEhnKF9QsC5DGmuELhm7G'
+  const nono = () => makeAgent({ id: 'agent-nono-evidenced-8b4674c45-67mmg', name: 'Demo Agent (Nono Evidenced)' })
+
+  it('does not open the drawer when api.agents.get returns a different agent', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: [nono()], total: 1 })
+    vi.mocked(api.agents.get).mockResolvedValue(nono())
+    renderPage([`/agents?selected=${REQUESTED}&drawer=${REQUESTED}`])
+
+    const notice = await screen.findByTestId('agent-deeplink-not-found')
+    expect(notice).toHaveTextContent(`No agent matches ${REQUESTED}`)
+    expect(api.agents.get).toHaveBeenCalledWith('test-token', REQUESTED)
+    expect(screen.queryByTestId('agent-evidence-drawer')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('drawer-agent-name')).not.toBeInTheDocument()
+  })
+
+  it('opens the drawer when api.agents.get returns the requested agent (tenant-qualified id)', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: [nono()], total: 1 })
+    vi.mocked(api.agents.get).mockResolvedValue(makeAgent({ id: `tenant-demo:${REQUESTED}`, name: 'Daily News Jokester' }))
+    renderPage([`/agents?drawer=${REQUESTED}`])
+
     expect(await screen.findByTestId('agent-evidence-drawer')).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-agent-name')).toHaveTextContent('Daily News Jokester')
+    expect(screen.queryByTestId('agent-deeplink-not-found')).not.toBeInTheDocument()
+  })
+
+  it('shows the not-found notice on a 404 and dismissing it clears the deep-link params', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: [nono()], total: 1 })
+    vi.mocked(api.agents.get).mockRejectedValue(Object.assign(new Error('Not found'), { response: { status: 404 } }))
+    const { useLocation } = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+    function LocationProbe() {
+      return <output data-testid="location-search">{useLocation().search}</output>
+    }
+    render(
+      <MemoryRouter initialEntries={[`/agents?selected=${REQUESTED}&drawer=${REQUESTED}&agent=${REQUESTED}&lifecycle=all`]}>
+        <AgentsPage />
+        <LocationProbe />
+      </MemoryRouter>,
+    )
+
+    await screen.findByTestId('agent-deeplink-not-found')
+    expect(screen.queryByTestId('agent-evidence-drawer')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByTestId('agent-deeplink-not-found-dismiss'))
+    expect(screen.queryByTestId('agent-deeplink-not-found')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('agent-evidence-drawer')).not.toBeInTheDocument()
+    const search = new URLSearchParams(screen.getByTestId('location-search').textContent ?? '')
+    expect(search.has('drawer')).toBe(false)
+    expect(search.has('agent')).toBe(false)
+    expect(search.has('selected')).toBe(false)
+  })
+
+  it('stays closed after X with ?selected=&drawer=, including after the agents list re-polls', async () => {
+    const target = { id: 'agent-close-deeplink', name: 'Closable Deeplink Agent' }
+    // Fresh objects per poll so the open-drawer effect really re-runs on re-resolve.
+    vi.mocked(api.agents.list).mockImplementation(async () => ({ agents: [makeAgent(target)], total: 1 }))
+    renderPage([`/agents?selected=${target.id}&drawer=${target.id}`])
+
+    expect(await screen.findByTestId('agent-evidence-drawer')).toBeInTheDocument()
+    await userEvent.click(screen.getByTestId('agent-evidence-drawer-close'))
+    expect(screen.queryByTestId('agent-evidence-drawer')).not.toBeInTheDocument()
+
+    const callsAtClose = vi.mocked(api.agents.list).mock.calls.length
+    await waitFor(() => expect(vi.mocked(api.agents.list).mock.calls.length).toBeGreaterThan(callsAtClose), { timeout: 4000 })
+    await act(async () => { await Promise.resolve() })
+    expect(screen.queryByTestId('agent-evidence-drawer')).not.toBeInTheDocument()
+    expect(api.agents.get).not.toHaveBeenCalled()
+  }, 10000)
+
+  it('Clear removes the ?selected= selector so the search does not snap back to id:<value>', async () => {
+    const target = { id: 'agent-clear-deeplink', name: 'Clearable Deeplink Agent' }
+    vi.mocked(api.agents.list).mockImplementation(async () => ({ agents: [makeAgent(target)], total: 1 }))
+    renderPage([`/agents?selected=${target.id}`])
+
+    const input = await screen.findByPlaceholderText(/Search agents/i)
+    await waitFor(() => expect(input).toHaveValue(`id:${target.id}`))
+    await userEvent.click(screen.getByRole('button', { name: /^Clear$/ }))
+    await act(async () => { await Promise.resolve() })
+    expect(input).toHaveValue('')
+    expect(screen.queryByTestId('agent-evidence-drawer')).not.toBeInTheDocument()
+  })
+
+  it('stays closed after Escape with ?selected=', async () => {
+    const target = { id: 'agent-esc-deeplink', name: 'Escapable Deeplink Agent' }
+    vi.mocked(api.agents.list).mockImplementation(async () => ({ agents: [makeAgent(target)], total: 1 }))
+    renderPage([`/agents?selected=${target.id}&drawer=${target.id}&agent=${target.id}`])
+
+    expect(await screen.findByTestId('agent-evidence-drawer')).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' })
+    await act(async () => { await Promise.resolve() })
+    expect(screen.queryByTestId('agent-evidence-drawer')).not.toBeInTheDocument()
   })
 })
 

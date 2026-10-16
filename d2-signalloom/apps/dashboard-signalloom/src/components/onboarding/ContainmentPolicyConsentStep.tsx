@@ -18,6 +18,7 @@ interface ContainmentPolicyConsentStepProps {
   onSubmit: (policy: ContainmentPolicyData) => void
   onBack: () => void
   onSkip: () => void
+  skipLabel?: string
 }
 
 export default function ContainmentPolicyConsentStep({
@@ -28,6 +29,7 @@ export default function ContainmentPolicyConsentStep({
   onSubmit,
   onBack,
   onSkip,
+  skipLabel = 'Skip for now',
 }: ContainmentPolicyConsentStepProps) {
   const [policyTier, setPolicyTier] = useState<ContainmentPolicyData['policyTier']>(
     initialValues?.policyTier ?? 'strict-sandboxed',
@@ -265,7 +267,7 @@ export default function ContainmentPolicyConsentStep({
               <span style={{ color: 'var(--muted)', display: 'block', fontSize: 11 }}>Identity Provider</span>
               <strong style={{ color: 'var(--text)' }}>{idpConfig.providerName || 'Dex OIDC'}</strong>
               <div style={{ fontSize: 11, color: 'var(--muted)', wordBreak: 'break-all' }}>
-                {idpConfig.issuerUrl || 'https://dex.inf-signalloom...'}
+                {idpConfig.issuerUrl ?? (idpConfig.connectionTested ? 'Connection verified' : 'Connection not verified')}
               </div>
             </div>
             <div>
@@ -297,10 +299,11 @@ export default function ContainmentPolicyConsentStep({
               type="button"
               className="btn btn-secondary"
               onClick={onSkip}
+              data-testid="step-skip-button"
               disabled={submitting}
               style={{ fontSize: 13 }}
             >
-              Skip for now
+              {skipLabel}
             </button>
             <button
               type="submit"

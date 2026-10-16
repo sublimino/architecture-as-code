@@ -141,11 +141,13 @@ describe('the declared risk profile in the onboarding wizard', () => {
     })
   })
 
-  it('sends null rather than empty strings when nothing is declared', async () => {
+  it('sends null rather than an empty string when a stored declaration is cleared', async () => {
+    clientApi.settings.mockResolvedValue({ ...SETTINGS, jurisdiction: 'UK' })
     const user = userEvent.setup()
     renderWizard()
     await pastWelcome(user)
 
+    await user.selectOptions(screen.getByTestId('input-jurisdiction'), '')
     await user.click(screen.getByTestId('next-step-button'))
 
     await waitFor(() => expect(clientApi.patchRiskProfile).toHaveBeenCalled())

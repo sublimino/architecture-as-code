@@ -73,6 +73,14 @@ export interface OnboardingWizardProps {
   mode?: 'standalone' | 'settings'
 }
 
+type StoredRiskProfile = {
+  sector: string | null
+  jurisdiction: string | null
+  reporting_currency: string | null
+  risk_appetite_tolerance: number | null
+  risk_load: number | null
+}
+
 function errorMessage(err: unknown, fallback: string): string {
   if (err instanceof OnboardingApiError) return err.message
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
@@ -96,6 +104,7 @@ export default function OnboardingWizard({
   const returnTo = (location.state as { returnTo?: string } | null)?.returnTo || '/overview'
 
   const isReplayOrSettings = mode === 'settings' || Boolean(allowReplay)
+  const skipLabel = isReplayOrSettings ? 'Exit setup' : undefined
   const initialIndex =
     typeof initialStepIndex === 'number' && initialStepIndex >= 0 && initialStepIndex < WIZARD_STEPS.length
       ? initialStepIndex
@@ -123,13 +132,14 @@ export default function OnboardingWizard({
 
   const [tenantProfileError, setTenantProfileError] = useState<string | undefined>(undefined)
 
+  // The risk profile as the server holds it. null means it could not be read,
+  // so there is no baseline to diff against or risk_load to carry forward.
+  const [storedRiskProfile, setStoredRiskProfile] = useState<StoredRiskProfile | null>(null)
+
   const [idpConfig, setIdpConfig] = useState<IdpConfigData>({
     providerId: 'dex',
     providerName: 'Dex OIDC (In-Cluster)',
     issuerUrl: 'https://dex.inf-signalloom.svc.cluster.local:5556/dex',
-    clientId: 'signalloom-dashboard',
-    clientSecret: '••••••••••••••••',
-    scopes: 'openid profile email groups federated:id',
     // Nothing has been verified until Test Connection has asked the server.
     connectionTested: false,
   })
@@ -170,6 +180,23 @@ export default function OnboardingWizard({
           alert_email: settings.alert_email ?? '',
           alert_threshold: settings.alert_threshold,
         })
+        const stored: StoredRiskProfile = {
+          sector: settings.sector ?? null,
+          jurisdiction: settings.jurisdiction ?? null,
+          reporting_currency: settings.reporting_currency ?? null,
+          risk_appetite_tolerance: settings.risk_appetite_tolerance ?? null,
+          risk_load: settings.risk_load ?? null,
+        }
+        setStoredRiskProfile(stored)
+        // The step edits what is stored, not a blank form: replaying it and
+        // pressing Next must not erase a declaration.
+        setTenantProfile((prev) => ({
+          ...prev,
+          sector: stored.sector ?? undefined,
+          jurisdiction: stored.jurisdiction ?? undefined,
+          reportingCurrency: stored.reporting_currency ?? undefined,
+          riskAppetiteTolerance: stored.risk_appetite_tolerance === null ? undefined : String(stored.risk_appetite_tolerance),
+        }))
       }
 
       const wasCompleted = status?.status === 'completed' || Boolean(status?.completed_at)
@@ -198,7 +225,7 @@ export default function OnboardingWizard({
 
       if (state?.selected_provider_ids && state.selected_provider_ids.length > 0) {
         const pid = state.selected_provider_ids[0]
-        setIdpConfig((prev) => ({ ...prev, providerId: pid }))
+        setIdpConfig((prev) => ({ ...prev, providerId: pid, issuerUrl: pid === 'dex' ? prev.issuerUrl : undefined }))
       }
       const stored = state?.provider_run_state?.[state?.selected_provider_ids?.[0] ?? 'dex']
       if (stored?.status === 'connected') {
@@ -293,22 +320,41 @@ export default function OnboardingWizard({
     // visible warning. Silence would be worse than both, which is why the error
     // is surfaced rather than swallowed.
     const tolerance = data.riskAppetiteTolerance?.trim()
-    try {
-      const token = await getAccessTokenSilently()
-      await api.patchRiskProfile(token, {
-        sector: data.sector ?? null,
-        jurisdiction: data.jurisdiction ?? null,
-        reporting_currency: data.reportingCurrency ?? null,
-        risk_appetite_tolerance: tolerance ? Number(tolerance) : null,
-        // Not collected by this form: an actuarial parameter, not something an
-        // operator can state at onboarding. Sent as null so the PATCH stays a
-        // whole-profile declaration rather than a partial merge.
-        risk_load: null,
-      })
-    } catch (err) {
-      setTenantProfileError(
-        errorMessage(err, 'Could not save the risk profile. You can set it later in Settings.'),
+    const declared = {
+      sector: data.sector ?? null,
+      jurisdiction: data.jurisdiction ?? null,
+      reporting_currency: data.reportingCurrency ?? null,
+      risk_appetite_tolerance: tolerance ? Number(tolerance) : null,
+    }
+    const nothingDeclared = Object.values(declared).every((v) => v === null)
+
+    // The PATCH replaces the whole profile (api_compat.py), so it is only safe
+    // against a known baseline: unchanged means no request at all, and a
+    // change carries the stored risk_load (not collected by this form, an
+    // actuarial parameter) forward instead of nulling it.
+    if (!storedRiskProfile) {
+      if (!nothingDeclared) {
+        setTenantProfileError(
+          'The stored risk profile could not be loaded, so the risk profile was not saved (saving now would ' +
+          'overwrite fields this form does not show). You can set it later in Settings.',
+        )
+      }
+    } else {
+      const unchanged = (Object.keys(declared) as (keyof typeof declared)[]).every(
+        (k) => declared[k] === storedRiskProfile[k],
       )
+      if (!unchanged) {
+        const body: StoredRiskProfile = { ...declared, risk_load: storedRiskProfile.risk_load }
+        try {
+          const token = await getAccessTokenSilently()
+          await api.patchRiskProfile(token, body)
+          setStoredRiskProfile(body)
+        } catch (err) {
+          setTenantProfileError(
+            errorMessage(err, 'Could not save the risk profile. You can set it later in Settings.'),
+          )
+        }
+      }
     }
 
     goTo(STEP_IDP)
@@ -393,6 +439,13 @@ export default function OnboardingWizard({
 
   const handleSkip = async () => {
     setApiError(null)
+    // Replaying a finished (or settings-driven) setup: leaving it is a local
+    // exit. POST /onboarding/skip would flip a completed tenant to skipped.
+    if (isReplayOrSettings) {
+      if (onSkipped) onSkipped()
+      else navigate(returnTo, { replace: true })
+      return
+    }
     try {
       const token = await getAccessTokenSilently()
       await onboardingApi.skip(token)
@@ -474,6 +527,7 @@ export default function OnboardingWizard({
           }
         }}
         onSkip={handleSkip}
+        skipLabel={skipLabel}
       />
 
       {apiError && (
@@ -514,7 +568,7 @@ export default function OnboardingWizard({
                 fontWeight: 500,
               }}
             >
-              ✓ Onboarding configuration updated successfully. Your updated governance and onboarding configuration is now active across all agents.
+              ✓ Onboarding configuration updated successfully: onboarding is marked complete and the steps you saved along the way (risk profile, connectors, scan preferences) are stored. The containment policy choices are not saved by the server yet, so they do not change how any agent is governed.
             </p>
             <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
               <button
@@ -565,6 +619,7 @@ export default function OnboardingWizard({
                 initialValues={tenantProfile}
                 onNext={handleTenantIdentityNext}
                 onSkip={handleSkip}
+                skipLabel={skipLabel}
               />
             )}
 
@@ -574,6 +629,7 @@ export default function OnboardingWizard({
                 onNext={handleIdpNext}
                 onBack={() => goTo(STEP_TENANT)}
                 onSkip={handleSkip}
+                skipLabel={skipLabel}
                 onTestConnection={testConnection}
               />
             )}
@@ -612,6 +668,7 @@ export default function OnboardingWizard({
                 onSubmit={handleComplete}
                 onBack={() => goTo(STEP_API_KEY)}
                 onSkip={handleSkip}
+                skipLabel={skipLabel}
               />
             )}
           </div>

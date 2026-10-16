@@ -65,6 +65,7 @@ interface TenantIdentityStepProps {
   initialValues?: Partial<TenantProfileData>
   onNext: (data: TenantProfileData) => void
   onSkip: () => void
+  skipLabel?: string
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -74,6 +75,7 @@ export default function TenantIdentityStep({
   initialValues,
   onNext,
   onSkip,
+  skipLabel = 'Skip for now',
 }: TenantIdentityStepProps) {
   const [organizationName, setOrganizationName] = useState(initialValues?.organizationName ?? 'Acme Corporation')
   const [workspaceId, setWorkspaceId] = useState(initialValues?.workspaceId ?? 'acme-primary')
@@ -484,9 +486,10 @@ export default function TenantIdentityStep({
             type="button"
             className="btn btn-secondary"
             onClick={onSkip}
+            data-testid="step-skip-button"
             style={{ fontSize: 13 }}
           >
-            Skip for now
+            {skipLabel}
           </button>
           <button
             type="submit"

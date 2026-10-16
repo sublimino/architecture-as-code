@@ -12,6 +12,7 @@ export interface OnboardingProgressHeaderProps {
   steps: StepDefinition[]
   onStepClick?: (index: number) => void
   onSkip: () => void
+  skipLabel?: string
   allowReplay?: boolean
 }
 
@@ -21,6 +22,7 @@ export default function OnboardingProgressHeader({
   steps,
   onStepClick,
   onSkip,
+  skipLabel = 'Skip for now',
   allowReplay = false,
 }: OnboardingProgressHeaderProps) {
   const stepNumber = currentStepIndex + 1
@@ -122,7 +124,7 @@ export default function OnboardingProgressHeader({
           data-testid="skip-onboarding-button"
           style={{ fontSize: 13 }}
         >
-          Skip for now
+          {skipLabel}
         </button>
       </div>
 

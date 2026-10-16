@@ -39,9 +39,22 @@ const clientApi = vi.hoisted(() => ({
   me: vi.fn(),
   settings: vi.fn(),
   patchPreferences: vi.fn(),
+  patchRiskProfile: vi.fn(),
   apiKeys: { revealInitial: vi.fn() },
 }))
 vi.mock('../../api/client', () => ({ api: clientApi }))
+
+const connectors = vi.hoisted(() => ({
+  listProviders: vi.fn(),
+  listConnectors: vi.fn(),
+  createConnector: vi.fn(),
+  testProviderCredentials: vi.fn(),
+  testConnector: vi.fn(),
+}))
+vi.mock('../../api/connectorsClient', () => ({
+  connectorsApi: connectors,
+  isConnectorsMockMode: () => false,
+}))
 
 vi.mock('../../api/onboardingClient', () => ({
   onboardingApi: {
@@ -85,6 +98,19 @@ describe('OnboardingWizard component', () => {
       api_key_status: 'active', selected_frameworks: [], consent_required: true, cookie_preferences: null,
       ...body,
     }))
+    connectors.listProviders.mockResolvedValue(
+      [['okta', 'Okta', ['okta_domain', 'api_token']], ['claude', 'Anthropic Claude', ['api_key']]].map(([provider_id, display_name, names]) => ({
+        provider_id,
+        display_name,
+        wizard_config: {
+          fields: (names as string[]).map((name) => ({ name, label: name, type: 'password', required: true })),
+          permissions: [], docs_link: '', help_text: '',
+        },
+      })),
+    )
+    connectors.listConnectors.mockResolvedValue([])
+    connectors.createConnector.mockResolvedValue({ connector_id: 'conn-claude-01', provider_id: 'claude', status: 'connected' })
+    clientApi.patchRiskProfile.mockResolvedValue({})
     clientApi.apiKeys.revealInitial.mockResolvedValue({ key: 'sl_live_abcdef0123456789', prefix_hint: 'sl_live_abcdef', revealed_at: '2026-10-04T10:00:00Z' })
   })
 
@@ -201,31 +227,30 @@ describe('OnboardingWizard component', () => {
   })
 
   describe('Step 2: Identity Provider and Test Connection', () => {
-    it('allows selecting different IdPs and updates the prefilled defaults', async () => {
+    async function openDex(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(await screen.findByTestId('configure-idp-dex'))
+      return screen.findByRole('dialog')
+    }
+
+    it('opens the backend-declared fields for a selected IdP', async () => {
       const user = userEvent.setup()
       resumeAt(1)
       renderWizard()
-      await waitFor(() => expect(screen.getByText('Identity Provider Linkage')).toBeInTheDocument())
-
-      await user.click(screen.getByTestId('idp-option-okta'))
-      expect(screen.getByTestId('input-idp-issuer-url')).toHaveValue('https://dev-signalloom.okta.com/oauth2/default')
-      await user.click(screen.getByTestId('idp-option-ad_entra'))
-      expect(screen.getByTestId('input-idp-client-id')).toHaveValue('signalloom-entra-app')
+      await user.click(await screen.findByTestId('configure-idp-okta'))
+      expect(await screen.findByTestId('wizard-field-okta_domain')).toBeInTheDocument()
     })
 
-    it('Test Connection calls GET /api/v1/me with the session bearer and shows what the server said', async () => {
+    it('Test Connection for Dex calls GET /api/v1/me with the session bearer and shows what the server said', async () => {
       const user = userEvent.setup()
       resumeAt(1)
       renderWizard()
-      await waitFor(() => expect(screen.getByTestId('test-idp-connection-button')).toBeInTheDocument())
-      expect(screen.queryByTestId('idp-connection-success')).not.toBeInTheDocument()
+      await openDex(user)
+      await user.click(screen.getByTestId('btn-modal-test-connection'))
 
-      await user.click(screen.getByTestId('test-idp-connection-button'))
-
-      expect(await screen.findByTestId('idp-connection-success')).toBeInTheDocument()
+      const ok = await screen.findByTestId('test-connection-success')
       expect(clientApi.me).toHaveBeenCalledWith('test-bearer-token')
-      expect(screen.getByText(/kusari-operator@signalloom.local in tenant kusari/i)).toBeInTheDocument()
-      expect(screen.getByText(/saved, not probed/i)).toBeInTheDocument()
+      expect(ok).toHaveTextContent(/kusari-operator@signalloom.local in tenant kusari/i)
+      expect(ok).toHaveTextContent(/saved, not probed/i)
     })
 
     it('Test Connection reports a refusal from the server instead of a green tick', async () => {
@@ -233,23 +258,11 @@ describe('OnboardingWizard component', () => {
       clientApi.me.mockRejectedValueOnce({ response: { status: 403 } })
       resumeAt(1)
       renderWizard()
-      await waitFor(() => expect(screen.getByTestId('test-idp-connection-button')).toBeInTheDocument())
+      await openDex(user)
+      await user.click(screen.getByTestId('btn-modal-test-connection'))
 
-      await user.click(screen.getByTestId('test-idp-connection-button'))
-
-      expect(await screen.findByTestId('idp-connection-error')).toHaveTextContent(/HTTP 403/)
-      expect(screen.queryByTestId('idp-connection-success')).not.toBeInTheDocument()
-    })
-
-    it('does not call the server for an issuer URL that is not http(s)', async () => {
-      const user = userEvent.setup()
-      resumeAt(1)
-      renderWizard()
-      await waitFor(() => expect(screen.getByTestId('input-idp-issuer-url')).toBeInTheDocument())
-      fireEvent.change(screen.getByTestId('input-idp-issuer-url'), { target: { value: 'dex.local' } })
-      await user.click(screen.getByTestId('test-idp-connection-button'))
-      expect(await screen.findByTestId('idp-connection-error')).toBeInTheDocument()
-      expect(clientApi.me).not.toHaveBeenCalled()
+      expect(await screen.findByTestId('test-connection-error')).toHaveTextContent(/HTTP 403/)
+      expect(screen.queryByTestId('test-connection-success')).not.toBeInTheDocument()
     })
 
     it('supports navigating Back to Organization & Identity', async () => {
@@ -265,9 +278,11 @@ describe('OnboardingWizard component', () => {
       const user = userEvent.setup()
       resumeAt(1)
       renderWizard()
-      await waitFor(() => expect(screen.getByTestId('next-step-button')).toBeInTheDocument())
-      await user.click(screen.getByTestId('test-idp-connection-button'))
-      await screen.findByTestId('idp-connection-success')
+      await openDex(user)
+      await user.click(screen.getByTestId('btn-modal-test-connection'))
+      await screen.findByTestId('test-connection-success')
+      await user.click(screen.getByTestId('btn-modal-save-connector'))
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
       await user.click(screen.getByTestId('next-step-button'))
 
       await waitFor(() => expect(screen.getByTestId('preferences-step')).toBeInTheDocument())
@@ -277,29 +292,70 @@ describe('OnboardingWizard component', () => {
       )
     })
 
-    it('allows selecting Claude provider and persists claude in wizard state upon advance', async () => {
+    it('a saved but untested Claude connector is persisted as selected, not as connected', async () => {
       const user = userEvent.setup()
       resumeAt(1)
       renderWizard()
-      await waitFor(() => expect(screen.getByText('Identity Provider Linkage')).toBeInTheDocument())
-
-      await user.click(screen.getByTestId('idp-option-claude'))
-      expect(screen.getByTestId('input-idp-issuer-url')).toHaveValue('https://api.anthropic.com/v1')
-      expect(screen.getByTestId('input-idp-client-id')).toHaveValue('wrkspc_default')
-
-      await user.click(screen.getByTestId('test-idp-connection-button'))
-      await screen.findByTestId('idp-connection-success')
+      await user.click(await screen.findByTestId('configure-idp-claude'))
+      await user.type(await screen.findByTestId('wizard-field-api_key'), 'sk-ant-k')
+      await user.click(screen.getByTestId('btn-modal-save-connector'))
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      expect(connectors.createConnector).toHaveBeenCalledWith('test-bearer-token', expect.objectContaining({ provider_id: 'claude' }))
 
       await user.click(screen.getByTestId('next-step-button'))
       await waitFor(() => expect(screen.getByTestId('preferences-step')).toBeInTheDocument())
       expect(onboardingApi.putState).toHaveBeenCalledWith(
         'test-bearer-token',
-        expect.objectContaining({
-          selected_provider_ids: ['claude'],
-          step_index: 2,
-          provider_run_state: { claude: { status: 'connected' } },
-        }),
+        expect.objectContaining({ selected_provider_ids: ['claude'], step_index: 2, provider_run_state: { claude: { status: 'idle' } } }),
       )
+    })
+  })
+
+  describe('Step 1 risk profile in replay', () => {
+    const DECLARED = { sector: 'banking', jurisdiction: 'UK', reporting_currency: 'GBP', risk_appetite_tolerance: 5000, risk_load: 0.15 }
+
+    beforeEach(() => {
+      clientApi.settings.mockResolvedValue({
+        tenant_id: 'tenant-test-123', org_name: 'Kusari', plan_tier: null, agent_count: 0, billing_tier: null,
+        api_key_status: 'active', selected_frameworks: [], consent_required: true, cookie_preferences: null,
+        preferred_scan_cadence_hours: 168, alert_email: 'ops@kusari.dev', alert_threshold: 7, ...DECLARED,
+      })
+    })
+
+    it('loads the stored profile into the form and does not PATCH when nothing changed', async () => {
+      const user = userEvent.setup()
+      renderWizard({ mode: 'settings' })
+      await waitFor(() => expect(screen.getByTestId('input-sector')).toHaveValue('banking'))
+      expect(screen.getByTestId('input-jurisdiction')).toHaveValue('UK')
+      expect(screen.getByTestId('input-reporting-currency')).toHaveValue('GBP')
+      expect(screen.getByTestId('input-risk-appetite-tolerance')).toHaveValue(5000)
+
+      await user.click(screen.getByTestId('next-step-button'))
+      await waitFor(() => expect(screen.getByText('Identity Provider Linkage')).toBeInTheDocument())
+      expect(clientApi.patchRiskProfile).not.toHaveBeenCalled()
+    })
+
+    it('one change PATCHes the whole profile with the stored risk_load preserved', async () => {
+      const user = userEvent.setup()
+      renderWizard({ mode: 'settings' })
+      await waitFor(() => expect(screen.getByTestId('input-jurisdiction')).toHaveValue('UK'))
+      await user.selectOptions(screen.getByTestId('input-jurisdiction'), 'EU')
+      await user.click(screen.getByTestId('next-step-button'))
+
+      await waitFor(() => expect(clientApi.patchRiskProfile).toHaveBeenCalled())
+      expect(clientApi.patchRiskProfile).toHaveBeenCalledWith('test-bearer-token', { ...DECLARED, jurisdiction: 'EU' })
+    })
+
+    it('does not PATCH a guessed profile when the stored one could not be loaded', async () => {
+      const user = userEvent.setup()
+      clientApi.settings.mockRejectedValueOnce(new Error('503'))
+      renderWizard({ mode: 'settings' })
+      await waitFor(() => expect(screen.getByTestId('input-jurisdiction')).toBeInTheDocument())
+      await user.selectOptions(screen.getByTestId('input-jurisdiction'), 'EU')
+      await user.click(screen.getByTestId('next-step-button'))
+
+      expect(await screen.findByText(/risk profile was not saved/i)).toBeInTheDocument()
+      expect(clientApi.patchRiskProfile).not.toHaveBeenCalled()
     })
   })
 
@@ -445,9 +501,37 @@ describe('OnboardingWizard component', () => {
 
       await waitFor(() => {
         expect(onboardingApi.skip).toHaveBeenCalledWith('test-bearer-token')
+        expect(screen.queryByText(/exit/i)).not.toBeInTheDocument()
         expect(mockRefreshOnboardingState).toHaveBeenCalled()
         expect(mockNavigate).toHaveBeenCalledWith('/overview', { replace: true })
       })
+    })
+
+    it('in settings replay, the header Exit leaves locally and never flips a completed tenant to skipped', async () => {
+      const user = userEvent.setup()
+      const onSkipped = vi.fn()
+      vi.mocked(onboardingApi.getStatus).mockResolvedValueOnce({ status: 'completed', skipped_at: null, completed_at: '2026-09-10T08:00:00Z' })
+      renderWizard({ mode: 'settings', onSkipped })
+      const exit = await screen.findByTestId('skip-onboarding-button')
+      expect(exit).toHaveTextContent(/exit/i)
+      await user.click(exit)
+
+      await waitFor(() => expect(onSkipped).toHaveBeenCalled())
+      expect(onboardingApi.skip).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['Organization & Identity', 0],
+      ['Identity Provider', 1],
+      ['Containment & Consent', 4],
+    ])('in replay, the %s step skip exits locally too', async (_name, initialStepIndex) => {
+      const user = userEvent.setup()
+      renderWizard({ allowReplay: true, initialStepIndex })
+      const skip = await screen.findByTestId('step-skip-button')
+      expect(skip).toHaveTextContent(/exit/i)
+      await user.click(skip)
+      await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/overview', { replace: true }))
+      expect(onboardingApi.skip).not.toHaveBeenCalled()
     })
   })
 
@@ -515,6 +599,11 @@ describe('OnboardingWizard component', () => {
       })
 
       expect(screen.getByText(/Onboarding configuration updated successfully/i)).toBeInTheDocument()
+      // No API persists the containment choices, so the banner must not claim
+      // they took effect anywhere.
+      const banner = screen.getByTestId('onboarding-settings-completed-banner')
+      expect(banner).not.toHaveTextContent(/active across all agents/i)
+      expect(banner).toHaveTextContent(/containment policy choices are not saved/i)
       expect(screen.queryByTestId('completion-celebration')).not.toBeInTheDocument()
 
       // Clicking Modify Again resets completed banner to review/edit steps

@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { isDemoMode, isProductionEnv } from './demoMode'
-import { remoteEnvironmentFixtures, type RemoteEnvironmentFixture } from './fakeData'
+import { demoRemoteAgentsSnapshot, remoteEnvironmentFixtures, type RemoteEnvironmentFixture } from './fakeData'
 import type {
   ConnectorCreateRequest,
   ConnectorCreateResponse,
@@ -177,6 +177,8 @@ export interface ConnectorsApi {
   triggerScan(token: string, providerId: string): Promise<SyncResult>
   /** The last scan's result, or null when the connector has never been scanned. */
   getSyncLogs(token: string, providerId: string): Promise<SyncResult | null>
+  /** Remote agents/sessions and sync state, or null when the provider is not connected. */
+  listRemoteAgents(token: string, providerId: string): Promise<RemoteAgentsSnapshot | null>
   getStatus(token: string): Promise<{
     status: string
     synced_at: string
@@ -238,6 +240,15 @@ const liveConnectorsApi: ConnectorsApi = {
       return await req<SyncResult>(`/connectors/${providerId}/logs`, token)
     } catch (err) {
       if (apiErrorCode(err) === 'never_scanned') return null
+      throw err
+    }
+  },
+
+  listRemoteAgents: async (token, providerId) => {
+    try {
+      return await req<RemoteAgentsSnapshot>(`/connectors/${encodeURIComponent(providerId)}/remote-agents`, token)
+    } catch (err) {
+      if (apiErrorCode(err) === 'connector_not_configured') return null
       throw err
     }
   },
@@ -590,6 +601,8 @@ const mockConnectorsApi: ConnectorsApi = {
   getSyncLogs: async (_token, providerId) => {
     return delay(getMockSyncResult(providerId), 60)
   },
+
+  listRemoteAgents: (_token, providerId) => delay(demoRemoteAgentsSnapshot(providerId), 40),
 }
 
 function getMockSyncResult(providerId: string): SyncResult {
@@ -914,6 +927,10 @@ export const connectorsApi: ConnectorsApi = {
     isConnectorsMockMode() ? mockConnectorsApi.triggerScan(token, providerId) : liveConnectorsApi.triggerScan(token, providerId),
   getSyncLogs: (token, providerId) =>
     isConnectorsMockMode() ? mockConnectorsApi.getSyncLogs(token, providerId) : liveConnectorsApi.getSyncLogs(token, providerId),
+  listRemoteAgents: (token, providerId) =>
+    isConnectorsMockMode()
+      ? mockConnectorsApi.listRemoteAgents(token, providerId)
+      : liveConnectorsApi.listRemoteAgents(token, providerId),
   getStatus: (token) =>
     isConnectorsMockMode() ? mockConnectorsApi.getStatus(token) : liveConnectorsApi.getStatus(token),
 }

@@ -7,6 +7,7 @@ import EmptyState from '../components/EmptyState'
 import entraContent from '../help-content/connectors/entra.md?raw'
 import oktaContent from '../help-content/connectors/okta.md?raw'
 import openaiContent from '../help-content/connectors/openai.md?raw'
+import claudeContent from '../help-content/connectors/claude.md?raw'
 
 interface ProviderHelp {
   displayName: string
@@ -20,6 +21,7 @@ const PROVIDERS: Record<string, ProviderHelp> = {
   entra: { displayName: 'Microsoft Entra ID', content: entraContent },
   okta: { displayName: 'Okta', content: oktaContent },
   openai: { displayName: 'OpenAI', content: openaiContent },
+  claude: { displayName: 'Anthropic Claude', content: claudeContent },
   google: { displayName: 'Google Workspace', content: null },
   aws: { displayName: 'AWS IAM', content: null },
   gcp: { displayName: 'GCP IAM', content: null },

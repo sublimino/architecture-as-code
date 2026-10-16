@@ -185,9 +185,10 @@ describe('PolicyEvaluationPage (live mode)', () => {
     expectNoFixture(container)
   })
 
-  it('does not match a lookalike name (case or substring)', async () => {
-    renderPage(['/evaluations?framework=eu-ai-act&agent=PAYMENTS'])
-    expect(await screen.findByTestId('eval-agent-not-found')).toHaveTextContent('No agent matches PAYMENTS')
+  it.each(['PAYMENTS-BOT', 'payments'])('does not match the lookalike %s (case or substring)', async (ref) => {
+    renderPage([`/evaluations?framework=eu-ai-act&agent=${ref}`])
+    expect(await screen.findByTestId('eval-agent-not-found')).toHaveTextContent(`No agent matches ${ref}`)
+    expect(screen.queryByTestId('eval-header-title')).toBeNull()
   })
 
   it('with a known ?agent= shows the real agent from the API and no demo verdicts', async () => {

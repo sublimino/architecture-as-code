@@ -450,3 +450,151 @@ def test_claude_and_openai_discovery_and_cel_metadata(monkeypatch):
         assert oai_data["guardrails"] == {"prompt_injection_filter": True, "human_override_active": True}
         assert oai_data["telemetry"] == {"token_usage": {"total": 85000}}
         assert oai_data["responsibility"]["owner_name"] == "Support Ops"
+
+
+def test_connector_scan_claude(monkeypatch):
+    with client_for(monkeypatch) as client:
+        headers = bearer(token_for("alice"))
+        resp = client.post("/api/v1/connectors/claude/scan", headers=headers, json={"force": True})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["provider_id"] == "claude"
+        assert data["status"] == "success"
+        assert data["duration_ms"] == 142
+        assert data["records_scanned"] == {
+            "agents": 1,
+            "models": 2,
+            "environments": 1,
+            "tools": 4,
+        }
+        assert data["policies_evaluated"] == {
+            "egress_rules": 3,
+            "violations": 0,
+        }
+        logs = data["logs"]
+        assert len(logs) == 4
+        assert logs[0]["id"] == "log-1"
+        assert "cloud-dev" in logs[0]["message"]
+        assert logs[1]["id"] == "log-2"
+        assert logs[1]["endpoint"] == "GET /v1/environments/env_01CyCigBbDRSLTzSCyyHQ7eT"
+        assert logs[1]["details"]["env_id"] == "env_01CyCigBbDRSLTzSCyyHQ7eT"
+        assert logs[1]["details"]["network"]["package_managers"] is True
+        assert logs[1]["details"]["network"]["mcp_servers"] is True
+        assert logs[1]["details"]["network"]["allowed_hosts"] == []
+        assert logs[2]["id"] == "log-3"
+        assert "Daily News Jokester" in logs[2]["message"]
+        assert "agent_01FoEhnKF9QsC5DGmuELhm7G" in logs[2]["message"]
+        assert logs[3]["id"] == "log-4"
+        assert "CEL Policy Evaluation passed" in logs[3]["message"]
+
+        # Check last_scan_at updated in connector record
+        conns_resp = client.get("/api/v1/connectors", headers=headers)
+        claude_conn = next(c for c in conns_resp.json()["connectors"] if c["provider_id"] == "claude")
+        assert claude_conn["last_scan_at"] is not None
+
+
+def test_connector_logs_claude(monkeypatch):
+    with client_for(monkeypatch) as client:
+        headers = bearer(token_for("alice"))
+        # Get logs directly
+        resp = client.get("/api/v1/connectors/claude/logs", headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["provider_id"] == "claude"
+        assert len(data["logs"]) >= 4
+
+        # Test path variants
+        resp2 = client.get("/api/connectors/claude/logs", headers=headers)
+        assert resp2.status_code == 200
+        resp3 = client.get("/connectors/claude/logs", headers=headers)
+        assert resp3.status_code == 200
+
+
+def test_connector_scan_paths_and_connector_id(monkeypatch):
+    with client_for(monkeypatch) as client:
+        headers = bearer(token_for("alice"))
+        # Test scan via /api/connectors and /connectors
+        resp1 = client.post("/api/connectors/claude/scan", headers=headers)
+        assert resp1.status_code == 200
+        resp2 = client.post("/connectors/claude/scan", headers=headers)
+        assert resp2.status_code == 200
+
+        # Test scan by connector_id
+        resp3 = client.post("/api/v1/connectors/conn-claude-01/scan", headers=headers)
+        assert resp3.status_code == 200
+        assert resp3.json()["provider_id"] == "claude"
+
+        # Unknown provider returns 404
+        resp4 = client.post("/api/v1/connectors/nonexistent-xyz/scan", headers=headers)
+        assert resp4.status_code == 404
+        resp5 = client.get("/api/v1/connectors/nonexistent-xyz/logs", headers=headers)
+        assert resp5.status_code == 404
+
+
+def test_claude_live_api_and_fallback(monkeypatch):
+    with client_for(monkeypatch) as client:
+        headers = bearer(token_for("alice"))
+
+        # 1. Fallback when offline / dummy key
+        test_resp = client.post("/api/v1/connectors/conn-claude-01/test", headers=headers)
+        assert test_resp.status_code == 200
+        assert test_resp.json()["valid"] is True
+        assert "Anthropic Claude API" in test_resp.json().get("message", "")
+
+        # 2. Live Anthropic API call with dynamic agent name
+        class MockResponse:
+            def __init__(self, status_code, data):
+                self.status_code = status_code
+                self._data = data
+
+            def json(self):
+                return self._data
+
+        async def mock_get(self, url, *args, **kwargs):
+            if "agents" in url:
+                return MockResponse(
+                    200,
+                    {
+                        "data": [
+                            {
+                                "id": "agent_live_claude_test_42",
+                                "name": "Live Console Modified Agent",
+                            }
+                        ]
+                    },
+                )
+            return MockResponse(200, {"data": []})
+
+        import httpx
+        monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
+
+        # Test connector with credentials in body
+        test_live_resp = client.post(
+            "/api/v1/connectors/conn-claude-01/test",
+            headers=headers,
+            json={"credentials": {"api_key": "sk-ant-live-key-12345"}},
+        )
+        assert test_live_resp.status_code == 200
+        test_live_data = test_live_resp.json()
+        assert test_live_data["valid"] is True
+        assert "Live Console Modified Agent" in test_live_data["message"]
+
+        # Trigger scan with live key
+        scan_live_resp = client.post(
+            "/api/v1/connectors/claude/scan",
+            headers=headers,
+            json={"credentials": {"api_key": "sk-ant-live-key-12345"}},
+        )
+        assert scan_live_resp.status_code == 200
+        scan_live_data = scan_live_resp.json()
+        assert scan_live_data["provider_id"] == "claude"
+        log3 = next(l for l in scan_live_data["logs"] if l["id"] == "log-3")
+        assert "Discovered live agent Live Console Modified Agent (agent_live_claude_test_42)" in log3["message"]
+
+        # Check discovered workloads updated with live agent name
+        workloads_resp = client.get("/api/v1/discovery/workloads", headers=headers)
+        assert workloads_resp.status_code == 200
+        claude_wl = next(w for w in workloads_resp.json()["workloads"] if w["id"] == "claude-agent-fin-analyst")
+        assert claude_wl["name"] == "Live Console Modified Agent"
+
+

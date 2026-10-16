@@ -3717,9 +3717,42 @@ _CLAIMS: dict[str, dict[str, dict[str, Any]]] = {}
 # so an action taken with no database configured still shows on GET /api/audit
 # rather than vanishing. Capped -- a long-lived demo pod must not grow forever.
 _AUDIT_EVENTS: dict[str, list[dict[str, Any]]] = {}
+_CLAUDE_DISCOVERED_AGENTS: dict[str, dict[str, Any]] = {}
 _MEMORY_AUDIT_LIMIT = 500
 _AGENT_SEQ = itertools.count(1)
 _AUDIT_SEQ = itertools.count(1)
+
+
+def update_claude_agent_name(tenant_id: str, agent_name: str, agent_id: str | None = None) -> None:
+    """Update discovered Claude agent name across in-memory state and registry."""
+    with _STORE_LOCK:
+        if tenant_id not in _CLAUDE_DISCOVERED_AGENTS:
+            _CLAUDE_DISCOVERED_AGENTS[tenant_id] = {}
+        _CLAUDE_DISCOVERED_AGENTS[tenant_id]["name"] = agent_name
+        if agent_id:
+            _CLAUDE_DISCOVERED_AGENTS[tenant_id]["id"] = agent_id
+
+        if tenant_id in _AGENTS:
+            for k, ag in _AGENTS[tenant_id].items():
+                if "claude" in k.lower() or "claude" in str(ag.get("model_name", "")).lower():
+                    ag["name"] = agent_name
+                    ag["display_name"] = agent_name
+
+
+async def update_claude_agent_name_db(tenant_id: str, agent_name: str, agent_id: str | None = None) -> None:
+    """Update discovered Claude agent name in memory and DB if pool available."""
+    update_claude_agent_name(tenant_id, agent_name, agent_id)
+    pool = await _get_pool()
+    if pool is not None:
+        try:
+            async with _write(pool) as conn:
+                await conn.execute(
+                    """UPDATE agent_registry SET name = $1 WHERE tenant_id = $2 AND (id LIKE '%claude%' OR model_name LIKE '%claude%')""",
+                    agent_name,
+                    tenant_id,
+                )
+        except Exception as exc:
+            logger.warning("Failed to update agent name in DB: %s", exc)
 
 
 def _record_memory_audit(
@@ -3728,6 +3761,7 @@ def _record_memory_audit(
     agent_id: str | None,
     agent_name: str | None,
     actor: str,
+
     detail: dict[str, Any],
     authorizing_principal_id: str | None = None,
     executing_actor_id: str | None = None,
@@ -3808,9 +3842,10 @@ def reset_tenant_state(tenant_id: str) -> None:
             _AGENTS, _AGENT_CREDENTIALS, _VIOLATIONS, _NHI_ACCOUNTS,
             _TENANT_FRAMEWORKS, _TENANT_PREFERENCES, _TENANT_ORG_NAMES, _TENANT_CONNECTORS, _COOKIE_PREFS,
             _CONSENT, _CLAIMS, _AUDIT_EVENTS, _USER_PREFERENCES,
-            _TENANT_RISK_PROFILE,
+            _TENANT_RISK_PROFILE, _CLAUDE_DISCOVERED_AGENTS,
         ):
             store.pop(tenant_id, None)
+
 
 
 def _now_iso() -> str:
@@ -10718,11 +10753,13 @@ async def list_discovery_workloads(
                 supply_chain="pass",
                 eu_ai_act="pass",
             )
+            claude_agent_name = _CLAUDE_DISCOVERED_AGENTS.get(tenant_id, {}).get("name", "Financial Risk Intelligence Agent")
             workloads.append(
                 DiscoveryWorkloadModel(
                     id="claude-agent-fin-analyst",
-                    name="Financial Risk Intelligence Agent",
+                    name=claude_agent_name,
                     tenant_id=tenant_id,
+
                     source="external_services",
                     source_label="Anthropic Claude",
                     namespace="ai-agents",
@@ -10858,12 +10895,15 @@ def install_compatibility_api(app: FastAPI) -> None:
     from routers.federation import router as federation_router
     from routers.discovery import router as discovery_router
     from routers.agents import router as agents_router
+    from routers.connectors import install_connectors_api
 
     app.add_middleware(HostCredentialScopeMiddleware)
     app.include_router(discovery_router)
     app.include_router(agents_router)
+    install_connectors_api(app)
     app.include_router(router, dependencies=[Depends(enforce_strict_operator_tenant)])
     app.include_router(compat_root_router, dependencies=[Depends(enforce_strict_operator_tenant)])
+
     app.include_router(operator_identity_router)
     app.include_router(policy_engine_router)
     app.include_router(federation_router)

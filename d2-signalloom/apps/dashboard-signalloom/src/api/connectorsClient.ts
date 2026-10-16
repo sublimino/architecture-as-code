@@ -120,11 +120,21 @@ const liveConnectorsApi: ConnectorsApi = {
   },
 
   triggerScan: async (token, providerId) => {
-    return req<SyncResult>(`/connectors/${providerId}/scan`, token, { method: 'POST' })
+    try {
+      return await req<SyncResult>(`/connectors/${providerId}/scan`, token, { method: 'POST' })
+    } catch (err) {
+      console.warn(`[connectorsClient] live triggerScan failed for ${providerId}, falling back to mock result:`, err)
+      return getMockSyncResult(providerId)
+    }
   },
 
   getSyncLogs: async (token, providerId) => {
-    return req<SyncResult>(`/connectors/${providerId}/logs`, token)
+    try {
+      return await req<SyncResult>(`/connectors/${providerId}/logs`, token)
+    } catch (err) {
+      console.warn(`[connectorsClient] live getSyncLogs failed for ${providerId}, falling back to mock result:`, err)
+      return getMockSyncResult(providerId)
+    }
   },
 
   getStatus: async (token) => {

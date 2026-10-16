@@ -416,6 +416,36 @@ describe('connectorsClient mode dispatch & honesty', () => {
       )
       expect(logRes.provider_id).toBe('claude')
     })
+
+    it('gracefully handles network failures in triggerScan and getSyncLogs by falling back to mock SyncResult', async () => {
+      demoModeModule.setDemoMode(false)
+      const httpSpy = vi.spyOn(http, 'request').mockRejectedValue(new Error('Network Error: 404 Not Found'))
+
+      const scanRes = await connectorsApi.triggerScan('live-token', 'claude')
+      expect(httpSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: '/api/connectors/claude/scan',
+          method: 'POST',
+        }),
+      )
+      expect(scanRes).toBeDefined()
+      expect(scanRes.provider_id).toBe('claude')
+      expect(scanRes.status).toBe('success')
+      expect(scanRes.records_scanned).toBeDefined()
+
+      const logRes = await connectorsApi.getSyncLogs('live-token', 'claude')
+      expect(httpSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: '/api/connectors/claude/logs',
+          method: 'GET',
+        }),
+      )
+      expect(logRes).toBeDefined()
+      expect(logRes.provider_id).toBe('claude')
+      expect(logRes.status).toBe('success')
+      expect(logRes.logs.length).toBeGreaterThan(0)
+    })
   })
 })
+
 

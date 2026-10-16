@@ -72,6 +72,9 @@ test.describe("Live Anthropic Claude connector", () => {
   test("stored credentials verify, remote agents sync, the event stream is live, and Discovery reflects the source", async ({
     page,
   }) => {
+    // Live login, a real provider round trip and a full page load: well past
+    // the suite default of 30 s, which covers fixture-backed specs.
+    test.setTimeout(120_000)
     const consoleErrors: string[] = [];
     page.on("console", (m: ConsoleMessage) => {
       const entry = consoleEntryText(m);
@@ -123,7 +126,10 @@ test.describe("Live Anthropic Claude connector", () => {
           r.request().method() === "GET",
       ),
       page.waitForResponse((r) => /\/api\/connectors\/stream(\?|$)/.test(r.url())),
-      page.getByTestId("view-environment-claude").click(),
+      // A full load, not the in-app link: the Settings sync badge already
+      // subscribed this tab's shared remote-agent store, so a client-side
+      // navigation reuses its snapshot and issues neither request.
+      page.goto(`${config.base}/settings/connectors/claude`, { waitUntil: "domcontentloaded" }),
     ]);
 
     expect(remoteAgentsResponse.ok(), `GET .../remote-agents returned ${remoteAgentsResponse.status()}`).toBeTruthy();

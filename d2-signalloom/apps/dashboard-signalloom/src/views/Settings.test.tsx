@@ -50,6 +50,8 @@ vi.mock('../api/connectorsClient', () => ({
     createConnector: vi.fn(),
     testConnector: vi.fn(),
     toggleConnector: vi.fn(),
+    triggerScan: vi.fn(),
+    getSyncLogs: vi.fn(),
     getStatus: vi.fn(),
   },
 }))
@@ -492,6 +494,67 @@ describe('Settings: Service Connectors', () => {
     vi.mocked(connectorsApi.listProviders).mockResolvedValue([])
     renderSettings(['/settings?tab=connectors'])
     expect(await screen.findByText('No providers available.')).toBeInTheDocument()
+  })
+
+  it('renders Scan Now and See Log buttons for connected providers and handles scan', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
+    ])
+    vi.mocked(connectorsApi.triggerScan).mockResolvedValue({
+      provider_id: 'okta',
+      synced_at: '2026-10-16T12:00:00Z',
+      duration_ms: 100,
+      status: 'success',
+      records_scanned: { agents: 1, models: 0, environments: 1, tools: 0 },
+      policies_evaluated: { egress_rules: 1, violations: 0 },
+      logs: [],
+    })
+
+    renderSettings(['/settings?tab=connectors'])
+    await screen.findByText('Connected')
+
+    // Scan Now and See Log buttons exist for okta
+    const scanBtn = screen.getByTestId('scan-connector-okta')
+    expect(scanBtn).toBeInTheDocument()
+
+    const logsBtn = screen.getByTestId('view-logs-okta')
+    expect(logsBtn).toBeInTheDocument()
+
+    // Unconnected provider does not have Scan Now or See Log
+    expect(screen.queryByTestId('scan-connector-aws_iam')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('view-logs-aws_iam')).not.toBeInTheDocument()
+
+    // Clicking Scan Now triggers scan
+    await userEvent.click(scanBtn)
+    expect(connectorsApi.triggerScan).toHaveBeenCalledWith('test-token', 'okta')
+  })
+
+  it('opens SyncLogsModal when clicking See Log button', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
+    ])
+    vi.mocked(connectorsApi.getSyncLogs).mockResolvedValue({
+      provider_id: 'okta',
+      synced_at: '2026-10-16T12:00:00Z',
+      duration_ms: 100,
+      status: 'success',
+      records_scanned: { agents: 1, models: 0, environments: 1, tools: 0 },
+      policies_evaluated: { egress_rules: 1, violations: 0 },
+      logs: [
+        { id: 'log-1', timestamp: '2026-10-16T12:00:00Z', level: 'info', message: 'Okta sync telemetry entry' },
+      ],
+    })
+
+    renderSettings(['/settings?tab=connectors'])
+    await screen.findByText('Connected')
+
+    const logsBtn = screen.getByTestId('view-logs-okta')
+    await userEvent.click(logsBtn)
+
+    // Modal opens
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText(/Sync & Telemetry Logs/i)).toBeInTheDocument()
+    expect(await screen.findByText('Okta sync telemetry entry')).toBeInTheDocument()
   })
 })
 

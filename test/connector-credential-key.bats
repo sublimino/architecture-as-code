@@ -11,6 +11,7 @@ setup() {
   SCRIPT="${REPO_ROOT}/scripts/connector-credential-key.sh"
   STATE="${BATS_TEST_TMPDIR}/state"
   mkdir -p "${STATE}" "${BATS_TEST_TMPDIR}/bin"
+  touch "${STATE}/argv"
   cat >"${BATS_TEST_TMPDIR}/bin/kubectl" <<'EOS'
 #!/usr/bin/env bash
 echo "$*" >>"${FAKE_STATE}/argv"
@@ -26,7 +27,13 @@ EOS
   export SLDC_KUBECTL="${BATS_TEST_TMPDIR}/bin/kubectl" FAKE_STATE="${STATE}" KUBECONFIG=/dev/null
 }
 
-applies() { grep -c ' apply -f -' "${STATE}/argv" 2>/dev/null || true; }
+applies() {
+  if [ ! -f "${STATE}/argv" ]; then
+    echo "0"
+    return
+  fi
+  grep -c ' apply -f -' "${STATE}/argv" || true
+}
 stored_key_hex() { awk '$1=="key:" {print $2; exit}' "${STATE}/secret" | base64 -d; }
 
 @test "connector-credential-key: --context is required, exit 2, nothing applied" {

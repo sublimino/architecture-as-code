@@ -48,11 +48,12 @@ describe('demo mode', () => {
   // +1 audit events CSV export route (GET /audit/events.csv) = 83.
   // +1 discovered account detail route (GET /nhi/discovered/:id) = 84.
   // +1 tenant settings organization update (PATCH /tenant/settings/organization) = 85.
+  // +2 agent claim routes (POST /agents/:id/claim, POST /discovery/claim) = 87.
   // Previously 39 (per-user currency work added GET and PATCH /user/preferences).
   // This count is deliberately exact rather than a lower bound: it guards against
   // routes disappearing in a merge.
-  it('covers the full 85-route client fixture surface', () => {
-    expect(FAKE_ROUTE_COUNT).toBe(85)
+  it('covers the full 87-route client fixture surface', () => {
+    expect(FAKE_ROUTE_COUNT).toBe(87)
   })
 
   it('resolves discovered account detail fixture in demo mode', async () => {

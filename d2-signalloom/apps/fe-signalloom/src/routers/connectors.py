@@ -878,7 +878,7 @@ async def test_connector(
         if match.get("provider_id") == "claude":
             live_telemetry = await _fetch_live_anthropic_telemetry(creds.get("api_key", ""))
             if live_telemetry:
-                await update_claude_agent_name_db(tenant_id, live_telemetry["agent_name"], live_telemetry.get("agent_id"))
+                update_claude_agent_name(tenant_id, live_telemetry["agent_name"], live_telemetry.get("agent_id"))
                 test_message = f"✓ Verified connection to Anthropic Claude API. Discovered live agent: {live_telemetry['agent_name']}"
             else:
                 test_message = "✓ Verified connection to Anthropic Claude API."

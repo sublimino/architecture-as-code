@@ -70,6 +70,40 @@ export interface SyncResult {
   logs: SyncLogEntry[]
 }
 
+// The API's error envelope is {"error": {"code", "message"}}; null when the
+// failure carries no such code (network down, non-API response).
+export function apiErrorCode(err: unknown): string | null {
+  if (!axios.isAxiosError(err)) return null
+  const code = (err.response?.data as { error?: { code?: unknown } } | undefined)?.error?.code
+  return typeof code === 'string' ? code : null
+}
+
+const CONNECTOR_ERROR_COPY: Record<string, string> = {
+  connector_not_configured: 'This provider is not connected for your tenant. Configure it first.',
+  scan_unsupported: 'Scanning is not supported for this provider yet.',
+  never_scanned: 'This connector has not been scanned yet.',
+  test_unsupported: 'Credential testing is not supported for this provider yet.',
+}
+
+/** A user-facing sentence for a failed connectors API call. */
+export function connectorErrorMessage(err: unknown, fallback = 'The connectors API request failed.'): string {
+  const code = apiErrorCode(err)
+  if (code && CONNECTOR_ERROR_COPY[code]) return CONNECTOR_ERROR_COPY[code]
+  if (axios.isAxiosError(err)) {
+    const message = (err.response?.data as { error?: { message?: unknown } } | undefined)?.error?.message
+    if (typeof message === 'string' && message) return message
+  }
+  return err instanceof Error && err.message ? err.message : fallback
+}
+
+// Providers whose connector has a remote-environment view.
+export const REMOTE_ENVIRONMENT_PROVIDERS = ['claude', 'openai'] as const
+export type RemoteEnvironmentProviderId = (typeof REMOTE_ENVIRONMENT_PROVIDERS)[number]
+
+export function isRemoteEnvironmentProvider(id: string | undefined): id is RemoteEnvironmentProviderId {
+  return (REMOTE_ENVIRONMENT_PROVIDERS as readonly string[]).includes(id ?? '')
+}
+
 export interface ConnectorsApi {
   listProviders(token: string): Promise<ConnectorProvider[]>
   listConnectors(token: string): Promise<TenantConnector[]>

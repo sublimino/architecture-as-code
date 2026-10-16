@@ -177,11 +177,11 @@ describe('RemoteEnvironmentPage (live mode)', () => {
     expect(screen.getAllByRole('alert').some((el) => /not supported/i.test(el.textContent ?? ''))).toBe(true)
   })
 
-  it('does not offer a fake claim: the scan reports counts, not agent identities', async () => {
+  it('shows no claim control in live mode: no greyed button, no explanation block', async () => {
     renderPage()
-    const claim = await screen.findByRole('button', { name: /Claim to Tenant/i })
-    expect(claim).toBeDisabled()
-    expect(screen.getByTestId('live-claim-explanation')).toHaveTextContent(/Discovery/)
+    await screen.findByRole('heading', { level: 1, name: 'Claude (tenant prod)' })
+    expect(screen.queryByRole('button', { name: /claim/i })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('live-claim-explanation')).not.toBeInTheDocument()
   })
 
   it('surfaces a failed connector lookup as an error', async () => {
@@ -254,6 +254,11 @@ describe('RemoteEnvironmentPage (live remote agents)', () => {
     expect(row('s2')).toHaveTextContent('running')
     expect(screen.getByTestId('remote-sync-state')).toHaveTextContent(/Polling every 30 s/)
     expect(screen.getByTestId('remote-sync-state')).toHaveTextContent(/Last synced/)
+    // Each row links to Discovery, where claiming happens; no button here.
+    const link = screen.getByTestId('claim-in-discovery-s1')
+    expect(link).toHaveTextContent('Claim in Discovery')
+    expect(link).toHaveAttribute('href', '/discovery?provider=claude&selected=s1')
+    expect(screen.queryByRole('button', { name: /claim/i })).not.toBeInTheDocument()
     const text = document.body.textContent ?? ''
     for (const s of FIXTURE_STRINGS) expect(text, s).not.toContain(s)
   })

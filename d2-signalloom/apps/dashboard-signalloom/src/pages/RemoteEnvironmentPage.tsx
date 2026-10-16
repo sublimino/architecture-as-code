@@ -267,14 +267,6 @@ function LiveEnvironmentView({ providerId }: { providerId: string }) {
 
           <Section title="Connected Agents & Workloads" subtitle="Remote agents and sessions as the provider reports them, updated live.">
             <RemoteAgentsPanel providerId={providerId} />
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
-              <p data-testid="live-claim-explanation" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>
-                Claiming a remote agent into your tenant happens from <Link to="/discovery">Discovery</Link>.
-              </p>
-              <button type="button" className="btn btn-secondary btn-sm" disabled title="Claim discovered agents from Discovery">
-                Claim to Tenant
-              </button>
-            </div>
           </Section>
         </>
       )}
@@ -403,9 +395,22 @@ function RemoteAgentsPanel({ providerId }: { providerId: string }) {
                       {` • Last seen ${fmtTs(a.last_seen_at)}`}
                     </div>
                   </div>
-                  <span style={{ ...pill, ...agentTone(a), whiteSpace: 'nowrap' }}>
-                    {a.gone_at ? `Gone ${fmtTs(a.gone_at)}` : a.status ?? 'status not reported'}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ ...pill, ...agentTone(a), whiteSpace: 'nowrap' }}>
+                      {a.gone_at ? `Gone ${fmtTs(a.gone_at)}` : a.status ?? 'status not reported'}
+                    </span>
+                    {a.external_id && (
+                      // Claiming happens in Discovery; this page only links there.
+                      <Link
+                        to={`/discovery?provider=${encodeURIComponent(providerId)}&selected=${encodeURIComponent(a.external_id)}`}
+                        className="btn btn-secondary btn-sm"
+                        data-testid={`claim-in-discovery-${a.external_id}`}
+                        style={{ textDecoration: 'none' }}
+                      >
+                        Claim in Discovery
+                      </Link>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

@@ -338,6 +338,45 @@ describe('SyncLogsModal', () => {
     expect(screen.queryByTestId('sync-logs-rescan-wait-grid')).toBeNull()
   })
 
+  // ── Design-system audit A7 cleanup ──────────────────────────────────────
+
+  it('shows the shared LoadingState, not bare text, while telemetry loads', async () => {
+    let resolveLogs: ((value: SyncResult | null) => void) | undefined
+    vi.mocked(connectorsApi.getSyncLogs).mockImplementation(
+      () => new Promise((resolve) => { resolveLogs = resolve }),
+    )
+    render(<SyncLogsModal isOpen providerId="claude" providerName="Anthropic Claude" onClose={onClose} />)
+
+    expect(await screen.findByTestId('sync-logs-loading')).toBeInTheDocument()
+    expect(screen.queryByText('Loading sync telemetry...')).not.toBeInTheDocument()
+
+    resolveLogs?.(mockSyncResult)
+    await waitFor(() => expect(screen.queryByTestId('sync-logs-loading')).not.toBeInTheDocument())
+  })
+
+  it('renders the summary labels via the shared .label class in sentence case', async () => {
+    render(<SyncLogsModal isOpen providerId="claude" providerName="Anthropic Claude" onClose={onClose} />)
+
+    const scanned = await screen.findByText('Scanned:')
+    expect(scanned).toHaveClass('label')
+    const celRules = screen.getByText('Cel network rules:')
+    expect(celRules).toHaveClass('label')
+  })
+
+  it('renders the logs list with the shared .mono class, not an inline fontFamily', async () => {
+    render(<SyncLogsModal isOpen providerId="claude" providerName="Anthropic Claude" onClose={onClose} />)
+
+    const logEntry = await screen.findByText(/Initiating discovery sync/i)
+    const monoContainer = logEntry.closest('.mono')
+    expect(monoContainer).not.toBeNull()
+    expect((monoContainer as HTMLElement).getAttribute('style') ?? '').not.toContain('font-family')
+  })
+
+  it('uses the house ellipsis in the search placeholder', () => {
+    render(<SyncLogsModal isOpen providerId="claude" providerName="Anthropic Claude" onClose={onClose} />)
+    expect(screen.getByTestId('sync-log-search')).toHaveAttribute('placeholder', 'Search logs, endpoints, messages…')
+  })
+
   it('closes on escape key or clicking close button', async () => {
     render(
       <SyncLogsModal

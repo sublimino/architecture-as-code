@@ -121,10 +121,13 @@ export default function CompletionCelebration({
               Identity Provider
             </div>
             <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>
-              {idpConfig.providerName || 'Dex OIDC (In-Cluster)'}
+              {idpConfig.providerName || 'Not configured'}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--teal)' }}>
-              ✓ Federating SPIFFE Trust
+            <div
+              data-testid="completion-idp-status"
+              style={{ fontSize: 11, color: idpConfig.connectionTested ? 'var(--teal)' : 'var(--muted)' }}
+            >
+              {idpConfig.connectionTested ? '✓ Connection verified' : 'Connection not verified'}
             </div>
           </div>
 
@@ -139,8 +142,8 @@ export default function CompletionCelebration({
                 ? 'Custom Policy'
                 : 'Strict Sandboxed (nono)'}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--teal)' }}>
-              ✓ Sub-second Halt Enabled
+            <div data-testid="completion-containment-status" style={{ fontSize: 11, color: 'var(--muted)' }}>
+              Chosen in this setup; not yet enforced by the server
             </div>
           </div>
         </div>

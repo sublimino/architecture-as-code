@@ -545,8 +545,8 @@ async def toggle_connector(
         else:
             new_status = "disconnected" if prev_status == "connected" else "connected"
 
+        # Toggling probes nothing, so it does not touch last_tested_at.
         match["status"] = new_status
-        match["last_tested_at"] = _now_iso()
 
         # Emit structured audit event
         audit_entry = {
@@ -765,33 +765,38 @@ async def _probe(url: str, headers: dict[str, str]) -> tuple[int | None, int, st
         return None, int((time.monotonic() - started) * 1000), type(exc).__name__
 
 
-def _probe_verdict(service: str, status: int | None, error: str | None) -> tuple[bool, bool, str | None, str | None]:
-    """(valid, scopes_ok, error_msg, message) from a real probe outcome only."""
+# (valid, scopes_ok, error_msg, message, tested). ``tested`` is True only when
+# the upstream answered, i.e. the credential was really put to the provider.
+Verdict = tuple[bool, bool, str | None, str | None, bool]
+
+
+def _probe_verdict(service: str, status: int | None, error: str | None) -> Verdict:
+    """A verdict from a real probe outcome only."""
     if status is None:
-        return False, False, f"Could not reach the {service} API ({error}); the credential was not tested.", None
+        return False, False, f"Could not reach the {service} API ({error}); the credential was not tested.", None, False
     if status == 200:
-        return True, True, None, f"{service} API accepted the credential (HTTP 200)."
+        return True, True, None, f"{service} API accepted the credential (HTTP 200).", True
     if status == 401:
-        return False, False, f"{service} API rejected the credential (HTTP 401).", None
+        return False, False, f"{service} API rejected the credential (HTTP 401).", None, True
     if status == 403:
-        return True, False, f"{service} API authenticated the credential but refused the required permission (HTTP 403).", None
-    return False, False, f"Unexpected HTTP {status} from the {service} API; the credential was not verified.", None
+        return True, False, f"{service} API authenticated the credential but refused the required permission (HTTP 403).", None, True
+    return False, False, f"Unexpected HTTP {status} from the {service} API; the credential was not verified.", None, True
 
 
-async def _verify_claude(creds: dict[str, str]) -> tuple[bool, bool, str | None, str | None]:
+async def _verify_claude(creds: dict[str, str]) -> Verdict:
     key = creds.get("api_key")
     if not key:
-        return False, False, "No Anthropic API key was supplied or stored; nothing was tested.", None
+        return False, False, "No Anthropic API key was supplied or stored; nothing was tested.", None, False
     status, _, error = await _probe(f"{ANTHROPIC_API}/v1/models", {"x-api-key": key, "anthropic-version": "2023-06-01"})
     return _probe_verdict("Anthropic", status, error)
 
 
-async def _verify_openai(creds: dict[str, str]) -> tuple[bool, bool, str | None, str | None]:
+async def _verify_openai(creds: dict[str, str]) -> Verdict:
     # ``admin_api_key`` is the field name credentials were stored under before
     # the wizard field became ``api_key``; both hold an org Admin key.
     key = creds.get("api_key") or creds.get("admin_api_key")
     if not key:
-        return False, False, "No OpenAI Admin API key was supplied or stored; nothing was tested.", None
+        return False, False, "No OpenAI Admin API key was supplied or stored; nothing was tested.", None, False
     status, _, error = await _probe(f"{OPENAI_API}/v1/organization/admin_api_keys", {"Authorization": f"Bearer {key}"})
     return _probe_verdict("OpenAI Admin", status, error)
 
@@ -831,7 +836,7 @@ async def test_supplied_credentials(
     verifier = _VERIFIERS.get(provider_id)
     if verifier is None:
         raise APIError(501, "test_unsupported", f"No credential verifier exists for provider '{provider_id}'")
-    valid, scopes_ok, error_msg, message = await verifier(_supplied_credentials(body))
+    valid, scopes_ok, error_msg, message, _tested = await verifier(_supplied_credentials(body))
     return ConnectorTestResult(connector_id=None, valid=valid, scopes_ok=scopes_ok, error_msg=error_msg, message=message)
 
 
@@ -853,7 +858,6 @@ async def test_connector(
         match = next((c for c in conns if c["connector_id"] == connector_id or c["provider_id"] == connector_id), None)
         if match is None:
             raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
-        match["last_tested_at"] = _now_iso()
         expires_at_str = match.get("credential_expires_at")
         problem = _stored_state_problem(match)
 
@@ -875,6 +879,8 @@ async def test_connector(
                 test_message = f"✓ Verified connection to Anthropic Claude API. Discovered live agent: {live_telemetry['agent_name']}"
             else:
                 test_message = "✓ Verified connection to Anthropic Claude API."
+        with _CONN_LOCK:
+            match["last_tested_at"] = _now_iso()
         return ConnectorTestResult(
             connector_id=match["connector_id"], valid=True, scopes_ok=True,
             credential_expires_at=expires_at_str, message=test_message,
@@ -883,7 +889,11 @@ async def test_connector(
     verifier = _VERIFIERS.get(match["provider_id"])
     if verifier is None:
         raise APIError(501, "test_unsupported", f"No credential verifier exists for provider '{match['provider_id']}'")
-    valid, scopes_ok, error_msg, message = await verifier(creds)
+    valid, scopes_ok, error_msg, message, tested = await verifier(creds)
+    if tested:
+        # The provider answered: this is when the credential was tested.
+        with _CONN_LOCK:
+            match["last_tested_at"] = _now_iso()
     return ConnectorTestResult(
         connector_id=match["connector_id"], valid=valid, scopes_ok=scopes_ok, error_msg=error_msg,
         credential_expires_at=expires_at_str, message=message,

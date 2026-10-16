@@ -544,3 +544,37 @@ def test_live_failed_scan_after_a_success_keeps_the_last_successful_time(monkeyp
         row = _row_for(client, _token("alice"), conn_id)
         assert row["last_scan_at"] == first["synced_at"]
         assert row["last_scan_status"] == "error"
+
+
+def test_live_501_test_does_not_stamp_last_tested_at(monkeypatch):
+    with _client(monkeypatch) as client:
+        conn_id = _create(client, _token("alice"), "okta", {"api_token": "t"})
+        resp = client.post(f"/api/v1/connectors/{conn_id}/test", headers=_token("alice"))
+        assert resp.status_code == 501
+        assert _row_for(client, _token("alice"), conn_id)["last_tested_at"] is None
+
+
+def test_live_test_that_never_reached_upstream_does_not_stamp_last_tested_at(monkeypatch):
+    with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
+        mock.get(f"{ANTHROPIC}/v1/models").mock(side_effect=httpx.ConnectError("down"))
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        client.post(f"/api/v1/connectors/{conn_id}/test", headers=_token("alice"))
+        assert _row_for(client, _token("alice"), conn_id)["last_tested_at"] is None
+
+
+@pytest.mark.parametrize("status", [200, 401])
+def test_live_test_with_a_probe_verdict_stamps_last_tested_at(monkeypatch, status):
+    with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
+        mock.get(f"{ANTHROPIC}/v1/models").mock(return_value=httpx.Response(status, json={"data": []}))
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        client.post(f"/api/v1/connectors/{conn_id}/test", headers=_token("alice"))
+        assert _row_for(client, _token("alice"), conn_id)["last_tested_at"] is not None
+
+
+def test_toggle_does_not_stamp_last_tested_at(monkeypatch):
+    with _client(monkeypatch) as client:
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        for enabled in (False, True):
+            resp = client.post(f"/api/v1/connectors/{conn_id}/toggle", headers=_token("alice"), json={"enabled": enabled})
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["last_tested_at"] is None

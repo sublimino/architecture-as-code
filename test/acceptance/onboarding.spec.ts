@@ -262,5 +262,53 @@ test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
     // Step 3: Scan preferences
     await expect(page.getByRole("heading", { level: 1, name: "Set your scan preferences" })).toBeVisible();
   });
+
+  test("configures connector via modal in Settings and runs Onboarding flow inside Settings", async ({ page }) => {
+    // 1. Visit Settings Connectors tab
+    await page.goto(`${DASHBOARD_URL}/settings?tab=connectors`);
+    await expect(page.locator('[data-testid="settings-tabpanel-connectors"]')).toBeVisible({ timeout: 15_000 });
+
+    // Verify Claude connector row and Configure button
+    const configureClaudeBtn = page.locator('[data-testid="configure-connector-claude"]');
+    if (await configureClaudeBtn.isVisible()) {
+      await configureClaudeBtn.click();
+      await expect(page.getByRole("dialog")).toBeVisible();
+      await expect(page.getByRole("heading", { name: /Configure Anthropic Claude/i })).toBeVisible();
+
+      // Check API Key mode tab is active by default
+      const apiKeyTab = page.locator('[data-testid="tab-auth-api-key"]');
+      await expect(apiKeyTab).toBeVisible();
+
+      // Enter API key
+      const keyInput = page.locator('[data-testid="input-connector-api-key"]');
+      await keyInput.fill("sk-ant-api03-acceptance-test-key");
+
+      // Test connection
+      const testBtn = page.locator('[data-testid="btn-modal-test-connection"]');
+      await testBtn.click();
+      await expect(page.locator('[data-testid="test-connection-success"]')).toBeVisible({ timeout: 10_000 });
+
+      // Close modal
+      await page.locator('[data-testid="btn-modal-save-connector"]').click();
+      await expect(page.getByRole("dialog")).not.toBeVisible();
+    }
+
+    // 2. Visit Settings General tab and check Onboarding & Initial Setup card
+    await page.goto(`${DASHBOARD_URL}/settings?tab=general`);
+    await expect(page.locator('[data-testid="settings-tabpanel-general"]')).toBeVisible({ timeout: 15_000 });
+
+    const launchOnboardingBtn = page.locator('[data-testid="btn-launch-onboarding-in-settings"]');
+    await expect(launchOnboardingBtn).toBeVisible();
+    await launchOnboardingBtn.click();
+
+    // Verify URL switched to tab=onboarding and panel is rendered
+    await expect(page).toHaveURL(/tab=onboarding/);
+    await expect(page.locator('[data-testid="settings-tabpanel-onboarding"]')).toBeVisible();
+
+    // Verify Onboarding Wizard is mounted inside settings
+    await expect(page.locator('[data-testid="onboarding-wizard-container"]')).toBeVisible();
+    await expect(page.locator('[data-testid="onboarding-progress-header"]')).toBeVisible();
+  });
 });
+
 

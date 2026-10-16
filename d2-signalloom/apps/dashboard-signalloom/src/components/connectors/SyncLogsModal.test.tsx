@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import SyncLogsModal from './SyncLogsModal'
 import { connectorsApi, type SyncResult } from '../../api/connectorsClient'
+import { useServerSuperadmin } from '../../auth/superadmin'
 
 const mockSyncResult: SyncResult = {
   provider_id: 'claude',
@@ -53,22 +54,31 @@ const mockSyncResult: SyncResult = {
   ],
 }
 
-vi.mock('../../api/connectorsClient', () => ({
-  connectorsApi: {
-    getSyncLogs: vi.fn(),
-    triggerScan: vi.fn(),
-  },
-}))
+vi.mock('../../api/connectorsClient', async () => {
+  const actual = await vi.importActual<typeof import('../../api/connectorsClient')>('../../api/connectorsClient')
+  return {
+    ...actual,
+    connectorsApi: {
+      getSyncLogs: vi.fn(),
+      triggerScan: vi.fn(),
+    },
+  }
+})
 
 vi.mock('../../auth/superadmin', () => ({
-  useSuperadmin: vi.fn(() => [false, vi.fn()]),
+  // The localStorage toggle says yes; only the server verdict may decide.
+  useSuperadmin: vi.fn(() => [true, vi.fn()]),
+  useServerSuperadmin: vi.fn(() => ({ superadmin: true, resolved: true })),
 }))
 
+const getToken = vi.fn()
 vi.mock('../../auth/oidc', () => ({
-  useAuth0: vi.fn(() => ({
-    getAccessTokenSilently: vi.fn().mockResolvedValue('test-token'),
-  })),
+  useAuth0: () => ({ user: { email: 'u@example.test' }, getAccessTokenSilently: getToken }),
 }))
+
+function asSuperadmin(on: boolean) {
+  vi.mocked(useServerSuperadmin).mockReturnValue({ superadmin: on, resolved: true })
+}
 
 describe('SyncLogsModal', () => {
   const onClose = vi.fn()
@@ -76,11 +86,59 @@ describe('SyncLogsModal', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    asSuperadmin(true)
+    getToken.mockResolvedValue('test-token')
     vi.mocked(connectorsApi.getSyncLogs).mockResolvedValue(mockSyncResult)
     vi.mocked(connectorsApi.triggerScan).mockResolvedValue(mockSyncResult)
   })
 
+  it('follows the server superadmin verdict, not the localStorage toggle', async () => {
+    asSuperadmin(false)
+    render(<SyncLogsModal isOpen providerId="claude" providerName="Anthropic Claude" onClose={onClose} />)
+
+    expect(await screen.findByTestId('superadmin-advisory-banner')).toBeInTheDocument()
+    expect(screen.queryByTestId('wire-trace-payload-log-2')).not.toBeInTheDocument()
+  })
+
+  it('fails visibly when no access token is available instead of sending a placeholder token', async () => {
+    getToken.mockRejectedValue(new Error('Token expired: re-authenticating'))
+    render(<SyncLogsModal isOpen providerId="claude" providerName="Anthropic Claude" onClose={onClose} />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/re-authenticating/i)
+    expect(connectorsApi.getSyncLogs).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId('btn-modal-rescan'))
+    await waitFor(() => expect(screen.getByTestId('btn-modal-rescan')).not.toBeDisabled())
+    expect(connectorsApi.triggerScan).not.toHaveBeenCalled()
+  })
+
+  it('shows an honest never-scanned state with no status badge when there is no result', async () => {
+    vi.mocked(connectorsApi.getSyncLogs).mockResolvedValue(null)
+    render(<SyncLogsModal isOpen providerId="claude" providerName="Anthropic Claude" onClose={onClose} />)
+
+    expect(await screen.findByTestId('sync-logs-never-scanned')).toHaveTextContent(/not been scanned/i)
+    expect(screen.queryByTestId('sync-status-badge')).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Success$/)).not.toBeInTheDocument()
+  })
+
+  it('labels unobserved counts and absent policy evaluation instead of rendering blanks', async () => {
+    vi.mocked(connectorsApi.getSyncLogs).mockResolvedValue({
+      ...mockSyncResult,
+      status: 'warning',
+      records_scanned: { agents: 2, models: null, environments: null, tools: null },
+      policies_evaluated: null,
+    })
+    render(<SyncLogsModal isOpen providerId="claude" providerName="Anthropic Claude" onClose={onClose} />)
+
+    expect(await screen.findByTestId('sync-status-badge')).toHaveTextContent('Warning')
+    expect(screen.getByText('Agents (2)')).toBeInTheDocument()
+    expect(screen.getByText('Models (not observed)')).toBeInTheDocument()
+    expect(screen.getByText(/No policies evaluated/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Violations \(/)).not.toBeInTheDocument()
+  })
+
   it('renders sync summary, record counts, and log entries', async () => {
+    asSuperadmin(false)
     render(
       <SyncLogsModal
         isOpen={true}
@@ -88,7 +146,6 @@ describe('SyncLogsModal', () => {
         providerName="Anthropic Claude"
         onClose={onClose}
         onRescan={onRescan}
-        isSuperadmin={false}
       />,
     )
 
@@ -125,7 +182,6 @@ describe('SyncLogsModal', () => {
         providerId="claude"
         providerName="Anthropic Claude"
         onClose={onClose}
-        isSuperadmin={true}
       />,
     )
 
@@ -156,13 +212,13 @@ describe('SyncLogsModal', () => {
   })
 
   it('reveals superadmin wire details when active, and displays advisory banner when not superadmin', async () => {
+    asSuperadmin(false)
     const { rerender } = render(
       <SyncLogsModal
         isOpen={true}
         providerId="claude"
         providerName="Anthropic Claude"
         onClose={onClose}
-        isSuperadmin={false}
       />,
     )
 
@@ -175,13 +231,13 @@ describe('SyncLogsModal', () => {
     expect(screen.queryByTestId('wire-trace-payload-log-2')).not.toBeInTheDocument()
 
     // Rerender as Superadmin
+    asSuperadmin(true)
     rerender(
       <SyncLogsModal
         isOpen={true}
         providerId="claude"
         providerName="Anthropic Claude"
         onClose={onClose}
-        isSuperadmin={true}
       />,
     )
 
@@ -213,7 +269,6 @@ describe('SyncLogsModal', () => {
         providerId="claude"
         providerName="Anthropic Claude"
         onClose={onClose}
-        isSuperadmin={true}
       />,
     )
 
@@ -242,7 +297,6 @@ describe('SyncLogsModal', () => {
         providerName="Anthropic Claude"
         onClose={onClose}
         onRescan={onRescan}
-        isSuperadmin={true}
       />,
     )
 
@@ -264,7 +318,6 @@ describe('SyncLogsModal', () => {
         providerId="claude"
         providerName="Anthropic Claude"
         onClose={onClose}
-        isSuperadmin={true}
       />,
     )
 

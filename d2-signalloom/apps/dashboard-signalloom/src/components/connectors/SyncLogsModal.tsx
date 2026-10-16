@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
-import { connectorsApi, type SyncResult } from '../../api/connectorsClient'
-import { useSuperadmin } from '../../auth/superadmin'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { connectorsApi, connectorErrorMessage, type SyncResult } from '../../api/connectorsClient'
+import { useServerSuperadmin } from '../../auth/superadmin'
 import { useAuth0 } from '../../auth/oidc'
 import ProviderLogo from '../onboarding/ProviderLogo'
 
@@ -10,32 +10,51 @@ export interface SyncLogsModalProps {
   providerName: string
   onClose: () => void
   onRescan?: () => Promise<void>
-  isSuperadmin?: boolean
   initialSyncResult?: SyncResult
 }
 
 type LogLevelFilter = 'ALL' | 'INFO' | 'WARN' | 'ERROR' | 'DEBUG'
 
 function formatTimeAgo(isoString: string): string {
-  try {
-    const diffMs = Date.now() - new Date(isoString).getTime()
-    if (diffMs < 5000) return 'just now'
-    const diffSec = Math.floor(diffMs / 1000)
-    if (diffSec < 60) return `${diffSec}s ago`
-    const diffMin = Math.floor(diffSec / 60)
-    if (diffMin < 60) return `${diffMin}m ago`
-    const diffHours = Math.floor(diffMin / 60)
-    return `${diffHours}h ago`
-  } catch {
-    return isoString
-  }
+  const diffMs = Date.now() - new Date(isoString).getTime()
+  if (Number.isNaN(diffMs)) return isoString
+  if (diffMs < 5000) return 'just now'
+  const diffSec = Math.floor(diffMs / 1000)
+  if (diffSec < 60) return `${diffSec}s ago`
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}m ago`
+  return `${Math.floor(diffMin / 60)}h ago`
 }
 
-const levelBadgeStyles: Record<string, { bg: string; color: string; border: string }> = {
-  info: { bg: 'rgba(56, 189, 248, 0.12)', color: 'var(--cyan)', border: 'rgba(56, 189, 248, 0.3)' },
-  debug: { bg: 'rgba(168, 85, 247, 0.12)', color: 'var(--violet)', border: 'rgba(168, 85, 247, 0.3)' },
-  warn: { bg: 'rgba(251, 191, 36, 0.12)', color: 'var(--warning)', border: 'rgba(251, 191, 36, 0.3)' },
-  error: { bg: 'rgba(248, 113, 113, 0.12)', color: 'var(--error)', border: 'rgba(248, 113, 113, 0.3)' },
+// A null count means the scan did not observe that record type.
+function count(n: number | null): string {
+  return n == null ? 'not observed' : String(n)
+}
+
+const tone = {
+  cyan: { bg: 'var(--cyan-bg)', color: 'var(--cyan)', border: 'var(--cyan-border)' },
+  violet: { bg: 'var(--violet-bg)', color: 'var(--violet)', border: 'var(--violet-border)' },
+  amber: { bg: 'var(--amber-bg)', color: 'var(--warning)', border: 'var(--amber-border)' },
+  red: { bg: 'var(--red-bg)', color: 'var(--error)', border: 'var(--red-border)' },
+  teal: { bg: 'var(--teal-bg)', color: 'var(--teal)', border: 'var(--teal-border)' },
+}
+
+const levelTone: Record<string, (typeof tone)[keyof typeof tone]> = {
+  info: tone.cyan,
+  debug: tone.violet,
+  warn: tone.amber,
+  error: tone.red,
+}
+
+const statusTone = { success: tone.teal, warning: tone.amber, error: tone.red }
+const statusLabel = { success: 'Success', warning: 'Warning', error: 'Error' }
+
+const pillStyle = {
+  fontSize: 11,
+  padding: '3px 8px',
+  background: 'var(--surface)',
+  borderRadius: 4,
+  border: '1px solid var(--border)',
 }
 
 export default function SyncLogsModal({
@@ -44,22 +63,19 @@ export default function SyncLogsModal({
   providerName,
   onClose,
   onRescan,
-  isSuperadmin: isSuperadminProp,
   initialSyncResult,
 }: SyncLogsModalProps) {
-  const [hookSuperadmin] = useSuperadmin()
-  const isSuperadmin = isSuperadminProp ?? hookSuperadmin
-
-  let auth: { getAccessTokenSilently?: () => Promise<string> } | undefined
-  try {
-    auth = useAuth0()
-  } catch {
-    // outside Auth provider in test or standalone
-  }
-  const authRef = React.useRef(auth)
-  authRef.current = auth
+  const { user, getAccessTokenSilently } = useAuth0()
+  // Visibility only: the server also nulls wire fields for non-superadmins.
+  const { superadmin: isSuperadmin } = useServerSuperadmin(
+    user as Record<string, unknown> | null | undefined,
+    getAccessTokenSilently,
+  )
+  const getTokenRef = useRef(getAccessTokenSilently)
+  getTokenRef.current = getAccessTokenSilently
 
   const [syncResult, setSyncResult] = useState<SyncResult | null>(initialSyncResult ?? null)
+  const [neverScanned, setNeverScanned] = useState(false)
   const [loading, setLoading] = useState(false)
   const [rescanning, setRescanning] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -72,42 +88,32 @@ export default function SyncLogsModal({
     setLoading(true)
     setError(null)
     try {
-      let token = 'mock-token'
-      if (authRef.current?.getAccessTokenSilently) {
-        try {
-          token = await authRef.current.getAccessTokenSilently()
-        } catch {
-          // fallback
-        }
-      }
+      const token = await getTokenRef.current()
       const data = await connectorsApi.getSyncLogs(token, providerId)
       setSyncResult(data)
+      setNeverScanned(data === null)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to retrieve sync logs')
+      setError(connectorErrorMessage(err, 'Failed to retrieve sync logs.'))
     } finally {
       setLoading(false)
     }
   }, [providerId])
 
   useEffect(() => {
-    if (isOpen) {
-      if (initialSyncResult) {
-        setSyncResult(initialSyncResult)
-      } else {
-        void fetchLogs()
-      }
+    if (!isOpen) return
+    if (initialSyncResult) {
+      setSyncResult(initialSyncResult)
+      setNeverScanned(false)
+    } else {
+      void fetchLogs()
     }
   }, [isOpen, providerId, initialSyncResult, fetchLogs])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-      }
+      if (e.key === 'Escape') onClose()
     }
-    if (isOpen) {
-      window.addEventListener('keydown', handleKeyDown)
-    }
+    if (isOpen) window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, onClose])
 
@@ -119,19 +125,13 @@ export default function SyncLogsModal({
         await onRescan()
         await fetchLogs()
       } else {
-        let token = 'mock-token'
-        if (authRef.current?.getAccessTokenSilently) {
-          try {
-            token = await authRef.current.getAccessTokenSilently()
-          } catch {
-            // fallback
-          }
-        }
+        const token = await getTokenRef.current()
         const data = await connectorsApi.triggerScan(token, providerId)
         setSyncResult(data)
+        setNeverScanned(false)
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Rescan failed')
+      setError(connectorErrorMessage(err, 'Rescan failed.'))
     } finally {
       setRescanning(false)
     }
@@ -140,9 +140,7 @@ export default function SyncLogsModal({
   const filteredLogs = useMemo(() => {
     if (!syncResult?.logs) return []
     return syncResult.logs.filter((log) => {
-      if (levelFilter !== 'ALL' && log.level.toUpperCase() !== levelFilter) {
-        return false
-      }
+      if (levelFilter !== 'ALL' && log.level.toUpperCase() !== levelFilter) return false
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase()
         const matchMsg = log.message.toLowerCase().includes(q)
@@ -156,20 +154,21 @@ export default function SyncLogsModal({
 
   const handleCopyLogs = async () => {
     if (!syncResult) return
-    const header = `=== ${providerName} (${providerId}) Sync & Telemetry Logs ===\n` +
+    const r = syncResult.records_scanned
+    const p = syncResult.policies_evaluated
+    const header =
+      `=== ${providerName} (${providerId}) Sync & Telemetry Logs ===\n` +
       `Synced: ${syncResult.synced_at} | Duration: ${syncResult.duration_ms}ms | Status: ${syncResult.status}\n` +
-      `Records: Agents ${syncResult.records_scanned.agents}, Models ${syncResult.records_scanned.models}, Environments ${syncResult.records_scanned.environments}, Tools ${syncResult.records_scanned.tools}\n` +
-      `Policies: Egress ${syncResult.policies_evaluated.egress_rules}, Violations ${syncResult.policies_evaluated.violations}\n` +
+      `Records: Agents ${count(r.agents)}, Models ${count(r.models)}, Environments ${count(r.environments)}, Tools ${count(r.tools)}\n` +
+      `Policies: ${p ? `Egress ${p.egress_rules}, Violations ${p.violations}` : 'none evaluated'}\n` +
       `----------------------------------------------------------------------\n`
 
     const body = filteredLogs
       .map((l) => {
         let line = `[${l.timestamp}] [${l.level.toUpperCase()}] ${l.message}`
         if (isSuperadmin && l.endpoint) {
-          line += `\n  Endpoint: ${l.endpoint} | Status: ${l.status_code ?? 200} | Latency: ${l.duration_ms ?? 0}ms`
-          if (l.details) {
-            line += `\n  Payload: ${JSON.stringify(l.details)}`
-          }
+          line += `\n  Endpoint: ${l.endpoint} | Status: ${l.status_code ?? 'n/a'} | Latency: ${l.duration_ms ?? 'n/a'}ms`
+          if (l.details) line += `\n  Payload: ${JSON.stringify(l.details)}`
         }
         return line
       })
@@ -180,18 +179,14 @@ export default function SyncLogsModal({
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
-      // clipboard access fallback
+      setError('Could not copy to the clipboard.')
     }
   }
 
   if (!isOpen) return null
 
-  const status = syncResult?.status ?? 'success'
-  const statusColors = {
-    success: { bg: 'rgba(45, 212, 191, 0.12)', text: 'var(--teal)', border: 'rgba(45, 212, 191, 0.3)' },
-    warning: { bg: 'rgba(251, 191, 36, 0.12)', text: 'var(--warning)', border: 'rgba(251, 191, 36, 0.3)' },
-    error: { bg: 'rgba(248, 113, 113, 0.12)', text: 'var(--error)', border: 'rgba(248, 113, 113, 0.3)' },
-  }[status]
+  const status = syncResult?.status
+  const badge = status ? statusTone[status] : null
 
   return (
     <div
@@ -219,10 +214,9 @@ export default function SyncLogsModal({
           maxHeight: '92vh',
           display: 'flex',
           flexDirection: 'column',
-          background: 'var(--surface, #1e293b)',
+          background: 'var(--surface)',
           borderRadius: 8,
-          border: '1px solid var(--border, #334155)',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+          border: '1px solid var(--border)',
           overflow: 'hidden',
         }}
         role="dialog"
@@ -233,36 +227,39 @@ export default function SyncLogsModal({
         <div
           style={{
             padding: '16px 20px',
-            borderBottom: '1px solid var(--border, #334155)',
+            borderBottom: '1px solid var(--border)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            background: 'var(--surface2, #0f172a)',
+            background: 'var(--surface2)',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <ProviderLogo providerId={providerId} displayName={providerName} size={36} />
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <h2 id="sync-logs-title" style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text, #f8fafc)' }}>
+                <h2 id="sync-logs-title" style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text)' }}>
                   {providerName}
                 </h2>
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                    padding: '2px 8px',
-                    borderRadius: 12,
-                    background: statusColors.bg,
-                    color: statusColors.text,
-                    border: `1px solid ${statusColors.border}`,
-                  }}
-                >
-                  {status === 'success' ? 'Success' : status === 'warning' ? 'Warning' : 'Error'}
-                </span>
+                {status && badge && (
+                  <span
+                    data-testid="sync-status-badge"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      padding: '2px 8px',
+                      borderRadius: 12,
+                      background: badge.bg,
+                      color: badge.color,
+                      border: `1px solid ${badge.border}`,
+                    }}
+                  >
+                    {statusLabel[status]}
+                  </span>
+                )}
               </div>
-              <div style={{ fontSize: 12, color: 'var(--muted, #94a3b8)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span>Sync & Telemetry Logs</span>
                 <span>•</span>
                 <span>Last Synced: {syncResult ? formatTimeAgo(syncResult.synced_at) : 'Never'}</span>
@@ -287,12 +284,14 @@ export default function SyncLogsModal({
         <div style={{ padding: '16px 20px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
           {error && (
             <div
+              role="alert"
+              data-testid="sync-logs-error"
               style={{
                 padding: '10px 14px',
                 borderRadius: 6,
-                background: 'rgba(248, 113, 113, 0.15)',
-                border: '1px solid rgba(248, 113, 113, 0.3)',
-                color: 'var(--error, #f87171)',
+                background: 'var(--red-bg)',
+                border: '1px solid var(--red-border)',
+                color: 'var(--error)',
                 fontSize: 12,
               }}
             >
@@ -308,48 +307,62 @@ export default function SyncLogsModal({
                 flexWrap: 'wrap',
                 gap: 8,
                 padding: '10px 14px',
-                background: 'var(--surface2, #0f172a)',
+                background: 'var(--surface2)',
                 borderRadius: 6,
-                border: '1px solid var(--border, #334155)',
+                border: '1px solid var(--border)',
               }}
             >
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted, #94a3b8)', alignSelf: 'center', marginRight: 4 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', alignSelf: 'center', marginRight: 4 }}>
                 SCANNED:
               </div>
-              <span className="badge" style={{ fontSize: 11, padding: '3px 8px', background: 'var(--surface, #1e293b)', borderRadius: 4, border: '1px solid var(--border)' }}>
-                Agents ({syncResult.records_scanned.agents})
-              </span>
-              <span className="badge" style={{ fontSize: 11, padding: '3px 8px', background: 'var(--surface, #1e293b)', borderRadius: 4, border: '1px solid var(--border)' }}>
-                Models ({syncResult.records_scanned.models})
-              </span>
-              <span className="badge" style={{ fontSize: 11, padding: '3px 8px', background: 'var(--surface, #1e293b)', borderRadius: 4, border: '1px solid var(--border)' }}>
-                Environments ({syncResult.records_scanned.environments})
-              </span>
-              <span className="badge" style={{ fontSize: 11, padding: '3px 8px', background: 'var(--surface, #1e293b)', borderRadius: 4, border: '1px solid var(--border)' }}>
-                Tools ({syncResult.records_scanned.tools})
-              </span>
+              <span className="badge" style={pillStyle}>Agents ({count(syncResult.records_scanned.agents)})</span>
+              <span className="badge" style={pillStyle}>Models ({count(syncResult.records_scanned.models)})</span>
+              <span className="badge" style={pillStyle}>Environments ({count(syncResult.records_scanned.environments)})</span>
+              <span className="badge" style={pillStyle}>Tools ({count(syncResult.records_scanned.tools)})</span>
 
               <div style={{ width: 1, background: 'var(--border)', margin: '0 4px' }} />
 
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted, #94a3b8)', alignSelf: 'center', marginRight: 4 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', alignSelf: 'center', marginRight: 4 }}>
                 CEL NETWORK RULES:
               </div>
-              <span className="badge" style={{ fontSize: 11, padding: '3px 8px', background: 'var(--surface, #1e293b)', borderRadius: 4, border: '1px solid var(--border)' }}>
-                Egress evaluated ({syncResult.policies_evaluated.egress_rules})
-              </span>
-              <span
-                className="badge"
-                style={{
-                  fontSize: 11,
-                  padding: '3px 8px',
-                  background: syncResult.policies_evaluated.violations > 0 ? 'rgba(248, 113, 113, 0.15)' : 'var(--surface, #1e293b)',
-                  color: syncResult.policies_evaluated.violations > 0 ? 'var(--error, #f87171)' : 'inherit',
-                  borderRadius: 4,
-                  border: '1px solid var(--border)',
-                }}
-              >
-                Violations ({syncResult.policies_evaluated.violations})
-              </span>
+              {syncResult.policies_evaluated ? (
+                <>
+                  <span className="badge" style={pillStyle}>
+                    Egress evaluated ({syncResult.policies_evaluated.egress_rules})
+                  </span>
+                  <span
+                    className="badge"
+                    style={{
+                      ...pillStyle,
+                      ...(syncResult.policies_evaluated.violations > 0
+                        ? { background: 'var(--red-bg)', color: 'var(--error)' }
+                        : {}),
+                    }}
+                  >
+                    Violations ({syncResult.policies_evaluated.violations})
+                  </span>
+                </>
+              ) : (
+                <span className="badge" style={{ ...pillStyle, color: 'var(--muted)' }}>
+                  No policies evaluated by this scan
+                </span>
+              )}
+            </div>
+          )}
+
+          {neverScanned && !loading && (
+            <div
+              data-testid="sync-logs-never-scanned"
+              style={{
+                padding: '10px 14px',
+                borderRadius: 6,
+                background: 'var(--surface2)',
+                border: '1px dashed var(--border-subtle)',
+                color: 'var(--muted)',
+                fontSize: 12,
+              }}
+            >
+              This connector has not been scanned yet. Use Scan Now to run the first scan.
             </div>
           )}
 
@@ -363,9 +376,9 @@ export default function SyncLogsModal({
                 gap: 8,
                 padding: '10px 14px',
                 borderRadius: 6,
-                background: 'rgba(56, 189, 248, 0.08)',
-                border: '1px solid rgba(56, 189, 248, 0.25)',
-                color: 'var(--cyan, #38bdf8)',
+                background: 'var(--cyan-bg)',
+                border: '1px solid var(--cyan-border)',
+                color: 'var(--cyan)',
                 fontSize: 12,
               }}
             >
@@ -387,9 +400,9 @@ export default function SyncLogsModal({
                   padding: '6px 10px',
                   fontSize: 12,
                   borderRadius: 4,
-                  background: 'var(--surface2, #0f172a)',
-                  border: '1px solid var(--border, #334155)',
-                  color: 'var(--text, #f8fafc)',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)',
                   outline: 'none',
                 }}
               />
@@ -401,9 +414,9 @@ export default function SyncLogsModal({
                   padding: '6px 10px',
                   fontSize: 12,
                   borderRadius: 4,
-                  background: 'var(--surface2, #0f172a)',
-                  border: '1px solid var(--border, #334155)',
-                  color: 'var(--text, #f8fafc)',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)',
                   cursor: 'pointer',
                   outline: 'none',
                 }}
@@ -422,6 +435,7 @@ export default function SyncLogsModal({
                 data-testid="btn-copy-sync-logs"
                 className="btn btn-secondary btn-sm"
                 onClick={handleCopyLogs}
+                disabled={!syncResult}
                 style={{ fontSize: 12, padding: '5px 12px' }}
               >
                 {copied ? 'Copied!' : 'Copy Logs'}
@@ -458,22 +472,24 @@ export default function SyncLogsModal({
           >
             {loading ? (
               <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 24 }}>Loading sync telemetry...</div>
+            ) : !syncResult ? (
+              <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 24 }}>No scan logs to show.</div>
             ) : filteredLogs.length === 0 ? (
               <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 24 }}>
                 No telemetry logs match the current filters.
               </div>
             ) : (
               filteredLogs.map((log) => {
-                const badge = levelBadgeStyles[log.level] ?? levelBadgeStyles.info
+                const lt = levelTone[log.level] ?? levelTone.info
                 const hasWireDetails = isSuperadmin && (Boolean(log.endpoint) || Boolean(log.details))
                 return (
                   <div
                     key={log.id}
                     style={{
                       padding: '8px 10px',
-                      background: 'rgba(255, 255, 255, 0.02)',
+                      background: 'var(--surface)',
                       borderRadius: 4,
-                      border: '1px solid rgba(255, 255, 255, 0.05)',
+                      border: '1px solid var(--border)',
                       display: 'flex',
                       flexDirection: 'column',
                       gap: 4,
@@ -488,18 +504,16 @@ export default function SyncLogsModal({
                             textTransform: 'uppercase',
                             padding: '1px 6px',
                             borderRadius: 3,
-                            background: badge.bg,
-                            color: badge.color,
-                            border: `1px solid ${badge.border}`,
+                            background: lt.bg,
+                            color: lt.color,
+                            border: `1px solid ${lt.border}`,
                             flexShrink: 0,
                             marginTop: 1,
                           }}
                         >
                           {log.level}
                         </span>
-                        <span style={{ color: 'var(--text)', wordBreak: 'break-word', lineHeight: 1.4 }}>
-                          {log.message}
-                        </span>
+                        <span style={{ color: 'var(--text)', wordBreak: 'break-word', lineHeight: 1.4 }}>{log.message}</span>
                       </div>
                       <span style={{ color: 'var(--muted)', fontSize: 11, flexShrink: 0 }}>
                         {log.timestamp ? log.timestamp.split('T')[1]?.replace('Z', '') : ''}
@@ -512,7 +526,7 @@ export default function SyncLogsModal({
                         style={{
                           marginTop: 4,
                           padding: '6px 8px',
-                          background: 'rgba(0, 0, 0, 0.4)',
+                          background: 'var(--surface2)',
                           borderRadius: 4,
                           borderLeft: '2px solid var(--violet)',
                           display: 'flex',
@@ -521,37 +535,18 @@ export default function SyncLogsModal({
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 11 }}>
-                          {log.endpoint && (
-                            <span style={{ color: 'var(--cyan)', fontWeight: 600 }}>{log.endpoint}</span>
-                          )}
-                          {log.status_code && (
-                            <span
-                              style={{
-                                color: log.status_code < 400 ? 'var(--teal)' : 'var(--error)',
-                                fontWeight: 700,
-                              }}
-                            >
+                          {log.endpoint && <span style={{ color: 'var(--cyan)', fontWeight: 600 }}>{log.endpoint}</span>}
+                          {log.status_code != null && (
+                            <span style={{ color: log.status_code < 400 ? 'var(--teal)' : 'var(--error)', fontWeight: 700 }}>
                               {log.status_code}
                             </span>
                           )}
-                          {log.duration_ms != null && (
-                            <span style={{ color: 'var(--muted)' }}>{log.duration_ms}ms</span>
-                          )}
+                          {log.duration_ms != null && <span style={{ color: 'var(--muted)' }}>{log.duration_ms}ms</span>}
                         </div>
 
                         {log.details && (
-                          <details
-                            data-testid={`wire-trace-payload-${log.id}`}
-                            style={{ marginTop: 2 }}
-                          >
-                            <summary
-                              style={{
-                                cursor: 'pointer',
-                                color: 'var(--cyan)',
-                                fontSize: 11,
-                                outline: 'none',
-                              }}
-                            >
+                          <details data-testid={`wire-trace-payload-${log.id}`} style={{ marginTop: 2 }}>
+                            <summary style={{ cursor: 'pointer', color: 'var(--cyan)', fontSize: 11, outline: 'none' }}>
                               Inspect wire payload JSON
                             </summary>
                             <pre

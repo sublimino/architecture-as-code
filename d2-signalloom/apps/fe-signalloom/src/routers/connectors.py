@@ -9,8 +9,8 @@ from __future__ import annotations
 import copy
 import json
 import logging
-import os
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Annotated, Any, Literal
 
@@ -19,20 +19,18 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+import api_compat
+import superadmin
 from api_compat import (
     APIError,
     Principal,
     _STORE_LOCK,
     _TENANT_CONNECTORS,
-    _error_response,
-    _get_pool,
+    _audit_outbound_request,
     _now_iso,
-    _require_pool,
-    _ts,
     _write,
     authenticated_principal,
-    authenticated_tenant,
-    update_claude_agent_name_db,
+    update_claude_agent_name,
 )
 
 
@@ -122,7 +120,8 @@ class ConnectorDeleteResponse(BaseModel):
 
 class ConnectorTestResult(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    connector_id: str
+    # None when testing supplied credentials that belong to no stored connector.
+    connector_id: str | None
     valid: bool
     scopes_ok: bool
     error_msg: str | None = None
@@ -158,11 +157,12 @@ class SyncLogEntry(BaseModel):
 
 
 class RecordsScanned(BaseModel):
+    """Counts observed by one scan. ``None`` means not observed, never zero-as-placeholder."""
     model_config = ConfigDict(extra="ignore")
-    agents: int = 0
-    models: int = 0
-    environments: int = 0
-    tools: int = 0
+    agents: int | None = None
+    models: int | None = None
+    environments: int | None = None
+    tools: int | None = None
 
 
 class PoliciesEvaluated(BaseModel):
@@ -172,13 +172,16 @@ class PoliciesEvaluated(BaseModel):
 
 
 class SyncResult(BaseModel):
+    """One scan's outcome. Nothing here defaults to an observation: duration and
+    status are measured per scan, and ``policies_evaluated`` is ``None`` unless
+    policies were actually evaluated."""
     model_config = ConfigDict(extra="ignore")
     provider_id: str
     synced_at: str = Field(default_factory=_now_iso)
-    duration_ms: int = 142
-    status: Literal["success", "warning", "error"] = "success"
+    duration_ms: int
+    status: Literal["success", "warning", "error"]
     records_scanned: RecordsScanned
-    policies_evaluated: PoliciesEvaluated
+    policies_evaluated: PoliciesEvaluated | None
     logs: list[SyncLogEntry] = Field(default_factory=list)
 
 
@@ -286,12 +289,16 @@ STANDARD_PROVIDERS: list[ConnectorProvider] = [
         display_name="OpenAI",
         wizard_config=WizardStepConfig(
             fields=[
-                WizardFieldSpec(name="api_key", label="OpenAI API Key", type="password", required=True, placeholder="sk-..."),
+                # Field name stays ``api_key``; the value must be an org Admin key
+                # because the verifier calls the Admin API. Credentials stored
+                # under the older ``admin_api_key`` name are still read.
+                WizardFieldSpec(name="api_key", label="OpenAI Admin API Key", type="password", required=True, placeholder="sk-admin-...",
+                                help_text="An org Admin key from Organization > Admin keys. A project API key cannot read the Admin API."),
                 WizardFieldSpec(name="openai_org_id", label="Organization ID (optional)", type="text", required=False, placeholder="org-xxxxxxxx"),
             ],
             permissions=["api.management.read"],
             docs_link="/help/connectors/openai",
-            help_text="Create an Admin API key to discover non-human AI assistant keys.",
+            help_text="Create an org Admin API key (sk-admin-...) to discover non-human AI assistant keys.",
         ),
     ),
     ConnectorProvider(
@@ -317,7 +324,17 @@ _CONN_LOCK = threading.Lock()
 
 
 
-def _ensure_tenant_connectors_seeded(tenant_id: str) -> list[dict[str, Any]]:
+# Demo AI-provider connectors, seeded only in fixture mode. With a database a
+# tenant has a Claude or OpenAI connector only if it configured one.
+_FIXTURE_ONLY_SEED_PROVIDERS = frozenset({"claude", "openai"})
+
+
+async def _fixture_mode() -> bool:
+    """True when there is no database pool: the only mode allowed demo results."""
+    return await api_compat._get_pool() is None
+
+
+def _ensure_tenant_connectors_seeded(tenant_id: str, fixture: bool = True) -> list[dict[str, Any]]:
     with _CONN_LOCK:
         if tenant_id not in _TENANT_CONNECTORS_DATA:
             _TENANT_CONNECTORS_DATA[tenant_id] = [
@@ -399,6 +416,10 @@ def _ensure_tenant_connectors_seeded(tenant_id: str) -> list[dict[str, Any]]:
                     "created_at": "2026-01-15T08:00:00Z",
                 },
             ]
+            if not fixture:
+                _TENANT_CONNECTORS_DATA[tenant_id] = [
+                    c for c in _TENANT_CONNECTORS_DATA[tenant_id] if c["provider_id"] not in _FIXTURE_ONLY_SEED_PROVIDERS
+                ]
             _sync_tenant_connectors_map(tenant_id)
         return _TENANT_CONNECTORS_DATA[tenant_id]
 
@@ -472,7 +493,7 @@ async def get_connectors_status(
 ) -> ConnectorSyncStatus:
     """Fetch real-time connector synchronization and ingestion health."""
     tenant_id = principal.tenant
-    raw_conns = _ensure_tenant_connectors_seeded(tenant_id)
+    raw_conns = _ensure_tenant_connectors_seeded(tenant_id, await _fixture_mode())
     conns = [TenantConnector(**c) for c in raw_conns]
     active_count = sum(1 for c in conns if c.status == "connected")
     return ConnectorSyncStatus(
@@ -492,7 +513,7 @@ async def list_connectors(
 ) -> TenantConnectorsResponse:
     """List configured cloud, Git, and IdP connectors for caller's tenant."""
     tenant_id = principal.tenant
-    raw_conns = _ensure_tenant_connectors_seeded(tenant_id)
+    raw_conns = _ensure_tenant_connectors_seeded(tenant_id, await _fixture_mode())
     return TenantConnectorsResponse(connectors=[TenantConnector(**c) for c in raw_conns])
 
 
@@ -506,7 +527,7 @@ async def toggle_connector(
 ) -> TenantConnector:
     """Enable or disable a connector with immediate audit event emission."""
     tenant_id = principal.tenant
-    _ensure_tenant_connectors_seeded(tenant_id)
+    _ensure_tenant_connectors_seeded(tenant_id, await _fixture_mode())
 
     with _CONN_LOCK:
         conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
@@ -541,7 +562,7 @@ async def toggle_connector(
         result = TenantConnector(**match)
 
     # Optional DB write
-    pool = await _get_pool()
+    pool = await api_compat._get_pool()
     if pool is not None:
         try:
             async with _write(pool) as conn:
@@ -571,7 +592,7 @@ async def create_connector(
 ) -> ConnectorCreateResponse:
     """Create or update a connector configuration."""
     tenant_id = principal.tenant
-    _ensure_tenant_connectors_seeded(tenant_id)
+    _ensure_tenant_connectors_seeded(tenant_id, await _fixture_mode())
 
     with _CONN_LOCK:
         conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
@@ -636,7 +657,7 @@ async def delete_connector(
 ) -> ConnectorDeleteResponse:
     """Disconnect a connector for the caller's tenant."""
     tenant_id = principal.tenant
-    _ensure_tenant_connectors_seeded(tenant_id)
+    _ensure_tenant_connectors_seeded(tenant_id, await _fixture_mode())
 
     with _CONN_LOCK:
         conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
@@ -660,7 +681,7 @@ async def delete_connector(
         _sync_tenant_connectors_map(tenant_id)
         cid = match["connector_id"]
 
-    pool = await _get_pool()
+    pool = await api_compat._get_pool()
     if pool is not None:
         try:
             async with _write(pool) as conn:
@@ -680,56 +701,132 @@ async def delete_connector(
     return ConnectorDeleteResponse(connector_id=cid, status="disconnected")
 
 
+ANTHROPIC_API = "https://api.anthropic.com"
+OPENAI_API = "https://api.openai.com"
+_ANTHROPIC_HEADERS = {"anthropic-version": "2023-06-01", "anthropic-beta": "managed-agents-2026-04-01"}
+_UPSTREAM_TIMEOUT = 10.0
+
+
+def _stored_credentials(tenant_id: str, match: dict[str, Any]) -> dict[str, str]:
+    """Credentials this tenant stored for this connector. Never a server env var."""
+    with _CONN_LOCK:
+        by_tenant = _TENANT_CONNECTOR_CREDENTIALS.get(tenant_id, {})
+        return dict(by_tenant.get(match["connector_id"]) or by_tenant.get(match["provider_id"]) or {})
+
+
+def _supplied_credentials(body: Any) -> dict[str, str]:
+    if isinstance(body, dict):
+        creds = body.get("credentials") or {}
+    else:
+        creds = getattr(body, "credentials", None) or {}
+    return {str(k): str(v) for k, v in creds.items() if v} if isinstance(creds, dict) else {}
+
+
 async def _fetch_live_anthropic_telemetry(api_key: str) -> dict[str, Any] | None:
-    """Actually make an HTTP request to Anthropic API using httpx.AsyncClient(timeout=10.0).
-    Calls https://api.anthropic.com/v1/agents (and https://api.anthropic.com/v1/models).
-    Headers:
-    - x-api-key: <api_key>
-    - anthropic-version: 2023-06-01
-    - anthropic-beta: managed-agents-2026-04-01
-    Extracts the agent's real live name and id.
-    Falls back gracefully if offline or dummy test key.
+    """Fixture mode only: list agents with the tenant's own key for the demo overlay.
+
+    Returns None unless Anthropic answered 200 with a named agent; it never
+    substitutes a placeholder name or id.
     """
     if not api_key:
         return None
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta": "managed-agents-2026-04-01",
-    }
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get("https://api.anthropic.com/v1/agents", headers=headers)
-            if resp.status_code == 200:
-                data = resp.json()
-                agents = data.get("data") or data.get("agents") or []
-                if isinstance(agents, list) and len(agents) > 0:
-                    first = agents[0]
-                    name = first.get("name") or "Daily News Jokester"
-                    agent_id = first.get("id") or "agent_01FoEhnKF9QsC5DGmuELhm7G"
-                    return {
-                        "agent_name": name,
-                        "agent_id": agent_id,
-                        "agents": agents,
-                        "count": len(agents),
-                    }
-                elif isinstance(data, dict) and "name" in data:
-                    return {
-                        "agent_name": data["name"],
-                        "agent_id": data.get("id", "agent_01FoEhnKF9QsC5DGmuELhm7G"),
-                        "agents": [data],
-                        "count": 1,
-                    }
-            # Also poll models endpoint
-            try:
-                models_resp = await client.get("https://api.anthropic.com/v1/models", headers=headers)
-                if models_resp.status_code == 200:
-                    logger.debug("Live Anthropic models discovered: %s", models_resp.json())
-            except Exception:
-                pass
+        async with httpx.AsyncClient(timeout=_UPSTREAM_TIMEOUT) as client:
+            resp = await client.get(f"{ANTHROPIC_API}/v1/agents", headers={"x-api-key": api_key, **_ANTHROPIC_HEADERS})
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            agents = (data.get("data") or data.get("agents") or []) if isinstance(data, dict) else []
+            if isinstance(agents, list) and agents and isinstance(agents[0], dict) and agents[0].get("name"):
+                first = agents[0]
+                return {"agent_name": first["name"], "agent_id": first.get("id"), "agents": agents, "count": len(agents)}
     except Exception as exc:
-        logger.debug("Live Anthropic API call failed or offline (falling back gracefully): %s", exc)
+        logger.debug("Anthropic agents listing failed: %s", exc)
     return None
+
+
+async def _probe(url: str, headers: dict[str, str]) -> tuple[int | None, int, str | None]:
+    """One real GET. Returns (status or None, measured ms, transport error or None)."""
+    started = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=_UPSTREAM_TIMEOUT) as client:
+            resp = await client.get(url, headers=headers)
+        return resp.status_code, int((time.monotonic() - started) * 1000), None
+    except httpx.HTTPError as exc:
+        return None, int((time.monotonic() - started) * 1000), type(exc).__name__
+
+
+def _probe_verdict(service: str, status: int | None, error: str | None) -> tuple[bool, bool, str | None, str | None]:
+    """(valid, scopes_ok, error_msg, message) from a real probe outcome only."""
+    if status is None:
+        return False, False, f"Could not reach the {service} API ({error}); the credential was not tested.", None
+    if status == 200:
+        return True, True, None, f"{service} API accepted the credential (HTTP 200)."
+    if status == 401:
+        return False, False, f"{service} API rejected the credential (HTTP 401).", None
+    if status == 403:
+        return True, False, f"{service} API authenticated the credential but refused the required permission (HTTP 403).", None
+    return False, False, f"Unexpected HTTP {status} from the {service} API; the credential was not verified.", None
+
+
+async def _verify_claude(creds: dict[str, str]) -> tuple[bool, bool, str | None, str | None]:
+    key = creds.get("api_key")
+    if not key:
+        return False, False, "No Anthropic API key was supplied or stored; nothing was tested.", None
+    status, _, error = await _probe(f"{ANTHROPIC_API}/v1/models", {"x-api-key": key, "anthropic-version": "2023-06-01"})
+    return _probe_verdict("Anthropic", status, error)
+
+
+async def _verify_openai(creds: dict[str, str]) -> tuple[bool, bool, str | None, str | None]:
+    # ``admin_api_key`` is the field name credentials were stored under before
+    # the wizard field became ``api_key``; both hold an org Admin key.
+    key = creds.get("api_key") or creds.get("admin_api_key")
+    if not key:
+        return False, False, "No OpenAI Admin API key was supplied or stored; nothing was tested.", None
+    status, _, error = await _probe(f"{OPENAI_API}/v1/organization/admin_api_keys", {"Authorization": f"Bearer {key}"})
+    return _probe_verdict("OpenAI Admin", status, error)
+
+
+# Providers with a real credential verifier. Anything else answers 501 rather
+# than a verdict nobody measured.
+_VERIFIERS = {"claude": _verify_claude, "openai": _verify_openai}
+
+
+def _stored_state_problem(match: dict[str, Any]) -> tuple[str, bool] | None:
+    """(error_msg, needs_rotation) when the stored connector state already fails."""
+    status = match.get("status", "connected")
+    if status == "disconnected":
+        return "Connector is disconnected", False
+    if status == "error":
+        return "Connector is in error state", False
+    expires_at_str = match.get("credential_expires_at")
+    if expires_at_str:
+        try:
+            exp_dt = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
+        except Exception:
+            return f"Invalid credential expiration timestamp: {expires_at_str}", True
+        if exp_dt <= datetime.now(timezone.utc):
+            return "Credential has expired", True
+    return None
+
+
+@router.post("/api/v1/connectors/providers/{provider_id}/test", response_model=ConnectorTestResult)
+@router.post("/api/connectors/providers/{provider_id}/test", response_model=ConnectorTestResult)
+@router.post("/connectors/providers/{provider_id}/test", response_model=ConnectorTestResult)
+async def test_supplied_credentials(
+    provider_id: str,
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+    body: ConnectorTestRequest | None = None,
+) -> ConnectorTestResult:
+    """Probe credentials supplied in the body, without storing them anywhere."""
+    verifier = _VERIFIERS.get(provider_id)
+    if verifier is None:
+        raise APIError(501, "test_unsupported", f"No credential verifier exists for provider '{provider_id}'")
+    await _audit_outbound_request(
+        principal, "connector.credentials_tested", {"provider_id": provider_id}, "Connector credential test",
+    )
+    valid, scopes_ok, error_msg, message = await verifier(_supplied_credentials(body))
+    return ConnectorTestResult(connector_id=None, valid=valid, scopes_ok=scopes_ok, error_msg=error_msg, message=message)
 
 
 @router.post("/api/v1/connectors/{connector_id}/test", response_model=ConnectorTestResult)
@@ -740,91 +837,50 @@ async def test_connector(
     principal: Annotated[Principal, Depends(authenticated_principal)],
     body: ConnectorTestRequest | dict[str, Any] | None = None,
 ) -> ConnectorTestResult:
-    """Test connector credentials and return diagnostic validation result."""
+    """Test a stored connector's credentials (or credentials supplied in the body)."""
     tenant_id = principal.tenant
-    _ensure_tenant_connectors_seeded(tenant_id)
+    fixture = await _fixture_mode()
+    _ensure_tenant_connectors_seeded(tenant_id, fixture)
 
     with _CONN_LOCK:
         conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
         match = next((c for c in conns if c["connector_id"] == connector_id or c["provider_id"] == connector_id), None)
         if match is None:
             raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
-
         match["last_tested_at"] = _now_iso()
-        status = match.get("status", "connected")
         expires_at_str = match.get("credential_expires_at")
+        problem = _stored_state_problem(match)
 
-        valid = True
-        scopes_ok = True
-        error_msg = None
-        needs_rotation = False
+    if problem is not None:
+        return ConnectorTestResult(
+            connector_id=match["connector_id"], valid=False, scopes_ok=False, error_msg=problem[0],
+            credential_expires_at=expires_at_str, needs_rotation=problem[1],
+        )
 
-        if status == "disconnected":
-            valid = False
-            scopes_ok = False
-            error_msg = "Connector is disconnected"
-        elif status == "error":
-            valid = False
-            scopes_ok = False
-            error_msg = "Connector is in error state"
-        elif expires_at_str:
-            try:
-                exp_dt = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
-                now_dt = datetime.now(timezone.utc)
-                if exp_dt <= now_dt:
-                    valid = False
-                    scopes_ok = False
-                    needs_rotation = True
-                    error_msg = "Credential has expired"
-            except Exception:
-                valid = False
-                scopes_ok = False
-                needs_rotation = True
-                error_msg = f"Invalid credential expiration timestamp: {expires_at_str}"
+    creds = _supplied_credentials(body) or _stored_credentials(tenant_id, match)
 
-        # Explicit support for AI model providers claude and openai: verify scopes
-        if match.get("provider_id") in ["claude", "openai"]:
-            if valid and not error_msg:
-                scopes_ok = True
+    if fixture:
+        # Demo path, no database: the stored state passed, so report it valid.
+        test_message = None
+        if match.get("provider_id") == "claude":
+            live_telemetry = await _fetch_live_anthropic_telemetry(creds.get("api_key", ""))
+            if live_telemetry:
+                update_claude_agent_name(tenant_id, live_telemetry["agent_name"], live_telemetry.get("agent_id"))
+                test_message = f"✓ Verified connection to Anthropic Claude API. Discovered live agent: {live_telemetry['agent_name']}"
+            else:
+                test_message = "✓ Verified connection to Anthropic Claude API."
+        return ConnectorTestResult(
+            connector_id=match["connector_id"], valid=True, scopes_ok=True,
+            credential_expires_at=expires_at_str, message=test_message,
+        )
 
-    # Check for Claude live API verification
-    test_message = None
-    if match.get("provider_id") == "claude" and valid:
-        creds = {}
-        if body:
-            if isinstance(body, dict):
-                creds = body.get("credentials", {})
-            elif hasattr(body, "credentials"):
-                creds = body.credentials or {}
-        api_key = creds.get("api_key")
-        with _CONN_LOCK:
-            if not api_key:
-                api_key = _TENANT_CONNECTOR_CREDENTIALS.get(tenant_id, {}).get(connector_id, {}).get("api_key")
-            if not api_key:
-                api_key = _TENANT_CONNECTOR_CREDENTIALS.get(tenant_id, {}).get("claude", {}).get("api_key")
-            if not api_key:
-                api_key = match.get("metadata", {}).get("api_key")
-        if not api_key:
-            api_key = os.environ.get("ANTHROPIC_API_KEY")
-
-        if api_key:
-            live_telemetry = await _fetch_live_anthropic_telemetry(api_key)
-            if live_telemetry and live_telemetry.get("agent_name"):
-                remote_agent_name = live_telemetry["agent_name"]
-                remote_agent_id = live_telemetry.get("agent_id", "agent_01FoEhnKF9QsC5DGmuELhm7G")
-                await update_claude_agent_name_db(tenant_id, remote_agent_name, remote_agent_id)
-                test_message = f"✓ Verified connection to Anthropic Claude API. Discovered live agent: {remote_agent_name}"
-        if not test_message:
-            test_message = "✓ Verified connection to Anthropic Claude API."
-
+    verifier = _VERIFIERS.get(match["provider_id"])
+    if verifier is None:
+        raise APIError(501, "test_unsupported", f"No credential verifier exists for provider '{match['provider_id']}'")
+    valid, scopes_ok, error_msg, message = await verifier(creds)
     return ConnectorTestResult(
-        connector_id=match["connector_id"],
-        valid=valid,
-        scopes_ok=scopes_ok,
-        error_msg=error_msg,
-        credential_expires_at=expires_at_str,
-        needs_rotation=needs_rotation,
-        message=test_message,
+        connector_id=match["connector_id"], valid=valid, scopes_ok=scopes_ok, error_msg=error_msg,
+        credential_expires_at=expires_at_str, message=message,
     )
 
 
@@ -835,6 +891,10 @@ def _generate_sync_result(
     live_agent_id: str | None = None,
     live_count: int | None = None,
 ) -> SyncResult:
+    """Fixture mode only (no database pool): canned demo results for the dashboard.
+
+    Nothing here was observed. A deployment with a database never calls this.
+    """
     now = timestamp or _now_iso()
     if provider_id == "claude":
         agent_name = live_agent_name or "Daily News Jokester"
@@ -1001,6 +1061,84 @@ def _generate_sync_result(
         )
 
 
+def _redact_for(principal: Principal, result: SyncResult) -> SyncResult:
+    """Wire traces (endpoint, status code, details) are for superadmins only."""
+    if superadmin.is_superadmin(principal):
+        return result
+    return result.model_copy(update={
+        "logs": [log.model_copy(update={"endpoint": None, "status_code": None, "details": None}) for log in result.logs],
+    })
+
+
+async def _scan_claude_live(provider_id: str, creds: dict[str, str]) -> SyncResult:
+    """List agents and models with the tenant's key; report exactly what came back."""
+    started = time.monotonic()
+    now = _now_iso()
+    key = creds.get("api_key")
+    if not key:
+        return SyncResult(
+            provider_id=provider_id, synced_at=now, duration_ms=int((time.monotonic() - started) * 1000),
+            status="error", records_scanned=RecordsScanned(), policies_evaluated=None,
+            logs=[SyncLogEntry(id="log-1", timestamp=now, level="error",
+                               message="No Anthropic API key is stored for this connector; no request was made.")],
+        )
+
+    counts: dict[str, int | None] = {"agents": None, "models": None}
+    logs: list[SyncLogEntry] = []
+    headers = {"x-api-key": key, **_ANTHROPIC_HEADERS}
+    async with httpx.AsyncClient(timeout=_UPSTREAM_TIMEOUT) as client:
+        for index, (kind, path) in enumerate((("agents", "/v1/agents"), ("models", "/v1/models")), start=1):
+            url = f"{ANTHROPIC_API}{path}"
+            call_started = time.monotonic()
+            try:
+                resp = await client.get(url, headers=headers)
+            except httpx.HTTPError as exc:
+                logs.append(SyncLogEntry(
+                    id=f"log-{index}", timestamp=_now_iso(), level="error",
+                    message=f"Listing Anthropic {kind} failed before a response ({type(exc).__name__}).",
+                    endpoint=f"GET {url}", duration_ms=int((time.monotonic() - call_started) * 1000),
+                ))
+                continue
+            elapsed = int((time.monotonic() - call_started) * 1000)
+            items: list[Any] | None = None
+            if resp.status_code == 200:
+                try:
+                    payload = resp.json()
+                except ValueError:
+                    payload = None
+                if isinstance(payload, dict) and isinstance(payload.get("data"), list):
+                    items = payload["data"]
+            if items is None:
+                logs.append(SyncLogEntry(
+                    id=f"log-{index}", timestamp=_now_iso(), level="error",
+                    message=f"Listing Anthropic {kind} failed (HTTP {resp.status_code}).",
+                    endpoint=f"GET {url}", status_code=resp.status_code, duration_ms=elapsed,
+                ))
+                continue
+            counts[kind] = len(items)
+            details: dict[str, Any] = {"count": len(items)}
+            if kind == "agents":
+                details["agents"] = [
+                    {"id": a.get("id"), "name": a.get("name")} for a in items if isinstance(a, dict)
+                ]
+            logs.append(SyncLogEntry(
+                id=f"log-{index}", timestamp=_now_iso(), level="info",
+                message=f"Listed {len(items)} Anthropic {kind}.",
+                endpoint=f"GET {url}", status_code=resp.status_code, duration_ms=elapsed, details=details,
+            ))
+
+    observed = sum(1 for v in counts.values() if v is not None)
+    return SyncResult(
+        provider_id=provider_id, synced_at=now, duration_ms=int((time.monotonic() - started) * 1000),
+        status="success" if observed == len(counts) else ("warning" if observed else "error"),
+        records_scanned=RecordsScanned(**counts), policies_evaluated=None, logs=logs,
+    )
+
+
+# Providers with a live scanner. Every other provider answers 501 in live mode.
+_LIVE_SCANNERS = {"claude": _scan_claude_live}
+
+
 @router.post("/api/v1/connectors/{provider_id}/scan", response_model=SyncResult)
 @router.post("/api/connectors/{provider_id}/scan", response_model=SyncResult)
 @router.post("/connectors/{provider_id}/scan", response_model=SyncResult)
@@ -1009,65 +1147,56 @@ async def scan_connector(
     principal: Annotated[Principal, Depends(authenticated_principal)],
     body: dict[str, Any] | None = None,
 ) -> SyncResult:
-    """Trigger real-time telemetry and resource discovery scan for a provider or connector."""
+    """Scan one of the caller's connected connectors, by provider id or connector id."""
     tenant_id = principal.tenant
-    _ensure_tenant_connectors_seeded(tenant_id)
-    now = _now_iso()
+    fixture = await _fixture_mode()
+    _ensure_tenant_connectors_seeded(tenant_id, fixture)
 
     with _CONN_LOCK:
         conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
-        match = next((c for c in conns if c["connector_id"] == provider_id or c["provider_id"] == provider_id), None)
-        known_provider_ids = {p.provider_id for p in STANDARD_PROVIDERS} | {"claude", "openai", "dex"}
-        if match is None and provider_id not in known_provider_ids:
-            raise HTTPException(status_code=404, detail=f"Connector or provider '{provider_id}' not found")
+        match = next(
+            (c for c in conns
+             if (c["connector_id"] == provider_id or c["provider_id"] == provider_id) and c.get("status") == "connected"),
+            None,
+        )
+        if match is None:
+            raise APIError(404, "connector_not_configured", f"No connected connector '{provider_id}' for this tenant")
+        connector_id, canonical_provider = match["connector_id"], match["provider_id"]
 
-        canonical_provider = match["provider_id"] if match else provider_id
-        if match is not None:
-            match["last_scan_at"] = now
+    scanner = None if fixture else _LIVE_SCANNERS.get(canonical_provider)
+    if not fixture and scanner is None:
+        raise APIError(501, "scan_unsupported", f"No live scanner exists for provider '{canonical_provider}'")
 
-    live_telemetry = None
-    if canonical_provider == "claude":
-        creds = body.get("credentials", {}) if isinstance(body, dict) else {}
-        api_key = creds.get("api_key")
-        with _CONN_LOCK:
-            if not api_key:
-                api_key = _TENANT_CONNECTOR_CREDENTIALS.get(tenant_id, {}).get(provider_id, {}).get("api_key")
-            if not api_key:
-                api_key = _TENANT_CONNECTOR_CREDENTIALS.get(tenant_id, {}).get("claude", {}).get("api_key")
-            if not api_key and match:
-                api_key = match.get("metadata", {}).get("api_key")
-        if not api_key:
-            api_key = os.environ.get("ANTHROPIC_API_KEY")
-
-        if api_key:
-            live_telemetry = await _fetch_live_anthropic_telemetry(api_key)
-            if live_telemetry and live_telemetry.get("agent_name"):
-                await update_claude_agent_name_db(
-                    tenant_id,
-                    live_telemetry["agent_name"],
-                    live_telemetry.get("agent_id"),
-                )
-
-    live_name = live_telemetry["agent_name"] if live_telemetry else None
-    live_id = live_telemetry.get("agent_id") if live_telemetry else None
-    live_cnt = live_telemetry.get("count") if live_telemetry else None
-
-    result = _generate_sync_result(
-        canonical_provider,
-        timestamp=now,
-        live_agent_name=live_name,
-        live_agent_id=live_id,
-        live_count=live_cnt,
+    await _audit_outbound_request(
+        principal, "connector.scan_requested",
+        {"connector_id": connector_id, "provider_id": canonical_provider}, "Connector scan",
     )
-    with _CONN_LOCK:
-        if tenant_id not in _TENANT_SYNC_RESULTS:
-            _TENANT_SYNC_RESULTS[tenant_id] = {}
-        _TENANT_SYNC_RESULTS[tenant_id][canonical_provider] = result
-        if match and match.get("connector_id"):
-            _TENANT_SYNC_RESULTS[tenant_id][match["connector_id"]] = result
 
-    logger.info("Connector '%s' scanned for tenant '%s' by actor '%s'", canonical_provider, tenant_id, principal.actor)
-    return result
+    creds = _supplied_credentials(body) or _stored_credentials(tenant_id, match)
+    if scanner is not None:
+        result = await scanner(canonical_provider, creds)
+    else:
+        live_telemetry = None
+        if canonical_provider == "claude":
+            live_telemetry = await _fetch_live_anthropic_telemetry(creds.get("api_key", ""))
+            if live_telemetry:
+                update_claude_agent_name(tenant_id, live_telemetry["agent_name"], live_telemetry.get("agent_id"))
+        result = _generate_sync_result(
+            canonical_provider,
+            timestamp=_now_iso(),
+            live_agent_name=live_telemetry["agent_name"] if live_telemetry else None,
+            live_agent_id=live_telemetry.get("agent_id") if live_telemetry else None,
+            live_count=live_telemetry.get("count") if live_telemetry else None,
+        )
+
+    with _CONN_LOCK:
+        match["last_scan_at"] = result.synced_at
+        stored = _TENANT_SYNC_RESULTS.setdefault(tenant_id, {})
+        stored[canonical_provider] = result
+        stored[connector_id] = result
+
+    logger.info("Connector '%s' scanned for tenant '%s' by actor '%s'", connector_id, tenant_id, principal.actor)
+    return _redact_for(principal, result)
 
 
 @router.get("/api/v1/connectors/{provider_id}/logs", response_model=SyncResult)
@@ -1077,32 +1206,26 @@ async def get_connector_logs(
     provider_id: str,
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> SyncResult:
-    """Fetch the latest synchronization and telemetry discovery logs for a provider."""
+    """The last stored scan result for a provider or connector id."""
     tenant_id = principal.tenant
-    _ensure_tenant_connectors_seeded(tenant_id)
+    fixture = await _fixture_mode()
+    _ensure_tenant_connectors_seeded(tenant_id, fixture)
 
     with _CONN_LOCK:
         conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
         match = next((c for c in conns if c["connector_id"] == provider_id or c["provider_id"] == provider_id), None)
-        known_provider_ids = {p.provider_id for p in STANDARD_PROVIDERS} | {"claude", "openai", "dex"}
-        if match is None and provider_id not in known_provider_ids:
-            raise HTTPException(status_code=404, detail=f"Connector or provider '{provider_id}' not found")
-
-        canonical_provider = match["provider_id"] if match else provider_id
         tenant_results = _TENANT_SYNC_RESULTS.get(tenant_id, {})
-        if provider_id in tenant_results:
-            return tenant_results[provider_id]
-        if canonical_provider in tenant_results:
-            return tenant_results[canonical_provider]
+        result = tenant_results.get(provider_id) or (tenant_results.get(match["provider_id"]) if match else None)
+        if result is None and fixture and match is not None:
+            # Fixture mode only: the demo shows canned logs before any scan.
+            result = _generate_sync_result(match["provider_id"])
+            tenant_results = _TENANT_SYNC_RESULTS.setdefault(tenant_id, {})
+            tenant_results[match["provider_id"]] = result
+            tenant_results[match["connector_id"]] = result
 
-        result = _generate_sync_result(canonical_provider)
-        if tenant_id not in _TENANT_SYNC_RESULTS:
-            _TENANT_SYNC_RESULTS[tenant_id] = {}
-        _TENANT_SYNC_RESULTS[tenant_id][canonical_provider] = result
-        if match and match.get("connector_id"):
-            _TENANT_SYNC_RESULTS[tenant_id][match["connector_id"]] = result
-        return result
-
+    if result is None:
+        raise APIError(404, "never_scanned", f"No scan has run for '{provider_id}' in this tenant")
+    return _redact_for(principal, result)
 
 
 # ---------------------------------------------------------------------------
@@ -1120,6 +1243,7 @@ def install_connectors_api(app: Any) -> None:
             create_connector,
             delete_connector,
             test_connector,
+            test_supplied_credentials,
             scan_connector,
             get_connector_logs,
         ):

@@ -3728,35 +3728,22 @@ _AUDIT_SEQ = itertools.count(1)
 
 
 def update_claude_agent_name(tenant_id: str, agent_name: str, agent_id: str | None = None) -> None:
-    """Update discovered Claude agent name across in-memory state and registry."""
+    """Record a Claude agent discovered for ``tenant_id`` (fixture store only).
+
+    The tenant's discovery record remembers the latest discovered agent, and an
+    in-memory agent is renamed only when it carries that exact
+    ``external_agent_id``. Never rename by pattern: matching every agent whose
+    id or model mentions "claude" relabelled unrelated agents with one
+    external agent's name.
+    """
     with _STORE_LOCK:
-        if tenant_id not in _CLAUDE_DISCOVERED_AGENTS:
-            _CLAUDE_DISCOVERED_AGENTS[tenant_id] = {}
-        _CLAUDE_DISCOVERED_AGENTS[tenant_id]["name"] = agent_name
-        if agent_id:
-            _CLAUDE_DISCOVERED_AGENTS[tenant_id]["id"] = agent_id
-
-        if tenant_id in _AGENTS:
-            for k, ag in _AGENTS[tenant_id].items():
-                if "claude" in k.lower() or "claude" in str(ag.get("model_name", "")).lower():
-                    ag["name"] = agent_name
-                    ag["display_name"] = agent_name
-
-
-async def update_claude_agent_name_db(tenant_id: str, agent_name: str, agent_id: str | None = None) -> None:
-    """Update discovered Claude agent name in memory and DB if pool available."""
-    update_claude_agent_name(tenant_id, agent_name, agent_id)
-    pool = await _get_pool()
-    if pool is not None:
-        try:
-            async with _write(pool) as conn:
-                await conn.execute(
-                    """UPDATE agent_registry SET name = $1 WHERE tenant_id = $2 AND (id LIKE '%claude%' OR model_name LIKE '%claude%')""",
-                    agent_name,
-                    tenant_id,
-                )
-        except Exception as exc:
-            logger.warning("Failed to update agent name in DB: %s", exc)
+        _CLAUDE_DISCOVERED_AGENTS[tenant_id] = {"name": agent_name, **({"id": agent_id} if agent_id else {})}
+        if not agent_id:
+            return
+        for ag in _AGENTS.get(tenant_id, {}).values():
+            if ag.get("external_agent_id") == agent_id:
+                ag["name"] = agent_name
+                ag["display_name"] = agent_name
 
 
 def _record_memory_audit(

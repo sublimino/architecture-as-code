@@ -203,20 +203,11 @@ function matchClause(agent: AgentResponse, clause: QueryClause): boolean {
     case 'id':
     case 'uuid': {
       const cleanVal = val.replace(/^(id:|uuid:)/, '')
-      const rawRemoteId = (((agent as any).remote_agent_id as string) || '').toLowerCase()
-      const matchesRemoteId = Boolean(rawRemoteId && (rawRemoteId === cleanVal || rawRemoteId.includes(cleanVal)))
-      const isClaudeRemote = cleanVal.startsWith('agent_01') && (
-        agent.id.toLowerCase().includes('claude') ||
-        (agent.name || '').toLowerCase().includes('jokester') ||
-        (agent.model_name || '').toLowerCase().includes('claude') ||
-        agent.type === 'claude'
-      )
+      // Identity only: an unknown id must not resolve to whichever agent looks similar.
       return (
         agent.id.toLowerCase() === cleanVal ||
         agent.id.toLowerCase().replace(/^[^:]+:/, '') === cleanVal ||
-        agent.id.toLowerCase().includes(cleanVal) ||
-        matchesRemoteId ||
-        isClaudeRemote
+        agent.id.toLowerCase().includes(cleanVal)
       )
     }
     case 'name':

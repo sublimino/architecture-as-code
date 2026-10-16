@@ -264,23 +264,6 @@ describe('matchAgentByQuery', () => {
     expect(matchAgentByQuery(mockAgents[0], '   ')).toBe(true)
   })
 
-  it('matches Claude agent when querying by remote agent ID (id:agent_01FoEhnKF9QsC5DGmuELhm7G)', () => {
-    const claudeAgent: AgentResponse = {
-      id: 'tenant-demo:claude-agent-fin-analyst',
-      name: 'Daily News Jokester',
-      type: 'claude',
-      owner: 'demo-user@signalloom.local',
-      tenant_id: 'tenant-demo',
-      lifecycle_state: 'active',
-      last_transition_at: '2026-08-01T00:00:00Z',
-      compliance_summary: { total_controls: 10, passing: 10, failing: 0, pending: 0, posture_score: 1.0 },
-      created_at: '2026-08-01T00:00:00Z',
-      model_name: 'claude-opus-5-5',
-      eu_ai_act_risk_class: 'limited',
-    }
-
-    expect(matchAgentByQuery(claudeAgent, 'id:agent_01FoEhnKF9QsC5DGmuELhm7G')).toBe(true)
-  })
 })
 
 describe('resolveAgentOrInstance', () => {
@@ -324,5 +307,24 @@ describe('getAgentFramework reports the server, not an inference', () => {
     expect(getAgentFramework({ ...base, model_name: 'claude-x', framework: 'crewai' } as unknown as AgentResponse)).toBe('crewai')
     expect(getAgentFramework({ ...base, type: 'claude' } as unknown as AgentResponse)).toBe('claude')
     expect(getAgentFramework({ ...base, model_name: 'claude-x' } as unknown as AgentResponse)).toBe('Custom')
+  })
+})
+
+describe('id: selector matches on identity only', () => {
+  const claudeModelAgent = {
+    ...mockAgents[1],
+    id: 'tenant-acme:claude-agent-fin-analyst',
+    name: 'Daily News Jokester',
+    model_name: 'claude-sonnet-4',
+    type: 'claude',
+  } as AgentResponse
+
+  it('does not match an unknown Anthropic agent id to whichever agent looks like Claude', () => {
+    expect(matchAgentByQuery(claudeModelAgent, 'id:agent_01XYZunknown')).toBe(false)
+  })
+
+  it('still matches the exact id and the tenant-qualified suffix', () => {
+    expect(matchAgentByQuery(claudeModelAgent, 'id:tenant-acme:claude-agent-fin-analyst')).toBe(true)
+    expect(matchAgentByQuery(claudeModelAgent, 'id:claude-agent-fin-analyst')).toBe(true)
   })
 })

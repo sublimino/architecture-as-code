@@ -2233,3 +2233,301 @@ export function resolveFake(method: string, path: string, body?: unknown): unkno
   const route = ROUTES.find((r) => r.method === method.toUpperCase() && r.test(clean))
   return route ? route.data(path, body) : undefined
 }
+
+// ── Policy Evaluation page demo fixtures ────────────────────────────────────
+// Demo mode only. PolicyEvaluationPage calls these behind isDemoMode(); live
+// mode renders the real agent record and never a fabricated verdict.
+
+export interface PolicyCheckResult {
+  id: string
+  name: string
+  description: string
+  severity: 'critical' | 'high' | 'medium' | 'low'
+  cel_expression: string
+  passed: boolean
+  evaluated_at: string
+  cost_units: number
+  duration_ms: number
+  remediation?: string
+  offending_path?: string
+  expected_value?: string
+  actual_value?: string
+  suggested_patch?: string
+}
+
+export interface DemoPolicyAgent {
+  id: string
+  name: string
+  spiffe_id: string
+  model: string
+  compliance_summary: AgentResponse['compliance_summary'] | undefined
+}
+
+const DEMO_POLICY_DEFAULT_AGENT = 'a0000000-0000-0000-0000-000000000001'
+
+export function demoPolicyEvaluationAgent(agents: AgentResponse[], agentParamOrNull: string | null): DemoPolicyAgent {
+  const agentParam = agentParamOrNull || DEMO_POLICY_DEFAULT_AGENT
+  const found = agents.find(a => a.id === agentParam || a.name.toLowerCase() === agentParam.toLowerCase())
+  if (found) {
+    return {
+      id: found.id,
+      name: found.name,
+      spiffe_id: found.identity?.spiffe_id || `spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/${found.name.toLowerCase()}`,
+      model: found.runtime?.model || 'claude-3-5-sonnet',
+      compliance_summary: found.compliance_summary,
+    }
+  }
+  return {
+    id: agentParam,
+    name: agentParam.startsWith('a0000') ? 'agent-cardvault' : agentParam,
+    spiffe_id: `spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/${agentParam.startsWith('a0000') ? 'cardvault-agent' : agentParam}`,
+    model: 'claude-3-5-sonnet',
+    compliance_summary: undefined,
+  }
+}
+
+export function demoPolicyEvaluationChecks(normalizedFwId: string, agentName: string): PolicyCheckResult[] {
+    if (normalizedFwId === 'k8s-cis-benchmark' || normalizedFwId === 'cis-kubernetes') {
+      return [
+        {
+          id: 'cis-5.2.6',
+          name: 'CIS 5.2.6: Minimize the admission of root containers',
+          description: 'Containers must run as a non-root user to mitigate privilege escalation and container breakout risks.',
+          severity: 'high',
+          cel_expression: 'object.spec.containers.all(c, has(c.securityContext) && has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot == true)',
+          passed: false,
+          evaluated_at: '2026-10-14T01:20:00Z',
+          cost_units: 14,
+          duration_ms: 0.42,
+          offending_path: 'spec.template.spec.containers[0].securityContext.runAsNonRoot',
+          expected_value: 'true',
+          actual_value: 'false (or unset)',
+          remediation: 'Set spec.securityContext.runAsNonRoot: true or spec.containers[*].securityContext.runAsNonRoot: true.',
+          suggested_patch: `spec:\n  template:\n    spec:\n      securityContext:\n        runAsNonRoot: true\n        runAsUser: 10001\n        runAsGroup: 10001`,
+        },
+        {
+          id: 'cis-5.2.5',
+          name: 'CIS 5.2.5: Minimize admission of containers with allowPrivilegeEscalation',
+          description: 'Prohibits a container process from gaining more privileges than its parent process within the pod.',
+          severity: 'high',
+          cel_expression: 'object.spec.containers.all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false)',
+          passed: true,
+          evaluated_at: '2026-10-14T01:20:00Z',
+          cost_units: 12,
+          duration_ms: 0.35,
+        },
+        {
+          id: 'no-privileged-containers',
+          name: 'No privileged containers',
+          description: 'Containers must not run in privileged mode.',
+          severity: 'critical',
+          cel_expression: 'object.spec.containers.all(c, !has(c.securityContext) || !has(c.securityContext.privileged) || c.securityContext.privileged == false)',
+          passed: true,
+          evaluated_at: '2026-10-14T01:20:00Z',
+          cost_units: 8,
+          duration_ms: 0.28,
+        },
+        {
+          id: 'read-only-root-filesystem',
+          name: 'Read-only root filesystem',
+          description: 'Root filesystem of all containers must be mounted read-only.',
+          severity: 'medium',
+          cel_expression: 'object.spec.containers.all(c, has(c.securityContext) && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true)',
+          passed: false,
+          evaluated_at: '2026-10-14T01:20:00Z',
+          cost_units: 11,
+          duration_ms: 0.31,
+          offending_path: 'spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem',
+          expected_value: 'true',
+          actual_value: 'false',
+          remediation: 'Enable readOnlyRootFilesystem and use emptyDir mounts for scratch directories.',
+          suggested_patch: `spec:\n  containers:\n    - name: agent\n      securityContext:\n        readOnlyRootFilesystem: true\n      volumeMounts:\n        - name: tmp\n          mountPath: /tmp`,
+        },
+      ]
+    }
+
+    // Default: EU AI Act checks
+    return [
+      {
+        id: 'EU-AI-ACT-ART-14',
+        name: 'EU AI Act Art 14: Human Oversight Intervention Interface',
+        description: 'High-risk autonomous agents must expose a human-in-the-loop override channel and emergency stun receiver.',
+        severity: 'critical',
+        cel_expression: "has(agent.guardrails) && agent.guardrails.human_override_active == true && has(agent.governance.stun_endpoint)",
+        passed: false,
+        evaluated_at: '2026-10-14T01:20:00Z',
+        cost_units: 18,
+        duration_ms: 0.48,
+        offending_path: 'agent.guardrails.human_override_active',
+        expected_value: 'true',
+        actual_value: 'false (supervisor unacknowledged)',
+        remediation: 'Configure designated human operator identity in agent manifest and register emergency stun endpoint.',
+        suggested_patch: `apiVersion: governance.signalloom.dev/v1alpha1\nkind: AgentGovernanceProfile\nmetadata:\n  name: ${agentName}-oversight\nspec:\n  humanOversight:\n    enabled: true\n    designatedSupervisors:\n      - "operator@signalloom.demo"\n    emergencyStunPolicy: graceful-freeze`,
+      },
+      {
+        id: 'EU-AI-ACT-ART-12',
+        name: 'EU AI Act Art 12: Continuous Audit Logging & Traceability',
+        description: 'All agent decision steps, prompt inputs, and tool execution traces must be cryptographically attested.',
+        severity: 'high',
+        cel_expression: "has(agent.telemetry) && agent.telemetry.provenance_attestation == 'in-toto-v1'",
+        passed: true,
+        evaluated_at: '2026-10-14T01:20:00Z',
+        cost_units: 14,
+        duration_ms: 0.38,
+      },
+      {
+        id: 'multi-agent-trust-boundary',
+        name: 'Art 15 / NIST: Multi-Agent Mutual TLS & SPIFFE Trust Domain',
+        description: 'Inter-agent communication must authenticate peer SVID within the signalloom.demo trust domain.',
+        severity: 'critical',
+        cel_expression: "has(request.peer.trust_domain) && request.peer.trust_domain == 'signalloom.demo' && request.peer.mtls_authenticated == true",
+        passed: true,
+        evaluated_at: '2026-10-14T01:20:00Z',
+        cost_units: 16,
+        duration_ms: 0.41,
+      },
+      {
+        id: 'prompt-injection-guardrail-active',
+        name: 'Art 9 / OWASP: Active Prompt Injection Defense Guardrail',
+        description: 'Agent input ingestion pipeline must employ verified prompt sanitization and adversarial guardrails.',
+        severity: 'high',
+        cel_expression: 'has(agent.guardrails) && agent.guardrails.prompt_injection_filter == true',
+        passed: false,
+        evaluated_at: '2026-10-14T01:20:00Z',
+        cost_units: 20,
+        duration_ms: 0.52,
+        offending_path: 'agent.guardrails.prompt_injection_filter',
+        expected_value: 'true',
+        actual_value: 'false (bypass detected in system prompt)',
+        remediation: 'Attach standard Signal Loom Prompt Guardrail filter to incoming inference messages.',
+        suggested_patch: `spec:\n  guardrails:\n    promptInjectionFilter: true\n    maxInputTokens: 8192\n    contentModerationStrictness: High`,
+      },
+      {
+        id: 'model-catalog-registration',
+        name: 'Art 13: Approved Enterprise Model Catalog Registration',
+        description: 'Underlying foundation model must be signed and registered in the enterprise approved catalog.',
+        severity: 'medium',
+        cel_expression: 'has(agent.registry) && agent.registry.model_registered == true',
+        passed: true,
+        evaluated_at: '2026-10-14T01:20:00Z',
+        cost_units: 10,
+        duration_ms: 0.29,
+      },
+    ]
+}
+
+export function demoPolicyEvaluationSource(currentAgent: DemoPolicyAgent, normalizedFwId: string) {
+    return {
+      apiVersion: 'v1',
+      kind: 'Pod',
+      metadata: {
+        name: currentAgent.name,
+        namespace: 'fe-signalloom-agents',
+        labels: {
+          'app.kubernetes.io/name': currentAgent.name,
+          'signalloom.ai/agent-id': currentAgent.id,
+          'signalloom.ai/framework': normalizedFwId,
+          'signalloom.ai/spiffe-id': currentAgent.spiffe_id,
+        },
+      },
+      spec: {
+        serviceAccountName: `${currentAgent.name}-sa`,
+        securityContext: {
+          runAsNonRoot: false,
+          seccompProfile: {
+            type: 'RuntimeDefault',
+          },
+        },
+        containers: [
+          {
+            name: 'agent-runtime',
+            image: `zot.registry.svc.cluster.local:5000/signalloom/${currentAgent.name}:v1.2.0`,
+            securityContext: {
+              allowPrivilegeEscalation: false,
+              readOnlyRootFilesystem: false,
+              privileged: false,
+            },
+            env: [
+              { name: 'AGENT_MODEL', value: currentAgent.model || 'claude-3-5-sonnet' },
+              { name: 'AGENT_TENANT_ID', value: 'tenant-demo' },
+              { name: 'SIGNAL_INGEST_ENDPOINT', value: 'http://signal-ingest:8082' },
+            ],
+            ports: [{ containerPort: 8080, name: 'http' }],
+          },
+        ],
+      },
+      agent: {
+        id: currentAgent.id,
+        name: currentAgent.name,
+        spiffe_id: currentAgent.spiffe_id,
+        model: currentAgent.model,
+        guardrails: {
+          prompt_injection_filter: false,
+          human_override_active: false,
+        },
+        governance: {
+          stun_endpoint: 'http://signalloom-warden:9090/stun',
+        },
+        registry: {
+          model_registered: true,
+          catalog_id: 'cat-2026-sonnet',
+        },
+        telemetry: {
+          provenance_attestation: 'in-toto-v1',
+          ebpf_monitored: true,
+        },
+      },
+      request: {
+        peer: {
+          trust_domain: 'signalloom.demo',
+          mtls_authenticated: true,
+          subject_spiffe: 'spiffe://signalloom.demo/ns/fe-signalloom/sa/discovery-portal',
+        },
+      },
+    }
+}
+
+export function demoPolicyEvaluationAttestation(
+  currentAgent: DemoPolicyAgent,
+  normalizedFwId: string,
+  evaluationChecks: PolicyCheckResult[],
+  violations: PolicyCheckResult[],
+) {
+    return {
+      _type: 'https://in-toto.io/Statement/v1',
+      predicateType: 'https://signalloom.dev/attestation/compliance/v1',
+      subject: [
+        {
+          name: currentAgent.name,
+          uri: currentAgent.spiffe_id,
+          digest: {
+            sha256: '9f83c182a47e2b109c00b832a76f291048a90123456789abcdef0123456789abc',
+          },
+        },
+      ],
+      predicate: {
+        framework: {
+          id: normalizedFwId,
+          name: normalizedFwId === 'k8s-cis-benchmark' ? 'CIS Kubernetes Benchmark' : 'EU AI Act',
+          version: 'v2.1.0',
+        },
+        evaluation: {
+          status: violations.length > 0 ? 'FAILED' : 'PASSED',
+          timestamp: '2026-10-14T01:20:00Z',
+          evaluator: 'policy-engine/cel-runtime@v2.1.0',
+          evidenceRef: `cel://assessments/${currentAgent.name}/${normalizedFwId}/2026-10-14`,
+          summary: {
+            total: evaluationChecks.length,
+            passed: evaluationChecks.filter(c => c.passed).length,
+            failed: violations.length,
+            score: (evaluationChecks.filter(c => c.passed).length / evaluationChecks.length).toFixed(2),
+          },
+        },
+        witness: {
+          signer: 'cosign:local-demo-only',
+          keyId: 'sha256:d8a264a782b1c4e9f908e2ba41b0',
+          verified: true,
+        },
+      },
+    }
+}

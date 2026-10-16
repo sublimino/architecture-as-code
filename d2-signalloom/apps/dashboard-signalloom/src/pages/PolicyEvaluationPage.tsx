@@ -2,31 +2,215 @@ import React, { useState, useMemo, useEffect } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
+import { isDemoMode } from '../api/demoMode'
+import {
+  demoPolicyEvaluationAgent,
+  demoPolicyEvaluationAttestation,
+  demoPolicyEvaluationChecks,
+  demoPolicyEvaluationSource,
+} from '../api/fakeData'
+import type { PolicyCheckResult } from '../api/fakeData'
 import { normalizeFrameworkId } from '../data/regulatoryFrameworks'
 import type { AgentResponse, FrameworkResponse } from '../types/api'
 
-interface PolicyCheckResult {
-  id: string
-  name: string
-  description: string
-  severity: 'critical' | 'high' | 'medium' | 'low'
-  cel_expression: string
-  passed: boolean
-  evaluated_at: string
-  cost_units: number
-  duration_ms: number
-  remediation?: string
-  offending_path?: string
-  expected_value?: string
-  actual_value?: string
-  suggested_patch?: string
+// Live and demo are separate components so no fixture value can leak into
+// live mode through a shared fallback. Demo renders the fixture evaluation;
+// live renders only an agent the API returned, matched by exact identity, and
+// shows every check as "not evaluated" because this page has no live
+// evaluation-results API to read verdicts from.
+export default function PolicyEvaluationPage() {
+  return isDemoMode() ? <DemoPolicyEvaluation /> : <LivePolicyEvaluation />
 }
 
-export default function PolicyEvaluationPage() {
+// Same rule as the agents page drawer: exact id, exact name, or the bare id
+// of a `<tenant>:<id>` record. Never case-folded, never a substring.
+function matchesAgent(agent: AgentResponse, ref: string): boolean {
+  return agent.id === ref || agent.name === ref || agent.id.endsWith(`:${ref}`)
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message
+  return String(err)
+}
+
+function isNotFound(err: unknown): boolean {
+  const status = (err as { response?: { status?: number }; status?: number } | null)
+  return status?.response?.status === 404 || status?.status === 404
+}
+
+type LiveLookup =
+  | { state: 'loading' }
+  | { state: 'error'; message: string }
+  | { state: 'choose'; agents: AgentResponse[] }
+  | { state: 'not-found' }
+  | { state: 'found'; agent: AgentResponse }
+
+const panel: React.CSSProperties = {
+  padding: 24,
+  marginBottom: 24,
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
+  borderRadius: 8,
+}
+
+const label: React.CSSProperties = { fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }
+
+function LivePolicyEvaluation() {
+  const { getAccessTokenSilently } = useAuth0()
+  const [searchParams] = useSearchParams()
+  const agentParam = searchParams.get('agent') ?? ''
+  const normalizedFwId = normalizeFrameworkId(searchParams.get('framework') || 'eu-ai-act')
+  const [lookup, setLookup] = useState<LiveLookup>({ state: 'loading' })
+
+  useEffect(() => {
+    let mounted = true
+    setLookup({ state: 'loading' })
+    void (async () => {
+      try {
+        const token = await getAccessTokenSilently()
+        const res = await api.agents.list(token)
+        const agents = res.agents ?? []
+        if (!agentParam) {
+          if (mounted) setLookup({ state: 'choose', agents })
+          return
+        }
+        const listed = agents.find(a => matchesAgent(a, agentParam))
+        if (listed) {
+          if (mounted) setLookup({ state: 'found', agent: listed })
+          return
+        }
+        // Not on the loaded page of the list: ask for it directly by id.
+        try {
+          const fetched = await api.agents.get(token, agentParam)
+          if (!mounted) return
+          setLookup(fetched && matchesAgent(fetched, agentParam) ? { state: 'found', agent: fetched } : { state: 'not-found' })
+        } catch (err) {
+          if (!mounted) return
+          setLookup(isNotFound(err) ? { state: 'not-found' } : { state: 'error', message: errorMessage(err) })
+        }
+      } catch (err) {
+        if (mounted) setLookup({ state: 'error', message: errorMessage(err) })
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [getAccessTokenSilently, agentParam])
+
+  const breadcrumb = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
+      <Link to="/compliance" style={{ color: 'var(--cyan)', textDecoration: 'none' }}>
+        ← Back to Compliance
+      </Link>
+      <span>/</span>
+      <span style={{ color: 'var(--text)', fontWeight: 600 }}>Policy Evaluation</span>
+    </div>
+  )
+
+  let body: React.ReactNode
+  if (lookup.state === 'loading') {
+    body = <div className="card" style={panel}>Loading agent…</div>
+  } else if (lookup.state === 'error') {
+    body = (
+      <div className="card" role="alert" data-testid="eval-load-error" style={{ ...panel, borderColor: 'var(--error)' }}>
+        <strong style={{ color: 'var(--error)' }}>Could not load agents:</strong> {lookup.message}
+      </div>
+    )
+  } else if (lookup.state === 'choose') {
+    body = (
+      <div className="card" data-testid="eval-choose-agent" style={panel}>
+        <h1 style={{ fontSize: 20, fontWeight: 700, margin: '0 0 8px', color: 'var(--text)' }}>Choose an agent to evaluate</h1>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 0 }}>
+          Pick an agent below or open one from the <Link to="/agents" style={{ color: 'var(--cyan)' }}>agents page</Link>.
+        </p>
+        {lookup.agents.length === 0 ? (
+          <p style={{ fontSize: 13, color: 'var(--muted)' }}>No agents are registered for this tenant.</p>
+        ) : (
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
+            {lookup.agents.map(a => {
+              const q = new URLSearchParams(searchParams)
+              q.set('agent', a.id)
+              return (
+                <li key={a.id} style={{ marginBottom: 4 }}>
+                  <Link to={{ search: `?${q.toString()}` }} style={{ color: 'var(--cyan)' }}>
+                    {a.name}
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+    )
+  } else if (lookup.state === 'not-found') {
+    body = (
+      <div className="card" role="alert" data-testid="eval-agent-not-found" style={panel}>
+        <strong>No agent matches {agentParam}</strong>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 0 }}>
+          Check the id or name, or pick one from the <Link to="/agents" style={{ color: 'var(--cyan)' }}>agents page</Link>.
+        </p>
+      </div>
+    )
+  } else {
+    const agent = lookup.agent
+    const summary = agent.compliance_summary
+    body = (
+      <>
+        <div className="card" style={panel}>
+          <h1 data-testid="eval-header-title" style={{ fontSize: 22, fontWeight: 700, margin: '0 0 8px', color: 'var(--text)' }}>
+            Policy Evaluation: {agent.name}
+          </h1>
+          <div style={{ fontSize: 13, color: 'var(--muted)', display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+            <span>
+              Framework: <strong data-testid="eval-framework-badge" style={{ color: 'var(--text)' }}>{normalizedFwId.toUpperCase()}</strong>
+            </span>
+            <span>
+              Agent: <Link to={`/agents?agent=${encodeURIComponent(agent.id)}`} style={{ color: 'var(--cyan)' }}>{agent.id}</Link>
+            </span>
+            <span>
+              SPIFFE:{' '}
+              {agent.identity?.spiffe_id ? (
+                <code style={{ fontSize: 12, color: 'var(--cyan)' }}>{agent.identity.spiffe_id}</code>
+              ) : (
+                <em>not reported</em>
+              )}
+            </span>
+            <span>
+              Model: {agent.runtime?.model ? <strong style={{ color: 'var(--text)' }}>{agent.runtime.model}</strong> : <em>not reported</em>}
+            </span>
+          </div>
+          <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+            <div style={label}>Controls passing (agent record)</div>
+            <div data-testid="eval-live-controls" style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', marginTop: 2 }}>
+              {summary ? `${summary.passing} / ${summary.total_controls}` : 'not reported'}
+            </div>
+          </div>
+        </div>
+        <div className="card" data-testid="eval-not-evaluated" style={panel}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 8px', color: 'var(--text)' }}>Policy checks: not evaluated</h2>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
+            There is no live policy-evaluation results API behind this page yet, so no per-check verdict, cost or
+            attestation is shown. Open the <Link to={`/policies?framework=${normalizedFwId}`} style={{ color: 'var(--cyan)' }}>CEL policy editor</Link>{' '}
+            to inspect the rules for this framework.
+          </p>
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <div data-testid="policy-evaluation-page" style={{ maxWidth: 1400, margin: '0 auto', paddingBottom: 48 }}>
+      {breadcrumb}
+      {body}
+    </div>
+  )
+}
+
+function DemoPolicyEvaluation() {
   const { getAccessTokenSilently } = useAuth0()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const agentParam = searchParams.get('agent') || 'a0000000-0000-0000-0000-000000000001'
+  const agentParam = searchParams.get('agent')
   const frameworkParam = searchParams.get('framework') || 'eu-ai-act'
   const controlParam = searchParams.get('control') || ''
   const violationParam = searchParams.get('violation') || ''
@@ -68,7 +252,7 @@ export default function PolicyEvaluationPage() {
           if (Array.isArray(fwRes)) setFrameworks(fwRes)
         }
       } catch {
-        // Fallback to demo defaults handled below
+        // Demo mode only: the fixture agent below covers a failed load.
       }
     }
     loadData()
@@ -77,160 +261,17 @@ export default function PolicyEvaluationPage() {
     }
   }, [getAccessTokenSilently])
 
-  // Resolve current agent
-  const currentAgent = useMemo(() => {
-    const found = agents.find(a => a.id === agentParam || a.name.toLowerCase() === agentParam.toLowerCase())
-    if (found) {
-      return {
-        id: found.id,
-        name: found.name,
-        spiffe_id: found.identity?.spiffe_id || `spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/${found.name.toLowerCase()}`,
-        model: found.runtime?.model || 'claude-3-5-sonnet',
-        compliance_summary: found.compliance_summary,
-      }
-    }
-    return {
-      id: agentParam,
-      name: agentParam.startsWith('a0000') ? 'agent-cardvault' : agentParam,
-      spiffe_id: `spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/${agentParam.startsWith('a0000') ? 'cardvault-agent' : agentParam}`,
-      model: 'claude-3-5-sonnet',
-      compliance_summary: undefined,
-    }
-  }, [agents, agentParam])
+  // Demo-only agent resolution (fixture fallback for a missing or unknown id).
+  const currentAgent = useMemo(() => demoPolicyEvaluationAgent(agents, agentParam), [agents, agentParam])
 
   // Normalize framework ID
   const normalizedFwId = normalizeFrameworkId(frameworkParam)
 
-  // Demo policy checks executed by CEL policy-engine for this agent and framework
-  const evaluationChecks: PolicyCheckResult[] = useMemo(() => {
-    if (normalizedFwId === 'k8s-cis-benchmark' || normalizedFwId === 'cis-kubernetes') {
-      return [
-        {
-          id: 'cis-5.2.6',
-          name: 'CIS 5.2.6: Minimize the admission of root containers',
-          description: 'Containers must run as a non-root user to mitigate privilege escalation and container breakout risks.',
-          severity: 'high',
-          cel_expression: 'object.spec.containers.all(c, has(c.securityContext) && has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot == true)',
-          passed: false,
-          evaluated_at: '2026-10-14T01:20:00Z',
-          cost_units: 14,
-          duration_ms: 0.42,
-          offending_path: 'spec.template.spec.containers[0].securityContext.runAsNonRoot',
-          expected_value: 'true',
-          actual_value: 'false (or unset)',
-          remediation: 'Set spec.securityContext.runAsNonRoot: true or spec.containers[*].securityContext.runAsNonRoot: true.',
-          suggested_patch: `spec:\n  template:\n    spec:\n      securityContext:\n        runAsNonRoot: true\n        runAsUser: 10001\n        runAsGroup: 10001`,
-        },
-        {
-          id: 'cis-5.2.5',
-          name: 'CIS 5.2.5: Minimize admission of containers with allowPrivilegeEscalation',
-          description: 'Prohibits a container process from gaining more privileges than its parent process within the pod.',
-          severity: 'high',
-          cel_expression: 'object.spec.containers.all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false)',
-          passed: true,
-          evaluated_at: '2026-10-14T01:20:00Z',
-          cost_units: 12,
-          duration_ms: 0.35,
-        },
-        {
-          id: 'no-privileged-containers',
-          name: 'No privileged containers',
-          description: 'Containers must not run in privileged mode.',
-          severity: 'critical',
-          cel_expression: 'object.spec.containers.all(c, !has(c.securityContext) || !has(c.securityContext.privileged) || c.securityContext.privileged == false)',
-          passed: true,
-          evaluated_at: '2026-10-14T01:20:00Z',
-          cost_units: 8,
-          duration_ms: 0.28,
-        },
-        {
-          id: 'read-only-root-filesystem',
-          name: 'Read-only root filesystem',
-          description: 'Root filesystem of all containers must be mounted read-only.',
-          severity: 'medium',
-          cel_expression: 'object.spec.containers.all(c, has(c.securityContext) && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true)',
-          passed: false,
-          evaluated_at: '2026-10-14T01:20:00Z',
-          cost_units: 11,
-          duration_ms: 0.31,
-          offending_path: 'spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem',
-          expected_value: 'true',
-          actual_value: 'false',
-          remediation: 'Enable readOnlyRootFilesystem and use emptyDir mounts for scratch directories.',
-          suggested_patch: `spec:\n  containers:\n    - name: agent\n      securityContext:\n        readOnlyRootFilesystem: true\n      volumeMounts:\n        - name: tmp\n          mountPath: /tmp`,
-        },
-      ]
-    }
-
-    // Default: EU AI Act checks
-    return [
-      {
-        id: 'EU-AI-ACT-ART-14',
-        name: 'EU AI Act Art 14: Human Oversight Intervention Interface',
-        description: 'High-risk autonomous agents must expose a human-in-the-loop override channel and emergency stun receiver.',
-        severity: 'critical',
-        cel_expression: "has(agent.guardrails) && agent.guardrails.human_override_active == true && has(agent.governance.stun_endpoint)",
-        passed: false,
-        evaluated_at: '2026-10-14T01:20:00Z',
-        cost_units: 18,
-        duration_ms: 0.48,
-        offending_path: 'agent.guardrails.human_override_active',
-        expected_value: 'true',
-        actual_value: 'false (supervisor unacknowledged)',
-        remediation: 'Configure designated human operator identity in agent manifest and register emergency stun endpoint.',
-        suggested_patch: `apiVersion: governance.signalloom.dev/v1alpha1\nkind: AgentGovernanceProfile\nmetadata:\n  name: ${currentAgent.name}-oversight\nspec:\n  humanOversight:\n    enabled: true\n    designatedSupervisors:\n      - "operator@signalloom.demo"\n    emergencyStunPolicy: graceful-freeze`,
-      },
-      {
-        id: 'EU-AI-ACT-ART-12',
-        name: 'EU AI Act Art 12: Continuous Audit Logging & Traceability',
-        description: 'All agent decision steps, prompt inputs, and tool execution traces must be cryptographically attested.',
-        severity: 'high',
-        cel_expression: "has(agent.telemetry) && agent.telemetry.provenance_attestation == 'in-toto-v1'",
-        passed: true,
-        evaluated_at: '2026-10-14T01:20:00Z',
-        cost_units: 14,
-        duration_ms: 0.38,
-      },
-      {
-        id: 'multi-agent-trust-boundary',
-        name: 'Art 15 / NIST: Multi-Agent Mutual TLS & SPIFFE Trust Domain',
-        description: 'Inter-agent communication must authenticate peer SVID within the signalloom.demo trust domain.',
-        severity: 'critical',
-        cel_expression: "has(request.peer.trust_domain) && request.peer.trust_domain == 'signalloom.demo' && request.peer.mtls_authenticated == true",
-        passed: true,
-        evaluated_at: '2026-10-14T01:20:00Z',
-        cost_units: 16,
-        duration_ms: 0.41,
-      },
-      {
-        id: 'prompt-injection-guardrail-active',
-        name: 'Art 9 / OWASP: Active Prompt Injection Defense Guardrail',
-        description: 'Agent input ingestion pipeline must employ verified prompt sanitization and adversarial guardrails.',
-        severity: 'high',
-        cel_expression: 'has(agent.guardrails) && agent.guardrails.prompt_injection_filter == true',
-        passed: false,
-        evaluated_at: '2026-10-14T01:20:00Z',
-        cost_units: 20,
-        duration_ms: 0.52,
-        offending_path: 'agent.guardrails.prompt_injection_filter',
-        expected_value: 'true',
-        actual_value: 'false (bypass detected in system prompt)',
-        remediation: 'Attach standard Signal Loom Prompt Guardrail filter to incoming inference messages.',
-        suggested_patch: `spec:\n  guardrails:\n    promptInjectionFilter: true\n    maxInputTokens: 8192\n    contentModerationStrictness: High`,
-      },
-      {
-        id: 'model-catalog-registration',
-        name: 'Art 13: Approved Enterprise Model Catalog Registration',
-        description: 'Underlying foundation model must be signed and registered in the enterprise approved catalog.',
-        severity: 'medium',
-        cel_expression: 'has(agent.registry) && agent.registry.model_registered == true',
-        passed: true,
-        evaluated_at: '2026-10-14T01:20:00Z',
-        cost_units: 10,
-        duration_ms: 0.29,
-      },
-    ]
-  }, [normalizedFwId, currentAgent.name])
+  // Demo-only: the fixture checks below are never reached in live mode.
+  const evaluationChecks: PolicyCheckResult[] = useMemo(
+    () => demoPolicyEvaluationChecks(normalizedFwId, currentAgent.name),
+    [normalizedFwId, currentAgent.name],
+  )
 
   // Filter checks if violation query param or status filter is present
   const violations = useMemo(() => evaluationChecks.filter(c => !c.passed), [evaluationChecks])
@@ -251,118 +292,12 @@ export default function PolicyEvaluationPage() {
     return evaluationChecks
   }, [evaluationChecks, statusFilter])
 
-  // Source Data Mock
-  const sourceData = useMemo(() => {
-    return {
-      apiVersion: 'v1',
-      kind: 'Pod',
-      metadata: {
-        name: currentAgent.name,
-        namespace: 'fe-signalloom-agents',
-        labels: {
-          'app.kubernetes.io/name': currentAgent.name,
-          'signalloom.ai/agent-id': currentAgent.id,
-          'signalloom.ai/framework': normalizedFwId,
-          'signalloom.ai/spiffe-id': currentAgent.spiffe_id,
-        },
-      },
-      spec: {
-        serviceAccountName: `${currentAgent.name}-sa`,
-        securityContext: {
-          runAsNonRoot: false,
-          seccompProfile: {
-            type: 'RuntimeDefault',
-          },
-        },
-        containers: [
-          {
-            name: 'agent-runtime',
-            image: `zot.registry.svc.cluster.local:5000/signalloom/${currentAgent.name}:v1.2.0`,
-            securityContext: {
-              allowPrivilegeEscalation: false,
-              readOnlyRootFilesystem: false,
-              privileged: false,
-            },
-            env: [
-              { name: 'AGENT_MODEL', value: currentAgent.model || 'claude-3-5-sonnet' },
-              { name: 'AGENT_TENANT_ID', value: 'tenant-demo' },
-              { name: 'SIGNAL_INGEST_ENDPOINT', value: 'http://signal-ingest:8082' },
-            ],
-            ports: [{ containerPort: 8080, name: 'http' }],
-          },
-        ],
-      },
-      agent: {
-        id: currentAgent.id,
-        name: currentAgent.name,
-        spiffe_id: currentAgent.spiffe_id,
-        model: currentAgent.model,
-        guardrails: {
-          prompt_injection_filter: false,
-          human_override_active: false,
-        },
-        governance: {
-          stun_endpoint: 'http://signalloom-warden:9090/stun',
-        },
-        registry: {
-          model_registered: true,
-          catalog_id: 'cat-2026-sonnet',
-        },
-        telemetry: {
-          provenance_attestation: 'in-toto-v1',
-          ebpf_monitored: true,
-        },
-      },
-      request: {
-        peer: {
-          trust_domain: 'signalloom.demo',
-          mtls_authenticated: true,
-          subject_spiffe: 'spiffe://signalloom.demo/ns/fe-signalloom/sa/discovery-portal',
-        },
-      },
-    }
-  }, [currentAgent, normalizedFwId])
+  const sourceData = useMemo(() => demoPolicyEvaluationSource(currentAgent, normalizedFwId), [currentAgent, normalizedFwId])
 
-  // In-toto Statement v1 Attestation Object
-  const inTotoAttestation = useMemo(() => {
-    return {
-      _type: 'https://in-toto.io/Statement/v1',
-      predicateType: 'https://signalloom.dev/attestation/compliance/v1',
-      subject: [
-        {
-          name: currentAgent.name,
-          uri: currentAgent.spiffe_id,
-          digest: {
-            sha256: '9f83c182a47e2b109c00b832a76f291048a90123456789abcdef0123456789abc',
-          },
-        },
-      ],
-      predicate: {
-        framework: {
-          id: normalizedFwId,
-          name: normalizedFwId === 'k8s-cis-benchmark' ? 'CIS Kubernetes Benchmark' : 'EU AI Act',
-          version: 'v2.1.0',
-        },
-        evaluation: {
-          status: violations.length > 0 ? 'FAILED' : 'PASSED',
-          timestamp: '2026-10-14T01:20:00Z',
-          evaluator: 'policy-engine/cel-runtime@v2.1.0',
-          evidenceRef: `cel://assessments/${currentAgent.name}/${normalizedFwId}/2026-10-14`,
-          summary: {
-            total: evaluationChecks.length,
-            passed: evaluationChecks.filter(c => c.passed).length,
-            failed: violations.length,
-            score: (evaluationChecks.filter(c => c.passed).length / evaluationChecks.length).toFixed(2),
-          },
-        },
-        witness: {
-          signer: 'cosign:local-demo-only',
-          keyId: 'sha256:d8a264a782b1c4e9f908e2ba41b0',
-          verified: true,
-        },
-      },
-    }
-  }, [currentAgent, normalizedFwId, evaluationChecks, violations])
+  const inTotoAttestation = useMemo(
+    () => demoPolicyEvaluationAttestation(currentAgent, normalizedFwId, evaluationChecks, violations),
+    [currentAgent, normalizedFwId, evaluationChecks, violations],
+  )
 
   const handleCopyDeepLink = () => {
     navigator.clipboard.writeText(window.location.href)

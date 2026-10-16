@@ -8,9 +8,11 @@ Upstream HTTP is stubbed with respx; nothing leaves the process.
 """
 from __future__ import annotations
 
-import json
+import secrets
+import tempfile
 import time
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import contextmanager
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -22,10 +24,11 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
 import api_compat
+import connector_credentials
 from api_compat import ComplianceSummaryInline, settings
 from db.connection import set_pool_for_testing
-from routers import connectors as connectors_mod
 from routers.connectors import SyncResult, reset_connectors_for_testing
+from tests.connector_store_fake import FakeConnectorPool
 
 ANTHROPIC = "https://api.anthropic.com"
 OPENAI = "https://api.openai.com"
@@ -53,60 +56,8 @@ def _token(subject: str) -> dict[str, str]:
 
 
 
-class _Conn:
-    def __init__(self, pool: "_LivePool") -> None:
-        self._pool = pool
-
-    @asynccontextmanager
-    async def transaction(self):
-        yield self
-
-    async def execute(self, sql: str, *args: Any) -> str:
-        self._pool.executed.append((sql, args))
-        return "OK"
-
-    async def fetch(self, *_a: Any, **_k: Any) -> list[Any]:
-        return []
-
-    async def fetchrow(self, *_a: Any, **_k: Any) -> None:
-        return None
-
-    async def fetchval(self, *_a: Any, **_k: Any) -> None:
-        return None
-
-
-class _LivePool:
-    """Stands in for asyncpg: records every statement, returns empty reads."""
-
-    def __init__(self) -> None:
-        self.executed: list[tuple[str, tuple[Any, ...]]] = []
-
-    @asynccontextmanager
-    async def acquire(self):
-        yield _Conn(self)
-
-    async def execute(self, sql: str, *args: Any) -> str:
-        self.executed.append((sql, args))
-        return "OK"
-
-    async def fetch(self, *_a: Any, **_k: Any) -> list[Any]:
-        return []
-
-    async def fetchrow(self, *_a: Any, **_k: Any) -> None:
-        return None
-
-    async def fetchval(self, *_a: Any, **_k: Any) -> None:
-        return None
-
-    async def close(self) -> None:
-        pass
-
-    def audit_rows(self, event_type: str) -> list[dict[str, Any]]:
-        return [
-            {"tenant": args[0], "event_type": args[1], "actor": args[4], "detail": json.loads(args[5])}
-            for sql, args in self.executed
-            if "INSERT INTO audit_events" in sql and len(args) >= 6 and args[1] == event_type
-        ]
+# Keeps tenant_connectors rows like the real table; records every other statement.
+_LivePool = FakeConnectorPool
 
 
 @contextmanager
@@ -121,6 +72,10 @@ def _client(monkeypatch: pytest.MonkeyPatch, *, live: bool = True):
     monkeypatch.setattr(api_compat, "_jwk_client", lambda _url: _JWKClient())
     monkeypatch.setenv("ANTHROPIC_API_KEY", OPERATOR_KEY)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-admin-OPERATOR")
+    key_dir = tempfile.TemporaryDirectory()
+    key_file = Path(key_dir.name) / "connector-credential-key"
+    key_file.write_text(secrets.token_hex(32))
+    monkeypatch.setenv(connector_credentials.KEY_FILE_ENV, str(key_file))
 
     pool = _LivePool() if live else None
 
@@ -143,6 +98,7 @@ def _client(monkeypatch: pytest.MonkeyPatch, *, live: bool = True):
         for tenant in ("tenant-a", "tenant-b"):
             api_compat.reset_tenant_state(tenant)
         reset_connectors_for_testing()
+        key_dir.cleanup()
 
 
 def _create(client: TestClient, headers: dict[str, str], provider: str, credentials: dict[str, str] | None = None) -> str:
@@ -375,8 +331,7 @@ def test_supplied_credentials_test_does_not_persist(monkeypatch):
             assert (resp.json()["valid"], resp.json()["scopes_ok"]) == (True, True)
         assert _sent_keys(probe) == ["sk-ant-trial"] * 3
         assert client.get("/api/v1/connectors", headers=_token("alice")).json() == before
-        with connectors_mod._CONN_LOCK:
-            assert connectors_mod._TENANT_CONNECTOR_CREDENTIALS.get("tenant-a", {}) == {}
+        assert client.pool.connectors == {}
 
 
 def test_supplied_credentials_test_for_a_provider_without_a_verifier_is_501(monkeypatch):
@@ -598,8 +553,7 @@ def test_disconnect_then_reenable_does_not_reuse_the_old_key(monkeypatch):
         scan = client.post("/api/v1/connectors/claude/scan", headers=_token("alice")).json()
         assert scan["status"] == "error"
         assert len(mock.calls) == calls_before
-        with connectors_mod._CONN_LOCK:
-            assert connectors_mod._TENANT_CONNECTOR_CREDENTIALS.get("tenant-a", {}) == {}
+        assert client.pool.row("tenant-a", conn_id)["credentials_ciphertext"] is None
 
 
 def test_disconnect_drops_the_stored_scan_result(monkeypatch):

@@ -108,10 +108,10 @@ def test_repository_migration_versions_are_unique() -> None:
 
     assert len({migration.version for migration in migrations}) == len(migrations)
     assert [migration.filename for migration in migrations[-4:]] == [
-        "066_governance_frameworks_unique_and_policies.sql",
         "067_feature_flags_audit_event_type.sql",
         "068_seed_governance_frameworks.sql",
         "069_connector_scan_audit_event_type.sql",
+        "070_tenant_connectors.sql",
     ]
 
 

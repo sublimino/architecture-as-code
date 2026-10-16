@@ -10,6 +10,15 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 mode="${1:-all}"
 ENABLE_OBSERVABILITY="${ENABLE_OBSERVABILITY:-false}"
 
+# Kubeconfig resolution
+if [[ -z "${KUBECONFIG:-}" ]]; then
+  if [[ -f /tmp/osramp-kubeconfig.yaml ]]; then
+    export KUBECONFIG="/tmp/osramp-kubeconfig.yaml"
+  elif [[ -f /tmp/osramp.kubeconfig ]]; then
+    export KUBECONFIG="/tmp/osramp.kubeconfig"
+  fi
+fi
+
 REGISTRY="${REGISTRY:-localhost:5001/acme}"
 # shellcheck source=scripts/lib/fleet-source.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/fleet-source.sh"

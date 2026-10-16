@@ -462,3 +462,43 @@ def test_openai_project_key_rejected_by_admin_api_is_not_valid(monkeypatch):
         body = client.post(f"/api/v1/connectors/{conn_id}/test", headers=_token("alice")).json()
         assert body["scopes_ok"] is False
         assert "403" in body["error_msg"]
+
+
+# ---------------------------------------------------------------------------
+# 10. Timestamps are observations: stamped only when the thing happened.
+# ---------------------------------------------------------------------------
+
+def _row_for(client: TestClient, headers: dict[str, str], conn_id: str) -> dict[str, Any]:
+    conns = client.get("/api/v1/connectors", headers=headers).json()["connectors"]
+    return next(c for c in conns if c["connector_id"] == conn_id)
+
+
+def test_live_new_connector_has_no_invented_test_scan_or_expiry(monkeypatch):
+    with _client(monkeypatch) as client:
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        row = _row_for(client, _token("alice"), conn_id)
+        assert row["last_tested_at"] is None
+        assert row["last_scan_at"] is None
+        assert row["credential_expires_at"] is None
+
+
+def test_live_new_connector_keeps_a_caller_supplied_expiry(monkeypatch):
+    with _client(monkeypatch) as client:
+        resp = client.post("/api/v1/connectors", headers=_token("alice"), json={
+            "provider_id": "claude", "credentials": {"api_key": "k"}, "credential_expires_at": "2031-05-05T00:00:00Z"})
+        row = _row_for(client, _token("alice"), resp.json()["connector_id"])
+        assert row["credential_expires_at"] == "2031-05-05T00:00:00Z"
+
+
+def test_live_updating_a_connector_does_not_claim_it_was_tested(monkeypatch):
+    with _client(monkeypatch) as client:
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice-2"})
+        assert _row_for(client, _token("alice"), conn_id)["last_tested_at"] is None
+
+
+def test_fixture_new_connector_keeps_demo_timestamps(monkeypatch):
+    with _client(monkeypatch, live=False) as client:
+        conn_id = _create(client, _token("alice"), "okta", {"api_token": "t"})
+        row = _row_for(client, _token("alice"), conn_id)
+        assert row["last_tested_at"] and row["last_scan_at"] and row["credential_expires_at"]

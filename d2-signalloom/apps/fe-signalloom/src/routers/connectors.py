@@ -592,19 +592,24 @@ async def create_connector(
 ) -> ConnectorCreateResponse:
     """Create or update a connector configuration."""
     tenant_id = principal.tenant
-    _ensure_tenant_connectors_seeded(tenant_id, await _fixture_mode())
+    fixture = await _fixture_mode()
+    _ensure_tenant_connectors_seeded(tenant_id, fixture)
 
     with _CONN_LOCK:
         conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
         match = next((c for c in conns if c["provider_id"] == body.provider_id), None)
         now = _now_iso()
+        # Saving a connector is not testing or scanning it. Only fixture mode
+        # (no database) may show demo timestamps and a demo expiry; live rows
+        # get them when a verifier or scanner actually reports.
         if match:
             match["status"] = "connected"
             match["display_name"] = body.display_name or match.get("display_name")
             match["metadata"] = {**match.get("metadata", {}), **body.metadata}
             if body.credential_expires_at is not None:
                 match["credential_expires_at"] = body.credential_expires_at
-            match["last_tested_at"] = now
+            if fixture:
+                match["last_tested_at"] = now
             conn_id = match["connector_id"]
         else:
             conn_id = f"conn-{body.provider_id}-{len(conns) + 1:02d}"
@@ -613,9 +618,9 @@ async def create_connector(
                 "provider_id": body.provider_id,
                 "display_name": body.display_name or body.provider_id,
                 "status": "connected",
-                "credential_expires_at": body.credential_expires_at or "2027-01-01T00:00:00Z",
-                "last_tested_at": now,
-                "last_scan_at": now,
+                "credential_expires_at": body.credential_expires_at or ("2027-01-01T00:00:00Z" if fixture else None),
+                "last_tested_at": now if fixture else None,
+                "last_scan_at": now if fixture else None,
                 "metadata": body.metadata,
                 "created_at": now,
             }

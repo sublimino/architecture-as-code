@@ -178,7 +178,7 @@ export default function RemoteEnvironmentPage() {
   }
 
   return (
-    <div className="fade-in" style={{ maxWidth: 1200, margin: '0 auto' }}>
+    <div className="fade-in" data-testid="remote-environment-page" style={{ maxWidth: 1200, margin: '0 auto' }}>
       {/* Breadcrumb Navigation */}
       <nav aria-label="Breadcrumb" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
         <Link to="/settings" style={{ color: 'var(--muted)', textDecoration: 'none' }}>

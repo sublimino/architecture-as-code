@@ -358,6 +358,22 @@ describe('OnboardingWizard component', () => {
       expect(await screen.findByText(/risk profile was not saved/i)).toBeInTheDocument()
       expect(clientApi.patchRiskProfile).not.toHaveBeenCalled()
     })
+
+    it('surfaces the non-blocking risk-profile warning as an announced status, not an assertive error', async () => {
+      const user = userEvent.setup()
+      clientApi.settings.mockRejectedValueOnce(new Error('503'))
+      renderWizard({ mode: 'settings' })
+      await waitFor(() => expect(screen.getByTestId('input-jurisdiction')).toBeInTheDocument())
+      await user.selectOptions(screen.getByTestId('input-jurisdiction'), 'EU')
+      await user.click(screen.getByTestId('next-step-button'))
+
+      const warning = await screen.findByTestId('tenant-profile-warning')
+      expect(warning).toHaveAttribute('role', 'status')
+      expect(screen.queryByTestId('validation-error-banner')).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: /dismiss warning/i }))
+      expect(screen.queryByTestId('tenant-profile-warning')).not.toBeInTheDocument()
+    })
   })
 
   describe('Step 3: Scan preferences persist through the tenant settings API', () => {
@@ -610,6 +626,11 @@ describe('OnboardingWizard component', () => {
         expect(onCompleted).toHaveBeenCalled()
         expect(screen.getByTestId('onboarding-settings-completed-banner')).toBeInTheDocument()
       })
+
+      // The submit button that was just clicked unmounts with the step form;
+      // focus must land somewhere announced, not fall back to <body>.
+      expect(screen.getByTestId('onboarding-settings-completed-banner')).toHaveAttribute('role', 'status')
+      await waitFor(() => expect(screen.getByTestId('settings-done-button')).toHaveFocus())
 
       expect(screen.getByText(/Onboarding configuration updated successfully/i)).toBeInTheDocument()
       // No API persists the containment choices, so the banner must not claim

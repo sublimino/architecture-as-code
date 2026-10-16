@@ -205,8 +205,10 @@ describe('the declared risk profile in the onboarding wizard', () => {
     await user.click(screen.getByTestId('next-step-button'))
 
     // The warning is visible -- a silent failure would let the operator believe
-    // a declaration landed when it did not.
-    await waitFor(() => expect(screen.getByTestId('validation-error-banner')).toBeInTheDocument())
+    // a declaration landed when it did not. This is the non-blocking amber
+    // warning (tenant-profile-warning), not the red assertive validation
+    // banner used for the earlier blocking-validation tests in this file.
+    await waitFor(() => expect(screen.getByTestId('tenant-profile-warning')).toBeInTheDocument())
     // And the optional step did not become a wall.
     await waitFor(() => expect(screen.getByText('Identity Provider Linkage')).toBeInTheDocument())
   })

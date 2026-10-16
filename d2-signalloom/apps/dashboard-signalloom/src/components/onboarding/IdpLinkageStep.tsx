@@ -170,6 +170,40 @@ export default function IdpLinkageStep({
     setConfiguringId(opt.id)
   }
 
+  // Roving-tabindex radiogroup: only the selected card is a tab stop (ARIA
+  // radio authoring practice). Arrow keys both move and select, same as a
+  // native radio group, and need an explicit DOM focus() call afterwards
+  // since the newly-selected card wasn't under the pointer.
+  const radioRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const pendingFocusIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (pendingFocusIdRef.current === selectedId) {
+      radioRefs.current[selectedId]?.focus()
+      pendingFocusIdRef.current = null
+    }
+  }, [selectedId])
+
+  const selectOption = (id: string, options: { focus?: boolean } = {}) => {
+    setSelectedId(id)
+    if (options.focus) pendingFocusIdRef.current = id
+  }
+
+  const handleRadioKeyDown = (e: React.KeyboardEvent<HTMLDivElement>, id: string) => {
+    const idx = IDP_OPTIONS.findIndex((o) => o.id === id)
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      e.preventDefault()
+      selectOption(IDP_OPTIONS[(idx + 1) % IDP_OPTIONS.length].id, { focus: true })
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      selectOption(IDP_OPTIONS[(idx - 1 + IDP_OPTIONS.length) % IDP_OPTIONS.length].id, { focus: true })
+    } else if (e.key === ' ' || e.key === 'Enter') {
+      // Already selected (roving tabindex guarantees focus === selection);
+      // only prevent the page from scrolling on Space.
+      e.preventDefault()
+    }
+  }
+
   const verifyDex = async (): Promise<VerificationOutcome> => {
     if (!onTestConnection) {
       return { status: 'failed', message: 'No connection verifier is wired to this step, so nothing was checked.' }
@@ -219,52 +253,73 @@ export default function IdpLinkageStep({
       <ValidationErrorBanner errors={errors} onDismiss={() => setErrors([])} />
 
       {loadError && (
-        <div data-testid="idp-providers-error" role="alert" style={{ color: 'var(--error)', fontSize: 13, marginBottom: 16 }}>
-          Connector providers could not be loaded: {loadError}. Only in-cluster Dex can be configured.
-        </div>
+        <ValidationErrorBanner
+          errors={[`Connector providers could not be loaded: ${loadError}. Only in-cluster Dex can be configured.`]}
+        />
       )}
 
       <form noValidate onSubmit={handleSubmit}>
-        <div style={{ marginBottom: 24 }}>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 10 }}>
+        <fieldset style={{ border: 'none', padding: 0, margin: '0 0 24px' }}>
+          <legend id="idp-select-legend" style={{ padding: 0, width: '100%', fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 10 }}>
             Select Identity Provider
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+          </legend>
+          {/* .idp-radio-card is a role="radio" div, not a <button>, so it gets
+              none of the themed button:focus-visible ring from global.css.
+              Scoped here rather than in global.css (owned by the connectors
+              worktree) — same cyan ring token, same 2px offset. */}
+          <style>{'.idp-radio-card:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }'}</style>
+          <div
+            role="radiogroup"
+            aria-labelledby="idp-select-legend"
+            style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}
+          >
             {IDP_OPTIONS.map((opt) => {
               const isSelected = selectedId === opt.id
               return (
                 <div
                   key={opt.id}
                   data-testid={`idp-option-${opt.id}`}
-                  onClick={() => openConfigure(opt)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') openConfigure(opt)
-                  }}
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    alignItems: 'flex-start',
                     padding: '14px 16px',
                     borderRadius: 'var(--radius)',
                     border: isSelected ? '2px solid var(--cyan)' : '1px solid var(--border)',
                     background: isSelected ? 'var(--cyan-focus)' : 'var(--surface)',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    transition: 'all 0.15s ease',
+                    transition: 'all var(--motion-fast) var(--ease-signature)',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, width: '100%' }}>
-                    <ProviderLogo providerId={opt.id} displayName={opt.name} size={28} />
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', flex: 1 }}>{opt.name}</span>
-                    {opt.id === DEX_ID && (
-                      <span className="tag" style={{ background: 'var(--cyan-bg)', color: 'var(--cyan)', fontSize: 10 }}>
-                        Default
-                      </span>
-                    )}
+                  {/* The selectable radio covers just this header+tagline area.
+                      Configure is a sibling below, outside the radio, so no
+                      interactive control is nested inside another (I1). */}
+                  <div
+                    ref={(el) => { radioRefs.current[opt.id] = el }}
+                    role="radio"
+                    aria-checked={isSelected}
+                    aria-label={opt.name}
+                    tabIndex={isSelected ? 0 : -1}
+                    onClick={() => selectOption(opt.id)}
+                    onKeyDown={(e) => handleRadioKeyDown(e, opt.id)}
+                    className="idp-radio-card"
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      cursor: 'pointer',
+                      borderRadius: 'var(--radius-sm)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, width: '100%' }}>
+                      <ProviderLogo providerId={opt.id} displayName={opt.name} size={28} />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', flex: 1 }}>{opt.name}</span>
+                      {opt.id === DEX_ID && (
+                        <span className="tag" style={{ background: 'var(--cyan-bg)', color: 'var(--cyan)', fontSize: 10 }}>
+                          Default
+                        </span>
+                      )}
+                    </div>
+                    <span style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.4, flex: 1 }}>{opt.tagline}</span>
                   </div>
-                  <span style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.4, flex: 1 }}>{opt.tagline}</span>
                   <div
                     style={{
                       display: 'flex',
@@ -280,11 +335,7 @@ export default function IdpLinkageStep({
                       type="button"
                       className="btn btn-secondary btn-sm"
                       data-testid={`configure-idp-${opt.id}`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openConfigure(opt)
-                      }}
-                      style={{ fontSize: 11, padding: '3px 10px' }}
+                      onClick={() => openConfigure(opt)}
                     >
                       Configure
                     </button>
@@ -302,14 +353,19 @@ export default function IdpLinkageStep({
               )
             })}
           </div>
-        </div>
+        </fieldset>
 
         {selectedOutcome && (
           <div
+            role="status"
             data-testid={STATUS_TESTID[selectedOutcome.status]}
-            style={{ fontSize: 13, color: STATUS_COLOUR[selectedOutcome.status], lineHeight: 1.5, marginBottom: 8 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text)', lineHeight: 1.5, marginBottom: 8 }}
           >
-            {activeOption.name}: {selectedOutcome.message}
+            <span
+              aria-hidden="true"
+              style={{ width: 8, height: 8, borderRadius: '50%', background: STATUS_COLOUR[selectedOutcome.status], flexShrink: 0 }}
+            />
+            <span>{activeOption.name}: {selectedOutcome.message}</span>
           </div>
         )}
 

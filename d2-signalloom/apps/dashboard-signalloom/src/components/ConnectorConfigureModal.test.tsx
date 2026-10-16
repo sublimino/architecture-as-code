@@ -221,6 +221,41 @@ describe('ConnectorConfigureModal', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
+  // ── Design-system audit A7 cleanup ──────────────────────────────────────
+
+  it('lets .card supply the dialog surface instead of a duplicate inline background/border/radius', () => {
+    open()
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveClass('card')
+    const style = dialog.getAttribute('style') ?? ''
+    expect(style).not.toContain('background')
+    expect(style).not.toContain('border-radius')
+    // 'border' as a longhand (not just border-top etc.) must be absent too.
+    expect(style).not.toMatch(/(?:^|;)\s*border:/)
+  })
+
+  it('themes the stored-credentials note with tint() instead of the unthemed --cyan-focus/-border alpha ramp', () => {
+    open({ connector: stored })
+    const note = screen.getByTestId('connector-stored-credentials-note')
+    const style = note.getAttribute('style') ?? ''
+    expect(style).not.toContain('var(--cyan-focus)')
+    expect(style).not.toContain('var(--cyan-border)')
+    expect(style).toContain('color-mix(in srgb, var(--cyan)')
+  })
+
+  it('themes the save-error banner with tint() instead of the unthemed --red-focus/-border alpha ramp', async () => {
+    const user = userEvent.setup()
+    onSave.mockRejectedValue(new Error('403 forbidden'))
+    open()
+    await user.type(screen.getByTestId('wizard-field-api_key'), 'sk-ant-k')
+    await user.click(screen.getByTestId('btn-modal-save-connector'))
+    const banner = await screen.findByTestId('connector-save-error')
+    const style = banner.getAttribute('style') ?? ''
+    expect(style).not.toContain('var(--red-focus)')
+    expect(style).not.toContain('var(--red-border)')
+    expect(style).toContain('color-mix(in srgb, var(--error)')
+  })
+
   it('renders nothing when closed', () => {
     render(<ConnectorConfigureModal isOpen={false} provider={claude} onClose={onClose} onSave={onSave} />)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()

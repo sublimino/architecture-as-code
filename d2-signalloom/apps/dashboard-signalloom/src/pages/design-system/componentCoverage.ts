@@ -37,6 +37,7 @@ const SOURCE_SYMBOLS: readonly SourceSymbols[] = [
   ['components/ConnectorConfigureModal.tsx', 'ConnectorConfigureModal'],
   ['components/connectors/RemoteSyncBadge.tsx', 'RemoteSyncBadge'],
   ['components/connectors/SyncLogsModal.tsx', 'SyncLogsModal'],
+  ['components/connectors/SyncStatusPill.tsx', 'SyncStatusPill'],
   ['components/CodingAgentsTab.tsx', 'CodingAgentsTab'],
   ['components/agents/ClaimModal.tsx', 'ClaimModal'],
   ['components/DelegationChainNode.tsx', 'DelegationChainNode'],

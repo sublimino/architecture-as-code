@@ -4,6 +4,7 @@ import { useServerSuperadmin } from '../../auth/superadmin'
 import { useAuth0 } from '../../auth/oidc'
 import ProviderLogo from '../onboarding/ProviderLogo'
 import ButtonWait from '../ButtonWait'
+import LoadingState from '../LoadingState'
 
 export interface SyncLogsModalProps {
   isOpen: boolean
@@ -54,7 +55,7 @@ const pillStyle = {
   fontSize: 11,
   padding: '3px 8px',
   background: 'var(--surface)',
-  borderRadius: 4,
+  borderRadius: 'var(--radius-sm)',
   border: '1px solid var(--border)',
 }
 
@@ -216,7 +217,7 @@ export default function SyncLogsModal({
           display: 'flex',
           flexDirection: 'column',
           background: 'var(--surface)',
-          borderRadius: 8,
+          borderRadius: 'var(--radius)',
           border: '1px solid var(--border)',
           overflow: 'hidden',
         }}
@@ -250,7 +251,7 @@ export default function SyncLogsModal({
                       fontWeight: 600,
                       textTransform: 'uppercase',
                       padding: '2px 8px',
-                      borderRadius: 12,
+                      borderRadius: 'var(--radius)',
                       background: badge.bg,
                       color: badge.color,
                       border: `1px solid ${badge.border}`,
@@ -289,7 +290,7 @@ export default function SyncLogsModal({
               data-testid="sync-logs-error"
               style={{
                 padding: '10px 14px',
-                borderRadius: 6,
+                borderRadius: 'var(--radius-sm)',
                 background: 'var(--red-bg)',
                 border: '1px solid var(--red-border)',
                 color: 'var(--error)',
@@ -309,12 +310,12 @@ export default function SyncLogsModal({
                 gap: 8,
                 padding: '10px 14px',
                 background: 'var(--surface2)',
-                borderRadius: 6,
+                borderRadius: 'var(--radius-sm)',
                 border: '1px solid var(--border)',
               }}
             >
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', alignSelf: 'center', marginRight: 4 }}>
-                SCANNED:
+              <div className="label" style={{ color: 'var(--muted)', alignSelf: 'center', marginRight: 4 }}>
+                Scanned:
               </div>
               <span className="badge" style={pillStyle}>Agents ({count(syncResult.records_scanned.agents)})</span>
               <span className="badge" style={pillStyle}>Models ({count(syncResult.records_scanned.models)})</span>
@@ -323,8 +324,8 @@ export default function SyncLogsModal({
 
               <div style={{ width: 1, background: 'var(--border)', margin: '0 4px' }} />
 
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', alignSelf: 'center', marginRight: 4 }}>
-                CEL NETWORK RULES:
+              <div className="label" style={{ color: 'var(--muted)', alignSelf: 'center', marginRight: 4 }}>
+                Cel network rules:
               </div>
               {syncResult.policies_evaluated ? (
                 <>
@@ -356,7 +357,7 @@ export default function SyncLogsModal({
               data-testid="sync-logs-never-scanned"
               style={{
                 padding: '10px 14px',
-                borderRadius: 6,
+                borderRadius: 'var(--radius-sm)',
                 background: 'var(--surface2)',
                 border: '1px dashed var(--border-subtle)',
                 color: 'var(--muted)',
@@ -376,7 +377,7 @@ export default function SyncLogsModal({
                 alignItems: 'center',
                 gap: 8,
                 padding: '10px 14px',
-                borderRadius: 6,
+                borderRadius: 'var(--radius-sm)',
                 background: 'var(--cyan-bg)',
                 border: '1px solid var(--cyan-border)',
                 color: 'var(--cyan)',
@@ -393,14 +394,14 @@ export default function SyncLogsModal({
               <input
                 type="text"
                 data-testid="sync-log-search"
-                placeholder="Search logs, endpoints, messages..."
+                placeholder="Search logs, endpoints, messages…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 style={{
                   flex: 1,
                   padding: '6px 10px',
                   fontSize: 12,
-                  borderRadius: 4,
+                  borderRadius: 'var(--radius-sm)',
                   background: 'var(--surface2)',
                   border: '1px solid var(--border)',
                   color: 'var(--text)',
@@ -414,7 +415,7 @@ export default function SyncLogsModal({
                 style={{
                   padding: '6px 10px',
                   fontSize: 12,
-                  borderRadius: 4,
+                  borderRadius: 'var(--radius-sm)',
                   background: 'var(--surface2)',
                   border: '1px solid var(--border)',
                   color: 'var(--text)',
@@ -437,7 +438,6 @@ export default function SyncLogsModal({
                 className="btn btn-secondary btn-sm"
                 onClick={handleCopyLogs}
                 disabled={!syncResult}
-                style={{ fontSize: 12, padding: '5px 12px' }}
               >
                 {copied ? 'Copied!' : 'Copy Logs'}
               </button>
@@ -448,7 +448,7 @@ export default function SyncLogsModal({
                 onClick={handleRescan}
                 disabled={loading || rescanning}
                 aria-busy={rescanning}
-                style={{ fontSize: 12, padding: '5px 12px', minWidth: 84, justifyContent: 'center' }}
+                style={{ minWidth: 84, justifyContent: 'center' }}
               >
                 {/* The shared in-button wait, not a bespoke "Scanning…" word. See ButtonWait. */}
                 {rescanning
@@ -464,19 +464,19 @@ export default function SyncLogsModal({
               flex: 1,
               minHeight: 280,
               background: 'var(--surface2)',
-              borderRadius: 6,
+              borderRadius: 'var(--radius-sm)',
               border: '1px solid var(--border)',
               padding: 12,
-              fontFamily: 'monospace',
               fontSize: 12,
               overflowY: 'auto',
               display: 'flex',
               flexDirection: 'column',
               gap: 8,
             }}
+            className="mono"
           >
             {loading ? (
-              <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 24 }}>Loading sync telemetry...</div>
+              <LoadingState variant="block" status="loading" label="sync telemetry" testId="sync-logs-loading" />
             ) : !syncResult ? (
               <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 24 }}>No scan logs to show.</div>
             ) : filteredLogs.length === 0 ? (
@@ -493,7 +493,7 @@ export default function SyncLogsModal({
                     style={{
                       padding: '8px 10px',
                       background: 'var(--surface)',
-                      borderRadius: 4,
+                      borderRadius: 'var(--radius-sm)',
                       border: '1px solid var(--border)',
                       display: 'flex',
                       flexDirection: 'column',
@@ -508,7 +508,7 @@ export default function SyncLogsModal({
                             fontWeight: 700,
                             textTransform: 'uppercase',
                             padding: '1px 6px',
-                            borderRadius: 3,
+                            borderRadius: 'var(--radius-sm)',
                             background: lt.bg,
                             color: lt.color,
                             border: `1px solid ${lt.border}`,
@@ -532,7 +532,7 @@ export default function SyncLogsModal({
                           marginTop: 4,
                           padding: '6px 8px',
                           background: 'var(--surface2)',
-                          borderRadius: 4,
+                          borderRadius: 'var(--radius-sm)',
                           borderLeft: '2px solid var(--violet)',
                           display: 'flex',
                           flexDirection: 'column',
@@ -559,7 +559,7 @@ export default function SyncLogsModal({
                                 margin: '6px 0 0 0',
                                 padding: 8,
                                 background: 'var(--surface)',
-                                borderRadius: 4,
+                                borderRadius: 'var(--radius-sm)',
                                 border: '1px solid var(--border)',
                                 color: 'var(--text)',
                                 fontSize: 11,

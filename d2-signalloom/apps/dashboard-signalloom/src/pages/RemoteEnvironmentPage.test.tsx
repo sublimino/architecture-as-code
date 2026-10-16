@@ -374,3 +374,95 @@ describe('RemoteEnvironmentPage (unknown provider)', () => {
     expect(list).not.toHaveBeenCalled()
   })
 })
+
+// ── Design-system audit A6: page shell, disclosure sections, tab wiring ────
+
+describe('RemoteEnvironmentPage (design-system A6 fixes)', () => {
+  describe('demo mode', () => {
+    beforeEach(() => setDemoMode(true))
+
+    it('renders the page h1 at the standard 22px size, not a page-local 24px', () => {
+      renderPage()
+      const h1 = screen.getByTestId('env-title')
+      expect(h1.style.fontSize).toBe('22px')
+    })
+
+    it('makes each Section header a single accessible disclosure button with aria-expanded', () => {
+      renderPage()
+      const toggle = screen.getByRole('button', { name: /toggle general section/i })
+      // The header (title + subtitle) stays visible either way — only the
+      // panel content collapses, same as before this fix.
+      expect(toggle).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByRole('heading', { name: /^General$/ })).toBeInTheDocument()
+      expect(screen.getByText('Workspace / Org ID')).toBeInTheDocument()
+
+      fireEvent.click(toggle)
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.getByRole('heading', { name: /^General$/ })).toBeInTheDocument()
+      expect(screen.queryByText('Workspace / Org ID')).not.toBeInTheDocument()
+
+      fireEvent.click(toggle)
+      expect(toggle).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByText('Workspace / Org ID')).toBeInTheDocument()
+    })
+
+    it('wires each tab to a tabpanel it controls', () => {
+      renderPage()
+      const generalTab = screen.getByTestId('env-tab-general')
+      const controlsId = generalTab.getAttribute('aria-controls')
+      expect(controlsId).toBeTruthy()
+      const panel = document.getElementById(controlsId!)
+      expect(panel).not.toBeNull()
+      expect(panel).toHaveAttribute('role', 'tabpanel')
+      expect(panel).toHaveAttribute('aria-labelledby', generalTab.id)
+    })
+
+    it('announces the Sync Now outcome through a live region', async () => {
+      renderPage()
+      const statusPill = screen.getByTestId('env-title').closest('div')!.querySelector('[role="status"]')
+      expect(statusPill).toBeTruthy()
+      fireEvent.click(screen.getByTestId('btn-env-sync-now'))
+      expect(await screen.findByText(/Synchronized just now/i)).toHaveAttribute('role', 'status')
+    })
+
+    it('replaces fontFamily: monospace inline styles with the shared .mono class', () => {
+      renderPage()
+      expect(screen.getByTestId('env-badge-id')).toHaveClass('mono')
+    })
+  })
+
+  describe('live mode', () => {
+    beforeEach(() => {
+      setDemoMode(false)
+      vi.spyOn(connectorsApi, 'listProviders').mockResolvedValue([provider])
+      vi.spyOn(connectorsApi, 'listConnectors').mockResolvedValue([connector])
+      vi.spyOn(connectorsApi, 'listRemoteAgents').mockResolvedValue(null)
+      vi.stubGlobal('fetch', createSseTestServer().fetch)
+    })
+
+    afterEach(() => {
+      cleanup()
+      connectorStreamStore.reset()
+      vi.unstubAllGlobals()
+    })
+
+    it('shows the shared LoadingState (not bare text) while the connector loads', async () => {
+      let resolveLogs: ((value: SyncResult | null) => void) | undefined
+      vi.spyOn(connectorsApi, 'getSyncLogs').mockImplementation(
+        () => new Promise((resolve) => { resolveLogs = resolve }),
+      )
+      renderPage()
+      expect(await screen.findByTestId('live-page-loading')).toBeInTheDocument()
+      expect(screen.queryByText('Loading connector...')).not.toBeInTheDocument()
+      resolveLogs?.(lastScan)
+      await waitFor(() => expect(screen.queryByTestId('live-page-loading')).not.toBeInTheDocument())
+    })
+
+    it('renders the connector id with the shared .mono class', async () => {
+      vi.spyOn(connectorsApi, 'getSyncLogs').mockResolvedValue(lastScan)
+      renderPage()
+      const el = await screen.findByText(/Connector ID:/)
+      expect(el).toHaveClass('mono')
+    })
+  })
+})

@@ -37,6 +37,7 @@ const EXPECTED_NAMES = [
   'CredentialActionsMenu',
   'AuditDetailDrawer',
   'AddClusterModal',
+  'SyncStatusPill',
 ] as const
 
 const EXPECTED_DEFERRALS = [

@@ -15,6 +15,7 @@ import { useAuth0 } from '../auth/oidc'
 import type { TenantConnector } from '../types/connectors'
 import SyncLogsModal from '../components/connectors/SyncLogsModal'
 import ButtonWait from '../components/ButtonWait'
+import LoadingState from '../components/LoadingState'
 import NotFoundPage from './NotFoundPage'
 import { isDemoMode, subscribeDemoMode } from '../api/demoMode'
 
@@ -34,31 +35,79 @@ const tone = {
 }
 
 const pill = { padding: '3px 10px', borderRadius: 99, fontSize: 12, fontWeight: 600 }
-const tileStyle = { padding: 14, background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }
+// radius 6 has no token (global.css declares only --radius 8px and
+// --radius-sm 4px); --radius-sm is the closer of the two (design-system
+// audit, rule 4).
+const tileStyle = { padding: 14, background: 'var(--surface2)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }
 const tileLabel = { fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 4 }
-const cardStyle = { padding: 22, marginBottom: 20, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }
+// background/border/borderRadius are deliberately absent: they duplicated
+// .card (rule 16) and are applied together with className="card" at every
+// call site. padding/marginBottom are a genuine override of .card's 20px
+// default and stay.
+const cardStyle = { padding: 22, marginBottom: 20 }
 
-function Section({ title, subtitle, testId, children }: { title: string; subtitle: string; testId?: string; children: ReactNode }) {
+let sectionCounter = 0
+
+/**
+ * A single accessible disclosure: the whole header is one <button
+ * aria-expanded>, not a <div onClick> wrapping a second, non-functional
+ * <button> (the audit's R2 — the inner button had no onClick of its own and
+ * only "worked" because the click bubbled up from the div, so it did nothing
+ * for a screen-reader or keyboard user who activates it directly).
+ */
+function Section({
+  title,
+  subtitle,
+  testId,
+  /** When set, wires this Section as the ARIA tabpanel for `env-tab-{tabId}`. */
+  tabId,
+  children,
+}: {
+  title: string
+  subtitle: string
+  testId?: string
+  tabId?: string
+  children: ReactNode
+}) {
   const [collapsed, setCollapsed] = useState(false)
+  const [panelId] = useState(() => `env-section-panel-${(sectionCounter += 1)}`)
+  const tabPanelProps = tabId
+    ? { role: 'tabpanel' as const, id: `env-tabpanel-${tabId}`, 'aria-labelledby': `env-tab-${tabId}` }
+    : null
   return (
-    <section className="card" data-testid={testId} style={cardStyle}>
-      <div
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, cursor: 'pointer' }}
+    <section className="card" data-testid={testId} style={cardStyle} {...tabPanelProps}>
+      <button
+        type="button"
+        aria-expanded={!collapsed}
+        aria-controls={panelId}
+        aria-label={`Toggle ${title} Section`}
         onClick={() => setCollapsed((c) => !c)}
+        className="btn-static"
+        style={{
+          display: 'flex',
+          width: '100%',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          marginBottom: 16,
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+          textAlign: 'left',
+          font: 'inherit',
+          color: 'inherit',
+        }}
       >
         <div>
           <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, color: 'var(--text)' }}>{title}</h2>
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>{subtitle}</p>
         </div>
-        <button
-          type="button"
-          style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 14 }}
-          aria-label={`Toggle ${title} Section`}
-        >
-          {collapsed ? '▶ Expand' : '▼ Collapse'}
-        </button>
-      </div>
-      {!collapsed && children}
+        <span aria-hidden="true" style={{ color: 'var(--muted)', fontSize: 14, flexShrink: 0 }}>
+          {collapsed ? '▶' : '▼'}
+        </span>
+      </button>
+      {!collapsed && <div id={panelId}>{children}</div>}
     </section>
   )
 }
@@ -183,7 +232,7 @@ function LiveEnvironmentView({ providerId }: { providerId: string }) {
       <Breadcrumb label={providerName} />
       {error && <ErrorBanner message={error} />}
       {loading ? (
-        <div style={{ color: 'var(--muted)', padding: 24 }}>Loading connector...</div>
+        <LoadingState variant="block" status="loading" label="connector" testId="live-page-loading" />
       ) : error && !connector && !syncResult ? null : !connector ? (
         <div className="card" data-testid="live-not-connected" style={cardStyle}>
           <p style={{ margin: 0, fontSize: 13, color: 'var(--text)' }}>
@@ -197,7 +246,7 @@ function LiveEnvironmentView({ providerId }: { providerId: string }) {
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-                  <h1 data-testid="env-title" style={{ fontSize: 24, fontWeight: 700, margin: 0, color: 'var(--text)' }}>
+                  <h1 data-testid="env-title" style={{ fontSize: 22, fontWeight: 700, margin: 0, color: 'var(--text)' }}>
                     {connector.display_name ?? providerName}
                   </h1>
                   <span style={{ ...pill, ...(connector.status === 'connected' ? tone.teal : tone.red) }}>{connector.status}</span>
@@ -208,7 +257,7 @@ function LiveEnvironmentView({ providerId }: { providerId: string }) {
                 <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)' }}>
                   <span>Provider: {providerName}</span>
                   <span>•</span>
-                  <span style={{ fontFamily: 'monospace' }}>Connector ID: {connector.connector_id}</span>
+                  <span className="mono">Connector ID: {connector.connector_id}</span>
                   <span>•</span>
                   <span>Last scanned: {fmtTs(syncResult?.synced_at)}</span>
                 </div>
@@ -265,7 +314,7 @@ function LiveEnvironmentView({ providerId }: { providerId: string }) {
               <Tile label="Last tested">{fmtTs(connector.last_tested_at)}</Tile>
               <Tile label="Credential expires">{connector.credential_expires_at ? fmtTs(connector.credential_expires_at) : 'Not reported'}</Tile>
             </div>
-            <pre style={{ ...tileStyle, margin: 0, fontSize: 12, fontFamily: 'monospace', color: 'var(--text)', overflowX: 'auto' }}>
+            <pre className="mono" style={{ ...tileStyle, margin: 0, fontSize: 12, color: 'var(--text)', overflowX: 'auto' }}>
               {JSON.stringify(connector.metadata, null, 2)}
             </pre>
           </Section>
@@ -399,9 +448,9 @@ function RemoteAgentsPanel({ providerId }: { providerId: string }) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{agentLabel(a)}</span>
                       <span style={{ ...pill, fontSize: 11, ...tone.muted }}>{a.kind}</span>
-                      {a.model && <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text)' }}>{a.model}</span>}
+                      {a.model && <span className="mono" style={{ fontSize: 11, color: 'var(--text)' }}>{a.model}</span>}
                     </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'monospace', marginTop: 4 }}>
+                    <div className="mono" style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
                       {a.external_id}
                       {a.version != null && ` • v${a.version}`}
                       {` • Last seen ${fmtTs(a.last_seen_at)}`}
@@ -485,10 +534,10 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-              <h1 data-testid="env-title" style={{ fontSize: 24, fontWeight: 700, margin: 0, color: 'var(--text)' }}>
+              <h1 data-testid="env-title" style={{ fontSize: 22, fontWeight: 700, margin: 0, color: 'var(--text)' }}>
                 {env.envName}
               </h1>
-              <span style={{ ...pill, ...tone.teal }}>{syncStatus || env.status}</span>
+              <span role="status" aria-live="polite" style={{ ...pill, ...tone.teal }}>{syncStatus || env.status}</span>
               <span data-testid="env-credit-balance" style={{ ...pill, ...tone.cyan }}>
                 {env.creditBalance}
               </span>
@@ -500,7 +549,7 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
               <span>•</span>
               <span>Organization: {env.orgName}</span>
               <span>•</span>
-              <span data-testid="env-badge-id" style={{ fontFamily: 'monospace' }}>
+              <span data-testid="env-badge-id" className="mono">
                 ID: {env.envId}
               </span>
               <span>•</span>
@@ -531,9 +580,13 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
         ].map((tab) => (
           <button
             key={tab.id}
+            id={`env-tab-${tab.id}`}
             role="tab"
             data-testid={`env-tab-${tab.id}`}
             aria-selected={activeTab === tab.id}
+            // "all" shows every section at once rather than a single panel,
+            // so it has no one tabpanel to point at.
+            aria-controls={tab.id === 'all' ? undefined : `env-tabpanel-${tab.id}`}
             onClick={() => setActiveTab(tab.id as EnvTabId)}
             style={{
               background: 'none',
@@ -553,7 +606,7 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
       </div>
 
       {show('general') && (
-        <Section title="General" subtitle="What this environment is, and where it runs.">
+        <Section title="General" subtitle="What this environment is, and where it runs." tabId="general">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
             <Tile label="Hosting">
               {env.hosting}
@@ -562,14 +615,14 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
             <Tile label="Name">{env.envName}</Tile>
             <Tile label="Description">{env.description}</Tile>
             <Tile label="Workspace / Org ID">
-              <span style={{ fontFamily: 'monospace' }}>{env.workspaceId}</span>
+              <span className="mono">{env.workspaceId}</span>
             </Tile>
           </div>
         </Section>
       )}
 
       {show('network') && (
-        <Section title="Network Egress & CEL Governance" subtitle="What the container can reach over the network and CEL policy conformance." testId="network-egress-section">
+        <Section title="Network Egress & CEL Governance" subtitle="What the container can reach over the network and CEL policy conformance." testId="network-egress-section" tabId="network">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             <Tile label="Outbound Policy">{env.outboundPolicy}</Tile>
             <div style={tileStyle}>
@@ -584,7 +637,7 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
               ) : (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {env.allowedHosts.map((h) => (
-                    <span key={h} style={{ fontSize: 12, fontFamily: 'monospace' }}>
+                    <span key={h} className="mono" style={{ fontSize: 12 }}>
                       {h}
                     </span>
                   ))}
@@ -605,7 +658,7 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
                     style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, padding: '10px 12px', background: 'var(--surface)', borderRadius: 5, border: '1px solid var(--border)' }}
                   >
                     <div>
-                      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', fontFamily: 'monospace' }}>{pol.name}</div>
+                      <div className="mono" style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>{pol.name}</div>
                       <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>{pol.description}</div>
                     </div>
                     <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', ...(pol.status === 'PASS' ? tone.teal : tone.red) }}>
@@ -620,12 +673,12 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
       )}
 
       {show('packages') && (
-        <Section title="Container Packages & Metadata" subtitle="Preinstalled runtime packages and operator bookkeeping metadata.">
+        <Section title="Container Packages & Metadata" subtitle="Preinstalled runtime packages and operator bookkeeping metadata." tabId="packages">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
             <Tile label="Packages">{env.packagesDescription}</Tile>
             <div style={tileStyle}>
               <div style={tileLabel}>Metadata</div>
-              <pre style={{ margin: 0, fontSize: 12, fontFamily: 'monospace', color: 'var(--text)', overflowX: 'auto' }}>
+              <pre className="mono" style={{ margin: 0, fontSize: 12, color: 'var(--text)', overflowX: 'auto' }}>
                 {JSON.stringify(env.metadata, null, 2)}
               </pre>
             </div>
@@ -634,7 +687,7 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
       )}
 
       {show('agents') && (
-        <Section title="Connected Agents & Workloads" subtitle="Agents discovered running in this remote container environment.">
+        <Section title="Connected Agents & Workloads" subtitle="Agents discovered running in this remote container environment." tabId="agents">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {env.connectedAgents.map((ag) => (
               <div
@@ -647,9 +700,9 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
                     <span style={{ padding: '1px 6px', borderRadius: 99, fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', ...(ag.status === 'active' ? tone.teal : tone.muted) }}>
                       {ag.status}
                     </span>
-                    {ag.model && <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text)' }}>{ag.model}</span>}
+                    {ag.model && <span className="mono" style={{ fontSize: 11, color: 'var(--text)' }}>{ag.model}</span>}
                   </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'monospace', marginTop: 4 }}>
+                  <div className="mono" style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
                     Session: {ag.sessionId} • Last active {ag.lastActive}
                     {ag.createdBy && ` • Created by ${ag.createdBy}`}
                   </div>

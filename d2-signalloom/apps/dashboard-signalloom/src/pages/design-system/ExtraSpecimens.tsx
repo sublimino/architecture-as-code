@@ -23,6 +23,7 @@ import TrustTopologyCanvas from '../../components/trust/TrustTopologyCanvas'
 import CredentialActionsMenu from '../../components/CredentialActionsMenu'
 import AuditDetailDrawer from '../../components/AuditDetailDrawer'
 import AddClusterModal from '../../components/AddClusterModal'
+import SyncStatusPill from '../../components/connectors/SyncStatusPill'
 import { CurrencyContext } from '../../money/CurrencyContext'
 import type { AgentState } from '../../api/fleetApi'
 import type { AuthorizationChain, ProvisionalActor } from '../../api/weaveApi'
@@ -56,6 +57,7 @@ export const EXTRA_SPECIMEN_NAMES = [
   'CredentialActionsMenu',
   'AuditDetailDrawer',
   'AddClusterModal',
+  'SyncStatusPill',
 ] as const satisfies readonly string[]
 
 type SpecimenName = (typeof EXTRA_SPECIMEN_NAMES)[number]
@@ -205,6 +207,16 @@ export function ExtraSpecimens() {
         <Specimen name="CredentialActionsMenu" source="components/CredentialActionsMenu.tsx"><CredentialActionsMenu onIssue={noop} onRevoke={noop} /></Specimen>
         <Specimen name="AuditDetailDrawer" source="components/AuditDetailDrawer.tsx"><OverlayButton name="AuditDetailDrawer" setActive={setActive} /><FixtureRouter><AuditDetailDrawer isOpen={active === 'AuditDetailDrawer'} event={AUDIT_EVENT} onClose={close} /></FixtureRouter></Specimen>
         <Specimen name="AddClusterModal" source="components/AddClusterModal.tsx"><OverlayButton name="AddClusterModal" setActive={setActive} />{active === 'AddClusterModal' && <AddClusterModal onAdd={noop} onClose={close} />}</Specimen>
+        <Specimen name="SyncStatusPill" source="components/connectors/SyncStatusPill.tsx">
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <SyncStatusPill tone="teal" label="Synced" />
+            <SyncStatusPill tone="cyan" label="Live" />
+            <SyncStatusPill tone="violet" label="Discovered" />
+            <SyncStatusPill tone="amber" label="Not yet scanned" />
+            <SyncStatusPill tone="red" label="Sync error" />
+            <SyncStatusPill tone="muted" label="Not configured" />
+          </div>
+        </Specimen>
       </div>
       <div data-testid="extra-deferrals" style={{ display: 'grid', gap: 8, marginTop: 16 }}>
         {DEFERRALS.map(([name, reason]) => <aside key={name} data-testid={`extra-deferral-${name}`} className="card" style={{ borderColor: 'var(--amber)', color: 'var(--muted)', fontSize: 12 }}><strong style={{ color: 'var(--amber)' }}>{name} deferred:</strong> {reason}</aside>)}

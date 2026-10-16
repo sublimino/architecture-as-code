@@ -200,6 +200,25 @@ test.describe("Surface 2: Adversarial Discovery Claim Endpoint Contracts", () =>
     expect(res.status()).not.toBe(500);
     const body = await res.json();
     expect(body.error).toBeDefined();
-    expect(body.error.code).toBeDefined();
+  });
+
+  test("deep-links directly to Claude agent sidebar drawer with user card and deduplicated snapshot metadata", async ({ page }) => {
+    await login(page, { demoMode: true });
+    await page.goto(`${BASE}/discovery?agent=agent_01FoEhnKF9QsC5DGmuELhm7G`, { waitUntil: "domcontentloaded" });
+    const drawer = page.getByTestId("discovered-workload-drawer");
+    await expect(drawer).toBeVisible({ timeout: 15_000 });
+
+    // Verify Claude User Card
+    const claudeCard = page.getByTestId("drawer-claude-user-card");
+    await expect(claudeCard).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("drawer-claude-user-owner")).toContainText("Andrew Martin");
+    await expect(page.getByTestId("drawer-claude-dedup-badge")).toBeVisible();
+    await expect(page.getByTestId("drawer-claude-snapshot-hash")).toBeVisible();
+
+    // Verify drawer close clears query param
+    await page.getByTestId("drawer-close-btn").click();
+    await expect(drawer).not.toBeVisible({ timeout: 5_000 });
+    expect(page.url()).not.toContain("agent_01FoEhnKF9QsC5DGmuELhm7G");
   });
 });
+

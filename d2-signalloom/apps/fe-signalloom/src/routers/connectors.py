@@ -822,9 +822,6 @@ async def test_supplied_credentials(
     verifier = _VERIFIERS.get(provider_id)
     if verifier is None:
         raise APIError(501, "test_unsupported", f"No credential verifier exists for provider '{provider_id}'")
-    await _audit_outbound_request(
-        principal, "connector.credentials_tested", {"provider_id": provider_id}, "Connector credential test",
-    )
     valid, scopes_ok, error_msg, message = await verifier(_supplied_credentials(body))
     return ConnectorTestResult(connector_id=None, valid=valid, scopes_ok=scopes_ok, error_msg=error_msg, message=message)
 

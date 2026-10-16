@@ -910,6 +910,11 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
     ("connectors.py", "delete_connector"): (
         "Tenant connector removal. Removes connector registration from tenant_connectors."
     ),
+    ("connectors.py", "test_supplied_credentials"): (
+        "Stateless credential probe for the connector wizard: one read-only GET "
+        "to the provider with credentials from the request body, which are "
+        "never stored; nothing in this service or upstream changes."
+    ),
     ("connectors.py", "test_connector"): (
         "Stateless diagnostic reachability and credentials probe for tenant connector; "
         "updates connector test timestamp and health status without creating separate audit trail entries."

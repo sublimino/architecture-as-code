@@ -74,7 +74,9 @@ LIVE_UNDOTTED_EVENT_TYPES = {"onboarding_completed", "onboarding_skipped"}
 # 067 adds feature_flags.updated on top of 063 and re-enumerates the whole vocabulary,
 # so it is now the migration that runs last (064 backfills agent ownership, 065 seeds page flags,
 # 066 deduplicates governance frameworks — none of the three touches this constraint).
-CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "067_feature_flags_audit_event_type.sql"
+# 069 adds connector.scan_requested on top of 067 and re-enumerates the whole
+# vocabulary (068 seeds governance frameworks and touches no constraint).
+CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "069_connector_scan_audit_event_type.sql"
 
 
 EVENT_TYPE_POSITION = 2

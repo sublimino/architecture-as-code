@@ -224,7 +224,7 @@ Local mode keeps this model without GitHub:
 | Path | Description |
 | --- | --- |
 | [`d2-signalloom/`](d2-signalloom/) | Signal Loom agent governance slice: dashboard, FastAPI backend, Fleet Manager, host sensors, the identity plane (`d2-signalloom/infra/inf-bao`), and Kagent (`d2-signalloom/infra/kagent`). Guide: [`d2-signalloom/AGENTS.md`](d2-signalloom/AGENTS.md). |
-| [`d2-signalloom/apps/docs-signalloom/`](d2-signalloom/apps/docs-signalloom/) | The user documentation site (Astro Starlight), served at `/docs` from its own container |
+| [`d2-signalloom/apps/docs-signalloom/`](d2-signalloom/apps/docs-signalloom/) | The documentation service (Astro Starlight), serving user documentation at `/docs` and the engineering portal at `/dev-docs` |
 | [`d2-k8s-afm/`](d2-k8s-afm/) | KubeSec-AFM slice: formal-methods RBAC privilege-escalation analysis. Guide: [`d2-k8s-afm/AGENTS.md`](d2-k8s-afm/AGENTS.md). |
 | [`d2-osramp-fleet/`](d2-osramp-fleet/) | Cluster definitions (`clusters/`), tenant ResourceSets (`tenants/`), and Terraform bootstrap (`terraform/`). Guide: [`d2-osramp-fleet/AGENTS.md`](d2-osramp-fleet/AGENTS.md). |
 | [`d2-infra/`](d2-infra/) | Cluster add-ons: cert-manager, Envoy Gateway, monitoring, Trivy. Guide: [`d2-infra/AGENTS.md`](d2-infra/AGENTS.md). |

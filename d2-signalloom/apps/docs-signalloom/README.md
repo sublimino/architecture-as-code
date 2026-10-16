@@ -8,9 +8,10 @@ repository-wide code licence.
 ## Local commands
 
 ```bash
-npm ci
-npm run check
-npm run build
+bun install
+bun run check
+bun run build
+bun run build:dev-docs
 ```
 
 NOTE: The directory has two lockfiles, [`bun.lock`](bun.lock) and

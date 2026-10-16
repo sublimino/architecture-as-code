@@ -68,7 +68,7 @@ and then deploys CPAI.
 ## Prerequisites
 
 1. Start the cluster foundation with `make up`.
-2. Check that `CPAI_CLI_ROOT` points to a checkout of `cpai-cli` that contains `Dockerfile.runtime`. It defaults to `/home/andy/src/cp/cpai-cli` ([`Makefile`](../Makefile)).
+2. Check that `CPAI_CLI_ROOT` points to a checkout of `cpai-cli` that contains `Dockerfile.runtime`. It defaults to `${HOME}/src/cp/cpai-cli` ([`Makefile`](../Makefile)).
 3. Run `gcloud auth application-default login`, or set
    `GOOGLE_APPLICATION_CREDENTIALS` to a service account key file.
    `make demo-cpai-up` makes the `cpai-gcp-adc` Secret from these credentials.

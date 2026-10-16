@@ -733,21 +733,15 @@ async def _fetch_live_anthropic_telemetry(api_key: str) -> dict[str, Any] | None
     try:
         async with httpx.AsyncClient(timeout=_UPSTREAM_TIMEOUT) as client:
             resp = await client.get(f"{ANTHROPIC_API}/v1/agents", headers={"x-api-key": api_key, **_ANTHROPIC_HEADERS})
-            if resp.status_code == 200:
-                data = resp.json()
-                agents = (data.get("data") or data.get("agents") or []) if isinstance(data, dict) else []
-                if isinstance(agents, list) and agents and isinstance(agents[0], dict) and agents[0].get("name"):
-                    first = agents[0]
-                    return {"agent_name": first["name"], "agent_id": first.get("id"), "agents": agents, "count": len(agents)}
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            agents = (data.get("data") or data.get("agents") or []) if isinstance(data, dict) else []
+            if isinstance(agents, list) and agents and isinstance(agents[0], dict) and agents[0].get("name"):
+                first = agents[0]
+                return {"agent_name": first["name"], "agent_id": first.get("id"), "agents": agents, "count": len(agents)}
     except Exception as exc:
         logger.debug("Anthropic agents listing failed: %s", exc)
-        if api_key.startswith("sk-ant-test") or api_key.startswith("sk-ant-mock"):
-            return {
-                "agent_name": "Daily News Jokester",
-                "agent_id": "agent_01FoEhnKF9QsC5DGmuELhm7G",
-                "agents": [{"id": "agent_01FoEhnKF9QsC5DGmuELhm7G", "name": "Daily News Jokester"}],
-                "count": 1,
-            }
     return None
 
 
@@ -849,17 +843,7 @@ async def test_connector(
         conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
         match = next((c for c in conns if c["connector_id"] == connector_id or c["provider_id"] == connector_id), None)
         if match is None:
-            known_provider_ids = {p.provider_id for p in STANDARD_PROVIDERS} | {"claude", "openai", "dex"}
-            if connector_id in known_provider_ids:
-                match = {
-                    "connector_id": f"conn-{connector_id}-01",
-                    "provider_id": connector_id,
-                    "display_name": connector_id.capitalize(),
-                    "status": "connected",
-                    "metadata": {},
-                }
-            else:
-                raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
+            raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
         match["last_tested_at"] = _now_iso()
         expires_at_str = match.get("credential_expires_at")
         problem = _stored_state_problem(match)

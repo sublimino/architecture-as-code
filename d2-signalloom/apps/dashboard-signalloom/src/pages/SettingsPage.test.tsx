@@ -35,7 +35,8 @@ vi.mock('../api/client', () => ({
   },
 }))
 
-vi.mock('../api/connectorsClient', () => ({
+vi.mock('../api/connectorsClient', async () => ({
+  ...(await vi.importActual<typeof import('../api/connectorsClient')>('../api/connectorsClient')),
   connectorsApi: {
     listProviders: vi.fn(),
     listConnectors: vi.fn(),

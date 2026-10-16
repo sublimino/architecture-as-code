@@ -80,12 +80,16 @@ if [[ -n "$unshare_bin" ]]; then
 fi
 
 if ((${#offline_isolation[@]} == 0)) && [[ -n "$nono_bin" ]]; then
+	local_tool_dirs=()
+	for d in "${HOME}/.local/bin" "${HOME}/.bun" "${HOME}/.hermes"; do
+		[[ -d "$d" ]] && local_tool_dirs+=(--allow "$d")
+	done
 	"$timeout_bin" --kill-after=1 "${command_timeout}s" \
-		"$nono_bin" wrap -s --allow-cwd --allow /tmp --allow "$repo_root" --allow "$run_dir" --block-net -- true \
+		"$nono_bin" wrap -s --allow-cwd --allow /tmp --allow "$repo_root" --allow "$run_dir" "${local_tool_dirs[@]}" --block-net -- true \
 		>"$run_dir/offline-probe-nono.log" 2>&1
 	nono_probe_exit=$?
 	if ((nono_probe_exit == 0)); then
-		offline_isolation=("$nono_bin" wrap -s --allow-cwd --allow /tmp --allow "$repo_root" --allow "$run_dir" --block-net --)
+		offline_isolation=("$nono_bin" wrap -s --allow-cwd --allow /tmp --allow "$repo_root" --allow "$run_dir" "${local_tool_dirs[@]}" --block-net --)
 	fi
 fi
 
@@ -120,7 +124,7 @@ run_check() {
 	local -a pipe_codes
 	"$timeout_bin" --kill-after=1 "${command_timeout}s" \
 		"${offline_isolation[@]}" \
-		env -i PATH="$PATH" HOME="${HOME:-/nonexistent}" TMPDIR="$run_dir" \
+		env -i PATH="$PATH" HOME="$run_dir" XDG_CONFIG_HOME="$run_dir" TMPDIR="$run_dir" \
 		TERM="${TERM:-dumb}" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
 		LANG=C LC_ALL=C "$tool" "$@" \
 		2>&1 | head -c 1048576 >"$run_dir/$id.log"

@@ -1117,11 +1117,11 @@ docs-dev-build: ## Build Signal Loom Engineering at /dev-docs/ with the adapted 
 	cd $(CURDIR)/d2-signalloom/apps/docs-signalloom && bun run build:dev-docs
 
 docs-dev-lint: ## Check engineering prose against adapted STE-Code rules, including new files. No cluster.
-	cd $(CURDIR)/d2-signalloom/apps/docs-signalloom && bun run lint:dev-docs
+	cd $(CURDIR)/d2-signalloom/apps/docs-signalloom && node scripts/ste-check.mjs
 	@bash -c 'shopt -s globstar nullglob; files=(d2-signalloom/apps/docs-signalloom/dev-docs/src/content/docs/**/*.md); test "$${#files[@]}" -gt 0; ./scripts/docs-lint.sh "$${files[@]}"'
 
 docs-dev-test: ## Test the adapted STE-Code gate used by the engineering build. No cluster.
-	cd $(CURDIR)/d2-signalloom/apps/docs-signalloom && bun run test:ste
+	cd $(CURDIR)/d2-signalloom/apps/docs-signalloom && node --test scripts/ste-check.test.mjs
 
 docs-dev-render-check: ## Build both portals and check engineering pages and architecture redirects in Chromium. No cluster.
 	PW_CHANNEL="$(if $(filter environment command line,$(origin PW_CHANNEL)),$(PW_CHANNEL),)" ./scripts/docs-render-check.sh docs.spec.ts --grep 'engineering|architecture'

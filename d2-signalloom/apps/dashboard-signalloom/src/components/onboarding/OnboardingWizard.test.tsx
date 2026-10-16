@@ -276,6 +276,31 @@ describe('OnboardingWizard component', () => {
         expect.objectContaining({ step_index: 2, provider_run_state: { dex: { status: 'connected' } } }),
       )
     })
+
+    it('allows selecting Claude provider and persists claude in wizard state upon advance', async () => {
+      const user = userEvent.setup()
+      resumeAt(1)
+      renderWizard()
+      await waitFor(() => expect(screen.getByText('Identity Provider Linkage')).toBeInTheDocument())
+
+      await user.click(screen.getByTestId('idp-option-claude'))
+      expect(screen.getByTestId('input-idp-issuer-url')).toHaveValue('https://api.anthropic.com/v1')
+      expect(screen.getByTestId('input-idp-client-id')).toHaveValue('wrkspc_default')
+
+      await user.click(screen.getByTestId('test-idp-connection-button'))
+      await screen.findByTestId('idp-connection-success')
+
+      await user.click(screen.getByTestId('next-step-button'))
+      await waitFor(() => expect(screen.getByTestId('preferences-step')).toBeInTheDocument())
+      expect(onboardingApi.putState).toHaveBeenCalledWith(
+        'test-bearer-token',
+        expect.objectContaining({
+          selected_provider_ids: ['claude'],
+          step_index: 2,
+          provider_run_state: { claude: { status: 'connected' } },
+        }),
+      )
+    })
   })
 
   describe('Step 3: Scan preferences persist through the tenant settings API', () => {

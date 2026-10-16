@@ -79,6 +79,22 @@ const IDP_OPTIONS: IdpOption[] = [
     defaultClientId: 'signalloom-aws-client',
     defaultScopes: 'openid profile email',
   },
+  {
+    id: 'claude',
+    name: 'Anthropic Claude',
+    tagline: 'Read-only agent discovery, model inventory, and CEL compliance governance.',
+    defaultIssuer: 'https://api.anthropic.com/v1',
+    defaultClientId: 'wrkspc_default',
+    defaultScopes: 'models.read messages.read batches.read',
+  },
+  {
+    id: 'openai',
+    name: 'OpenAI Platform',
+    tagline: 'Read-only assistant agent discovery, run telemetry, and tool permission audit.',
+    defaultIssuer: 'https://api.openai.com/v1',
+    defaultClientId: 'signalloom-openai-reader',
+    defaultScopes: 'assistants.read models.read threads.read',
+  },
 ]
 
 export default function IdpLinkageStep({
@@ -125,6 +141,8 @@ export default function IdpLinkageStep({
     setConnectionMessage(null)
   }
 
+  const isAiProvider = selectedIdpId === 'claude' || selectedIdpId === 'openai'
+
   const handleTestConnection = async () => {
     setTestingConnection(true)
     setConnectionStatus('idle')
@@ -132,7 +150,11 @@ export default function IdpLinkageStep({
 
     if (!issuerUrl.trim().startsWith('http://') && !issuerUrl.trim().startsWith('https://')) {
       setConnectionStatus('error')
-      setConnectionMessage('Invalid OIDC Issuer URL. Must start with https:// or http://')
+      setConnectionMessage(
+        isAiProvider
+          ? 'Invalid Endpoint URL. Must start with https:// or http://'
+          : 'Invalid OIDC Issuer URL. Must start with https:// or http://',
+      )
       setTestingConnection(false)
       return
     }
@@ -161,17 +183,25 @@ export default function IdpLinkageStep({
   const validate = (): boolean => {
     const errs: string[] = []
     if (!issuerUrl.trim()) {
-      errs.push('OIDC Issuer URL is required.')
+      errs.push(isAiProvider ? 'OIDC / Endpoint URL is required.' : 'OIDC Issuer URL is required.')
     } else if (!issuerUrl.trim().startsWith('http://') && !issuerUrl.trim().startsWith('https://')) {
-      errs.push('OIDC Issuer URL must be a valid HTTP or HTTPS address.')
+      errs.push(
+        isAiProvider
+          ? 'Endpoint URL must be a valid HTTP or HTTPS address.'
+          : 'OIDC Issuer URL must be a valid HTTP or HTTPS address.',
+      )
     }
 
     if (!clientId.trim()) {
-      errs.push('Client ID is required.')
+      errs.push(isAiProvider ? 'Client / Workspace ID is required.' : 'Client ID is required.')
     }
 
     if (!scopes.trim()) {
-      errs.push('At least one OIDC scope (e.g. openid) is required.')
+      errs.push(
+        isAiProvider
+          ? 'At least one scope is required.'
+          : 'At least one OIDC scope (e.g. openid) is required.',
+      )
     }
 
     setErrors(errs)
@@ -270,7 +300,7 @@ export default function IdpLinkageStep({
                 htmlFor="idp-issuer-url"
                 style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
               >
-                OIDC Issuer URL <span style={{ color: 'var(--error)' }}>*</span>
+                {isAiProvider ? 'OIDC / Endpoint URL' : 'OIDC Issuer URL'} <span style={{ color: 'var(--error)' }}>*</span>
               </label>
               <input
                 id="idp-issuer-url"
@@ -278,7 +308,13 @@ export default function IdpLinkageStep({
                 type="text"
                 value={issuerUrl}
                 onChange={(e) => setIssuerUrl(e.target.value)}
-                placeholder="https://..."
+                placeholder={
+                  selectedIdpId === 'claude'
+                    ? 'https://api.anthropic.com/v1'
+                    : selectedIdpId === 'openai'
+                    ? 'https://api.openai.com/v1'
+                    : 'https://...'
+                }
                 style={{
                   width: '100%',
                   padding: '9px 12px',
@@ -299,7 +335,7 @@ export default function IdpLinkageStep({
                   htmlFor="idp-client-id"
                   style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
                 >
-                  Client ID <span style={{ color: 'var(--error)' }}>*</span>
+                  {isAiProvider ? 'Client / Workspace ID' : 'Client ID'} <span style={{ color: 'var(--error)' }}>*</span>
                 </label>
                 <input
                   id="idp-client-id"
@@ -307,7 +343,13 @@ export default function IdpLinkageStep({
                   type="text"
                   value={clientId}
                   onChange={(e) => setClientId(e.target.value)}
-                  placeholder="client-id"
+                  placeholder={
+                    selectedIdpId === 'claude'
+                      ? 'wrkspc_xxxxxxxxxxxx'
+                      : selectedIdpId === 'openai'
+                      ? 'org-xxxxxxxx'
+                      : 'client-id'
+                  }
                   style={{
                     width: '100%',
                     padding: '9px 12px',
@@ -327,7 +369,7 @@ export default function IdpLinkageStep({
                   htmlFor="idp-client-secret"
                   style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
                 >
-                  Client Secret (Optional / Masked)
+                  {isAiProvider ? 'Secret / API Key (Optional / Masked)' : 'Client Secret (Optional / Masked)'}
                 </label>
                 <input
                   id="idp-client-secret"
@@ -335,7 +377,13 @@ export default function IdpLinkageStep({
                   type="password"
                   value={clientSecret}
                   onChange={(e) => setClientSecret(e.target.value)}
-                  placeholder="secret key"
+                  placeholder={
+                    selectedIdpId === 'claude'
+                      ? 'sk-ant-...'
+                      : selectedIdpId === 'openai'
+                      ? 'sk-admin-...'
+                      : 'secret key'
+                  }
                   style={{
                     width: '100%',
                     padding: '9px 12px',
@@ -356,7 +404,7 @@ export default function IdpLinkageStep({
                 htmlFor="idp-scopes"
                 style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}
               >
-                OAuth2 / OIDC Scopes
+                {isAiProvider ? 'Audit / Read Scopes' : 'OAuth2 / OIDC Scopes'}
               </label>
               <input
                 id="idp-scopes"
@@ -364,7 +412,13 @@ export default function IdpLinkageStep({
                 type="text"
                 value={scopes}
                 onChange={(e) => setScopes(e.target.value)}
-                placeholder="openid profile email"
+                placeholder={
+                  selectedIdpId === 'claude'
+                    ? 'models.read messages.read batches.read'
+                    : selectedIdpId === 'openai'
+                    ? 'assistants.read models.read threads.read'
+                    : 'openid profile email'
+                }
                 style={{
                   width: '100%',
                   padding: '9px 12px',
@@ -389,7 +443,7 @@ export default function IdpLinkageStep({
                 disabled={testingConnection}
                 style={{ fontSize: 12 }}
               >
-                {testingConnection ? 'Testing OIDC Endpoint…' : 'Test Provider Connection'}
+                {testingConnection ? 'Testing Endpoint…' : isAiProvider ? 'Test Connection' : 'Test Provider Connection'}
               </button>
 
               {connectionStatus === 'success' && (

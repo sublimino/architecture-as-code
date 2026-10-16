@@ -823,6 +823,7 @@ class RemoteAgentSync:
         self._loop_task = None
         self._streams.clear()
         self._due.clear()
+        self._stopping = False
 
     @property
     def running(self) -> bool:
@@ -881,16 +882,18 @@ class RemoteAgentSync:
 
     async def sync_connector(
         self, pool: Any, tenant_id: str, connector_key: str, *, scheduled: bool = False,
-        creds_override: dict[str, str] | None = None,
+        creds_override: dict[str, str] | None = None, connector: Any = None,
     ) -> SyncOutcome | None:
         """Full listing → diff → upsert / touch / mark gone → events. The one path for poll and scan.
 
         A scheduled sync takes the connector's advisory lock and skips when
         another replica holds it or has already polled within the interval. A
-        manual scan does neither: the operator asked for it now.
+        manual scan does neither: the operator asked for it now, and passes the
+        connector row it already read under the tenant's scope.
         """
         async with pool.acquire() as conn:
-            connector = await conn.fetchrow(SQL_CONNECTOR, tenant_id, connector_key)
+            if connector is None:
+                connector = await conn.fetchrow(SQL_CONNECTOR, tenant_id, connector_key)
             if connector is None or connector["status"] != "connected":
                 return None
             connector_id, provider_id = connector["connector_id"], connector["provider_id"]

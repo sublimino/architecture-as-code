@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import os
 import threading
 import time
 from datetime import datetime, timezone
@@ -21,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 import api_compat
 import connector_credentials
+import remote_agent_sync
 import superadmin
 from api_compat import (
     APIError,
@@ -165,6 +167,7 @@ class RecordsScanned(BaseModel):
     """Counts observed by one scan. ``None`` means not observed, never zero-as-placeholder."""
     model_config = ConfigDict(extra="ignore")
     agents: int | None = None
+    sessions: int | None = None
     models: int | None = None
     environments: int | None = None
     tools: int | None = None
@@ -1311,73 +1314,101 @@ def _redact_for(principal: Principal, result: SyncResult) -> SyncResult:
     })
 
 
-async def _scan_claude_live(provider_id: str, creds: dict[str, str]) -> SyncResult:
-    """List agents and models with the tenant's key; report exactly what came back."""
+_KIND_LABEL = {"agent": "agents", "session": "sessions"}
+
+
+async def _list_anthropic_models(key: str, logs: list[SyncLogEntry]) -> int | None:
+    """``GET /v1/models`` with the tenant's key: the one listing a scan adds to the sync."""
+    url = f"{ANTHROPIC_API}/v1/models"
+    started = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=_UPSTREAM_TIMEOUT) as client:
+            resp = await client.get(url, headers={"x-api-key": key, **_ANTHROPIC_HEADERS})
+    except httpx.HTTPError as exc:
+        logs.append(SyncLogEntry(
+            id=f"log-{len(logs) + 1}", timestamp=_now_iso(), level="error",
+            message=f"Listing Anthropic models failed before a response ({type(exc).__name__}).",
+            endpoint=f"GET {url}", duration_ms=int((time.monotonic() - started) * 1000),
+        ))
+        return None
+    elapsed = int((time.monotonic() - started) * 1000)
+    items = None
+    if resp.status_code == 200:
+        try:
+            payload = resp.json()
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict) and isinstance(payload.get("data"), list):
+            items = payload["data"]
+    if items is None:
+        logs.append(SyncLogEntry(
+            id=f"log-{len(logs) + 1}", timestamp=_now_iso(), level="error",
+            message=f"Listing Anthropic models failed (HTTP {resp.status_code}).",
+            endpoint=f"GET {url}", status_code=resp.status_code, duration_ms=elapsed,
+        ))
+        return None
+    logs.append(SyncLogEntry(
+        id=f"log-{len(logs) + 1}", timestamp=_now_iso(), level="info", message=f"Listed {len(items)} Anthropic models.",
+        endpoint=f"GET {url}", status_code=200, duration_ms=elapsed, details={"count": len(items)},
+    ))
+    return len(items)
+
+
+async def _scan_live(pool: Any, tenant_id: str, row: Any, creds: dict[str, str]) -> SyncResult:
+    """A manual scan: the same adapter, diff and persistence the continuous sync uses, now.
+
+    Counts are what this scan's listing returned; a kind whose listing failed
+    is ``None``, never zero.
+    """
+    provider_id = row["provider_id"]
+    adapter = remote_agent_sync.ADAPTERS[provider_id]
     started = time.monotonic()
     now = _now_iso()
-    key = creds.get("api_key")
-    if not key:
+    if not adapter.credential(creds):
         return SyncResult(
             provider_id=provider_id, synced_at=now, duration_ms=int((time.monotonic() - started) * 1000),
             status="error", records_scanned=RecordsScanned(), policies_evaluated=None,
             logs=[SyncLogEntry(id="log-1", timestamp=now, level="error",
-                               message="No Anthropic API key is stored for this connector; no request was made.")],
+                               message=f"No {adapter.display_name} API key is stored for this connector; no request was made.")],
         )
 
-    counts: dict[str, int | None] = {"agents": None, "models": None}
+    outcome = await remote_agent_sync.SYNC.sync_connector(
+        pool, tenant_id, row["connector_id"], creds_override=creds, connector=row,
+    )
+    listing = outcome.listing
     logs: list[SyncLogEntry] = []
-    headers = {"x-api-key": key, **_ANTHROPIC_HEADERS}
-    async with httpx.AsyncClient(timeout=_UPSTREAM_TIMEOUT) as client:
-        for index, (kind, path) in enumerate((("agents", "/v1/agents"), ("models", "/v1/models")), start=1):
-            url = f"{ANTHROPIC_API}{path}"
-            call_started = time.monotonic()
-            try:
-                resp = await client.get(url, headers=headers)
-            except httpx.HTTPError as exc:
-                logs.append(SyncLogEntry(
-                    id=f"log-{index}", timestamp=_now_iso(), level="error",
-                    message=f"Listing Anthropic {kind} failed before a response ({type(exc).__name__}).",
-                    endpoint=f"GET {url}", duration_ms=int((time.monotonic() - call_started) * 1000),
-                ))
-                continue
-            elapsed = int((time.monotonic() - call_started) * 1000)
-            items: list[Any] | None = None
-            if resp.status_code == 200:
-                try:
-                    payload = resp.json()
-                except ValueError:
-                    payload = None
-                if isinstance(payload, dict) and isinstance(payload.get("data"), list):
-                    items = payload["data"]
-            if items is None:
-                logs.append(SyncLogEntry(
-                    id=f"log-{index}", timestamp=_now_iso(), level="error",
-                    message=f"Listing Anthropic {kind} failed (HTTP {resp.status_code}).",
-                    endpoint=f"GET {url}", status_code=resp.status_code, duration_ms=elapsed,
-                ))
-                continue
-            counts[kind] = len(items)
-            details: dict[str, Any] = {"count": len(items)}
-            if kind == "agents":
-                details["agents"] = [
-                    {"id": a.get("id"), "name": a.get("name")} for a in items if isinstance(a, dict)
-                ]
-            logs.append(SyncLogEntry(
-                id=f"log-{index}", timestamp=_now_iso(), level="info",
-                message=f"Listed {len(items)} Anthropic {kind}.",
-                endpoint=f"GET {url}", status_code=resp.status_code, duration_ms=elapsed, details=details,
-            ))
+    for call in listing.calls:
+        failed = call.error is not None
+        logs.append(SyncLogEntry(
+            id=f"log-{len(logs) + 1}", timestamp=_now_iso(), level="error" if failed else "info",
+            message=(f"{call.endpoint} failed ({call.error})." if failed
+                     else f"Listed {call.count} {adapter.display_name} records."),
+            endpoint=call.endpoint, status_code=call.status_code, duration_ms=call.duration_ms,
+            details=None if failed else {"count": call.count},
+        ))
+    for error in listing.errors:
+        if error.status is None or error.status == 200 or not listing.calls:
+            # Not an HTTP failure already logged above (truncation, missing key).
+            logs.append(SyncLogEntry(id=f"log-{len(logs) + 1}", timestamp=_now_iso(), level="error", message=str(error)))
 
-    observed = sum(1 for v in counts.values() if v is not None)
+    counts: dict[str, int | None] = {}
+    for kind in listing.attempted_kinds:
+        counts[_KIND_LABEL.get(kind, kind)] = outcome.counts.get(kind, 0) if kind in listing.complete_kinds else None
+    observed = [kind in listing.complete_kinds for kind in listing.attempted_kinds]
+    if provider_id == "claude":
+        counts["models"] = await _list_anthropic_models(adapter.credential(creds) or "", logs)
+        observed.append(counts["models"] is not None)
+    status: Literal["success", "warning", "error"] = (
+        "success" if all(observed) and not listing.errors else ("warning" if any(observed) else "error"))
     return SyncResult(
         provider_id=provider_id, synced_at=now, duration_ms=int((time.monotonic() - started) * 1000),
-        status="success" if observed == len(counts) else ("warning" if observed else "error"),
-        records_scanned=RecordsScanned(**counts), policies_evaluated=None, logs=logs,
+        status=status, records_scanned=RecordsScanned(**counts), policies_evaluated=None, logs=logs,
     )
 
 
-# Providers with a live scanner. Every other provider answers 501 in live mode.
-_LIVE_SCANNERS = {"claude": _scan_claude_live}
+# Providers with a live scanner (a remote_agent_sync adapter). Every other
+# provider answers 501 in live mode.
+_LIVE_SCANNERS = remote_agent_sync.ADAPTERS
 
 
 def _scan_outcome(result: SyncResult) -> tuple[str | None, str | None]:
@@ -1434,7 +1465,7 @@ async def scan_connector(
 
     if scanner is not None:
         creds = _supplied_credentials(body) or _open_stored(tenant_id, row)
-        result = await scanner(canonical_provider, creds)
+        result = await _scan_live(pool, tenant_id, row, creds)
         scan_at, scan_error = _scan_outcome(result)
         await pool.execute(
             _SQL_RECORD_SCAN, tenant_id, connector_id, _ts_in(scan_at, "synced_at"),
@@ -1504,6 +1535,190 @@ async def get_connector_logs(
 
 
 # ---------------------------------------------------------------------------
+# Remote agentic runtime: read API, change stream, webhook
+# ---------------------------------------------------------------------------
+
+class RemoteAgent(BaseModel):
+    external_id: str
+    kind: str
+    name: str | None
+    model: str | None
+    status: str | None
+    version: str | None
+    external_updated_at: str | None
+    first_seen_at: str
+    last_seen_at: str
+    last_changed_at: str
+    gone_at: str | None
+
+
+class RemoteSyncState(BaseModel):
+    mode: Literal["poll", "poll+stream", "backoff"]
+    last_poll_at: str | None
+    last_success_at: str | None
+    last_error: str | None
+    next_poll_at: str | None
+    consecutive_failures: int
+
+
+class RemoteAgentsResponse(BaseModel):
+    provider_id: str
+    connector_id: str
+    sync_state: RemoteSyncState | None
+    agents: list[RemoteAgent]
+
+
+@router.get("/api/v1/connectors/stream")
+@router.get("/api/connectors/stream")
+@router.get("/connectors/stream")
+async def stream_connector_events(
+    request: Request,
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+) -> Response:
+    """Server-Sent Events of remote agent changes for the caller's tenant only.
+
+    Events: ``remote_agent.upserted`` {provider_id, connector_id, agent},
+    ``remote_agent.gone`` {provider_id, connector_id, external_id, gone_at},
+    ``connector.sync_state`` {provider_id, connector_id, sync_state}, and
+    ``stream.reset`` {} when a Last-Event-ID cannot be replayed (refetch).
+    ``: heartbeat`` every 15 s.
+    """
+    from fastapi.responses import StreamingResponse
+
+    frames = remote_agent_sync.sse_frames(
+        remote_agent_sync.EVENTS, principal.tenant, request.headers.get("last-event-id"),
+        request.is_disconnected, heartbeat=remote_agent_sync.HEARTBEAT_SECONDS, max_events=_STREAM_MAX_EVENTS,
+    )
+    return StreamingResponse(frames, media_type="text/event-stream",
+                             headers={"cache-control": "no-cache", "x-accel-buffering": "no"})
+
+
+# Tests bound a stream; production never sets this.
+_STREAM_MAX_EVENTS: int | None = None
+
+
+@router.get("/api/v1/connectors/{provider_id}/remote-agents", response_model=RemoteAgentsResponse)
+@router.get("/api/connectors/{provider_id}/remote-agents", response_model=RemoteAgentsResponse)
+@router.get("/connectors/{provider_id}/remote-agents", response_model=RemoteAgentsResponse)
+async def list_connector_remote_agents(
+    provider_id: str,
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+) -> RemoteAgentsResponse:
+    """What continuous sync last observed on the connector's platform, gone items included."""
+    tenant_id = principal.tenant
+    pool = await _store_pool("Reading remote agents")
+    if pool is None:
+        # Fixture mode: no sync runs and no remote state is invented.
+        _ensure_tenant_connectors_seeded(tenant_id)
+        with _CONN_LOCK:
+            match = next((c for c in _TENANT_CONNECTORS_DATA.get(tenant_id, [])
+                          if c["connector_id"] == provider_id or c["provider_id"] == provider_id), None)
+        if match is None:
+            raise APIError(404, "connector_not_configured", f"No connector '{provider_id}' for this tenant")
+        return RemoteAgentsResponse(provider_id=match["provider_id"], connector_id=match["connector_id"],
+                                    sync_state=None, agents=[])
+    row = await pool.fetchrow(_SQL_GET, tenant_id, provider_id)
+    if row is None:
+        raise APIError(404, "connector_not_configured", f"No connector '{provider_id}' for this tenant")
+    agents, state = await remote_agent_sync.list_remote_agents(pool, tenant_id, row["connector_id"])
+    return RemoteAgentsResponse(provider_id=row["provider_id"], connector_id=row["connector_id"],
+                                sync_state=state, agents=agents)
+
+
+ANTHROPIC_WEBHOOK_KEY_ENV = "ANTHROPIC_WEBHOOK_SIGNING_KEY"
+# "org_id=tenant_id,org_id2=tenant_id2": which tenant an Anthropic organisation's
+# events belong to. A Console webhook endpoint belongs to one organisation, so
+# this is deployment configuration, not tenant data.
+ANTHROPIC_WEBHOOK_ORGS_ENV = "ANTHROPIC_WEBHOOK_ORGANIZATIONS"
+_WEBHOOK_SEEN: dict[tuple[str, str], None] = {}
+_WEBHOOK_SEEN_MAX = 2048
+
+
+def _webhook_org_tenants() -> dict[str, str]:
+    out: dict[str, str] = {}
+    for pair in os.environ.get(ANTHROPIC_WEBHOOK_ORGS_ENV, "").split(","):
+        org, sep, tenant = pair.strip().partition("=")
+        if sep and org.strip() and tenant.strip():
+            out[org.strip()] = tenant.strip()
+    return out
+
+
+def _verify_anthropic_webhook(body: bytes, headers: dict[str, str], key: str) -> dict[str, Any]:
+    """The verified event as a dict; raises ValueError on any signature failure."""
+    import anthropic
+
+    client = anthropic.Anthropic(api_key="webhook-verification-only")
+    try:
+        event = client.beta.webhooks.unwrap(body.decode("utf-8"), headers=headers, key=key)
+    except Exception as exc:  # standardwebhooks.WebhookVerificationError and friends
+        raise ValueError(str(exc) or type(exc).__name__) from None
+    return event.model_dump(mode="json")
+
+
+@router.post("/api/v1/connectors/claude/webhook")
+@router.post("/api/connectors/claude/webhook")
+@router.post("/connectors/claude/webhook")
+async def anthropic_webhook(request: Request) -> JSONResponse:
+    """Anthropic's signed, thin event: re-fetch the resource it names, through the sync's diff path.
+
+    Disabled (404) unless ANTHROPIC_WEBHOOK_SIGNING_KEY is set. A bad signature
+    is 400; an organisation that maps to no tenant, or a tenant without a
+    connected Claude connector, is 404. Duplicate deliveries are answered 200
+    and ignored.
+    """
+    key = os.environ.get(ANTHROPIC_WEBHOOK_KEY_ENV, "").strip()
+    if not key:
+        raise APIError(404, "webhook_disabled", "Anthropic webhooks are not enabled on this deployment")
+    body = await request.body()
+    try:
+        event = _verify_anthropic_webhook(body, {k.lower(): v for k, v in request.headers.items()}, key)
+    except ValueError as exc:
+        raise APIError(400, "invalid_signature", f"Webhook signature verification failed: {exc}") from None
+
+    data = event.get("data") or {}
+    org_id, resource_type, resource_id = data.get("organization_id"), data.get("type") or "", data.get("id")
+    tenant_id = _webhook_org_tenants().get(org_id or "")
+    if tenant_id is None:
+        raise APIError(404, "unknown_organization", "No tenant is configured for this Anthropic organization")
+    pool = await _store_pool("Receiving an Anthropic webhook")
+    if pool is None:
+        raise APIError(404, "connector_not_configured", "Webhooks apply to live connectors only")
+    row = await pool.fetchrow(_SQL_GET, tenant_id, "claude")
+    if row is None or row["status"] != "connected":
+        raise APIError(404, "connector_not_configured", "No connected Anthropic Claude connector for this tenant")
+
+    event_id = str(event.get("id") or "")
+    if (tenant_id, event_id) in _WEBHOOK_SEEN:
+        return JSONResponse({"status": "duplicate", "event_id": event_id})
+    kind = "session" if resource_type.startswith("session.") else ("agent" if resource_type.startswith("agent.") else None)
+
+    async with _write(pool) as conn:
+        await api_compat._audit_log(
+            conn, tenant_id, "connector.scan_requested", None, None, f"anthropic-webhook:{org_id}",
+            {"connector_id": row["connector_id"], "provider_id": "claude", "trigger": "webhook",
+             "webhook_event_id": event_id, "event_type": resource_type, "resource_id": resource_id},
+        )
+    _WEBHOOK_SEEN[(tenant_id, event_id)] = None
+    while len(_WEBHOOK_SEEN) > _WEBHOOK_SEEN_MAX:
+        _WEBHOOK_SEEN.pop(next(iter(_WEBHOOK_SEEN)))
+
+    if kind is None or not resource_id:
+        return JSONResponse({"status": "ignored", "event_id": event_id})
+    try:
+        result = await remote_agent_sync.SYNC.refresh_item(
+            pool, tenant_id, row["connector_id"], kind, str(resource_id), deleted=resource_type.endswith(".deleted"),
+        )
+    except remote_agent_sync.ProviderError as exc:
+        # Accepted and recorded; the next poll retries. Anthropic need not redeliver.
+        return JSONResponse({"status": "refetch_failed", "event_id": event_id, "error": str(exc)})
+    return JSONResponse({"status": result, "event_id": event_id})
+
+
+def reset_webhook_dedupe_for_testing() -> None:
+    _WEBHOOK_SEEN.clear()
+
+
+# ---------------------------------------------------------------------------
 # App Installer Function
 # ---------------------------------------------------------------------------
 
@@ -1521,6 +1736,9 @@ def install_connectors_api(app: Any) -> None:
             test_supplied_credentials,
             scan_connector,
             get_connector_logs,
+            stream_connector_events,
+            list_connector_remote_agents,
+            anthropic_webhook,
         ):
             return
     app.include_router(router)

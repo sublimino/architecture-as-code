@@ -464,6 +464,7 @@ def test_connector_scan_claude(monkeypatch):
         assert data["duration_ms"] == 142
         assert data["records_scanned"] == {
             "agents": 1,
+            "sessions": None,
             "models": 2,
             "environments": 1,
             "tools": 4,

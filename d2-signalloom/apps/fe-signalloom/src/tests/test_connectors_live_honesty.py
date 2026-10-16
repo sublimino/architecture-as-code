@@ -29,6 +29,7 @@ from api_compat import ComplianceSummaryInline, settings
 from db.connection import set_pool_for_testing
 from routers.connectors import SyncResult, reset_connectors_for_testing
 from tests.connector_store_fake import FakeConnectorPool
+from tests.remote_agent_store_fake import FakeRemoteAgentPool
 
 ANTHROPIC = "https://api.anthropic.com"
 OPENAI = "https://api.openai.com"
@@ -57,7 +58,7 @@ def _token(subject: str) -> dict[str, str]:
 
 
 # Keeps tenant_connectors rows like the real table; records every other statement.
-_LivePool = FakeConnectorPool
+_LivePool = FakeRemoteAgentPool
 
 
 @contextmanager
@@ -178,6 +179,7 @@ def test_discovered_agent_name_updates_only_the_record_with_that_external_id():
 def test_live_scan_never_writes_agent_registry_by_pattern(monkeypatch):
     with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
         mock.get(f"{ANTHROPIC}/v1/agents").mock(return_value=httpx.Response(200, json={"data": [{"id": "agent_x", "name": "X"}]}))
+        sessions = mock.get(f"{ANTHROPIC}/v1/sessions").mock(return_value=httpx.Response(200, json={"data": [], "next_page": None}))
         mock.get(f"{ANTHROPIC}/v1/models").mock(return_value=httpx.Response(200, json={"data": []}))
         _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
         resp = client.post("/api/v1/connectors/claude/scan", headers=_token("alice"))
@@ -199,6 +201,7 @@ def test_scan_writes_an_audit_row_before_calling_upstream(monkeypatch):
             return httpx.Response(200, json={"data": []})
 
         mock.get(f"{ANTHROPIC}/v1/agents").mock(side_effect=_agents)
+        sessions = mock.get(f"{ANTHROPIC}/v1/sessions").mock(return_value=httpx.Response(200, json={"data": [], "next_page": None}))
         mock.get(f"{ANTHROPIC}/v1/models").mock(return_value=httpx.Response(200, json={"data": []}))
         conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
         resp = client.post("/api/v1/connectors/claude/scan", headers=_token("alice"))
@@ -216,6 +219,7 @@ def test_scan_writes_an_audit_row_before_calling_upstream(monkeypatch):
 
 def _mock_good_claude(mock: respx.MockRouter) -> None:
     mock.get(f"{ANTHROPIC}/v1/agents").mock(return_value=httpx.Response(200, json={"data": [{"id": "agent_1", "name": "One"}, {"id": "agent_2", "name": "Two"}]}))
+    sessions = mock.get(f"{ANTHROPIC}/v1/sessions").mock(return_value=httpx.Response(200, json={"data": [], "next_page": None}))
     mock.get(f"{ANTHROPIC}/v1/models").mock(return_value=httpx.Response(200, json={"data": [{"id": "m1"}, {"id": "m2"}, {"id": "m3"}]}))
 
 
@@ -234,6 +238,7 @@ def test_scan_and_logs_null_wire_traces_for_non_superadmin(monkeypatch):
         assert root.status_code == 200, root.text
         assert [(l["endpoint"], l["status_code"]) for l in root.json()["logs"]] == [
             ("GET https://api.anthropic.com/v1/agents", 200),
+            ("GET https://api.anthropic.com/v1/sessions", 200),
             ("GET https://api.anthropic.com/v1/models", 200),
         ]
 
@@ -250,9 +255,9 @@ def test_live_scan_reports_observed_counts_and_nothing_unobserved(monkeypatch):
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["status"] == "success"
-        assert body["records_scanned"] == {"agents": 2, "models": 3, "environments": None, "tools": None}
+        assert body["records_scanned"] == {"agents": 2, "sessions": 0, "models": 3, "environments": None, "tools": None}
         assert body["policies_evaluated"] is None
-        assert len(body["logs"]) == 2
+        assert len(body["logs"]) == 3
         text = " ".join(l["message"] for l in body["logs"])
         assert "CEL" not in text and "Daily News Jokester" not in text
 
@@ -260,6 +265,7 @@ def test_live_scan_reports_observed_counts_and_nothing_unobserved(monkeypatch):
 def test_live_scan_upstream_failure_is_reported_as_error_with_the_real_calls(monkeypatch):
     with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
         mock.get(f"{ANTHROPIC}/v1/agents").mock(return_value=httpx.Response(401, json={"error": "nope"}))
+        sessions = mock.get(f"{ANTHROPIC}/v1/sessions").mock(return_value=httpx.Response(401, json={"data": [], "next_page": None}))
         mock.get(f"{ANTHROPIC}/v1/models").mock(return_value=httpx.Response(401, json={"error": "nope"}))
         _create(client, _token("alice"), "claude", {"api_key": "sk-ant-bad"})
         resp = client.post("/api/v1/connectors/claude/scan", headers=_token("root"))
@@ -267,7 +273,7 @@ def test_live_scan_upstream_failure_is_reported_as_error_with_the_real_calls(mon
         body = resp.json()
         assert body["status"] == "error"
         assert body["records_scanned"]["agents"] is None and body["records_scanned"]["models"] is None
-        assert [(l["level"], l["status_code"]) for l in body["logs"]] == [("error", 401), ("error", 401)]
+        assert [(l["level"], l["status_code"]) for l in body["logs"]] == [("error", 401), ("error", 401), ("error", 401)]
 
 
 def test_live_scan_of_a_provider_without_a_live_scanner_is_501(monkeypatch):
@@ -467,6 +473,7 @@ def test_fixture_new_connector_keeps_demo_timestamps(monkeypatch):
 def test_live_unsuccessful_scan_does_not_stamp_last_scan_at_and_records_why(monkeypatch, agents_status, models_status, expected):
     with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
         mock.get(f"{ANTHROPIC}/v1/agents").mock(return_value=httpx.Response(agents_status, json={"data": []}))
+        sessions = mock.get(f"{ANTHROPIC}/v1/sessions").mock(return_value=httpx.Response(agents_status, json={"data": [], "next_page": None}))
         mock.get(f"{ANTHROPIC}/v1/models").mock(return_value=httpx.Response(models_status, json={"data": []}))
         conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
         resp = client.post("/api/v1/connectors/claude/scan", headers=_token("alice"))
@@ -491,10 +498,12 @@ def test_live_successful_scan_stamps_last_scan_at_with_the_scan_time(monkeypatch
 def test_live_failed_scan_after_a_success_keeps_the_last_successful_time(monkeypatch):
     with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
         agents = mock.get(f"{ANTHROPIC}/v1/agents").mock(return_value=httpx.Response(200, json={"data": []}))
+        sessions = mock.get(f"{ANTHROPIC}/v1/sessions").mock(return_value=httpx.Response(200, json={"data": [], "next_page": None}))
         models = mock.get(f"{ANTHROPIC}/v1/models").mock(return_value=httpx.Response(200, json={"data": []}))
         conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
         first = client.post("/api/v1/connectors/claude/scan", headers=_token("alice")).json()
         agents.mock(return_value=httpx.Response(500))
+        sessions.mock(return_value=httpx.Response(500))
         models.mock(return_value=httpx.Response(500))
         client.post("/api/v1/connectors/claude/scan", headers=_token("alice"))
         row = _row_for(client, _token("alice"), conn_id)

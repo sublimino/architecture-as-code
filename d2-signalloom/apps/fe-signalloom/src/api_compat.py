@@ -10507,6 +10507,42 @@ async def list_discovery_workloads(
             # An empty estate is an honest answer; never inject synthetic demo fixtures.
             pass
 
+        # 5. Remote managed agent platforms (Anthropic, OpenAI): exactly what
+        # remote_agent_sync last observed with the tenant's own key, items the
+        # provider no longer lists excluded. Only provider-reported fields; the
+        # control recommendations are the model's defaults, not an assessment.
+        if enabled_connectors.get("external_services", True):
+            import remote_agent_sync
+
+            labels = {pid: a.display_name for pid, a in remote_agent_sync.ADAPTERS.items()}
+            for r in await remote_agent_sync.discovery_rows(pool, tenant_id):
+                if not enabled_connectors.get(r["provider_id"], True):
+                    continue
+                workloads.append(
+                    DiscoveryWorkloadModel(
+                        id=f"{r['provider_id']}:{r['external_id']}",
+                        name=r["name"] or r["external_id"],
+                        tenant_id=tenant_id,
+                        source="external_services",
+                        source_label=labels.get(r["provider_id"], r["provider_id"]),
+                        namespace=None,
+                        owner=None,
+                        spiffe_id=None,
+                        model=r["model"],
+                        last_seen_at=_ts(r["last_seen_at"]),
+                        metadata={
+                            "provider_id": r["provider_id"],
+                            "connector_id": r["connector_id"],
+                            "external_id": r["external_id"],
+                            "kind": r["kind"],
+                            "remote_status": r["status"],
+                            "version": r["version"],
+                            "external_updated_at": _ts(r["external_updated_at"]),
+                            "first_seen_at": _ts(r["first_seen_at"]),
+                        },
+                    )
+                )
+
     else:
         # In-Memory Mode
         _ensure_seeded(tenant_id)

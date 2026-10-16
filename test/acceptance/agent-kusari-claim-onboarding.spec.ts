@@ -6,28 +6,25 @@ import { test, expect } from "./fixtures";
 import { login, config, getAuthToken } from "./helpers";
 
 const BASE = config.base;
-const DEFAULT_KUSARI_AGENT_ID = "agent-kusari-847cc7d984-mwg8c";
-
 test.describe("Kusari Agent Onboarding Guide & Claim Modal Pre-Flight Checks", () => {
-  let kusariAgentId = DEFAULT_KUSARI_AGENT_ID;
+  let kusariAgentId = "";
 
   test.beforeEach(async ({ page }) => {
     // Authenticate with live mode
     await login(page, { demoMode: false });
-    try {
-      const token = await getAuthToken(page);
-      const res = await page.request.get(`${BASE}/api/agents`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (res.ok()) {
-        const data = await res.json();
-        const list = Array.isArray(data) ? data : data.agents || [];
-        const match = list.find((a: any) => typeof a.id === "string" && a.id.startsWith("agent-kusari"));
-        if (match?.id) {
-          kusariAgentId = match.id;
-        }
-      }
-    } catch {}
+    // The agent id is a pod name and changes on every rollout, so it is read
+    // from the live API. A missing agent or a failed request fails here with
+    // the reason, instead of falling back to a stale hard-coded pod id.
+    const token = await getAuthToken(page);
+    const res = await page.request.get(`${BASE}/api/agents`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    expect(res.ok(), `GET /api/agents returned HTTP ${res.status()}`).toBe(true);
+    const data = await res.json();
+    const list: { id?: unknown }[] = Array.isArray(data) ? data : data.agents || [];
+    const match = list.find((a) => typeof a.id === "string" && a.id.startsWith("agent-kusari"));
+    expect(match, "no agent-kusari* workload in GET /api/agents").toBeTruthy();
+    kusariAgentId = match!.id as string;
   });
 
   test("Overview tab shows unclaimed banner with onboarding and pre-flight claim links", async ({ page }) => {

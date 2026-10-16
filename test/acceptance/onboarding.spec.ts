@@ -115,14 +115,19 @@ test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
       page.getByRole("heading", { level: 1, name: "Identity Provider Linkage" }),
     ).toBeVisible();
 
-    // Verify Dex OIDC default selection and test connection
-    const dexOption = page.locator('[data-testid="idp-option-dex"]');
-    await expect(dexOption).toBeVisible();
-    await dexOption.click();
-
-    const testConnBtn = page.locator('[data-testid="test-idp-connection-button"]');
-    await expect(testConnBtn).toBeVisible();
-    await testConnBtn.click();
+    // Dex is the portal's own issuer: its modal has no fields, and Test
+    // Connection is the session probe (GET /api/v1/me), not a connector test.
+    await expect(page.locator('[data-testid="idp-option-dex"]')).toBeVisible();
+    await page.locator('[data-testid="configure-idp-dex"]').click();
+    const dexDialog = page.getByRole("dialog");
+    await expect(dexDialog).toBeVisible();
+    await dexDialog.locator('[data-testid="btn-modal-test-connection"]').click();
+    await expect(dexDialog.locator('[data-testid="test-connection-success"]')).toContainText(
+      "Portal session verified",
+      { timeout: 10_000 },
+    );
+    await dexDialog.locator('[data-testid="btn-modal-save-connector"]').click();
+    await expect(dexDialog).toBeHidden();
 
     const connSuccess = page.locator('[data-testid="idp-connection-success"]');
     await expect(connSuccess).toBeVisible({ timeout: 10_000 });
@@ -227,36 +232,31 @@ test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
       page.getByRole("heading", { level: 1, name: "Identity Provider Linkage" }),
     ).toBeVisible();
 
-    // 1. Verify Claude (Anthropic) provider option and fields
-    const claudeOption = page.locator('[data-testid="idp-option-claude"]');
-    await expect(claudeOption).toBeVisible({ timeout: 10_000 });
-    await claudeOption.click();
+    // Each AI provider opens the real modal with the fields the backend
+    // declares (wizard_config), tests through the connector API, and saves.
+    // This suite runs with demo mode on, so the verdict comes from the
+    // connectors simulator and must say so.
+    for (const [id, key] of [
+      ["claude", "sk-ant-api03-acceptance-test-key"],
+      ["openai", "sk-proj-acceptance-test-key"],
+    ] as const) {
+      await expect(page.locator(`[data-testid="idp-option-${id}"]`)).toBeVisible({ timeout: 10_000 });
+      await page.locator(`[data-testid="configure-idp-${id}"]`).click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog).toBeVisible();
+      await expect(dialog.locator('[data-testid="tab-auth-oidc"]')).toHaveCount(0);
+      await dialog.locator('[data-testid="wizard-field-api_key"]').fill(key);
+      await dialog.locator('[data-testid="btn-modal-test-connection"]').click();
+      await expect(dialog.locator('[data-testid="test-connection-success"]')).toContainText("Demo data", {
+        timeout: 10_000,
+      });
+      await dialog.locator('[data-testid="btn-modal-save-connector"]').click();
+      await expect(dialog).toBeHidden({ timeout: 10_000 });
+      await expect(page.locator(`[data-testid="configured-tag-${id}"]`)).toBeVisible();
+      await expect(page.locator('[data-testid="idp-connection-success"]')).toBeVisible();
+    }
 
-    await expect(page.locator('[data-testid="input-idp-issuer-url"]')).toHaveValue("https://api.anthropic.com/v1");
-    await expect(page.locator('[data-testid="input-idp-client-id"]')).toHaveValue("wrkspc_default");
-    await expect(page.locator('[data-testid="input-idp-scopes"]')).toHaveValue("models.read messages.read batches.read");
-
-    // Test connection for Claude
-    const testConnBtn = page.locator('[data-testid="test-idp-connection-button"]');
-    await expect(testConnBtn).toBeVisible();
-    await testConnBtn.click();
-    await expect(page.locator('[data-testid="idp-connection-success"]')).toBeVisible({ timeout: 10_000 });
-
-    // 2. Verify OpenAI Platform provider option and fields
-    const openaiOption = page.locator('[data-testid="idp-option-openai"]');
-    await expect(openaiOption).toBeVisible({ timeout: 10_000 });
-    await openaiOption.click();
-
-    await expect(page.locator('[data-testid="input-idp-issuer-url"]')).toHaveValue("https://api.openai.com/v1");
-    await expect(page.locator('[data-testid="input-idp-client-id"]')).toHaveValue("signalloom-openai-reader");
-    await expect(page.locator('[data-testid="input-idp-scopes"]')).toHaveValue("assistants.read models.read threads.read");
-
-    // Test connection for OpenAI
-    await testConnBtn.click();
-    await expect(page.locator('[data-testid="idp-connection-success"]')).toBeVisible({ timeout: 10_000 });
-
-    // Switch back to Claude and advance to Step 3
-    await claudeOption.click();
+    // Advance to Step 3 with OpenAI selected
     await page.locator('[data-testid="next-step-button"]').click();
 
     // Step 3: Scan preferences
@@ -270,28 +270,24 @@ test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
 
     // Verify Claude connector row and Configure button
     const configureClaudeBtn = page.locator('[data-testid="configure-connector-claude"]');
-    if (await configureClaudeBtn.isVisible()) {
-      await configureClaudeBtn.click();
-      await expect(page.getByRole("dialog")).toBeVisible();
-      await expect(page.getByRole("heading", { name: /Configure Anthropic Claude/i })).toBeVisible();
+    await expect(configureClaudeBtn).toBeVisible({ timeout: 15_000 });
+    await configureClaudeBtn.click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Configure Anthropic Claude/i })).toBeVisible();
 
-      // Check API Key mode tab is active by default
-      const apiKeyTab = page.locator('[data-testid="tab-auth-api-key"]');
-      await expect(apiKeyTab).toBeVisible();
+    // Fields come from the provider's wizard_config, including the admin key.
+    await expect(dialog.locator('[data-testid="wizard-field-admin_api_key"]')).toBeVisible();
+    await dialog.locator('[data-testid="wizard-field-api_key"]').fill("sk-ant-api03-acceptance-test-key");
 
-      // Enter API key
-      const keyInput = page.locator('[data-testid="input-connector-api-key"]');
-      await keyInput.fill("sk-ant-api03-acceptance-test-key");
+    // Demo mode: the verdict is the connectors simulator's and says so.
+    await dialog.locator('[data-testid="btn-modal-test-connection"]').click();
+    await expect(dialog.locator('[data-testid="test-connection-success"]')).toContainText("Demo data", {
+      timeout: 10_000,
+    });
 
-      // Test connection
-      const testBtn = page.locator('[data-testid="btn-modal-test-connection"]');
-      await testBtn.click();
-      await expect(page.locator('[data-testid="test-connection-success"]')).toBeVisible({ timeout: 10_000 });
-
-      // Close modal
-      await page.locator('[data-testid="btn-modal-save-connector"]').click();
-      await expect(page.getByRole("dialog")).not.toBeVisible();
-    }
+    await dialog.locator('[data-testid="btn-modal-save-connector"]').click();
+    await expect(dialog).toBeHidden({ timeout: 10_000 });
 
     // 2. Visit Settings General tab and check Onboarding & Initial Setup card
     await page.goto(`${DASHBOARD_URL}/settings?tab=general`);
@@ -324,12 +320,8 @@ test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
     await expect(dialog).toBeVisible();
 
     // Fill in API key and save
-    const keyInput = page.locator('[data-testid="input-connector-api-key"]');
-    await keyInput.fill("sk-ant-api03-acceptance-test-key");
-    const wsInput = page.locator('[data-testid="input-connector-workspace-id"]');
-    if (await wsInput.isVisible()) {
-      await wsInput.fill("wrkspc_01CyCigBbDRSLTzSCyyHQ7eT");
-    }
+    await dialog.locator('[data-testid="wizard-field-api_key"]').fill("sk-ant-api03-acceptance-test-key");
+    await dialog.locator('[data-testid="wizard-field-workspace_id"]').fill("wrkspc_01CyCigBbDRSLTzSCyyHQ7eT");
 
     const saveBtn = page.locator('[data-testid="btn-modal-save-connector"]');
     await saveBtn.click();

@@ -7,6 +7,11 @@ import {
   http,
 } from './connectorsClient'
 import * as demoModeModule from './demoMode'
+import {
+  initialDiscoveryWorkloads,
+  claudeAgentFixture,
+  openaiAgentFixture,
+} from './fakeData'
 
 describe('connectorsClient mode dispatch & honesty', () => {
   const originalEnv = { ...import.meta.env }
@@ -195,4 +200,136 @@ describe('connectorsClient mode dispatch & honesty', () => {
       expect(result.valid).toBe(true)
     })
   })
+
+  describe('Claude and OpenAI provider integration', () => {
+    it('returns claude and openai in listProviders with verified fields', async () => {
+      demoModeModule.setDemoMode(true)
+      const providers = await connectorsApi.listProviders('test-token')
+      const claude = providers.find((p) => p.provider_id === 'claude')
+      const openai = providers.find((p) => p.provider_id === 'openai')
+
+      expect(claude).toBeDefined()
+      expect(openai).toBeDefined()
+
+      expect(claude?.display_name).toBe('Anthropic Claude')
+
+      const apiKeyField = claude?.wizard_config.fields.find((f) => f.name === 'api_key')
+      expect(apiKeyField).toBeDefined()
+      expect(apiKeyField?.required).toBe(true)
+      expect(apiKeyField?.type).toBe('password')
+
+      const workspaceField = claude?.wizard_config.fields.find((f) => f.name === 'workspace_id')
+      expect(workspaceField).toBeDefined()
+      expect(workspaceField?.required).toBe(false)
+
+      const adminApiKeyField = claude?.wizard_config.fields.find((f) => f.name === 'admin_api_key')
+      expect(adminApiKeyField).toBeDefined()
+      expect(adminApiKeyField?.required).toBe(false)
+
+      expect(claude?.wizard_config.permissions).toContain('models.read')
+      expect(claude?.wizard_config.permissions).toContain('messages.batches.read')
+
+      // OpenAI alignment verification
+      const openaiKeyField = openai?.wizard_config.fields.find((f) => f.name === 'api_key')
+      expect(openaiKeyField).toBeDefined()
+      expect(openaiKeyField?.required).toBe(true)
+      expect(openaiKeyField?.type).toBe('password')
+
+      const openaiOrgField = openai?.wizard_config.fields.find((f) => f.name === 'openai_org_id')
+      expect(openaiOrgField).toBeDefined()
+      expect(openaiOrgField?.required).toBe(false)
+    })
+
+    it('succeeds when creating and testing a claude connector', async () => {
+      demoModeModule.setDemoMode(true)
+      const created = await connectorsApi.createConnector('test-token', {
+        provider_id: 'claude',
+        display_name: 'Production Claude Agent Connector',
+        credentials: {
+          api_key: 'sk-ant-api03-testkey',
+          workspace_id: 'wrkspc_test123',
+        },
+        metadata: {
+          env: 'production',
+        },
+      })
+
+      expect(created.provider_id).toBe('claude')
+      expect(created.status).toBe('connected')
+      expect(created.connector_id).toBeDefined()
+
+      const testResult = await connectorsApi.testConnector('test-token', created.connector_id)
+      expect(testResult.valid).toBe(true)
+      expect(testResult.scopes_ok).toBe(true)
+      expect(testResult.error_msg).toBeNull()
+    })
+
+    it('verifies discovered Claude and OpenAI agents have full CEL compliance metadata', () => {
+      const claudeDiscovery = initialDiscoveryWorkloads.find((w) => w.id === 'claude-agent-fin-analyst')
+      const openaiDiscovery = initialDiscoveryWorkloads.find((w) => w.id === 'openai-assistant-triage')
+
+      expect(claudeDiscovery).toBeDefined()
+      expect(openaiDiscovery).toBeDefined()
+
+      // Claude discovery CEL metadata
+      expect(claudeDiscovery?.source).toBe('external_services')
+      expect(claudeDiscovery?.source_label).toBe('Anthropic Claude')
+      expect(claudeDiscovery?.model).toBe('claude-3-5-sonnet-20241022')
+      expect(claudeDiscovery?.metadata.runtime).toEqual({
+        model: 'claude-3-5-sonnet-20241022',
+        framework: 'claude-code',
+      })
+      expect(claudeDiscovery?.metadata.operational_state).toEqual({
+        runtime_status: 'running',
+      })
+      expect(claudeDiscovery?.metadata.tools).toEqual(['read_sec_filing', 'calculate_risk_var'])
+      expect(claudeDiscovery?.metadata.guardrails).toEqual({
+        prompt_injection_filter: true,
+        human_override_active: true,
+      })
+      expect(claudeDiscovery?.metadata.telemetry).toEqual({
+        token_usage: { total: 170500 },
+      })
+      expect(claudeDiscovery?.metadata.responsibility).toEqual({
+        owner_name: 'Risk Ops',
+        owner_id: 'risk-ops@signalloom.demo',
+      })
+
+      // OpenAI discovery CEL metadata
+      expect(openaiDiscovery?.source).toBe('external_services')
+      expect(openaiDiscovery?.source_label).toBe('OpenAI')
+      expect(openaiDiscovery?.model).toBe('gpt-4o')
+      expect(openaiDiscovery?.metadata.runtime).toEqual({
+        model: 'gpt-4o',
+        framework: 'openai-assistants',
+      })
+      expect(openaiDiscovery?.metadata.operational_state).toEqual({
+        runtime_status: 'running',
+      })
+      expect(openaiDiscovery?.metadata.tools).toEqual(['file_search', 'route_ticket'])
+      expect(openaiDiscovery?.metadata.guardrails).toEqual({
+        prompt_injection_filter: true,
+        human_override_active: true,
+      })
+      expect(openaiDiscovery?.metadata.telemetry).toEqual({
+        token_usage: { total: 85000 },
+      })
+      expect(openaiDiscovery?.metadata.responsibility).toEqual({
+        owner_name: 'Support Ops',
+        owner_id: 'support-ops@signalloom.demo',
+      })
+
+      // AgentResponse fixtures CEL metadata
+      expect(claudeAgentFixture.tools).toEqual(['read_sec_filing', 'calculate_risk_var'])
+      expect(claudeAgentFixture.guardrails).toEqual({ prompt_injection_filter: true, human_override_active: true })
+      expect(claudeAgentFixture.telemetry).toEqual({ token_usage: { total: 170500 } })
+      expect(claudeAgentFixture.responsibility?.owner_name).toBe('Risk Ops')
+
+      expect(openaiAgentFixture.tools).toEqual(['file_search', 'route_ticket'])
+      expect(openaiAgentFixture.guardrails).toEqual({ prompt_injection_filter: true, human_override_active: true })
+      expect(openaiAgentFixture.telemetry).toEqual({ token_usage: { total: 85000 } })
+      expect(openaiAgentFixture.responsibility?.owner_name).toBe('Support Ops')
+    })
+  })
 })
+

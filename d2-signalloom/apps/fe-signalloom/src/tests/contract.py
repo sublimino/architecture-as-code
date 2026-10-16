@@ -278,6 +278,11 @@ class AgentResponse(BaseModel):
     attention: AttentionMetadata | None = None
     timestamps: TimestampsMetadata | None = None
 
+    # CEL compliance agent discovery metadata
+    tools: list[str] | None = None
+    guardrails: dict[str, Any] | None = None
+    telemetry: dict[str, Any] | None = None
+
 
 class AgentListMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")

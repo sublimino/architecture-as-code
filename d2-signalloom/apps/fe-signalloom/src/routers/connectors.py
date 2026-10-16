@@ -219,11 +219,25 @@ STANDARD_PROVIDERS: list[ConnectorProvider] = [
         ),
     ),
     ConnectorProvider(
+        provider_id="claude",
+        display_name="Anthropic Claude",
+        wizard_config=WizardStepConfig(
+            fields=[
+                WizardFieldSpec(name="api_key", label="Anthropic API Key", type="password", required=True, placeholder="sk-ant-..."),
+                WizardFieldSpec(name="workspace_id", label="Workspace ID (optional)", type="text", required=False, placeholder="wrkspc_xxxxxxxxxxxx"),
+                WizardFieldSpec(name="admin_api_key", label="Admin API Key (optional)", type="password", required=False, placeholder="sk-ant-admin..."),
+            ],
+            permissions=["models:read", "batches:read"],
+            docs_link="/help/connectors/claude",
+            help_text="Provide a read-only Anthropic API key to discover models, batches, and agent telemetry.",
+        ),
+    ),
+    ConnectorProvider(
         provider_id="openai",
         display_name="OpenAI",
         wizard_config=WizardStepConfig(
             fields=[
-                WizardFieldSpec(name="admin_api_key", label="OpenAI Admin API Key", type="password", required=True, placeholder="sk-admin-..."),
+                WizardFieldSpec(name="api_key", label="OpenAI API Key", type="password", required=True, placeholder="sk-..."),
                 WizardFieldSpec(name="openai_org_id", label="Organization ID (optional)", type="text", required=False, placeholder="org-xxxxxxxx"),
             ],
             permissions=["api.management.read"],
@@ -310,6 +324,28 @@ def _ensure_tenant_connectors_seeded(tenant_id: str) -> list[dict[str, Any]]:
                     "metadata": {"org": "signalloom-corp"},
                     "created_at": "2026-01-15T08:00:00Z",
                 },
+                {
+                    "connector_id": f"conn-claude-01",
+                    "provider_id": "claude",
+                    "display_name": "Anthropic Claude",
+                    "status": "connected",
+                    "credential_expires_at": "2027-01-01T00:00:00Z",
+                    "last_tested_at": "2026-09-29T10:00:00Z",
+                    "last_scan_at": "2026-09-29T10:05:00Z",
+                    "metadata": {"workspace_id": "wrkspc_signalloom_demo"},
+                    "created_at": "2026-01-15T08:00:00Z",
+                },
+                {
+                    "connector_id": f"conn-openai-01",
+                    "provider_id": "openai",
+                    "display_name": "OpenAI Production",
+                    "status": "connected",
+                    "credential_expires_at": "2027-01-01T00:00:00Z",
+                    "last_tested_at": "2026-09-29T10:00:00Z",
+                    "last_scan_at": "2026-09-29T10:05:00Z",
+                    "metadata": {"openai_org_id": "org-signalloom"},
+                    "created_at": "2026-01-15T08:00:00Z",
+                },
             ]
             _sync_tenant_connectors_map(tenant_id)
         return _TENANT_CONNECTORS_DATA[tenant_id]
@@ -327,6 +363,8 @@ def _sync_tenant_connectors_map(tenant_id: str) -> None:
         active_by_provider.get("aws_iam", True)
         or active_by_provider.get("gcp_iam", True)
         or active_by_provider.get("github", True)
+        or active_by_provider.get("claude", False)
+        or active_by_provider.get("openai", False)
     )
 
     with _STORE_LOCK:
@@ -626,6 +664,11 @@ async def test_connector(
                 scopes_ok = False
                 needs_rotation = True
                 error_msg = f"Invalid credential expiration timestamp: {expires_at_str}"
+
+        # Explicit support for AI model providers claude and openai: verify scopes
+        if match.get("provider_id") in ["claude", "openai"]:
+            if valid and not error_msg:
+                scopes_ok = True
 
         return ConnectorTestResult(
             connector_id=match["connector_id"],

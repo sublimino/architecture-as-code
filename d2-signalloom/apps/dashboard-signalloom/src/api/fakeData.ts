@@ -238,6 +238,84 @@ export const splitBrainFrozenAgentFixture: AgentResponse = {
   attention: { level: 'critical', highest_issue: 'kernel frozen without stun record' },
 }
 
+export const claudeAgentFixture: AgentResponse = {
+  id: 'claude-agent-fin-analyst',
+  name: 'Financial Risk Intelligence Agent',
+  type: 'claude-code',
+  owner: 'Risk Ops',
+  tenant_id: TENANT,
+  lifecycle_state: 'active',
+  last_transition_at: NOW,
+  last_transition_by: 'demo-user',
+  eu_ai_act_risk_class: 'high',
+  compliance_summary: { total_controls: 12, passing: 12, failing: 0, pending: 0, posture_score: 100 },
+  model_name: 'claude-3-5-sonnet-20241022',
+  created_at: NOW,
+  record_class: 'discovered',
+  is_registry_linked: true,
+  runtime: {
+    model: 'claude-3-5-sonnet-20241022',
+    framework: 'claude-code',
+    execution_mode: 'autonomous',
+  },
+  operational_state: {
+    runtime_status: 'running',
+    containment: {
+      process_freeze: 'inactive',
+      network_isolation: 'inactive',
+      credential_revocation: 'inactive',
+    },
+  },
+  tools: ['read_sec_filing', 'calculate_risk_var'],
+  guardrails: { prompt_injection_filter: true, human_override_active: true },
+  telemetry: { token_usage: { total: 170500 } },
+  responsibility: {
+    owner_name: 'Risk Ops',
+    owner_id: 'risk-ops@signalloom.demo',
+    team: 'Risk Ops',
+    assignment_status: 'assigned',
+  },
+}
+
+export const openaiAgentFixture: AgentResponse = {
+  id: 'openai-assistant-triage',
+  name: 'Customer Support Triage Assistant',
+  type: 'openai-assistants',
+  owner: 'support-ops@signalloom.demo',
+  tenant_id: TENANT,
+  lifecycle_state: 'active',
+  last_transition_at: NOW,
+  last_transition_by: 'demo-user',
+  eu_ai_act_risk_class: 'limited',
+  compliance_summary: { total_controls: 12, passing: 10, failing: 0, pending: 2, posture_score: 83 },
+  model_name: 'gpt-4o',
+  created_at: NOW,
+  record_class: 'discovered',
+  is_registry_linked: true,
+  runtime: {
+    model: 'gpt-4o',
+    framework: 'openai-assistants',
+    execution_mode: 'autonomous',
+  },
+  operational_state: {
+    runtime_status: 'running',
+    containment: {
+      process_freeze: 'inactive',
+      network_isolation: 'inactive',
+      credential_revocation: 'inactive',
+    },
+  },
+  tools: ['file_search', 'route_ticket'],
+  guardrails: { prompt_injection_filter: true, human_override_active: true },
+  telemetry: { token_usage: { total: 85000 } },
+  responsibility: {
+    owner_name: 'Support Ops',
+    owner_id: 'support-ops@signalloom.demo',
+    team: 'Support',
+    assignment_status: 'assigned',
+  },
+}
+
 function buildInitialAgents(): DemoAgentRecord[] {
   return [
     { agent: agent('agent-inventory', 'Inventory Agent', 'active', 'limited'), activeCredentialCount: 1 },
@@ -290,6 +368,12 @@ function readAgent(path: string): AgentResponse | undefined {
   const agentId = readAgentId(path)
   if (!agentId) return undefined
   if (agentId === 'agent-cardvault' || agentId.endsWith(':agent-cardvault')) return undefined
+  if (agentId === 'claude-agent-fin-analyst' || agentId.endsWith(':claude-agent-fin-analyst')) {
+    return cloneAgent(claudeAgentFixture)
+  }
+  if (agentId === 'openai-assistant-triage' || agentId.endsWith(':openai-assistant-triage')) {
+    return cloneAgent(openaiAgentFixture)
+  }
   const record = findDemoAgent(agentId)
   if (record) return cloneAgent(record.agent)
   if (agentId.includes('missing') || agentId === 'unknown') return undefined
@@ -1255,6 +1339,59 @@ export const initialDiscoveryWorkloads: DiscoveryWorkload[] = [
       webhook_url: 'https://n8n.internal.net/webhook/support',
       dismiss_reason: 'internal_automation_exempt',
       runtime: 'n8n_workflow',
+    },
+  },
+  // 5. AI Discovered Agents (Claude & OpenAI)
+  {
+    id: 'claude-agent-fin-analyst',
+    name: 'Financial Risk Intelligence Agent',
+    source: 'external_services',
+    source_label: 'Anthropic Claude',
+    namespace: 'ai-agents',
+    status: 'discovered',
+    owner: 'risk-ops@signalloom.demo',
+    spiffe_id: null,
+    model: 'claude-3-5-sonnet-20241022',
+    last_seen_at: NOW,
+    recommendations: {
+      config: 'pass',
+      content: 'pass',
+      supply_chain: 'pass',
+      eu_ai_act: 'pass',
+    },
+    metadata: {
+      runtime: { model: 'claude-3-5-sonnet-20241022', framework: 'claude-code' },
+      operational_state: { runtime_status: 'running' },
+      tools: ['read_sec_filing', 'calculate_risk_var'],
+      guardrails: { prompt_injection_filter: true, human_override_active: true },
+      telemetry: { token_usage: { total: 170500 } },
+      responsibility: { owner_name: 'Risk Ops', owner_id: 'risk-ops@signalloom.demo' },
+    },
+  },
+  {
+    id: 'openai-assistant-triage',
+    name: 'Customer Support Triage Assistant',
+    source: 'external_services',
+    source_label: 'OpenAI',
+    namespace: 'ai-assistants',
+    status: 'discovered',
+    owner: 'support-ops@signalloom.demo',
+    spiffe_id: null,
+    model: 'gpt-4o',
+    last_seen_at: NOW,
+    recommendations: {
+      config: 'pass',
+      content: 'pass',
+      supply_chain: 'pass',
+      eu_ai_act: 'pass',
+    },
+    metadata: {
+      runtime: { model: 'gpt-4o', framework: 'openai-assistants' },
+      operational_state: { runtime_status: 'running' },
+      tools: ['file_search', 'route_ticket'],
+      guardrails: { prompt_injection_filter: true, human_override_active: true },
+      telemetry: { token_usage: { total: 85000 } },
+      responsibility: { owner_name: 'Support Ops', owner_id: 'support-ops@signalloom.demo' },
     },
   },
 ]

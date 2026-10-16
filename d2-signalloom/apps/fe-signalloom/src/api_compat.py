@@ -379,6 +379,11 @@ class AgentResponse(BaseModel):
     attention: AttentionMetadata | None = None
     timestamps: TimestampsMetadata | None = None
 
+    # CEL compliance agent discovery metadata
+    tools: list[str] | None = None
+    guardrails: dict[str, Any] | None = None
+    telemetry: dict[str, Any] | None = None
+
 
 class AgentListMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -3222,18 +3227,23 @@ def _agent_response_from_row(
     )
     is_registry_linked = True
 
-    runtime = RuntimeMetadata(
-        cluster_id="kind-osramp",
-        namespace=disc_ns,
-        pod_name=disc.get("id") or (str(row["name"]) if "name" in row else None),
-        pod_uid=str(pod_uid) if pod_uid else None,
-        service_account=sa,
-        framework=framework,
-        model=model,
-        execution_mode="autonomous",
-        node=node,
-        phase=phase or ("Running" if canonical_state == "Governed" else None),
-    )
+    if isinstance(row.get("runtime"), dict):
+        runtime = RuntimeMetadata(**row["runtime"])
+    elif isinstance(row.get("runtime"), RuntimeMetadata):
+        runtime = row["runtime"]
+    else:
+        runtime = RuntimeMetadata(
+            cluster_id="kind-osramp",
+            namespace=disc_ns,
+            pod_name=disc.get("id") or (str(row["name"]) if "name" in row else None),
+            pod_uid=str(pod_uid) if pod_uid else None,
+            service_account=sa,
+            framework=framework,
+            model=model,
+            execution_mode="autonomous",
+            node=node,
+            phase=phase or ("Running" if canonical_state == "Governed" else None),
+        )
 
     spiffe_id = f"spiffe://osramp.acme.local/ns/{disc_ns}/sa/{sa}" if (disc_ns and sa) else (row.get("spiffe_id") if isinstance(row, dict) else (row["spiffe_id"] if "spiffe_id" in row else None))
     trust_domain = None
@@ -3274,14 +3284,19 @@ def _agent_response_from_row(
         openbao_path=f"kv/data/signalloom/agent-trust/{disc_ns or 'default'}/*" if spiffe_id else None,
     )
 
-    team = row.get("team") if isinstance(row, dict) else (row["team"] if "team" in row else None)
-    owner_id_val = row.get("owner_id") if isinstance(row, dict) else (row["owner_id"] if "owner_id" in row else None)
-    responsibility = ResponsibilityMetadata(
-        owner_id=str(owner_id_val) if owner_id_val else None,
-        owner_name=owner,
-        team=team,
-        assignment_status="assigned" if owner else "unassigned",
-    )
+    if isinstance(row.get("responsibility"), dict):
+        responsibility = ResponsibilityMetadata(**row["responsibility"])
+    elif isinstance(row.get("responsibility"), ResponsibilityMetadata):
+        responsibility = row["responsibility"]
+    else:
+        team = row.get("team") if isinstance(row, dict) else (row["team"] if "team" in row else None)
+        owner_id_val = row.get("owner_id") if isinstance(row, dict) else (row["owner_id"] if "owner_id" in row else None)
+        responsibility = ResponsibilityMetadata(
+            owner_id=str(owner_id_val) if owner_id_val else None,
+            owner_name=owner,
+            team=team,
+            assignment_status="assigned" if owner else "unassigned",
+        )
 
     # is_frozen is the stun record / lifecycle: a request for containment,
     # not evidence of it. Observations decide "active" below.
@@ -3293,13 +3308,18 @@ def _agent_response_from_row(
     row_credentials = _credential_revocation(stun_detail, bool(cred_revoked))
 
     kernel = _kernel_view(discovered_overlay, stunned=canonical_state == "Suspended")
-    operational_state = OperationalStateMetadata(
-        runtime_status="stopped" if kernel["kernel_state"] == "frozen" else ("running" if (phase == "Running" or canonical_state == "Governed") else ("stopped" if canonical_state in ("Suspended", "Revoked") else "degraded")),
-        containment=ContainmentMeasures(
-            **row_containment,
-            **row_credentials,
-        ),
-    )
+    if isinstance(row.get("operational_state"), dict):
+        operational_state = OperationalStateMetadata(**row["operational_state"])
+    elif isinstance(row.get("operational_state"), OperationalStateMetadata):
+        operational_state = row["operational_state"]
+    else:
+        operational_state = OperationalStateMetadata(
+            runtime_status="stopped" if kernel["kernel_state"] == "frozen" else ("running" if (phase == "Running" or canonical_state == "Governed") else ("stopped" if canonical_state in ("Suspended", "Revoked") else "degraded")),
+            containment=ContainmentMeasures(
+                **row_containment,
+                **row_credentials,
+            ),
+        )
 
     normalized_score = compliance.posture_score if (compliance.total_controls > 0 and compliance.posture_score is not None) else None
     assessment_summary = AssessmentSummaryMetadata(
@@ -3392,6 +3412,9 @@ def _agent_response_from_row(
         assessment_summary=assessment_summary,
         attention=attention,
         timestamps=timestamps,
+        tools=row.get("tools") if isinstance(row, dict) else (row["tools"] if "tools" in row else None),
+        guardrails=row.get("guardrails") if isinstance(row, dict) else (row["guardrails"] if "guardrails" in row else None),
+        telemetry=row.get("telemetry") if isinstance(row, dict) else (row["telemetry"] if "telemetry" in row else None),
     )
 
 
@@ -3633,6 +3656,9 @@ def _agent_response_from_discovered(
         assessment_summary=assessment_summary,
         attention=attention,
         timestamps=timestamps,
+        tools=discovered.get("tools"),
+        guardrails=discovered.get("guardrails"),
+        telemetry=discovered.get("telemetry"),
     )
 
 
@@ -3957,8 +3983,14 @@ def _make_agent(
     last_transition_by: str | None = None,
     eu_ai_act_risk_class: str | None = "limited",
     model_name: str | None = None,
+    runtime: dict[str, Any] | None = None,
+    operational_state: dict[str, Any] | None = None,
+    tools: list[str] | None = None,
+    guardrails: dict[str, Any] | None = None,
+    telemetry: dict[str, Any] | None = None,
+    responsibility: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    res = {
         "id": agent_id,
         "name": name,
         "display_name": display_name,
@@ -3973,6 +4005,19 @@ def _make_agent(
         "model_name": model_name,
         "created_at": created_at,
     }
+    if runtime is not None:
+        res["runtime"] = runtime
+    if operational_state is not None:
+        res["operational_state"] = operational_state
+    if tools is not None:
+        res["tools"] = tools
+    if guardrails is not None:
+        res["guardrails"] = guardrails
+    if telemetry is not None:
+        res["telemetry"] = telemetry
+    if responsibility is not None:
+        res["responsibility"] = responsibility
+    return res
 
 
 def _make_violation(
@@ -4079,6 +4124,8 @@ def _ensure_seeded(tenant_id: str) -> None:
         created_at = "2026-07-27T00:00:00Z"
         first_agent_id = f"{tenant_id}:agent-1"
         second_agent_id = f"{tenant_id}:agent-2"
+        claude_agent_id = f"{tenant_id}:claude-agent-fin-analyst"
+        openai_agent_id = f"{tenant_id}:openai-assistant-triage"
         _AGENTS[tenant_id] = {
             first_agent_id: _make_agent(
                 tenant_id,
@@ -4103,6 +4150,46 @@ def _ensure_seeded(tenant_id: str) -> None:
                 created_at,
                 eu_ai_act_risk_class="minimal",
                 model_name="gpt-5.4",
+            ),
+            claude_agent_id: _make_agent(
+                tenant_id,
+                claude_agent_id,
+                "Financial Risk Intelligence Agent",
+                "claude-code",
+                "Risk Ops",
+                "active",
+                created_at,
+                display_name="Financial Risk Intelligence Agent",
+                last_transition_at=created_at,
+                last_transition_by="demo-user",
+                eu_ai_act_risk_class="high",
+                model_name="claude-3-5-sonnet-20241022",
+                runtime={"model": "claude-3-5-sonnet-20241022", "framework": "claude-code", "execution_mode": "autonomous"},
+                operational_state={"runtime_status": "running"},
+                tools=["read_sec_filing", "calculate_risk_var"],
+                guardrails={"prompt_injection_filter": True, "human_override_active": True},
+                telemetry={"token_usage": {"total": 170500}},
+                responsibility={"owner_name": "Risk Ops", "owner_id": "risk-ops@signalloom.demo", "team": "Risk Ops", "assignment_status": "assigned"},
+            ),
+            openai_agent_id: _make_agent(
+                tenant_id,
+                openai_agent_id,
+                "Customer Support Triage Assistant",
+                "openai-assistants",
+                "support-ops@signalloom.demo",
+                "active",
+                created_at,
+                display_name="Customer Support Triage Assistant",
+                last_transition_at=created_at,
+                last_transition_by="demo-user",
+                eu_ai_act_risk_class="limited",
+                model_name="gpt-4o",
+                runtime={"model": "gpt-4o", "framework": "openai-assistants", "execution_mode": "autonomous"},
+                operational_state={"runtime_status": "running"},
+                tools=["file_search", "route_ticket"],
+                guardrails={"prompt_injection_filter": True, "human_override_active": True},
+                telemetry={"token_usage": {"total": 85000}},
+                responsibility={"owner_name": "Support Ops", "owner_id": "support-ops@signalloom.demo", "team": "Support", "assignment_status": "assigned"},
             ),
         }
         _VIOLATIONS[tenant_id] = {
@@ -6168,10 +6255,19 @@ async def get_agent(
     if pool is None:
         _ensure_seeded(tenant_id)
         with _STORE_LOCK:
-            agent = _AGENTS[tenant_id].get(agent_id) or _AGENTS[tenant_id].get(canonical_id)
+            agent = (
+                _AGENTS[tenant_id].get(agent_id)
+                or _AGENTS[tenant_id].get(canonical_id)
+                or _AGENTS[tenant_id].get(f"{tenant_id}:{agent_id}")
+                or _AGENTS[tenant_id].get(f"{tenant_id}:{canonical_id}")
+            )
             if agent is None:
                 for a in _AGENTS[tenant_id].values():
-                    if a.get("name") in candidate_ids or a.get("id") in candidate_ids:
+                    if (
+                        a.get("name") in candidate_ids
+                        or a.get("id") in candidate_ids
+                        or any(str(a.get("id", "")).endswith(f":{cid}") for cid in candidate_ids)
+                    ):
                         agent = a
                         break
         if agent is not None:
@@ -10209,7 +10305,7 @@ async def list_discovery_workloads(
     pool = await _get_pool()
 
     # Determine enabled connectors for this tenant
-    enabled_connectors = {"idp": True, "local_k8s": True, "external_k8s": True, "external_services": True}
+    enabled_connectors = {"idp": True, "local_k8s": True, "external_k8s": True, "external_services": True, "claude": True, "openai": True}
     with _STORE_LOCK:
         if tenant_id in _TENANT_CONNECTORS:
             enabled_connectors.update(_TENANT_CONNECTORS[tenant_id])
@@ -10611,6 +10707,74 @@ async def list_discovery_workloads(
                     recommendations=val_recs,
                     control_recommendations=val_recs,
                     metadata={"cluster_name": "prod-eu-cluster", "revocation_reason": "unauthorized_network_access"},
+                )
+            )
+
+        # 5. AI Discovered Agents (Claude & OpenAI)
+        if enabled_connectors.get("claude", True):
+            claude_recs = ControlRecommendationsModel(
+                config="pass",
+                content="pass",
+                supply_chain="pass",
+                eu_ai_act="pass",
+            )
+            workloads.append(
+                DiscoveryWorkloadModel(
+                    id="claude-agent-fin-analyst",
+                    name="Financial Risk Intelligence Agent",
+                    tenant_id=tenant_id,
+                    source="external_services",
+                    source_label="Anthropic Claude",
+                    namespace="ai-agents",
+                    status="discovered",
+                    discovery_state="discovered",
+                    owner="risk-ops@signalloom.demo",
+                    spiffe_id=None,
+                    model="claude-3-5-sonnet-20241022",
+                    last_seen_at=_now_iso(),
+                    recommendations=claude_recs,
+                    control_recommendations=claude_recs,
+                    metadata={
+                        "runtime": {"model": "claude-3-5-sonnet-20241022", "framework": "claude-code"},
+                        "operational_state": {"runtime_status": "running"},
+                        "tools": ["read_sec_filing", "calculate_risk_var"],
+                        "guardrails": {"prompt_injection_filter": True, "human_override_active": True},
+                        "telemetry": {"token_usage": {"total": 170500}},
+                        "responsibility": {"owner_name": "Risk Ops", "owner_id": "risk-ops@signalloom.demo"},
+                    },
+                )
+            )
+        if enabled_connectors.get("openai", True):
+            openai_recs = ControlRecommendationsModel(
+                config="pass",
+                content="pass",
+                supply_chain="pass",
+                eu_ai_act="pass",
+            )
+            workloads.append(
+                DiscoveryWorkloadModel(
+                    id="openai-assistant-triage",
+                    name="Customer Support Triage Assistant",
+                    tenant_id=tenant_id,
+                    source="external_services",
+                    source_label="OpenAI",
+                    namespace="ai-assistants",
+                    status="discovered",
+                    discovery_state="discovered",
+                    owner="support-ops@signalloom.demo",
+                    spiffe_id=None,
+                    model="gpt-4o",
+                    last_seen_at=_now_iso(),
+                    recommendations=openai_recs,
+                    control_recommendations=openai_recs,
+                    metadata={
+                        "runtime": {"model": "gpt-4o", "framework": "openai-assistants"},
+                        "operational_state": {"runtime_status": "running"},
+                        "tools": ["file_search", "route_ticket"],
+                        "guardrails": {"prompt_injection_filter": True, "human_override_active": True},
+                        "telemetry": {"token_usage": {"total": 85000}},
+                        "responsibility": {"owner_name": "Support Ops", "owner_id": "support-ops@signalloom.demo"},
+                    },
                 )
             )
 

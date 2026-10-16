@@ -111,6 +111,23 @@ def test_list_connector_providers(monkeypatch):
         assert "github" in provider_ids
         assert "okta" in provider_ids
         assert "openai" in provider_ids
+        assert "claude" in provider_ids
+
+        claude_provider = next(p for p in data["providers"] if p["provider_id"] == "claude")
+        assert claude_provider["display_name"] == "Anthropic Claude"
+        claude_fields = {f["name"]: f for f in claude_provider["wizard_config"]["fields"]}
+        assert claude_fields["api_key"]["required"] is True
+        assert claude_fields["api_key"]["type"] == "password"
+        assert claude_fields["workspace_id"]["required"] is False
+        assert claude_fields["admin_api_key"]["required"] is False
+        assert "models:read" in claude_provider["wizard_config"]["permissions"]
+        assert "batches:read" in claude_provider["wizard_config"]["permissions"]
+
+        openai_provider = next(p for p in data["providers"] if p["provider_id"] == "openai")
+        openai_fields = {f["name"]: f for f in openai_provider["wizard_config"]["fields"]}
+        assert openai_fields["api_key"]["required"] is True
+        assert openai_fields["api_key"]["type"] == "password"
+        assert openai_fields["openai_org_id"]["required"] is False
 
 
 def test_list_connectors_default_seeded(monkeypatch):
@@ -127,7 +144,59 @@ def test_list_connectors_default_seeded(monkeypatch):
         assert "ad_entra" in providers
         assert "k8s" in providers
         assert "github" in providers
+        assert "claude" in providers
+        assert "openai" in providers
         assert all(c["status"] == "connected" for c in conns)
+
+
+def test_claude_and_openai_connector_test_and_lifecycle(monkeypatch):
+    with client_for(monkeypatch) as client:
+        token = token_for("bob")
+        headers = bearer(token)
+
+        # 1. Create and test Claude connector
+        claude_resp = client.post(
+            "/api/v1/connectors",
+            json={
+                "provider_id": "claude",
+                "display_name": "Anthropic Claude Ops",
+                "credentials": {"api_key": "sk-ant-test-key", "workspace_id": "wrkspc_123"},
+                "metadata": {"env": "prod"},
+            },
+            headers=headers,
+        )
+        assert claude_resp.status_code == 200
+        claude_data = claude_resp.json()
+        claude_id = claude_data["connector_id"]
+
+        test_claude_resp = client.post(f"/api/v1/connectors/{claude_id}/test", headers=headers)
+        assert test_claude_resp.status_code == 200
+        test_claude = test_claude_resp.json()
+        assert test_claude["valid"] is True
+        assert test_claude["scopes_ok"] is True
+        assert test_claude["error_msg"] is None
+
+        # 2. Create and test OpenAI connector
+        openai_resp = client.post(
+            "/api/v1/connectors",
+            json={
+                "provider_id": "openai",
+                "display_name": "OpenAI Assistants",
+                "credentials": {"api_key": "sk-openai-test-key", "openai_org_id": "org-123"},
+                "metadata": {"env": "prod"},
+            },
+            headers=headers,
+        )
+        assert openai_resp.status_code == 200
+        openai_data = openai_resp.json()
+        openai_id = openai_data["connector_id"]
+
+        test_openai_resp = client.post(f"/api/v1/connectors/{openai_id}/test", headers=headers)
+        assert test_openai_resp.status_code == 200
+        test_openai = test_openai_resp.json()
+        assert test_openai["valid"] is True
+        assert test_openai["scopes_ok"] is True
+        assert test_openai["error_msg"] is None
 
 
 def test_get_connectors_status(monkeypatch):
@@ -314,3 +383,70 @@ def test_frameworks_patch_all_six_frameworks(monkeypatch):
         assert resp.status_code == 200
         data = resp.json()
         assert data["selected_frameworks"] == six_frameworks
+
+
+def test_claude_and_openai_discovery_and_cel_metadata(monkeypatch):
+    with client_for(monkeypatch) as client:
+        headers = bearer(token_for("alice"))
+
+        # 1. Check discovery workloads endpoint
+        resp = client.get("/api/v1/discovery/workloads", headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        workloads = data.get("workloads", [])
+        workload_ids = {w["id"] for w in workloads}
+        assert "claude-agent-fin-analyst" in workload_ids
+        assert "openai-assistant-triage" in workload_ids
+
+        claude_wl = next(w for w in workloads if w["id"] == "claude-agent-fin-analyst")
+        assert claude_wl["name"] == "Financial Risk Intelligence Agent"
+        assert claude_wl["source"] == "external_services"
+        assert claude_wl["source_label"] == "Anthropic Claude"
+        assert claude_wl["model"] == "claude-3-5-sonnet-20241022"
+        assert claude_wl["metadata"]["runtime"]["framework"] == "claude-code"
+        assert claude_wl["metadata"]["operational_state"]["runtime_status"] == "running"
+        assert "read_sec_filing" in claude_wl["metadata"]["tools"]
+        assert "calculate_risk_var" in claude_wl["metadata"]["tools"]
+        assert claude_wl["metadata"]["guardrails"]["prompt_injection_filter"] is True
+        assert claude_wl["metadata"]["guardrails"]["human_override_active"] is True
+        assert claude_wl["metadata"]["telemetry"]["token_usage"]["total"] == 170500
+        assert claude_wl["metadata"]["responsibility"]["owner_name"] == "Risk Ops"
+
+        openai_wl = next(w for w in workloads if w["id"] == "openai-assistant-triage")
+        assert openai_wl["name"] == "Customer Support Triage Assistant"
+        assert openai_wl["source"] == "external_services"
+        assert openai_wl["source_label"] == "OpenAI"
+        assert openai_wl["model"] == "gpt-4o"
+        assert openai_wl["metadata"]["runtime"]["framework"] == "openai-assistants"
+        assert openai_wl["metadata"]["operational_state"]["runtime_status"] == "running"
+        assert "file_search" in openai_wl["metadata"]["tools"]
+        assert "route_ticket" in openai_wl["metadata"]["tools"]
+        assert openai_wl["metadata"]["guardrails"]["prompt_injection_filter"] is True
+        assert openai_wl["metadata"]["guardrails"]["human_override_active"] is True
+        assert openai_wl["metadata"]["telemetry"]["token_usage"]["total"] == 85000
+        assert openai_wl["metadata"]["responsibility"]["owner_name"] == "Support Ops"
+
+        # 2. Check individual agent endpoints and AgentResponse CEL metadata
+        ag_resp = client.get("/api/agents/claude-agent-fin-analyst", headers=headers)
+        assert ag_resp.status_code == 200
+        ag_data = ag_resp.json()
+        assert ag_data["name"] == "Financial Risk Intelligence Agent"
+        assert ag_data["model_name"] == "claude-3-5-sonnet-20241022"
+        assert ag_data["runtime"]["framework"] == "claude-code"
+        assert ag_data["operational_state"]["runtime_status"] == "running"
+        assert ag_data["tools"] == ["read_sec_filing", "calculate_risk_var"]
+        assert ag_data["guardrails"] == {"prompt_injection_filter": True, "human_override_active": True}
+        assert ag_data["telemetry"] == {"token_usage": {"total": 170500}}
+        assert ag_data["responsibility"]["owner_name"] == "Risk Ops"
+
+        oai_resp = client.get("/api/agents/openai-assistant-triage", headers=headers)
+        assert oai_resp.status_code == 200
+        oai_data = oai_resp.json()
+        assert oai_data["name"] == "Customer Support Triage Assistant"
+        assert oai_data["model_name"] == "gpt-4o"
+        assert oai_data["runtime"]["framework"] == "openai-assistants"
+        assert oai_data["operational_state"]["runtime_status"] == "running"
+        assert oai_data["tools"] == ["file_search", "route_ticket"]
+        assert oai_data["guardrails"] == {"prompt_injection_filter": True, "human_override_active": True}
+        assert oai_data["telemetry"] == {"token_usage": {"total": 85000}}
+        assert oai_data["responsibility"]["owner_name"] == "Support Ops"

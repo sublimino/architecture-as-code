@@ -183,11 +183,25 @@ const MOCK_PROVIDERS: ConnectorProvider[] = [
     },
   },
   {
+    provider_id: 'claude',
+    display_name: 'Anthropic Claude',
+    wizard_config: {
+      fields: [
+        { name: 'api_key', label: 'Anthropic API Key', type: 'password', required: true, placeholder: 'sk-ant-...' },
+        { name: 'workspace_id', label: 'Workspace ID (optional)', type: 'text', required: false, placeholder: 'wrkspc_xxxxxxxxxxxx' },
+        { name: 'admin_api_key', label: 'Admin API Key (optional)', type: 'password', required: false, placeholder: 'sk-ant-admin...' },
+      ],
+      permissions: ['models.read', 'messages.batches.read'],
+      docs_link: '/help/connectors/claude',
+      help_text: 'Provide a read-only Anthropic API key to discover models, batches, and agent telemetry.',
+    },
+  },
+  {
     provider_id: 'openai',
     display_name: 'OpenAI',
     wizard_config: {
       fields: [
-        { name: 'admin_api_key', label: 'OpenAI Admin API Key', type: 'password', required: true, placeholder: 'sk-admin-...' },
+        { name: 'api_key', label: 'OpenAI API Key', type: 'password', required: true, placeholder: 'sk-...' },
         { name: 'openai_org_id', label: 'Organization ID (optional)', type: 'text', required: false, placeholder: 'org-xxxxxxxx' },
       ],
       permissions: ['api.management.read'],
@@ -269,6 +283,28 @@ let mockConnectors: TenantConnector[] = [
     last_tested_at: new Date().toISOString(),
     last_scan_at: new Date().toISOString(),
     metadata: { org: 'signalloom-corp' },
+    created_at: new Date().toISOString(),
+  },
+  {
+    connector_id: 'conn-claude-01',
+    provider_id: 'claude',
+    display_name: 'Anthropic Claude',
+    status: 'connected',
+    credential_expires_at: futureIso(90),
+    last_tested_at: new Date().toISOString(),
+    last_scan_at: new Date().toISOString(),
+    metadata: { workspace_id: 'wrkspc_signalloom_demo' },
+    created_at: new Date().toISOString(),
+  },
+  {
+    connector_id: 'conn-openai-01',
+    provider_id: 'openai',
+    display_name: 'OpenAI Production',
+    status: 'connected',
+    credential_expires_at: futureIso(90),
+    last_tested_at: new Date().toISOString(),
+    last_scan_at: new Date().toISOString(),
+    metadata: { openai_org_id: 'org-signalloom' },
     created_at: new Date().toISOString(),
   },
 ]

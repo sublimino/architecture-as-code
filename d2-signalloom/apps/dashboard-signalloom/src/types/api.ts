@@ -214,6 +214,19 @@ export interface AgentResponse {
   assessment_summary?: AssessmentSummaryMetadata | null
   attention?: AttentionMetadata | null
   timestamps?: TimestampsMetadata | null
+
+  // CEL compliance agent discovery metadata
+  tools?: string[] | null
+  guardrails?: {
+    prompt_injection_filter?: boolean
+    human_override_active?: boolean
+    output_filter?: boolean
+    [key: string]: unknown
+  } | null
+  telemetry?: {
+    token_usage?: { total?: number; [key: string]: unknown }
+    [key: string]: unknown
+  } | null
 }
 
 export interface AgentListMeta {

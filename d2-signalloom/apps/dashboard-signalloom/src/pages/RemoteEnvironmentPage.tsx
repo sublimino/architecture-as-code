@@ -14,6 +14,7 @@ import type { RemoteEnvironmentFixture } from '../api/fakeData'
 import { useAuth0 } from '../auth/oidc'
 import type { TenantConnector } from '../types/connectors'
 import SyncLogsModal from '../components/connectors/SyncLogsModal'
+import SyncStatusPill, { type SyncTone } from '../components/connectors/SyncStatusPill'
 import ButtonWait from '../components/ButtonWait'
 import LoadingState from '../components/LoadingState'
 import NotFoundPage from './NotFoundPage'
@@ -26,15 +27,6 @@ import { isDemoMode, subscribeDemoMode } from '../api/demoMode'
 // SyncResult. The API returns no credit balance, egress configuration, policy
 // results or agent identities, so live mode says so rather than inventing them.
 
-const tone = {
-  teal: { background: 'var(--teal-bg)', color: 'var(--teal)', border: '1px solid var(--teal-border)' },
-  cyan: { background: 'var(--cyan-bg)', color: 'var(--cyan)', border: '1px solid var(--cyan-border)' },
-  amber: { background: 'var(--amber-bg)', color: 'var(--warning)', border: '1px solid var(--amber-border)' },
-  red: { background: 'var(--red-bg)', color: 'var(--error)', border: '1px solid var(--red-border)' },
-  muted: { background: 'var(--surface2)', color: 'var(--muted)', border: '1px solid var(--border-subtle)' },
-}
-
-const pill = { padding: '3px 10px', borderRadius: 99, fontSize: 12, fontWeight: 600 }
 // radius 6 has no token (global.css declares only --radius 8px and
 // --radius-sm 4px); --radius-sm is the closer of the two (design-system
 // audit, rule 4).
@@ -137,9 +129,23 @@ function Breadcrumb({ label }: { label: string }) {
   )
 }
 
+// Design-system audit rule 11: --error on --red-bg measures 3.02-3.39:1
+// across themes, below the 4.5:1 AA floor for this text size. The message
+// goes in --text (13.98:1 worst case, per LoadingState.tsx's own
+// measurement); the red tint is carried by the border instead, which only
+// owes 3:1 as non-text UI.
+const errorBannerStyle = {
+  background: 'var(--red-bg)',
+  border: '1px solid var(--red-border)',
+  borderLeft: '3px solid var(--error)',
+  color: 'var(--text)',
+  borderRadius: 'var(--radius-sm)',
+  fontSize: 12,
+}
+
 function ErrorBanner({ message }: { message: string }) {
   return (
-    <div role="alert" style={{ ...tone.red, padding: '10px 14px', borderRadius: 6, fontSize: 12, marginBottom: 16 }}>
+    <div role="alert" style={{ ...errorBannerStyle, padding: '10px 14px', marginBottom: 16 }}>
       {message}
     </div>
   )
@@ -153,6 +159,13 @@ function fmtTs(iso: string | null | undefined): string {
 
 function count(n: number | null | undefined): string {
   return n == null ? 'not observed' : String(n)
+}
+
+function scanResultTone(status: SyncResult['status'] | undefined): SyncTone {
+  if (status === 'success') return 'teal'
+  if (status === 'warning') return 'amber'
+  if (status === 'error') return 'red'
+  return 'muted'
 }
 
 export default function RemoteEnvironmentPage() {
@@ -225,8 +238,6 @@ function LiveEnvironmentView({ providerId }: { providerId: string }) {
     }
   }
 
-  const scanTone = syncResult ? { success: tone.teal, warning: tone.amber, error: tone.red }[syncResult.status] : tone.muted
-
   return (
     <div className="fade-in" data-testid="remote-environment-page" style={{ maxWidth: 1200, margin: '0 auto' }}>
       <Breadcrumb label={providerName} />
@@ -249,10 +260,12 @@ function LiveEnvironmentView({ providerId }: { providerId: string }) {
                   <h1 data-testid="env-title" style={{ fontSize: 22, fontWeight: 700, margin: 0, color: 'var(--text)' }}>
                     {connector.display_name ?? providerName}
                   </h1>
-                  <span style={{ ...pill, ...(connector.status === 'connected' ? tone.teal : tone.red) }}>{connector.status}</span>
-                  <span data-testid="live-scan-status" style={{ ...pill, ...scanTone }}>
-                    {syncResult ? `Last scan: ${syncResult.status}` : 'Not yet scanned'}
-                  </span>
+                  <SyncStatusPill tone={connector.status === 'connected' ? 'teal' : 'red'} label={connector.status} />
+                  <SyncStatusPill
+                    testId="live-scan-status"
+                    tone={scanResultTone(syncResult?.status)}
+                    label={syncResult ? `Last scan: ${syncResult.status}` : 'Not yet scanned'}
+                  />
                 </div>
                 <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)' }}>
                   <span>Provider: {providerName}</span>
@@ -359,13 +372,13 @@ function connectionLabel(c: StreamConnection): string {
   }
 }
 
-function agentTone(a: RemoteAgent) {
-  if (a.gone_at) return tone.muted
+function agentTone(a: RemoteAgent): SyncTone {
+  if (a.gone_at) return 'muted'
   const s = (a.status ?? '').toLowerCase()
-  if (['running', 'active', 'busy'].includes(s)) return tone.teal
-  if (['error', 'failed', 'errored'].includes(s)) return tone.red
-  if (['idle', 'terminated', 'stopped', 'archived', ''].includes(s)) return tone.muted
-  return tone.cyan
+  if (['running', 'active', 'busy'].includes(s)) return 'teal'
+  if (['error', 'failed', 'errored'].includes(s)) return 'red'
+  if (['idle', 'terminated', 'stopped', 'archived', ''].includes(s)) return 'muted'
+  return 'cyan'
 }
 
 const agentLabel = (a: RemoteAgent) => a.name ?? a.external_id
@@ -396,13 +409,11 @@ function RemoteAgentsPanel({ providerId }: { providerId: string }) {
   const { view, connection } = useRemoteAgents(providerId)
   const announcement = useChangeAnnouncement(view.agents, view.status === 'ready')
   const sync = view.syncState
-  const connTone = connection.status === 'open' ? tone.teal : connection.status === 'reconnecting' ? tone.amber : tone.muted
+  const connTone: SyncTone = connection.status === 'open' ? 'teal' : connection.status === 'reconnecting' ? 'amber' : 'muted'
   return (
     <div data-testid="remote-agents-panel">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12, fontSize: 12 }}>
-        <span data-testid="stream-connection" role="status" aria-live="polite" style={{ ...pill, ...connTone }}>
-          {connectionLabel(connection)}
-        </span>
+        <SyncStatusPill testId="stream-connection" role="status" ariaLive="polite" tone={connTone} label={connectionLabel(connection)} />
         {sync && (
           <span data-testid="remote-sync-state" style={{ color: 'var(--muted)' }}>
             {syncModeLabel(sync)} • {sync.last_success_at ? `Last synced ${fmtTs(sync.last_success_at)}` : 'Never synced'}
@@ -411,7 +422,7 @@ function RemoteAgentsPanel({ providerId }: { providerId: string }) {
         )}
       </div>
       {sync?.last_error && (
-        <div data-testid="remote-sync-error" style={{ ...tone.red, padding: '8px 12px', borderRadius: 6, fontSize: 12, marginBottom: 12 }}>
+        <div data-testid="remote-sync-error" style={{ ...errorBannerStyle, padding: '8px 12px', marginBottom: 12 }}>
           Last sync error: {sync.last_error}
         </div>
       )}
@@ -427,7 +438,7 @@ function RemoteAgentsPanel({ providerId }: { providerId: string }) {
       ) : (
         <>
           {view.status === 'error' && (
-            <div role="alert" data-testid="remote-agents-error" style={{ ...tone.red, padding: '8px 12px', borderRadius: 6, fontSize: 12, marginBottom: 12 }}>
+            <div role="alert" data-testid="remote-agents-error" style={{ ...errorBannerStyle, padding: '8px 12px', marginBottom: 12 }}>
               {view.error}
             </div>
           )}
@@ -447,7 +458,7 @@ function RemoteAgentsPanel({ providerId }: { providerId: string }) {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{agentLabel(a)}</span>
-                      <span style={{ ...pill, fontSize: 11, ...tone.muted }}>{a.kind}</span>
+                      <SyncStatusPill tone="muted" label={a.kind} style={{ fontSize: 11 }} />
                       {a.model && <span className="mono" style={{ fontSize: 11, color: 'var(--text)' }}>{a.model}</span>}
                     </div>
                     <div className="mono" style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
@@ -457,9 +468,11 @@ function RemoteAgentsPanel({ providerId }: { providerId: string }) {
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ ...pill, ...agentTone(a), whiteSpace: 'nowrap' }}>
-                      {a.gone_at ? `Gone ${fmtTs(a.gone_at)}` : a.status ?? 'status not reported'}
-                    </span>
+                    <SyncStatusPill
+                      tone={agentTone(a)}
+                      label={a.gone_at ? `Gone ${fmtTs(a.gone_at)}` : a.status ?? 'status not reported'}
+                      style={{ whiteSpace: 'nowrap' }}
+                    />
                     {a.claimed_agent_id ? (
                       // Claimed into the tenant registry (POST .../claim): link to that agent.
                       <Link
@@ -548,10 +561,8 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
               <h1 data-testid="env-title" style={{ fontSize: 22, fontWeight: 700, margin: 0, color: 'var(--text)' }}>
                 {env.envName}
               </h1>
-              <span role="status" aria-live="polite" style={{ ...pill, ...tone.teal }}>{syncStatus || env.status}</span>
-              <span data-testid="env-credit-balance" style={{ ...pill, ...tone.cyan }}>
-                {env.creditBalance}
-              </span>
+              <SyncStatusPill role="status" ariaLive="polite" tone="teal" label={syncStatus || env.status} />
+              <SyncStatusPill testId="env-credit-balance" tone="cyan" label={env.creditBalance} />
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)' }}>
               <span>
@@ -658,9 +669,11 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
             <div data-testid="cel-policy-card" style={{ ...tileStyle, border: '1px solid var(--teal-border)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text)' }}>CEL Policy Assessment (Signal Loom Governance Engine)</div>
-                <span style={{ ...pill, fontSize: 11, ...(passing === env.celPolicies.length ? tone.teal : tone.red) }}>
-                  {passing} / {env.celPolicies.length} POLICIES PASS
-                </span>
+                <SyncStatusPill
+                  tone={passing === env.celPolicies.length ? 'teal' : 'red'}
+                  label={`${passing} / ${env.celPolicies.length} POLICIES PASS`}
+                  style={{ fontSize: 11 }}
+                />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {env.celPolicies.map((pol) => (
@@ -672,9 +685,7 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
                       <div className="mono" style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>{pol.name}</div>
                       <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>{pol.description}</div>
                     </div>
-                    <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', ...(pol.status === 'PASS' ? tone.teal : tone.red) }}>
-                      {pol.status}
-                    </span>
+                    <SyncStatusPill tone={pol.status === 'PASS' ? 'teal' : 'red'} label={pol.status} style={{ whiteSpace: 'nowrap' }} />
                   </div>
                 ))}
               </div>
@@ -708,9 +719,7 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{ag.name}</span>
-                    <span style={{ padding: '1px 6px', borderRadius: 99, fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', ...(ag.status === 'active' ? tone.teal : tone.muted) }}>
-                      {ag.status}
-                    </span>
+                    <SyncStatusPill tone={ag.status === 'active' ? 'teal' : 'muted'} label={ag.status} style={{ fontSize: 10.5 }} />
                     {ag.model && <span className="mono" style={{ fontSize: 11, color: 'var(--text)' }}>{ag.model}</span>}
                   </div>
                   <div className="mono" style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>

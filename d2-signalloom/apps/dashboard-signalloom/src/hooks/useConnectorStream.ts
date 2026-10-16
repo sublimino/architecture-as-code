@@ -232,6 +232,20 @@ function createConnectorStreamStore() {
 
 export const connectorStreamStore = createConnectorStreamStore()
 
+/** Upstream sync mode as a short phrase: what the backend is doing, not the browser. */
+export function syncModeLabel(s: ConnectorSyncState): string {
+  if (s.mode === 'stream') return 'Live (provider stream)'
+  if (s.mode === 'webhook') return 'Live (provider webhooks)'
+  if (s.mode === 'poll') {
+    const from = s.last_poll_at ? Date.parse(s.last_poll_at) : NaN
+    const to = s.next_poll_at ? Date.parse(s.next_poll_at) : NaN
+    const secs = Math.round((to - from) / 1000)
+    return Number.isFinite(secs) && secs > 0 ? `Polling every ${secs} s` : 'Polling'
+  }
+  return `Sync mode: ${s.mode}`
+}
+
+
 /** Remote agents and sync state for one provider, kept live by the shared stream. */
 export function useRemoteAgents(providerId: string | null): { view: RemoteAgentsView; connection: StreamConnection } {
   const { getAccessTokenSilently } = useAuth0()

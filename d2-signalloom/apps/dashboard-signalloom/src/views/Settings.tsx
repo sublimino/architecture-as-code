@@ -22,6 +22,7 @@ import DeploySensorHelpPage from '../pages/DeploySensorHelpPage'
 import OnboardAgentHelpPage from '../pages/OnboardAgentHelpPage'
 import OnboardingWizard from '../components/onboarding/OnboardingWizard'
 import SyncLogsModal from '../components/connectors/SyncLogsModal'
+import RemoteSyncBadge from '../components/connectors/RemoteSyncBadge'
 
 const POLL_MS = 15 * 60 * 1000
 
@@ -1014,6 +1015,7 @@ export default function Settings() {
                             >
                               {syncStatusText}
                             </span>
+                            {isConnected && isRemoteEnvironmentProvider(p.provider_id) && <RemoteSyncBadge providerId={p.provider_id} />}
                           </div>
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                             {isConnected && connector

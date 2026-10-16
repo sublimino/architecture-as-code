@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { AxiosError, AxiosHeaders } from 'axios'
-import { connectorsApi, type SyncResult } from '../api/connectorsClient'
+import { connectorsApi, type RemoteAgent, type RemoteAgentsSnapshot, type SyncResult } from '../api/connectorsClient'
+import { createSseTestServer, type SseTestServer } from '../api/__fixtures__/sseServer'
+import { connectorStreamStore } from '../hooks/useConnectorStream'
 import { setDemoMode } from '../api/demoMode'
 import type { ConnectorProvider, TenantConnector } from '../types/connectors'
 import RemoteEnvironmentPage from './RemoteEnvironmentPage'
@@ -126,6 +128,14 @@ describe('RemoteEnvironmentPage (live mode)', () => {
     vi.spyOn(connectorsApi, 'listProviders').mockResolvedValue([provider])
     vi.spyOn(connectorsApi, 'listConnectors').mockResolvedValue([connector])
     vi.spyOn(connectorsApi, 'getSyncLogs').mockResolvedValue(lastScan)
+    vi.spyOn(connectorsApi, 'listRemoteAgents').mockResolvedValue(null)
+    vi.stubGlobal('fetch', createSseTestServer().fetch)
+  })
+
+  afterEach(() => {
+    cleanup()
+    connectorStreamStore.reset()
+    vi.unstubAllGlobals()
   })
 
   it('renders only API data and never the demo fixture', async () => {
@@ -185,6 +195,112 @@ describe('RemoteEnvironmentPage (live mode)', () => {
     vi.mocked(connectorsApi.listConnectors).mockResolvedValue([])
     renderPage()
     expect(await screen.findByTestId('live-not-connected')).toHaveTextContent(/not connected/i)
+  })
+})
+
+describe('RemoteEnvironmentPage (live remote agents)', () => {
+  let server: SseTestServer
+  const agent = (external_id: string, over: Partial<RemoteAgent> = {}): RemoteAgent => ({
+    external_id,
+    kind: 'session',
+    name: `Session ${external_id}`,
+    model: 'claude-sonnet-4-5',
+    status: 'idle',
+    version: 3,
+    external_updated_at: null,
+    first_seen_at: '2026-10-16T09:00:00Z',
+    last_seen_at: '2026-10-16T10:00:00Z',
+    last_changed_at: '2026-10-16T09:30:00Z',
+    gone_at: null,
+    ...over,
+  })
+  const snap = (over: Partial<RemoteAgentsSnapshot> = {}): RemoteAgentsSnapshot => ({
+    provider_id: 'claude',
+    connector_id: 'conn-live-7',
+    sync_state: { mode: 'poll', last_poll_at: '2026-10-16T10:00:00Z', last_success_at: '2026-10-16T10:00:00Z', last_error: null, next_poll_at: '2026-10-16T10:00:30Z' },
+    agents: [agent('s1'), agent('s2', { status: 'running' })],
+    ...over,
+  })
+  const send = (event: string, body: unknown) => server.connections[0].send(`event: ${event}\ndata: ${JSON.stringify(body)}\n\n`)
+  const row = (id: string) => screen.getByTestId(`remote-agent-${id}`)
+
+  beforeEach(() => {
+    setDemoMode(false)
+    server = createSseTestServer()
+    vi.stubGlobal('fetch', server.fetch)
+    vi.spyOn(connectorsApi, 'listProviders').mockResolvedValue([provider])
+    vi.spyOn(connectorsApi, 'listConnectors').mockResolvedValue([connector])
+    vi.spyOn(connectorsApi, 'getSyncLogs').mockResolvedValue(lastScan)
+    vi.spyOn(connectorsApi, 'listRemoteAgents').mockResolvedValue(snap())
+  })
+
+  afterEach(() => {
+    cleanup()
+    connectorStreamStore.reset()
+    vi.unstubAllGlobals()
+  })
+
+  async function ready() {
+    renderPage()
+    await screen.findByTestId('remote-agent-s1')
+    await waitFor(() => expect(screen.getByTestId('stream-connection')).toHaveTextContent(/live updates connected/i))
+  }
+
+  it('lists the remote agents and sessions with sync state', async () => {
+    await ready()
+    expect(row('s1')).toHaveTextContent('Session s1')
+    expect(row('s1')).toHaveTextContent('session')
+    expect(row('s1')).toHaveTextContent('claude-sonnet-4-5')
+    expect(row('s2')).toHaveTextContent('running')
+    expect(screen.getByTestId('remote-sync-state')).toHaveTextContent(/Polling every 30 s/)
+    expect(screen.getByTestId('remote-sync-state')).toHaveTextContent(/Last synced/)
+    const text = document.body.textContent ?? ''
+    for (const s of FIXTURE_STRINGS) expect(text, s).not.toContain(s)
+  })
+
+  it('applies upserts in place and announces the change politely', async () => {
+    await ready()
+    send('remote_agent.upserted', { provider_id: 'claude', connector_id: 'conn-live-7', agent: agent('s1', { status: 'running' }) })
+    send('remote_agent.upserted', { provider_id: 'claude', connector_id: 'conn-live-7', agent: agent('s3', { name: 'Fresh session' }) })
+    await waitFor(() => expect(row('s1')).toHaveTextContent('running'))
+    expect(row('s3')).toHaveTextContent('Fresh session')
+    const ids = screen.getAllByTestId(/^remote-agent-s/).map((el) => el.getAttribute('data-testid'))
+    expect(ids).toEqual(['remote-agent-s1', 'remote-agent-s2', 'remote-agent-s3'])
+    const live = screen.getByTestId('remote-agents-announcer')
+    expect(live).toHaveAttribute('aria-live', 'polite')
+    await waitFor(() => expect(live).toHaveTextContent(/Session s1 is now running/))
+  })
+
+  it('keeps a gone agent visible, marked gone with its time', async () => {
+    await ready()
+    send('remote_agent.gone', { provider_id: 'claude', connector_id: 'conn-live-7', external_id: 's2', gone_at: '2026-10-16T11:00:00Z' })
+    await waitFor(() => expect(row('s2')).toHaveAttribute('data-gone', 'true'))
+    expect(row('s2')).toHaveTextContent(/Gone/)
+    expect(row('s2')).toHaveTextContent('Session s2')
+    expect(row('s1')).toHaveAttribute('data-gone', 'false')
+  })
+
+  it('shows a visible reconnecting state when the stream drops', async () => {
+    await ready()
+    server.connections[0].fail(new TypeError('network down'))
+    await waitFor(() => expect(screen.getByTestId('stream-connection')).toHaveTextContent(/connection lost, reconnecting/i))
+    expect(screen.getByTestId('stream-connection')).toHaveTextContent(/network down/)
+  })
+
+  it('shows the sync error and a live upstream mode honestly', async () => {
+    vi.mocked(connectorsApi.listRemoteAgents).mockResolvedValue(
+      snap({ sync_state: { mode: 'stream', last_poll_at: null, last_success_at: null, last_error: 'HTTP 401 from provider', next_poll_at: null } }),
+    )
+    await ready()
+    expect(screen.getByTestId('remote-sync-state')).toHaveTextContent(/Live/)
+    expect(screen.getByTestId('remote-sync-state')).toHaveTextContent(/Never synced/)
+    expect(screen.getByTestId('remote-sync-error')).toHaveTextContent('HTTP 401 from provider')
+  })
+
+  it('says so when the provider reports no agents', async () => {
+    vi.mocked(connectorsApi.listRemoteAgents).mockResolvedValue(snap({ agents: [] }))
+    renderPage()
+    expect(await screen.findByTestId('remote-agents-empty')).toBeInTheDocument()
   })
 })
 

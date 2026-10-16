@@ -35,6 +35,7 @@ const SOURCE_SYMBOLS: readonly SourceSymbols[] = [
   ['components/ThemeToggle.tsx', 'ThemeToggle'],
   ['components/ApiKeyRevealModal.tsx', 'ApiKeyRevealModal'],
   ['components/ConnectorConfigureModal.tsx', 'ConnectorConfigureModal'],
+  ['components/connectors/RemoteSyncBadge.tsx', 'RemoteSyncBadge'],
   ['components/connectors/SyncLogsModal.tsx', 'SyncLogsModal'],
   ['components/CodingAgentsTab.tsx', 'CodingAgentsTab'],
   ['components/agents/ClaimModal.tsx', 'ClaimModal'],
@@ -208,7 +209,7 @@ const SOURCE_SYMBOLS: readonly SourceSymbols[] = [
   ['components/help/HelpCardComponents.tsx', 'CopyableCodeBlock DocLinkCard'],
   ['pages/DeploySensorHelpPage.tsx', 'DeploySensorHelpPage'],
   ['pages/OnboardAgentHelpPage.tsx', 'OnboardAgentHelpPage'],
-  ['pages/RemoteEnvironmentPage.tsx', 'RemoteEnvironmentPage LiveEnvironmentView DemoEnvironmentView Section Tile Breadcrumb ErrorBanner'],
+  ['pages/RemoteEnvironmentPage.tsx', 'RemoteEnvironmentPage LiveEnvironmentView DemoEnvironmentView RemoteAgentsPanel Section Tile Breadcrumb ErrorBanner'],
 ]
 
 type Representation =
@@ -303,6 +304,7 @@ routeSource('components/CurrencySetting.tsx', '/settings', 'Open Settings and us
 routeSource('components/ApiKeyRotateModal.tsx', '/settings', 'Open Settings and choose Rotate on an existing API key.')
 routeSource('components/ApiKeyRevealModal.tsx', '/settings', 'Open Settings and create or rotate an API key to reveal the one-time key modal.')
 routeSource('components/ConnectorConfigureModal.tsx', '/settings', 'Open Settings, select Connectors tab, and choose Configure or toggle a connector.')
+routeSource('components/connectors/RemoteSyncBadge.tsx', '/settings', 'Open Settings, select Connectors tab: each connected AI provider row shows its remote sync state (Live, Polling, Reconnecting or Sync error).')
 routeSource('components/connectors/SyncLogsModal.tsx', '/settings', 'Open Settings, select Connectors tab, and choose See Log on a connected connector to inspect wire traces.')
 routeSource('components/AgentIdentityTab.tsx', '/agents/demo-agent', 'Open the demo agent and choose the Identity tab.')
 routeSource('components/AgentOverviewTab.tsx', '/agents/demo-agent', 'Open the demo agent and choose the Overview tab.')

@@ -9,7 +9,7 @@
 // subscription. Here the getter is stable, so only the demo-mode subscription
 // can cause the refetch.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, act } from '@testing-library/react'
+import { render, screen, waitFor, act, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import Settings from './Settings'
@@ -17,6 +17,8 @@ import { api } from '../api/client'
 import { connectorsApi } from '../api/connectorsClient'
 import { isDemoMode, setDemoMode } from '../api/demoMode'
 import { AppContext } from '../App'
+import { createSseTestServer } from '../api/__fixtures__/sseServer'
+import { connectorStreamStore } from '../hooks/useConnectorStream'
 import type { ConnectorProvider, TenantConnector } from '../types/connectors'
 
 const { getToken } = vi.hoisted(() => ({ getToken: vi.fn() }))
@@ -130,9 +132,21 @@ beforeEach(() => {
   // The connectors client answers from whichever mode is current at call time.
   vi.mocked(connectorsApi.listConnectors).mockImplementation(async () => (isDemoMode() ? DEMO_ROWS : LIVE_ROWS))
   vi.mocked(connectorsApi.deleteConnector).mockResolvedValue(undefined)
+  vi.mocked(connectorsApi.listRemoteAgents).mockImplementation(async (_t, providerId) => ({
+    provider_id: providerId,
+    connector_id: 'conn-live-9',
+    sync_state: { mode: 'poll', last_poll_at: null, last_success_at: null, last_error: null, next_poll_at: null },
+    agents: [],
+  }))
+  vi.stubGlobal('fetch', createSseTestServer().fetch)
 })
 
-afterEach(() => setDemoMode(true))
+afterEach(() => {
+  cleanup()
+  connectorStreamStore.reset()
+  vi.unstubAllGlobals()
+  setDemoMode(true)
+})
 
 describe('Settings connectors across a demo-mode flip', () => {
   it('replaces the demo connector list with the live one and never sends a mock id to the live API', async () => {
@@ -150,6 +164,8 @@ describe('Settings connectors across a demo-mode flip', () => {
 
     expect(await screen.findByTestId('scan-connector-openai')).toBeInTheDocument()
     expect(screen.queryByTestId('scan-connector-okta')).not.toBeInTheDocument()
+    // The AI provider row carries the remote sync badge.
+    expect(screen.getByTestId('remote-sync-openai')).toBeInTheDocument()
 
     // Disconnect the live OpenAI row (third switch): the live id goes out.
     await userEvent.click(screen.getAllByRole('switch')[2])

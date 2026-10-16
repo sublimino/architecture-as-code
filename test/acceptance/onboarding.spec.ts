@@ -17,6 +17,11 @@ async function dismissWelcome(page: import("@playwright/test").Page): Promise<vo
 
 test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
   test.afterAll(async () => {
+    const kubeconfigPath = process.env.KUBECONFIG || (require("fs").existsSync("/tmp/osramp-kubeconfig.yaml") ? "/tmp/osramp-kubeconfig.yaml" : undefined);
+    const execOpts: import("node:child_process").ExecFileSyncOptions = {
+      stdio: "ignore",
+      env: kubeconfigPath ? { ...process.env, KUBECONFIG: kubeconfigPath } : process.env,
+    };
     try {
       execFileSync(
         "kubectl",
@@ -34,7 +39,7 @@ test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
           "-c",
           "INSERT INTO tenant_onboarding (tenant_id, status, skipped_at) VALUES ('tenant-demo', 'skipped', NOW()) ON CONFLICT (tenant_id) DO UPDATE SET status = 'skipped', skipped_at = NOW();",
         ],
-        { stdio: "ignore" },
+        execOpts,
       );
     } catch {
       // Ignore if cluster or postgres is unreachable
@@ -42,6 +47,11 @@ test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
   });
 
   test.beforeEach(async ({ page }) => {
+    const kubeconfigPath = process.env.KUBECONFIG || (require("fs").existsSync("/tmp/osramp-kubeconfig.yaml") ? "/tmp/osramp-kubeconfig.yaml" : undefined);
+    const execOpts: import("node:child_process").ExecFileSyncOptions = {
+      stdio: "ignore",
+      env: kubeconfigPath ? { ...process.env, KUBECONFIG: kubeconfigPath } : process.env,
+    };
     try {
       execFileSync(
         "kubectl",
@@ -59,7 +69,7 @@ test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
           "-c",
           "DELETE FROM tenant_onboarding WHERE tenant_id = 'tenant-demo';",
         ],
-        { stdio: "ignore" },
+        execOpts,
       );
     } catch {
       // Ignore if cluster or postgres is unreachable
@@ -201,4 +211,56 @@ test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
       "Preserved Enterprise Unit",
     );
   });
+
+  test("links Claude (Anthropic) and OpenAI read-only providers in Identity Provider Linkage with connection test", async ({ page }) => {
+    await page.goto(`${DASHBOARD_URL}/onboarding`);
+    await dismissWelcome(page);
+
+    // Step 1: Advance past Tenant Identity
+    const orgInput = page.locator('[data-testid="input-organization-name"]');
+    await expect(orgInput).toBeVisible({ timeout: 15_000 });
+    await orgInput.fill("Signal Loom AI Governance Corp");
+    await page.locator('[data-testid="next-step-button"]').click();
+
+    // Step 2: Identity Provider Linkage
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Identity Provider Linkage" }),
+    ).toBeVisible();
+
+    // 1. Verify Claude (Anthropic) provider option and fields
+    const claudeOption = page.locator('[data-testid="idp-option-claude"]');
+    await expect(claudeOption).toBeVisible({ timeout: 10_000 });
+    await claudeOption.click();
+
+    await expect(page.locator('[data-testid="input-idp-issuer-url"]')).toHaveValue("https://api.anthropic.com/v1");
+    await expect(page.locator('[data-testid="input-idp-client-id"]')).toHaveValue("wrkspc_default");
+    await expect(page.locator('[data-testid="input-idp-scopes"]')).toHaveValue("models.read messages.read batches.read");
+
+    // Test connection for Claude
+    const testConnBtn = page.locator('[data-testid="test-idp-connection-button"]');
+    await expect(testConnBtn).toBeVisible();
+    await testConnBtn.click();
+    await expect(page.locator('[data-testid="idp-connection-success"]')).toBeVisible({ timeout: 10_000 });
+
+    // 2. Verify OpenAI Platform provider option and fields
+    const openaiOption = page.locator('[data-testid="idp-option-openai"]');
+    await expect(openaiOption).toBeVisible({ timeout: 10_000 });
+    await openaiOption.click();
+
+    await expect(page.locator('[data-testid="input-idp-issuer-url"]')).toHaveValue("https://api.openai.com/v1");
+    await expect(page.locator('[data-testid="input-idp-client-id"]')).toHaveValue("signalloom-openai-reader");
+    await expect(page.locator('[data-testid="input-idp-scopes"]')).toHaveValue("assistants.read models.read threads.read");
+
+    // Test connection for OpenAI
+    await testConnBtn.click();
+    await expect(page.locator('[data-testid="idp-connection-success"]')).toBeVisible({ timeout: 10_000 });
+
+    // Switch back to Claude and advance to Step 3
+    await claudeOption.click();
+    await page.locator('[data-testid="next-step-button"]').click();
+
+    // Step 3: Scan preferences
+    await expect(page.getByRole("heading", { level: 1, name: "Set your scan preferences" })).toBeVisible();
+  });
 });
+

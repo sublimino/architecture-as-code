@@ -299,10 +299,12 @@ export function NotificationBell({
             border: '1px solid var(--border)',
             borderRadius: 8,
             boxShadow: '0 12px 32px rgba(0,0,0,0.45)',
-            // Above the sidebar, top nav (zIndex 100), and every drawer in this app
-            // (the highest in use elsewhere is 9999) — a notification must always
-            // be reachable, not buried under whatever panel happens to be open.
-            zIndex: 10000,
+            // De facto z-index ladder (no token scale exists yet): top nav 100,
+            // drawers/popovers 1000, modals 2000, legacy outliers 4000/9000/9999.
+            // This panel is a popover, so it sits in the popover tier (1000-1999),
+            // just below the modal tier — reachable over drawers, but a modal
+            // (ConfirmDialog, ConnectorConfigureModal) still wins if one is open.
+            zIndex: 1500,
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',

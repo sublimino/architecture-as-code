@@ -12,6 +12,7 @@ import type { RemoteEnvironmentFixture } from '../api/fakeData'
 import { useAuth0 } from '../auth/oidc'
 import type { TenantConnector } from '../types/connectors'
 import SyncLogsModal from '../components/connectors/SyncLogsModal'
+import ButtonWait from '../components/ButtonWait'
 import NotFoundPage from './NotFoundPage'
 
 // Remote environment console for an AI provider connector.
@@ -208,8 +209,19 @@ function LiveEnvironmentView({ providerId }: { providerId: string }) {
                 <button type="button" className="btn btn-secondary btn-sm" data-testid="btn-env-sync-logs" onClick={() => setShowLogs(true)}>
                   Sync Logs
                 </button>
-                <button type="button" className="btn btn-primary btn-sm" data-testid="btn-env-sync-now" onClick={() => void handleSyncNow()} disabled={syncing}>
-                  {syncing ? 'Scanning...' : 'Sync Now'}
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  data-testid="btn-env-sync-now"
+                  onClick={() => void handleSyncNow()}
+                  disabled={syncing}
+                  aria-busy={syncing}
+                  style={{ minWidth: 96, justifyContent: 'center' }}
+                >
+                  {/* The shared in-button wait, not a bespoke "Scanning…" word. See ButtonWait. */}
+                  {syncing
+                    ? <ButtonWait testId="env-sync-now-wait" label="Scanning" />
+                    : 'Sync Now'}
                 </button>
                 <Link to="/settings?tab=connectors" className="btn btn-secondary btn-sm" style={{ textDecoration: 'none' }}>
                   Back to Connectors

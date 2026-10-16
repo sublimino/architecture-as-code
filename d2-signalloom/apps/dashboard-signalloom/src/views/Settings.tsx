@@ -21,8 +21,13 @@ import DeploySensorHelpPage from '../pages/DeploySensorHelpPage'
 import OnboardAgentHelpPage from '../pages/OnboardAgentHelpPage'
 import OnboardingWizard from '../components/onboarding/OnboardingWizard'
 import SyncLogsModal from '../components/connectors/SyncLogsModal'
+import ButtonWait from '../components/ButtonWait'
 
 const POLL_MS = 15 * 60 * 1000
+
+// Reserved width for the Scan Now button so the row does not re-flow when its
+// label is swapped for the in-button wait. See ButtonWait's decision 2.
+const SCAN_BUTTON_W = 96
 
 export type SettingsTabId =
   | 'general'
@@ -1018,26 +1023,15 @@ export default function Settings() {
                               data-testid={`scan-connector-${p.provider_id}`}
                               onClick={() => handleScanConnector(p.provider_id)}
                               disabled={scanningProviderId === p.provider_id}
-                              style={{ fontSize: 12, padding: '5px 12px' }}
+                              aria-busy={scanningProviderId === p.provider_id}
+                              style={{ fontSize: 12, padding: '5px 12px', minWidth: SCAN_BUTTON_W, justifyContent: 'center' }}
                             >
-                              {scanningProviderId === p.provider_id ? (
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                                  <span
-                                    style={{
-                                      width: 10,
-                                      height: 10,
-                                      border: '2px solid currentColor',
-                                      borderRightColor: 'transparent',
-                                      borderRadius: '50%',
-                                      display: 'inline-block',
-                                      animation: 'spin 0.75s linear infinite',
-                                    }}
-                                  />
-                                  Scanning...
-                                </span>
-                              ) : (
-                                'Scan Now'
-                              )}
+                              {/* The shared in-button wait, not a bespoke "Scanning…"
+                                  span: see ButtonWait. Only this row's button is busy —
+                                  `scanningProviderId` is per-provider, not a page-wide flag. */}
+                              {scanningProviderId === p.provider_id
+                                ? <ButtonWait testId={`scan-connector-wait-${p.provider_id}`} label="Scanning" />
+                                : 'Scan Now'}
                             </button>
                             <button
                               type="button"

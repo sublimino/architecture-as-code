@@ -157,6 +157,30 @@ describe('RemoteEnvironmentPage (live mode)', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  it('shows the design-system wait on Sync Now while a scan is in flight, then returns to idle', async () => {
+    let resolveScan: ((value: SyncResult) => void) | undefined
+    vi.spyOn(connectorsApi, 'triggerScan').mockImplementation(
+      () =>
+        new Promise<SyncResult>((resolve) => {
+          resolveScan = resolve
+        }),
+    )
+    renderPage()
+    const btn = await screen.findByTestId('btn-env-sync-now')
+    fireEvent.click(btn)
+
+    await waitFor(() => expect(btn).toBeDisabled())
+    expect(btn.getAttribute('aria-busy')).toBe('true')
+    expect(screen.getByTestId('env-sync-now-wait-grid')).toBeTruthy()
+    expect(screen.queryByText('Scanning...')).toBeNull()
+
+    resolveScan?.({ ...lastScan, status: 'success' })
+
+    await waitFor(() => expect(btn).not.toBeDisabled())
+    expect(btn.getAttribute('aria-busy')).not.toBe('true')
+    expect(screen.queryByTestId('env-sync-now-wait-grid')).toBeNull()
+  })
+
   it('shows a failed rescan inside the logs modal instead of presenting old logs as fresh', async () => {
     vi.spyOn(connectorsApi, 'triggerScan').mockRejectedValue(httpError(501, 'scan_unsupported'))
     renderPage()

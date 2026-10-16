@@ -3741,26 +3741,9 @@ def update_claude_agent_name(tenant_id: str, agent_name: str, agent_id: str | No
         if not agent_id:
             return
         for ag in _AGENTS.get(tenant_id, {}).values():
-            if ag.get("external_agent_id") == agent_id or ag.get("id") == agent_id or ag.get("remote_agent_id") == agent_id:
+            if ag.get("external_agent_id") == agent_id:
                 ag["name"] = agent_name
                 ag["display_name"] = agent_name
-                ag["remote_agent_id"] = agent_id
-
-
-async def update_claude_agent_name_db(tenant_id: str, agent_name: str, agent_id: str | None = None) -> None:
-    """Update discovered Claude agent name in memory and DB if pool available."""
-    update_claude_agent_name(tenant_id, agent_name, agent_id)
-    pool = await _get_pool()
-    if pool is not None:
-        try:
-            async with _write(pool) as conn:
-                await conn.execute(
-                    """UPDATE agent_registry SET name = $1 WHERE tenant_id = $2 AND (name ILIKE '%claude%' OR model_name ILIKE '%claude%')""",
-                    agent_name,
-                    tenant_id,
-                )
-        except Exception as exc:
-            logger.warning("Failed to update agent name in DB: %s", exc)
 
 
 def _record_memory_audit(
@@ -6350,11 +6333,6 @@ async def get_agent(
         row = await pool.fetchrow(
             "SELECT * FROM agent_registry WHERE (name = $1 OR name = $2) AND tenant_id = $3", agent_id, canonical_id, tenant_id,
         )
-        if row is None and (agent_id.startswith("agent_01") or "claude" in agent_id.lower()):
-            row = await pool.fetchrow(
-                "SELECT * FROM agent_registry WHERE tenant_id = $1 AND (name ILIKE '%claude%' OR model_name ILIKE '%claude%') ORDER BY created_at LIMIT 1",
-                tenant_id,
-            )
     if row is not None:
         if discovered_match is None and isinstance(payload, dict):
             row_name = str(row["name"]) if "name" in row else None

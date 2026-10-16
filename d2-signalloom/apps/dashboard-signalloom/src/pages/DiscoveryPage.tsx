@@ -30,6 +30,16 @@ import {
 } from '../components/DataTableToolbar'
 import { findMatchingAgent } from '../data/agentMatching'
 import { hasGitOpsMetadata } from '../data/workloadFilters'
+import ButtonWait from '../components/ButtonWait'
+import SyncLogsModal from '../components/connectors/SyncLogsModal'
+import {
+  connectorsApi,
+  connectorErrorMessage,
+  getDiscoverySourceSyncState,
+  isRemoteEnvironmentProvider,
+  type DiscoverySourceSyncState,
+} from '../api/connectorsClient'
+import type { TenantConnector } from '../types/connectors'
 
 const POLL_MS = 15 * 60 * 1000
 const PAGE_SIZE = 50
@@ -499,6 +509,225 @@ function ScanStatusCard({ scan, totalDiscovered }: { scan: NHIScan | null; total
   )
 }
 
+// Discovery sources: the connected connectors that feed this page
+
+/** One connected connector, with whatever the backend sync engine reports for it. */
+interface DiscoverySourceView {
+  providerId: string
+  name: string
+  connector: TenantConnector
+  /** Null where the engine reports nothing (not a remote-agent provider, or mock mode). */
+  syncState: DiscoverySourceSyncState | null
+  /** Set when reading the sync state itself failed; never folded into "no state". */
+  syncStateError: string | null
+}
+
+// Remote agents synced from an AI provider arrive as external_services rows.
+// The backend tags them with metadata.provider_id; source_label is the
+// fallback for rows written before that tag existed.
+const PROVIDER_BY_SOURCE_LABEL: Record<string, string> = {
+  'Anthropic Claude': 'claude',
+  OpenAI: 'openai',
+}
+
+function rowProviderId(w: DiscoveryWorkload): string | null {
+  const tagged = w.metadata?.provider_id
+  if (typeof tagged === 'string' && tagged) return tagged
+  if (w.source !== 'external_services') return null
+  return PROVIDER_BY_SOURCE_LABEL[w.source_label] ?? null
+}
+
+function isProviderHosted(w: DiscoveryWorkload): boolean {
+  return w.source === 'external_services' && rowProviderId(w) !== null
+}
+
+// POST /discovery/claim takes {agent_id, namespace, spiffe_id} and rejects a
+// namespace that does not exist for the tenant; it has no field for a
+// provider-hosted agent. Claiming one would mean inventing a namespace.
+function claimUnavailableReason(w: DiscoveryWorkload): string {
+  return `Claim needs a Kubernetes namespace and pod. This agent runs on ${w.source_label}, and the claim API has no field for a provider-hosted agent yet.`
+}
+
+const DISMISS_UNAVAILABLE_REASON =
+  'Ignore applies to directory identities (POST /nhi/discovered/{id}/dismiss); provider-hosted agents are not in that store.'
+
+function fmtAgo(iso: string): string {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
+function syncModeLabel(s: DiscoverySourceSyncState | null): string | null {
+  if (!s) return null
+  if (s.mode === 'stream' || s.mode === 'webhook') return 'Live'
+  if (s.mode === 'poll') {
+    if (s.last_poll_at && s.next_poll_at) {
+      const mins = Math.round((new Date(s.next_poll_at).getTime() - new Date(s.last_poll_at).getTime()) / 60000)
+      if (mins >= 1) return `Polling every ${mins} min`
+    }
+    return 'Polling'
+  }
+  return s.mode
+}
+
+function lastScanLabel(src: DiscoverySourceView): string {
+  const at = src.connector.last_scan_at ?? src.syncState?.last_success_at ?? null
+  return at ? `Last scanned ${fmtAgo(at)}` : 'Never scanned'
+}
+
+function sourceError(src: DiscoverySourceView): string | null {
+  return src.connector.last_scan_error ?? src.syncState?.last_error ?? src.syncStateError
+}
+
+const SYNC_TINT: Record<'live' | 'poll' | 'other', { bg: string; color: string; border: string }> = {
+  live: { bg: 'var(--teal-bg)', color: 'var(--teal)', border: 'var(--teal-border)' },
+  poll: { bg: 'var(--cyan-bg)', color: 'var(--cyan)', border: 'var(--cyan-border)' },
+  other: { bg: 'var(--surface2)', color: 'var(--muted)', border: 'var(--border)' },
+}
+
+function SyncBadge({ providerId, state }: { providerId: string; state: DiscoverySourceSyncState | null }) {
+  const label = syncModeLabel(state)
+  if (!label) return null
+  const tint = label === 'Live' ? SYNC_TINT.live : state?.mode === 'poll' ? SYNC_TINT.poll : SYNC_TINT.other
+  return (
+    <span
+      data-testid={`discovery-source-${providerId}-sync`}
+      style={{
+        fontSize: 10.5,
+        fontWeight: 600,
+        padding: '2px 7px',
+        borderRadius: 4,
+        background: tint.bg,
+        color: tint.color,
+        border: `1px solid ${tint.border}`,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label}
+    </span>
+  )
+}
+
+interface DiscoverySourcesStripProps {
+  sources: DiscoverySourceView[]
+  loadError: string | null
+  scanning: Record<string, boolean>
+  rescanErrors: Record<string, string>
+  onRescan: (providerId: string) => void
+  onLogs: (providerId: string) => void
+}
+
+function DiscoverySourcesStrip({ sources, loadError, scanning, rescanErrors, onRescan, onLogs }: DiscoverySourcesStripProps) {
+  if (loadError) {
+    return (
+      <div className="card" role="alert" data-testid="discovery-sources-error" style={{ marginBottom: 14, padding: '12px 18px', fontSize: 12.5, color: 'var(--error)' }}>
+        Could not load connected sources: {loadError}
+      </div>
+    )
+  }
+  if (sources.length === 0) return null
+  return (
+    <section
+      aria-label="Discovery sources"
+      data-testid="discovery-sources"
+      style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}
+    >
+      {sources.map((src) => {
+        const pid = src.providerId
+        const busy = Boolean(scanning[pid])
+        const err = sourceError(src)
+        return (
+          <div
+            key={src.connector.connector_id}
+            className="card"
+            data-testid={`discovery-source-${pid}`}
+            style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 6, minWidth: 260, flex: '1 1 260px' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{src.name}</span>
+              <SyncBadge providerId={pid} state={src.syncState} />
+            </div>
+            <div role="status" data-testid={`discovery-source-${pid}-last-scan`} style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              {lastScanLabel(src)}
+            </div>
+            {err && (
+              <div data-testid={`discovery-source-${pid}-error`} style={{ fontSize: 11.5, color: 'var(--error)' }}>
+                {err}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                data-testid={`discovery-source-${pid}-rescan`}
+                disabled={busy}
+                aria-busy={busy}
+                onClick={() => onRescan(pid)}
+                style={{ fontSize: 11.5, padding: '4px 10px', minWidth: 96 }}
+              >
+                {busy ? <ButtonWait label={`Re-scanning ${src.name}`} testId={`discovery-source-${pid}-rescan-wait`} /> : 'Re-scan'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                data-testid={`discovery-source-${pid}-logs`}
+                onClick={() => onLogs(pid)}
+                style={{ fontSize: 11.5, padding: '4px 10px' }}
+              >
+                Logs
+              </button>
+            </div>
+            {rescanErrors[pid] && (
+              <div role="alert" data-testid={`discovery-source-${pid}-rescan-error`} style={{ fontSize: 11.5, color: 'var(--error)' }}>
+                Re-scan failed: {rescanErrors[pid]}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </section>
+  )
+}
+
+/** Shown instead of a filter-miss message when the page genuinely has no rows. */
+function DiscoveryEmptyState({ sources, sourcesError }: { sources: DiscoverySourceView[]; sourcesError: string | null }) {
+  if (sources.length === 0 && !sourcesError) {
+    return (
+      <div className="card" data-testid="discovery-empty-no-sources" style={{ padding: '18px 22px' }}>
+        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No sources connected</div>
+        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+          Discovery lists what connected sources report. Connect an AI provider, identity directory or cluster in{' '}
+          <Link to="/settings?tab=connectors">Settings › Connectors</Link>.
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="card" data-testid="discovery-empty-no-discoveries" style={{ padding: '18px 22px' }}>
+      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Nothing discovered yet</div>
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 8 }}>
+        {sources.length === 0
+          ? 'The connected sources could not be read, so there is no scan history to show.'
+          : 'The connected sources have reported no workloads or agents. Their latest scans:'}
+      </div>
+      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5 }}>
+        {sources.map((src) => {
+          const err = sourceError(src)
+          return (
+            <li key={src.connector.connector_id}>
+              <strong>{src.name}</strong>: {lastScanLabel(src)}
+              {err && <span style={{ color: 'var(--error)' }}> ({err})</span>}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 // Workload Row Component
 
 interface WorkloadRowProps {
@@ -507,21 +736,25 @@ interface WorkloadRowProps {
   onEnroll: (id: string) => void
   onDismiss: (id: string) => void
   onOpen: (id: string) => void
+  selected?: boolean
 }
 
-function WorkloadRow({ workload, matchedAgent, onEnroll, onDismiss, onOpen }: WorkloadRowProps) {
+function WorkloadRow({ workload, matchedAgent, onEnroll, onDismiss, onOpen, selected = false }: WorkloadRowProps) {
   const isIgnored = workload.status === 'ignored'
   const isGoverned = workload.status === 'governed'
   const isRevoked = workload.status === 'revoked'
+  const providerHosted = isProviderHosted(workload)
 
   const rowStyle: React.CSSProperties = {
     borderBottom: '1px solid var(--border)',
     opacity: isIgnored ? 0.65 : 1,
+    background: selected ? 'var(--cyan-focus)' : undefined,
+    boxShadow: selected ? 'inset 3px 0 0 var(--cyan)' : undefined,
   }
   const td: React.CSSProperties = { ...DataTable.td, padding: '10px 14px', fontSize: 13 }
 
   return (
-    <tr style={rowStyle} data-testid={`discovery-row-${workload.id}`}>
+    <tr style={rowStyle} data-testid={`discovery-row-${workload.id}`} aria-selected={selected}>
       {/* Workload Name & Info */}
       <td style={td}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -639,7 +872,9 @@ function WorkloadRow({ workload, matchedAgent, onEnroll, onDismiss, onOpen }: Wo
                 data-testid={`enroll-workload-btn-${workload.id}`}
                 style={{ fontSize: 11, padding: '4px 10px', background: colors.cyanLoom, borderColor: colors.cyanLoom }}
                 onClick={() => onEnroll(workload.id)}
-                title="Claim and enroll this workload into Signal Loom governance"
+                disabled={providerHosted}
+                aria-describedby={providerHosted ? `claim-unavailable-reason-${workload.id}` : undefined}
+                title={providerHosted ? claimUnavailableReason(workload) : 'Claim and enroll this workload into Signal Loom governance'}
               >
                 Claim / Enroll
               </button>
@@ -650,7 +885,8 @@ function WorkloadRow({ workload, matchedAgent, onEnroll, onDismiss, onOpen }: Wo
                   data-testid={`dismiss-workload-btn-${workload.id}`}
                   style={{ fontSize: 11, padding: '4px 8px', color: 'var(--muted)' }}
                   onClick={() => onDismiss(workload.id)}
-                  title="Dismiss this discovery finding"
+                  disabled={providerHosted}
+                  title={providerHosted ? DISMISS_UNAVAILABLE_REASON : 'Dismiss this discovery finding'}
                 >
                   Ignore
                 </button>
@@ -658,6 +894,15 @@ function WorkloadRow({ workload, matchedAgent, onEnroll, onDismiss, onOpen }: Wo
             </>
           )}
         </div>
+        {providerHosted && !isGoverned && (
+          <div
+            id={`claim-unavailable-reason-${workload.id}`}
+            data-testid={`claim-unavailable-reason-${workload.id}`}
+            style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4, maxWidth: 240, marginLeft: 'auto', textAlign: 'right' }}
+          >
+            {claimUnavailableReason(workload)}
+          </div>
+        )}
       </td>
     </tr>
   )
@@ -736,19 +981,45 @@ export default function DiscoveryPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null)
+  // Live mode only: a failed aggregate is an error, never an empty list.
+  const [workloadsError, setWorkloadsError] = useState<string | null>(null)
+
+  // Connected sources (connectors), their sync state, and per-source actions
+  const [sources, setSources] = useState<DiscoverySourceView[]>([])
+  const [sourcesError, setSourcesError] = useState<string | null>(null)
+  const [sourcesLoaded, setSourcesLoaded] = useState(false)
+  const [scanning, setScanning] = useState<Record<string, boolean>>({})
+  const [rescanErrors, setRescanErrors] = useState<Record<string, string>>({})
+  const [logsProviderId, setLogsProviderId] = useState<string | null>(null)
+
+  // Provider deep link: ?provider=<id>&selected=<external_id>. The provider
+  // narrows the list; `selected` must equal a row id exactly (no name or
+  // suffix matching, unlike the older ?workload= link).
+  const providerFilter = searchParams.get('provider')
+  const selectedExternalId = searchParams.get('selected')
 
   // Discovered Workload Drawer & Claim Modal state
   const selectedWorkloadId = searchParams.get('workload')
-  const selectedWorkload = useMemo(
-    () =>
-      workloads.find(
-        (w) =>
-          w.id === selectedWorkloadId ||
-          w.name === selectedWorkloadId ||
-          (selectedWorkloadId ? w.id.endsWith(`:${selectedWorkloadId}`) : false),
-      ) || null,
-    [workloads, selectedWorkloadId],
-  )
+  const selectedWorkload = useMemo(() => {
+    if (selectedWorkloadId) {
+      return (
+        workloads.find(
+          (w) =>
+            w.id === selectedWorkloadId ||
+            w.name === selectedWorkloadId ||
+            w.id.endsWith(`:${selectedWorkloadId}`),
+        ) || null
+      )
+    }
+    if (selectedExternalId) {
+      return (
+        workloads.find(
+          (w) => w.id === selectedExternalId && (!providerFilter || rowProviderId(w) === providerFilter),
+        ) || null
+      )
+    }
+    return null
+  }, [workloads, selectedWorkloadId, selectedExternalId, providerFilter])
   const [claimWorkload, setClaimWorkload] = useState<DiscoveryWorkload | null>(null)
 
   const handleOpenWorkload = useCallback(
@@ -766,6 +1037,7 @@ export default function DiscoveryPage() {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       next.delete('workload')
+      next.delete('selected')
       return next
     })
   }, [setSearchParams])
@@ -781,9 +1053,47 @@ export default function DiscoveryPage() {
   // Auto-claim Modal
   const [isAutoClaimOpen, setIsAutoClaimOpen] = useState(false)
 
+  const loadSources = useCallback(async (token: string) => {
+    try {
+      const [connectors, providers] = await Promise.all([
+        connectorsApi.listConnectors(token),
+        // Names only: a failure here falls back to the provider id.
+        connectorsApi.listProviders(token).catch(() => []),
+      ])
+      const providerNames = new Map(providers.map((p) => [p.provider_id, p.display_name]))
+      const connected = connectors.filter((c) => c.status === 'connected')
+      const views = await Promise.all(
+        connected.map(async (c): Promise<DiscoverySourceView> => {
+          const base = {
+            providerId: c.provider_id,
+            name: c.display_name || providerNames.get(c.provider_id) || c.provider_id,
+            connector: c,
+          }
+          if (!isRemoteEnvironmentProvider(c.provider_id)) {
+            return { ...base, syncState: null, syncStateError: null }
+          }
+          try {
+            const snap = await getDiscoverySourceSyncState(token, c.provider_id)
+            return { ...base, syncState: snap?.sync_state ?? null, syncStateError: null }
+          } catch (err) {
+            return { ...base, syncState: null, syncStateError: connectorErrorMessage(err, 'Could not read sync state.') }
+          }
+        }),
+      )
+      setSources(views)
+      setSourcesError(null)
+    } catch (err) {
+      setSources([])
+      setSourcesError(connectorErrorMessage(err, 'The connectors API request failed.'))
+    } finally {
+      setSourcesLoaded(true)
+    }
+  }, [])
+
   const loadData = useCallback(async () => {
     try {
       const token = await getAccessTokenSilently()
+      let liveWorkloadsError: string | null = null
       const [workloadsRes, scansData, agentsData] = await Promise.all([
         api.discovery.workloads(token, { limit: 100 }).catch(async (err) => {
           // Fallback to demo fixture endpoint if live aggregate fails, but ONLY in demo mode
@@ -810,6 +1120,7 @@ export default function DiscoveryPage() {
             }))
             return { workloads: mapped, total: mapped.length, summary: { total_discovered: mapped.length, in_review: 0, ignored: 0, revoked: 0, governed: 0 } }
           }
+          liveWorkloadsError = err instanceof Error && err.message ? err.message : 'The discovery workloads request failed.'
           return { workloads: [], total: 0, summary: { total_discovered: 0, in_review: 0, ignored: 0, revoked: 0, governed: 0 } }
         }),
         api.nhi.scans(token).catch(() => ({ scans: [] as NHIScan[] })),
@@ -817,7 +1128,11 @@ export default function DiscoveryPage() {
           ? api.agents.list(token).catch(() => ({ agents: [] as AgentResponse[] }))
           : Promise.resolve({ agents: [] as AgentResponse[] }),
       ])
+      // Sources load beside the table rather than in front of it: a slow
+      // connectors API must not hold back the workloads already in hand.
+      void loadSources(token)
 
+      setWorkloadsError(liveWorkloadsError)
       setWorkloads(workloadsRes.workloads || [])
       setTotal(workloadsRes.total || (workloadsRes.workloads ? workloadsRes.workloads.length : 0))
       const scans = scansData.scans
@@ -831,13 +1146,43 @@ export default function DiscoveryPage() {
     } finally {
       setLoading(false)
     }
-  }, [getAccessTokenSilently])
+  }, [getAccessTokenSilently, loadSources])
 
   useEffect(() => {
     loadData()
     const timer = setInterval(loadData, POLL_MS)
     return () => clearInterval(timer)
   }, [loadData])
+
+  // The single refresh seam for "a provider's remote agents changed": called
+  // after a Re-scan settles, and the hook a connector event stream subscribes
+  // to when one is wired in.
+  const onRemoteAgentsChanged = loadData
+
+  const handleRescanSource = useCallback(
+    async (providerId: string) => {
+      setScanning((prev) => ({ ...prev, [providerId]: true }))
+      setRescanErrors((prev) => {
+        const next = { ...prev }
+        delete next[providerId]
+        return next
+      })
+      try {
+        const token = await getAccessTokenSilently()
+        const result = await connectorsApi.triggerScan(token, providerId)
+        if (result.status === 'error') {
+          const firstError = result.logs.find((l) => l.level === 'error')?.message
+          setRescanErrors((prev) => ({ ...prev, [providerId]: firstError || 'The scan finished with errors; open Logs for detail.' }))
+        }
+      } catch (err) {
+        setRescanErrors((prev) => ({ ...prev, [providerId]: connectorErrorMessage(err, 'The scan request failed.') }))
+      } finally {
+        setScanning((prev) => ({ ...prev, [providerId]: false }))
+      }
+      await onRemoteAgentsChanged()
+    },
+    [getAccessTokenSilently, onRemoteAgentsChanged],
+  )
 
   // Extract distinct namespaces from workloads
   const distinctNamespaces = useMemo(() => {
@@ -875,9 +1220,19 @@ export default function DiscoveryPage() {
     })),
   ]
 
-  const isFiltered = searchQuery !== '' || sourceFilter !== 'all' || stateFilter !== 'all' || namespaceFilter !== 'all' || attentionFilter !== 'all' || gitopsFilter
+  const isFiltered = searchQuery !== '' || sourceFilter !== 'all' || stateFilter !== 'all' || namespaceFilter !== 'all' || attentionFilter !== 'all' || gitopsFilter || Boolean(providerFilter)
+
+  function clearProviderFilter() {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.delete('provider')
+      next.delete('selected')
+      return next
+    })
+  }
 
   function handleClearFilters() {
+    if (providerFilter) clearProviderFilter()
     setSearchQuery('')
     setSourceFilter('all')
     setStateFilter('all')
@@ -889,6 +1244,7 @@ export default function DiscoveryPage() {
   // Filtered dataset
   const filteredWorkloads = useMemo(() => {
     return workloads.filter((w) => {
+      if (providerFilter && rowProviderId(w) !== providerFilter) return false
       // GitOps filter
       if (gitopsFilter && !hasGitOpsMetadata(w)) return false
 
@@ -919,7 +1275,7 @@ export default function DiscoveryPage() {
       }
       return true
     })
-  }, [workloads, sourceFilter, stateFilter, namespaceFilter, searchQuery, attentionFilter, gitopsFilter])
+  }, [workloads, sourceFilter, stateFilter, namespaceFilter, searchQuery, attentionFilter, gitopsFilter, providerFilter])
 
   // Attention Alerts
   const alerts: AlertItem[] = useMemo(() => {
@@ -972,6 +1328,11 @@ export default function DiscoveryPage() {
 
   // Row Actions Handlers
   async function handleEnrollWorkload(workloadId: string) {
+    const target = workloads.find((w) => w.id === workloadId)
+    if (target && isProviderHosted(target)) {
+      alert(claimUnavailableReason(target))
+      return
+    }
     try {
       const token = await getAccessTokenSilently()
       await api.discovery.enroll(token, workloadId)
@@ -986,6 +1347,11 @@ export default function DiscoveryPage() {
   }
 
   async function handleDismissWorkload(workloadId: string) {
+    const target = workloads.find((w) => w.id === workloadId)
+    if (target && isProviderHosted(target)) {
+      alert(DISMISS_UNAVAILABLE_REASON)
+      return
+    }
     try {
       const token = await getAccessTokenSilently()
       await api.discovery.dismiss(token, workloadId)
@@ -1127,6 +1493,27 @@ export default function DiscoveryPage() {
         <>
           <ScanStatusCard scan={latestScan} totalDiscovered={workloads.length} />
 
+          <DiscoverySourcesStrip
+            sources={sources}
+            loadError={sourcesError}
+            scanning={scanning}
+            rescanErrors={rescanErrors}
+            onRescan={handleRescanSource}
+            onLogs={setLogsProviderId}
+          />
+
+          {selectedExternalId && !selectedWorkload && !selectedWorkloadId && (
+            <div
+              role="status"
+              data-testid="discovery-deeplink-missing"
+              className="card"
+              style={{ marginBottom: 14, padding: '10px 16px', fontSize: 12.5, color: 'var(--muted)' }}
+            >
+              No discovered workload has the id <code>{selectedExternalId}</code>
+              {providerFilter ? <> from provider <code>{providerFilter}</code></> : null}. It may not have been synced yet; try Re-scan.
+            </div>
+          )}
+
           {/* Super Datatable Toolbar */}
           <div style={{ marginBottom: 14 }}>
             <DataTableToolbar label="Discovery filter strip">
@@ -1235,6 +1622,18 @@ export default function DiscoveryPage() {
                 </span>
                 GitOps
               </button>
+              {providerFilter && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  data-testid="discovery-provider-filter-chip"
+                  onClick={clearProviderFilter}
+                  aria-label={`Remove provider filter ${providerFilter}`}
+                  style={{ fontSize: 11.5, padding: '4px 10px' }}
+                >
+                  Provider: {sources.find((s) => s.providerId === providerFilter)?.name ?? providerFilter} ✕
+                </button>
+              )}
               <ToolbarClear
                 active={isFiltered}
                 onClear={handleClearFilters}
@@ -1259,7 +1658,27 @@ export default function DiscoveryPage() {
             </DataTableToolbar>
           </div>
 
-          {filteredWorkloads.length === 0 ? (
+          {workloadsError ? (
+            <div
+              className="card"
+              role="alert"
+              data-testid="discovery-workloads-error"
+              style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
+            >
+              <span style={{ fontSize: 13, color: 'var(--error)' }}>
+                Could not load discovered workloads: {workloadsError}
+              </span>
+              <button type="button" className="btn btn-secondary" onClick={() => void loadData()} style={{ fontSize: 12 }}>
+                Retry
+              </button>
+            </div>
+          ) : workloads.length === 0 ? (
+            sourcesLoaded ? (
+              <DiscoveryEmptyState sources={sources} sourcesError={sourcesError} />
+            ) : (
+              <LoadingState variant="block" status="loading" label="connected sources" testId="discovery-sources-load-state" />
+            )
+          ) : filteredWorkloads.length === 0 ? (
             <EmptyState
               kicker="No workloads found"
               body="No discovered workloads match the selected filter criteria."
@@ -1288,6 +1707,7 @@ export default function DiscoveryPage() {
                     onEnroll={handleEnrollWorkload}
                     onDismiss={handleDismissWorkload}
                     onOpen={handleOpenWorkload}
+                    selected={selectedWorkload?.id === w.id}
                   />
                 )
               }}
@@ -1312,8 +1732,18 @@ export default function DiscoveryPage() {
             onClose={handleCloseDrawer}
             onEnroll={handleEnrollWorkload}
             onDismiss={handleDismissWorkload}
-            onClaim={(w) => setClaimWorkload(w)}
+            onClaim={selectedWorkload && isProviderHosted(selectedWorkload) ? undefined : (w) => setClaimWorkload(w)}
           />
+
+          {logsProviderId && (
+            <SyncLogsModal
+              isOpen
+              providerId={logsProviderId}
+              providerName={sources.find((s) => s.providerId === logsProviderId)?.name ?? logsProviderId}
+              onClose={() => setLogsProviderId(null)}
+              onRescan={() => handleRescanSource(logsProviderId)}
+            />
+          )}
 
           {claimWorkload && (
             <ClaimModal

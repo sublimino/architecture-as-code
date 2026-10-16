@@ -425,4 +425,40 @@ describe('SyncLogsModal', () => {
     expect(banner.getAttribute('style') ?? '').toContain('color: var(--text)')
   })
 
+  // ── Design-system audit A4: form-control a11y + Copied announcement ────
+
+  it('labels the search and level-filter controls for assistive tech', async () => {
+    render(<SyncLogsModal isOpen providerId="claude" providerName="Anthropic Claude" onClose={onClose} />)
+    expect(await screen.findByLabelText('Search sync logs')).toBe(screen.getByTestId('sync-log-search'))
+    expect(screen.getByLabelText('Log level')).toBe(screen.getByTestId('sync-log-level-filter'))
+  })
+
+  it('does not let an inline border or outline override the shared focus style on the search or level controls', async () => {
+    render(<SyncLogsModal isOpen providerId="claude" providerName="Anthropic Claude" onClose={onClose} />)
+    const search = await screen.findByTestId('sync-log-search')
+    const level = screen.getByTestId('sync-log-level-filter')
+    for (const el of [search, level]) {
+      const style = el.getAttribute('style') ?? ''
+      expect(style).not.toMatch(/outline/)
+      expect(style).not.toMatch(/border/)
+    }
+  })
+
+  it('does not remove the keyboard focus indicator from the wire-payload <summary>', async () => {
+    render(<SyncLogsModal isOpen providerId="claude" providerName="Anthropic Claude" onClose={onClose} />)
+    const summary = await screen.findByText('Inspect wire payload JSON')
+    expect(summary.getAttribute('style') ?? '').not.toMatch(/outline/)
+  })
+
+  it('announces the Copied confirmation to assistive tech via role=status', async () => {
+    const writeTextMock = vi.fn().mockResolvedValue(undefined)
+    Object.assign(navigator, { clipboard: { writeText: writeTextMock } })
+    render(<SyncLogsModal isOpen providerId="claude" providerName="Anthropic Claude" onClose={onClose} />)
+
+    await waitFor(() => expect(screen.getByTestId('btn-copy-sync-logs')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('btn-copy-sync-logs'))
+
+    const copied = await screen.findByText('Copied!')
+    expect(copied).toHaveAttribute('role', 'status')
+  })
 })

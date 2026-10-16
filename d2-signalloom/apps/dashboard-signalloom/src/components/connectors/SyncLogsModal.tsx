@@ -375,34 +375,24 @@ export default function SyncLogsModal({
               <input
                 type="text"
                 data-testid="sync-log-search"
+                aria-label="Search sync logs"
                 placeholder="Search logs, endpoints, messages…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                style={{
-                  flex: 1,
-                  padding: '6px 10px',
-                  fontSize: 12,
-                  borderRadius: 'var(--radius-sm)',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text)',
-                  outline: 'none',
-                }}
+                // Design-system audit rule 6/7, finding S7: an inline border
+                // and outline:none here beat the shared input focus style and
+                // removed the focus cue entirely. Form controls are already
+                // styled globally (global.css input/select rule); only the
+                // layout (`flex`) and this modal's smaller type size stay.
+                style={{ flex: 1, fontSize: 12 }}
               />
               <select
                 data-testid="sync-log-level-filter"
+                aria-label="Log level"
                 value={levelFilter}
                 onChange={(e) => setLevelFilter(e.target.value as LogLevelFilter)}
-                style={{
-                  padding: '6px 10px',
-                  fontSize: 12,
-                  borderRadius: 'var(--radius-sm)',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text)',
-                  cursor: 'pointer',
-                  outline: 'none',
-                }}
+                // Finding S8: same duplication/outline-removal as the search
+                // input above — the global input/select rule covers this.
               >
                 <option value="ALL">ALL LEVELS</option>
                 <option value="INFO">INFO</option>
@@ -420,7 +410,7 @@ export default function SyncLogsModal({
                 onClick={handleCopyLogs}
                 disabled={!syncResult}
               >
-                {copied ? 'Copied!' : 'Copy Logs'}
+                {copied ? <span role="status">Copied!</span> : 'Copy Logs'}
               </button>
               <button
                 type="button"
@@ -532,7 +522,7 @@ export default function SyncLogsModal({
 
                         {log.details && (
                           <details data-testid={`wire-trace-payload-${log.id}`} style={{ marginTop: 2 }}>
-                            <summary style={{ cursor: 'pointer', color: 'var(--cyan)', fontSize: 11, outline: 'none' }}>
+                            <summary style={{ cursor: 'pointer', color: 'var(--cyan)', fontSize: 11 }}>
                               Inspect wire payload JSON
                             </summary>
                             <pre

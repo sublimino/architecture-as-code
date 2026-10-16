@@ -183,7 +183,7 @@ const SOURCE_SYMBOLS: readonly SourceSymbols[] = [
   ['pages/LoginPage.tsx', 'LoginPage'],
   ['pages/RbacExplorerPage.tsx', 'RbacExplorerPage RbacErrorBoundary TableToolbar TableEmptyState'],
   ['pages/RbacAnalysisPage.tsx', 'RbacAnalysisPage'],
-  ['pages/PolicyEvaluationPage.tsx', 'PolicyEvaluationPage'],
+  ['pages/PolicyEvaluationPage.tsx', 'PolicyEvaluationPage LivePolicyEvaluation DemoPolicyEvaluation'],
   ['pages/AgentMaxxingDemoPage.tsx', 'AgentMaxxingDemoPage'],
   ['pages/FleetDemoPage.tsx', 'FleetDemoPage'],
   ['pages/WeavePage.tsx', 'WeavePage SignalThread ActorCard CoverageHonestyPanel'],

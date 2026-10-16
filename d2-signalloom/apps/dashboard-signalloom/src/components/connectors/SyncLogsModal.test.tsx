@@ -398,4 +398,13 @@ describe('SyncLogsModal', () => {
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(2)
   })
+
+  // ── Design-system audit A1: shared overlay ──────────────────────────────
+
+  it('uses the shared modal-overlay class instead of a hand-rolled scrim', async () => {
+    render(<SyncLogsModal isOpen providerId="claude" providerName="Anthropic Claude" onClose={onClose} />)
+    const dialog = await screen.findByTestId('sync-logs-modal')
+    expect(dialog.parentElement).toHaveClass('modal-overlay')
+  })
+
 })

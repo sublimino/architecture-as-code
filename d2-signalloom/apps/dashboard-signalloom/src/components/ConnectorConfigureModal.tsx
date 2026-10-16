@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { ConnectorCreateRequest, ConnectorProvider, TenantConnector } from '../types/connectors'
 import { useAuth0 } from '../auth/oidc'
 import ProviderLogo from './onboarding/ProviderLogo'
@@ -54,6 +54,35 @@ export default function ConnectorConfigureModal({
   const [testResult, setTestResult] = useState<VerificationOutcome | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  // A1 (design-system audit): Escape closes, matching SyncLogsModal's
+  // existing behaviour on the same Settings row.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    if (isOpen) window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
+
+  // A1 (design-system audit): initial focus moves into the dialog, and is
+  // restored to whatever was focused before opening. Scoped to the `isOpen`
+  // transition only (not every render) so the restore doesn't fire just
+  // because a parent re-creates `onClose` on re-render.
+  useEffect(() => {
+    if (!isOpen) return
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    const panel = dialogRef.current
+    // Prefer the first real form field over the Close button, which is the
+    // first focusable element in DOM order but not where a keyboard user
+    // typing credentials wants to land.
+    const firstField = panel?.querySelector<HTMLElement>('input, select, textarea')
+    ;(firstField ?? panel)?.focus()
+    return () => {
+      previouslyFocused?.focus()
+    }
+  }, [isOpen])
 
   if (!isOpen) return null
 
@@ -117,20 +146,9 @@ export default function ConnectorConfigureModal({
   }
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'color-mix(in srgb, var(--bg) 70%, transparent)',
-        backdropFilter: 'blur(6px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 2000,
-        padding: 16,
-      }}
-    >
+    <div className="modal-overlay">
       <div
+        ref={dialogRef}
         className="card slide-up"
         style={{
           width: 580,
@@ -142,6 +160,7 @@ export default function ConnectorConfigureModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="configure-connector-title"
+        tabIndex={-1}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

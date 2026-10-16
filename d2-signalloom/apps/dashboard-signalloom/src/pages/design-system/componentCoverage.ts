@@ -164,7 +164,7 @@ const SOURCE_SYMBOLS: readonly SourceSymbols[] = [
   ['pages/admin/UsersPage.tsx', 'UsersPage'],
   ['components/admin/AdminNavTabs.tsx', 'AdminNavTabs'],
   ['pages/admin/FeaturesPage.tsx', 'FeaturesPage FlagToggle'],
-  ['pages/DiscoveryPage.tsx', 'DiscoveryPage ControlBadge ControlRecommendationsCell AutoClaimModal AttentionPanel ConnectDirectoryCta ScanStatusCard WorkloadRow'],
+  ['pages/DiscoveryPage.tsx', 'DiscoveryPage ControlBadge ControlRecommendationsCell AutoClaimModal AttentionPanel ConnectDirectoryCta ScanStatusCard DiscoverySourcesStrip SyncBadge DiscoveryEmptyState WorkloadRow'],
   ['pages/AgentTrustTopologyPage.tsx', 'AgentTrustTopologyPage Detail AssuranceMeter TrustPath DegradedBanner'],
   ['pages/DiscoveryAccountDetailPage.tsx', 'DiscoveryAccountDetailPage Field'],
   ['pages/CryptographyPage.tsx', 'CryptographyPage FilterBar NoMatch'],

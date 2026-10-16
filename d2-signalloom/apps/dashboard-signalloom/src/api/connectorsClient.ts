@@ -821,12 +821,16 @@ function getMockSyncResult(providerId: string): SyncResult {
   }
 }
 
-export function isConnectorsMockMode(): boolean {
-  const envMode = (import.meta.env.VITE_CONNECTORS_API_MODE as string | undefined)?.toLowerCase()
+export function resolveConnectorsMockMode(envMode: string | undefined, production: boolean, demo: boolean): boolean {
+  if (production) return false
   if (envMode === 'live') return false
   if (envMode === 'mock') return true
-  if (isProductionEnv) return false
-  return isDemoMode()
+  return demo
+}
+
+export function isConnectorsMockMode(): boolean {
+  const envMode = (import.meta.env.VITE_CONNECTORS_API_MODE as string | undefined)?.toLowerCase()
+  return resolveConnectorsMockMode(envMode, isProductionEnv, isDemoMode())
 }
 
 /**
@@ -846,8 +850,10 @@ export const connectorsApi: ConnectorsApi = {
     isConnectorsMockMode() ? mockConnectorsApi.createConnector(token, body) : liveConnectorsApi.createConnector(token, body),
   deleteConnector: (token, id) =>
     isConnectorsMockMode() ? mockConnectorsApi.deleteConnector(token, id) : liveConnectorsApi.deleteConnector(token, id),
-  testConnector: (token, id) =>
-    isConnectorsMockMode() ? mockConnectorsApi.testConnector(token, id) : liveConnectorsApi.testConnector(token, id),
+  testConnector: (token, id, credentials) =>
+    isConnectorsMockMode()
+      ? mockConnectorsApi.testConnector(token, id, credentials)
+      : liveConnectorsApi.testConnector(token, id, credentials),
   testProviderCredentials: (token, providerId, credentials) =>
     isConnectorsMockMode()
       ? mockConnectorsApi.testProviderCredentials(token, providerId, credentials)

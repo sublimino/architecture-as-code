@@ -157,6 +157,16 @@ describe('RemoteEnvironmentPage (live mode)', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  it('shows a failed rescan inside the logs modal instead of presenting old logs as fresh', async () => {
+    vi.spyOn(connectorsApi, 'triggerScan').mockRejectedValue(httpError(501, 'scan_unsupported'))
+    renderPage()
+    fireEvent.click(await screen.findByTestId('btn-env-sync-logs'))
+    fireEvent.click(await screen.findByTestId('btn-modal-rescan'))
+    expect(await screen.findByTestId('sync-logs-error')).toHaveTextContent(/not supported/i)
+    // The page banner still reports it too.
+    expect(screen.getAllByRole('alert').some((el) => /not supported/i.test(el.textContent ?? ''))).toBe(true)
+  })
+
   it('does not offer a fake claim: the scan reports counts, not agent identities', async () => {
     renderPage()
     const claim = await screen.findByRole('button', { name: /Claim to Tenant/i })

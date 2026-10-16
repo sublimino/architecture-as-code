@@ -83,7 +83,11 @@ class TenantConnector(BaseModel):
     status: ConnectorStatusType = "connected"
     credential_expires_at: str | None = None
     last_tested_at: str | None = None
+    # Time of the last fully successful scan. A failed or partial scan leaves it
+    # alone and records its outcome in last_scan_status / last_scan_error.
     last_scan_at: str | None = None
+    last_scan_status: Literal["success", "warning", "error"] | None = None
+    last_scan_error: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=_now_iso)
 
@@ -541,8 +545,8 @@ async def toggle_connector(
         else:
             new_status = "disconnected" if prev_status == "connected" else "connected"
 
+        # Toggling probes nothing, so it does not touch last_tested_at.
         match["status"] = new_status
-        match["last_tested_at"] = _now_iso()
 
         # Emit structured audit event
         audit_entry = {
@@ -592,19 +596,24 @@ async def create_connector(
 ) -> ConnectorCreateResponse:
     """Create or update a connector configuration."""
     tenant_id = principal.tenant
-    _ensure_tenant_connectors_seeded(tenant_id, await _fixture_mode())
+    fixture = await _fixture_mode()
+    _ensure_tenant_connectors_seeded(tenant_id, fixture)
 
     with _CONN_LOCK:
         conns = _TENANT_CONNECTORS_DATA.get(tenant_id, [])
         match = next((c for c in conns if c["provider_id"] == body.provider_id), None)
         now = _now_iso()
+        # Saving a connector is not testing or scanning it. Only fixture mode
+        # (no database) may show demo timestamps and a demo expiry; live rows
+        # get them when a verifier or scanner actually reports.
         if match:
             match["status"] = "connected"
             match["display_name"] = body.display_name or match.get("display_name")
             match["metadata"] = {**match.get("metadata", {}), **body.metadata}
             if body.credential_expires_at is not None:
                 match["credential_expires_at"] = body.credential_expires_at
-            match["last_tested_at"] = now
+            if fixture:
+                match["last_tested_at"] = now
             conn_id = match["connector_id"]
         else:
             conn_id = f"conn-{body.provider_id}-{len(conns) + 1:02d}"
@@ -613,9 +622,9 @@ async def create_connector(
                 "provider_id": body.provider_id,
                 "display_name": body.display_name or body.provider_id,
                 "status": "connected",
-                "credential_expires_at": body.credential_expires_at or "2027-01-01T00:00:00Z",
-                "last_tested_at": now,
-                "last_scan_at": now,
+                "credential_expires_at": body.credential_expires_at or ("2027-01-01T00:00:00Z" if fixture else None),
+                "last_tested_at": now if fixture else None,
+                "last_scan_at": now if fixture else None,
                 "metadata": body.metadata,
                 "created_at": now,
             }
@@ -666,6 +675,11 @@ async def delete_connector(
             raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
 
         match["status"] = "disconnected"
+        # Disconnecting forgets the tenant's key and what it observed, so a later
+        # re-enable cannot test or scan with the old credential.
+        for key in (match["connector_id"], match["provider_id"]):
+            _TENANT_CONNECTOR_CREDENTIALS.get(tenant_id, {}).pop(key, None)
+            _TENANT_SYNC_RESULTS.get(tenant_id, {}).pop(key, None)
         audit_entry = {
             "eventType": "CONNECTOR_STATUS_CHANGED",
             "action": "tenant.connector_disconnected",
@@ -756,33 +770,38 @@ async def _probe(url: str, headers: dict[str, str]) -> tuple[int | None, int, st
         return None, int((time.monotonic() - started) * 1000), type(exc).__name__
 
 
-def _probe_verdict(service: str, status: int | None, error: str | None) -> tuple[bool, bool, str | None, str | None]:
-    """(valid, scopes_ok, error_msg, message) from a real probe outcome only."""
+# (valid, scopes_ok, error_msg, message, tested). ``tested`` is True only when
+# the upstream answered, i.e. the credential was really put to the provider.
+Verdict = tuple[bool, bool, str | None, str | None, bool]
+
+
+def _probe_verdict(service: str, status: int | None, error: str | None) -> Verdict:
+    """A verdict from a real probe outcome only."""
     if status is None:
-        return False, False, f"Could not reach the {service} API ({error}); the credential was not tested.", None
+        return False, False, f"Could not reach the {service} API ({error}); the credential was not tested.", None, False
     if status == 200:
-        return True, True, None, f"{service} API accepted the credential (HTTP 200)."
+        return True, True, None, f"{service} API accepted the credential (HTTP 200).", True
     if status == 401:
-        return False, False, f"{service} API rejected the credential (HTTP 401).", None
+        return False, False, f"{service} API rejected the credential (HTTP 401).", None, True
     if status == 403:
-        return True, False, f"{service} API authenticated the credential but refused the required permission (HTTP 403).", None
-    return False, False, f"Unexpected HTTP {status} from the {service} API; the credential was not verified.", None
+        return True, False, f"{service} API authenticated the credential but refused the required permission (HTTP 403).", None, True
+    return False, False, f"Unexpected HTTP {status} from the {service} API; the credential was not verified.", None, True
 
 
-async def _verify_claude(creds: dict[str, str]) -> tuple[bool, bool, str | None, str | None]:
+async def _verify_claude(creds: dict[str, str]) -> Verdict:
     key = creds.get("api_key")
     if not key:
-        return False, False, "No Anthropic API key was supplied or stored; nothing was tested.", None
+        return False, False, "No Anthropic API key was supplied or stored; nothing was tested.", None, False
     status, _, error = await _probe(f"{ANTHROPIC_API}/v1/models", {"x-api-key": key, "anthropic-version": "2023-06-01"})
     return _probe_verdict("Anthropic", status, error)
 
 
-async def _verify_openai(creds: dict[str, str]) -> tuple[bool, bool, str | None, str | None]:
+async def _verify_openai(creds: dict[str, str]) -> Verdict:
     # ``admin_api_key`` is the field name credentials were stored under before
     # the wizard field became ``api_key``; both hold an org Admin key.
     key = creds.get("api_key") or creds.get("admin_api_key")
     if not key:
-        return False, False, "No OpenAI Admin API key was supplied or stored; nothing was tested.", None
+        return False, False, "No OpenAI Admin API key was supplied or stored; nothing was tested.", None, False
     status, _, error = await _probe(f"{OPENAI_API}/v1/organization/admin_api_keys", {"Authorization": f"Bearer {key}"})
     return _probe_verdict("OpenAI Admin", status, error)
 
@@ -822,7 +841,7 @@ async def test_supplied_credentials(
     verifier = _VERIFIERS.get(provider_id)
     if verifier is None:
         raise APIError(501, "test_unsupported", f"No credential verifier exists for provider '{provider_id}'")
-    valid, scopes_ok, error_msg, message = await verifier(_supplied_credentials(body))
+    valid, scopes_ok, error_msg, message, _tested = await verifier(_supplied_credentials(body))
     return ConnectorTestResult(connector_id=None, valid=valid, scopes_ok=scopes_ok, error_msg=error_msg, message=message)
 
 
@@ -844,7 +863,6 @@ async def test_connector(
         match = next((c for c in conns if c["connector_id"] == connector_id or c["provider_id"] == connector_id), None)
         if match is None:
             raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
-        match["last_tested_at"] = _now_iso()
         expires_at_str = match.get("credential_expires_at")
         problem = _stored_state_problem(match)
 
@@ -866,6 +884,8 @@ async def test_connector(
                 test_message = f"✓ Verified connection to Anthropic Claude API. Discovered live agent: {live_telemetry['agent_name']}"
             else:
                 test_message = "✓ Verified connection to Anthropic Claude API."
+        with _CONN_LOCK:
+            match["last_tested_at"] = _now_iso()
         return ConnectorTestResult(
             connector_id=match["connector_id"], valid=True, scopes_ok=True,
             credential_expires_at=expires_at_str, message=test_message,
@@ -874,7 +894,11 @@ async def test_connector(
     verifier = _VERIFIERS.get(match["provider_id"])
     if verifier is None:
         raise APIError(501, "test_unsupported", f"No credential verifier exists for provider '{match['provider_id']}'")
-    valid, scopes_ok, error_msg, message = await verifier(creds)
+    valid, scopes_ok, error_msg, message, tested = await verifier(creds)
+    if tested:
+        # The provider answered: this is when the credential was tested.
+        with _CONN_LOCK:
+            match["last_tested_at"] = _now_iso()
     return ConnectorTestResult(
         connector_id=match["connector_id"], valid=valid, scopes_ok=scopes_ok, error_msg=error_msg,
         credential_expires_at=expires_at_str, message=message,
@@ -1187,7 +1211,17 @@ async def scan_connector(
         )
 
     with _CONN_LOCK:
-        match["last_scan_at"] = result.synced_at
+        # last_scan_at means "synced": only a scan that observed everything it
+        # asked for earns it. A warning is a partial scan (some listings
+        # failed), so it records its status and error but keeps the previous
+        # successful time.
+        if result.status == "success":
+            match["last_scan_at"] = result.synced_at
+            match["last_scan_error"] = None
+        else:
+            failures = [log.message for log in result.logs if log.level == "error"]
+            match["last_scan_error"] = " ".join(failures) or f"Scan finished with status '{result.status}'."
+        match["last_scan_status"] = result.status
         stored = _TENANT_SYNC_RESULTS.setdefault(tenant_id, {})
         stored[canonical_provider] = result
         stored[connector_id] = result

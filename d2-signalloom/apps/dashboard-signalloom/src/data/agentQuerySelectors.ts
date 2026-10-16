@@ -187,10 +187,9 @@ export function isClaudeAgent(agent: AgentResponse): boolean {
   )
 }
 
+// The framework the server reported. A claude model name or type does not make
+// an agent claude-managed; only runtime.framework can say so.
 export function getAgentFramework(agent: AgentResponse): string {
-  if (isClaudeAgent(agent)) {
-    return 'claude-managed'
-  }
   return agent.runtime?.framework ?? agent.framework ?? agent.type ?? 'Custom'
 }
 

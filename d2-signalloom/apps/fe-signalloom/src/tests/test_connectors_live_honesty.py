@@ -462,3 +462,153 @@ def test_openai_project_key_rejected_by_admin_api_is_not_valid(monkeypatch):
         body = client.post(f"/api/v1/connectors/{conn_id}/test", headers=_token("alice")).json()
         assert body["scopes_ok"] is False
         assert "403" in body["error_msg"]
+
+
+# ---------------------------------------------------------------------------
+# 10. Timestamps are observations: stamped only when the thing happened.
+# ---------------------------------------------------------------------------
+
+def _row_for(client: TestClient, headers: dict[str, str], conn_id: str) -> dict[str, Any]:
+    conns = client.get("/api/v1/connectors", headers=headers).json()["connectors"]
+    return next(c for c in conns if c["connector_id"] == conn_id)
+
+
+def test_live_new_connector_has_no_invented_test_scan_or_expiry(monkeypatch):
+    with _client(monkeypatch) as client:
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        row = _row_for(client, _token("alice"), conn_id)
+        assert row["last_tested_at"] is None
+        assert row["last_scan_at"] is None
+        assert row["credential_expires_at"] is None
+
+
+def test_live_new_connector_keeps_a_caller_supplied_expiry(monkeypatch):
+    with _client(monkeypatch) as client:
+        resp = client.post("/api/v1/connectors", headers=_token("alice"), json={
+            "provider_id": "claude", "credentials": {"api_key": "k"}, "credential_expires_at": "2031-05-05T00:00:00Z"})
+        row = _row_for(client, _token("alice"), resp.json()["connector_id"])
+        assert row["credential_expires_at"] == "2031-05-05T00:00:00Z"
+
+
+def test_live_updating_a_connector_does_not_claim_it_was_tested(monkeypatch):
+    with _client(monkeypatch) as client:
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice-2"})
+        assert _row_for(client, _token("alice"), conn_id)["last_tested_at"] is None
+
+
+def test_fixture_new_connector_keeps_demo_timestamps(monkeypatch):
+    with _client(monkeypatch, live=False) as client:
+        conn_id = _create(client, _token("alice"), "okta", {"api_token": "t"})
+        row = _row_for(client, _token("alice"), conn_id)
+        assert row["last_tested_at"] and row["last_scan_at"] and row["credential_expires_at"]
+
+
+@pytest.mark.parametrize("agents_status, models_status, expected", [
+    (401, 401, "error"),
+    (200, 401, "warning"),
+])
+def test_live_unsuccessful_scan_does_not_stamp_last_scan_at_and_records_why(monkeypatch, agents_status, models_status, expected):
+    with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
+        mock.get(f"{ANTHROPIC}/v1/agents").mock(return_value=httpx.Response(agents_status, json={"data": []}))
+        mock.get(f"{ANTHROPIC}/v1/models").mock(return_value=httpx.Response(models_status, json={"data": []}))
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        resp = client.post("/api/v1/connectors/claude/scan", headers=_token("alice"))
+        assert resp.json()["status"] == expected
+        row = _row_for(client, _token("alice"), conn_id)
+        assert row["last_scan_at"] is None
+        assert row["last_scan_status"] == expected
+        assert "401" in row["last_scan_error"]
+
+
+def test_live_successful_scan_stamps_last_scan_at_with_the_scan_time(monkeypatch):
+    with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
+        _mock_good_claude(mock)
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        body = client.post("/api/v1/connectors/claude/scan", headers=_token("alice")).json()
+        row = _row_for(client, _token("alice"), conn_id)
+        assert body["status"] == "success"
+        assert row["last_scan_at"] == body["synced_at"]
+        assert (row["last_scan_status"], row["last_scan_error"]) == ("success", None)
+
+
+def test_live_failed_scan_after_a_success_keeps_the_last_successful_time(monkeypatch):
+    with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
+        agents = mock.get(f"{ANTHROPIC}/v1/agents").mock(return_value=httpx.Response(200, json={"data": []}))
+        models = mock.get(f"{ANTHROPIC}/v1/models").mock(return_value=httpx.Response(200, json={"data": []}))
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        first = client.post("/api/v1/connectors/claude/scan", headers=_token("alice")).json()
+        agents.mock(return_value=httpx.Response(500))
+        models.mock(return_value=httpx.Response(500))
+        client.post("/api/v1/connectors/claude/scan", headers=_token("alice"))
+        row = _row_for(client, _token("alice"), conn_id)
+        assert row["last_scan_at"] == first["synced_at"]
+        assert row["last_scan_status"] == "error"
+
+
+def test_live_501_test_does_not_stamp_last_tested_at(monkeypatch):
+    with _client(monkeypatch) as client:
+        conn_id = _create(client, _token("alice"), "okta", {"api_token": "t"})
+        resp = client.post(f"/api/v1/connectors/{conn_id}/test", headers=_token("alice"))
+        assert resp.status_code == 501
+        assert _row_for(client, _token("alice"), conn_id)["last_tested_at"] is None
+
+
+def test_live_test_that_never_reached_upstream_does_not_stamp_last_tested_at(monkeypatch):
+    with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
+        mock.get(f"{ANTHROPIC}/v1/models").mock(side_effect=httpx.ConnectError("down"))
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        client.post(f"/api/v1/connectors/{conn_id}/test", headers=_token("alice"))
+        assert _row_for(client, _token("alice"), conn_id)["last_tested_at"] is None
+
+
+@pytest.mark.parametrize("status", [200, 401])
+def test_live_test_with_a_probe_verdict_stamps_last_tested_at(monkeypatch, status):
+    with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
+        mock.get(f"{ANTHROPIC}/v1/models").mock(return_value=httpx.Response(status, json={"data": []}))
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        client.post(f"/api/v1/connectors/{conn_id}/test", headers=_token("alice"))
+        assert _row_for(client, _token("alice"), conn_id)["last_tested_at"] is not None
+
+
+def test_toggle_does_not_stamp_last_tested_at(monkeypatch):
+    with _client(monkeypatch) as client:
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        for enabled in (False, True):
+            resp = client.post(f"/api/v1/connectors/{conn_id}/toggle", headers=_token("alice"), json={"enabled": enabled})
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["last_tested_at"] is None
+
+
+# ---------------------------------------------------------------------------
+# 11. Disconnect forgets the credentials and the stored scan results.
+# ---------------------------------------------------------------------------
+
+def test_disconnect_then_reenable_does_not_reuse_the_old_key(monkeypatch):
+    with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
+        _mock_good_claude(mock)
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        assert client.post("/api/v1/connectors/claude/scan", headers=_token("alice")).status_code == 200
+        calls_before = len(mock.calls)
+        assert client.delete(f"/api/v1/connectors/{conn_id}", headers=_token("alice")).status_code == 200
+        assert client.post(f"/api/v1/connectors/{conn_id}/toggle", headers=_token("alice"), json={"enabled": True}).status_code == 200
+
+        body = client.post(f"/api/v1/connectors/{conn_id}/test", headers=_token("alice")).json()
+        assert body["valid"] is False
+        scan = client.post("/api/v1/connectors/claude/scan", headers=_token("alice")).json()
+        assert scan["status"] == "error"
+        assert len(mock.calls) == calls_before
+        with connectors_mod._CONN_LOCK:
+            assert connectors_mod._TENANT_CONNECTOR_CREDENTIALS.get("tenant-a", {}) == {}
+
+
+def test_disconnect_drops_the_stored_scan_result(monkeypatch):
+    with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
+        _mock_good_claude(mock)
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        client.post("/api/v1/connectors/claude/scan", headers=_token("alice"))
+        client.delete(f"/api/v1/connectors/{conn_id}", headers=_token("alice"))
+        for key in (conn_id, "claude"):
+            resp = client.get(f"/api/v1/connectors/{key}/logs", headers=_token("alice"))
+            assert resp.status_code == 404
+            assert _error_code(resp) == "never_scanned"

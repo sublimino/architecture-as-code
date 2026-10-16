@@ -944,6 +944,23 @@ describe('AgentsPage — URL Deep-Link Engine & Secondary Filters', () => {
     expect(screen.getByTestId('drawer-agent-name')).toHaveTextContent('Drawer Bot')
   })
 
+  it('opens no drawer (and never a lookalike agent) for an unknown agent_01 deep link', async () => {
+    const claudeLike = makeAgent({ id: 'claude-agent-1', name: 'Daily News Jokester', type: 'claude', model_name: 'claude-x' })
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: [claudeLike], total: 1 })
+    vi.mocked(api.agents.get).mockRejectedValue(new Error('404'))
+    renderPage(['/agents?drawer=agent_01UnknownXyz'])
+    await screen.findByText('Daily News Jokester')
+    await waitFor(() => expect(api.agents.get).toHaveBeenCalledWith(expect.anything(), 'agent_01UnknownXyz'))
+    expect(screen.queryByTestId('agent-evidence-drawer')).not.toBeInTheDocument()
+  })
+
+  it('opens the drawer for a deep link that is the :<id> suffix of an agent id', async () => {
+    const agent = makeAgent({ id: 'remote:agent_01Exact', name: 'Exact Remote' })
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: [agent], total: 1 })
+    renderPage(['/agents?drawer=agent_01Exact'])
+    expect(await screen.findByTestId('drawer-agent-name')).toHaveTextContent('Exact Remote')
+  })
+
   it('does not render Live containment cockpit at the top of the agents page, but renders it in drawer when open', async () => {
     const agent = makeAgent({ id: 'agent-cockpit-check', name: 'Cockpit Check Agent' })
     ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -1799,7 +1816,7 @@ describe('AgentsPage — Claude Managed Parity & Runtime Display', () => {
     expect(within(row).getByText('claude-managed')).toBeInTheDocument()
   })
 
-  it('displays claude-managed for Claude agents identified by framework, type, or model name', async () => {
+  it('displays the framework the server reported, never claude-managed inferred from type or model name', async () => {
     const agentFramework = makeAgent({
       id: 'agent-fw',
       name: 'Agent Framework',
@@ -1825,7 +1842,7 @@ describe('AgentsPage — Claude Managed Parity & Runtime Display', () => {
       model_name: 'claude-3-5-sonnet-20241022',
       runtime: {
         namespace: 'cloud-dev',
-        framework: undefined,
+        framework: 'LangGraph',
         execution_mode: 'autonomous',
       },
     })
@@ -1841,8 +1858,9 @@ describe('AgentsPage — Claude Managed Parity & Runtime Display', () => {
     const rowModel = screen.getByTestId('agent-row-agent-model')
 
     expect(within(rowFw).getByText('claude-managed')).toBeInTheDocument()
-    expect(within(rowType).getByText('claude-managed')).toBeInTheDocument()
-    expect(within(rowModel).getByText('claude-managed')).toBeInTheDocument()
+    expect(within(rowType).queryByText('claude-managed')).not.toBeInTheDocument()
+    expect(within(rowModel).queryByText('claude-managed')).not.toBeInTheDocument()
+    expect(within(rowModel).getByText('LangGraph')).toBeInTheDocument()
   })
 
   it('sorts and filters claude-managed agents seamlessly', async () => {

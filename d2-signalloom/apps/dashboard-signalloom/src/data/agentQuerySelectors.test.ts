@@ -3,6 +3,7 @@ import {
   parseAgentSelectorQuery,
   matchAgentByQuery,
   resolveAgentOrInstance,
+  getAgentFramework,
 } from './agentQuerySelectors'
 import type { AgentResponse } from '../types/api'
 
@@ -311,5 +312,17 @@ describe('resolveAgentOrInstance', () => {
     expect(res2.allMatches).toHaveLength(0)
     expect(res2.matchedAgent).toBeUndefined()
     expect(res2.isExactInstance).toBe(false)
+  })
+})
+
+describe('getAgentFramework reports the server, not an inference', () => {
+  const base = { id: 'a', name: 'a' } as unknown as AgentResponse
+  it('returns runtime.framework even for a claude model', () => {
+    expect(getAgentFramework({ ...base, model_name: 'claude-x', type: 'claude', runtime: { framework: 'LangGraph' } } as unknown as AgentResponse)).toBe('LangGraph')
+  })
+  it('falls back to framework, then type, then Custom, never claude-managed', () => {
+    expect(getAgentFramework({ ...base, model_name: 'claude-x', framework: 'crewai' } as unknown as AgentResponse)).toBe('crewai')
+    expect(getAgentFramework({ ...base, type: 'claude' } as unknown as AgentResponse)).toBe('claude')
+    expect(getAgentFramework({ ...base, model_name: 'claude-x' } as unknown as AgentResponse)).toBe('Custom')
   })
 })

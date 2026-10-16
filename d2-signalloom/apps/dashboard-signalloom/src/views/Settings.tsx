@@ -365,11 +365,18 @@ export default function Settings() {
     setScanErrors(({ [providerId]: _cleared, ...rest }) => rest)
     try {
       const token = await getAccessTokenSilently()
-      await connectorsApi.triggerScan(token, providerId)
+      const result = await connectorsApi.triggerScan(token, providerId)
+      if (result.status !== 'success') {
+        // A 200 with status error/warning is still a failed (or partial) scan:
+        // say so, naming the calls that failed.
+        const failed = result.logs.filter((l) => l.level === 'error').map((l) => l.message).join(' ')
+        const label = result.status === 'warning' ? 'Scan incomplete' : 'Scan failed'
+        setScanErrors((prev) => ({ ...prev, [providerId]: `${label}: ${failed || `the scan finished with status ${result.status}.`}` }))
+      }
       const freshConnectors = await connectorsApi.listConnectors(token)
       setConnectors(freshConnectors)
     } catch (err) {
-      setScanErrors((prev) => ({ ...prev, [providerId]: connectorErrorMessage(err, 'Scan failed.') }))
+      setScanErrors((prev) => ({ ...prev, [providerId]: `Scan failed: ${connectorErrorMessage(err, 'Scan failed.')}` }))
     } finally {
       setScanningProviderId(null)
     }
@@ -949,7 +956,11 @@ export default function Settings() {
                   } else if (isDisconnected) {
                     syncStatusText = 'Disconnected'
                   }
-                  const scanError = scanErrors[p.provider_id]
+                  // This session's scan outcome first, else the last failure the server recorded.
+                  const serverScanError = isConnected && connector?.last_scan_status && connector.last_scan_status !== 'success' && connector.last_scan_error
+                    ? `${connector.last_scan_status === 'warning' ? 'Last scan incomplete' : 'Last scan failed'}: ${connector.last_scan_error}`
+                    : null
+                  const scanError = scanErrors[p.provider_id] ?? serverScanError
 
                   return (
                     <div
@@ -982,7 +993,7 @@ export default function Settings() {
                           </div>
                           {scanError && (
                             <div role="alert" data-testid={`scan-error-${p.provider_id}`} style={{ fontSize: 11, color: 'var(--error)', marginTop: 2 }}>
-                              Scan failed: {scanError}
+                              {scanError}
                             </div>
                           )}
                         </div>

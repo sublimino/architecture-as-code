@@ -10520,7 +10520,7 @@ async def list_discovery_workloads(
                     continue
                 workloads.append(
                     DiscoveryWorkloadModel(
-                        id=f"{r['provider_id']}:{r['external_id']}",
+                        id=r["external_id"],
                         name=r["name"] or r["external_id"],
                         tenant_id=tenant_id,
                         source="external_services",

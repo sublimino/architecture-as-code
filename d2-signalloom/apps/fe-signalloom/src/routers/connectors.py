@@ -1692,12 +1692,15 @@ async def anthropic_webhook(request: Request) -> JSONResponse:
         return JSONResponse({"status": "duplicate", "event_id": event_id})
     kind = "session" if resource_type.startswith("session.") else ("agent" if resource_type.startswith("agent.") else None)
 
-    async with _write(pool) as conn:
-        await api_compat._audit_log(
-            conn, tenant_id, "connector.scan_requested", None, None, f"anthropic-webhook:{org_id}",
-            {"connector_id": row["connector_id"], "provider_id": "claude", "trigger": "webhook",
-             "webhook_event_id": event_id, "event_type": resource_type, "resource_id": resource_id},
-        )
+    # The caller is the verified sender: Anthropic, for the mapped organisation.
+    # Like a manual scan, the refetch is audited before the upstream is asked.
+    principal = Principal(tenant=tenant_id, subject=f"anthropic-webhook:{org_id}")
+    await _audit_outbound_request(
+        principal, "connector.scan_requested",
+        {"connector_id": row["connector_id"], "provider_id": "claude", "trigger": "webhook",
+         "webhook_event_id": event_id, "event_type": resource_type, "resource_id": resource_id},
+        "Anthropic webhook refetch",
+    )
     _WEBHOOK_SEEN[(tenant_id, event_id)] = None
     while len(_WEBHOOK_SEEN) > _WEBHOOK_SEEN_MAX:
         _WEBHOOK_SEEN.pop(next(iter(_WEBHOOK_SEEN)))

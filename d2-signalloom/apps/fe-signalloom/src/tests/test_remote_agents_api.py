@@ -221,14 +221,15 @@ def test_live_discovery_lists_synced_remote_agents_and_no_fixture_rows(monkeypat
         rows = resp.json()["workloads"] if isinstance(resp.json(), dict) else resp.json()
         names = {w["name"] for w in rows}
         assert names & _FIXTURE_NAMES == set()
-        remote = [w for w in rows if w["id"].startswith("claude:")]
+        remote = [w for w in rows if w.get("metadata", {}).get("provider_id") == "claude"]
         assert [(w["id"], w["name"], w["source"], w["source_label"], w["model"]) for w in remote] == [
-            ("claude:agent_1", "Triage", "external_services", "Anthropic Claude", "claude-opus-4-7")]
+            ("agent_1", "Triage", "external_services", "Anthropic Claude", "claude-opus-4-7")]
         assert remote[0]["metadata"]["kind"] == "agent" and remote[0]["metadata"]["remote_status"] is None
+        assert remote[0]["metadata"]["connector_id"] == "conn-claude-01"
 
         bob = client.get("/api/v1/discovery/workloads", headers=_token("bob")).json()
         bob_rows = bob["workloads"] if isinstance(bob, dict) else bob
-        assert not [w for w in bob_rows if w["id"].startswith("claude:")]
+        assert not [w for w in bob_rows if w.get("metadata", {}).get("provider_id") == "claude"]
 
 
 def test_fixture_discovery_is_unchanged(monkeypatch):

@@ -198,6 +198,18 @@ _KNOWN_NON_JWT_ROUTES = frozenset(
 #: severity, Phase 2: either delete the dead ``routers.policies`` routes, or
 #: give them their own explicit ``Depends(authenticated_tenant)`` so safety
 #: does not depend on routing order.
+#: The Anthropic webhook receiver. Its caller is Anthropic, authenticated by the
+#: Standard Webhooks HMAC signature; the tenant comes from the configured
+#: organisation map, never from the request. Pinned to that one handler by
+#: test_signature_auth_exemptions_are_only_the_anthropic_webhook.
+_KNOWN_SIGNATURE_AUTH_ROUTES = frozenset(
+    {
+        ("POST", "/connectors/claude/webhook"),
+        ("POST", "/api/connectors/claude/webhook"),
+        ("POST", "/api/v1/connectors/claude/webhook"),
+    }
+)
+
 _KNOWN_SHADOWED_DEAD_ROUTES = frozenset(
     {
         ("POST", "/v1/policies/validate"),
@@ -248,6 +260,8 @@ def test_every_in_scope_route_has_a_tenant_binding_dependency(route: APIRoute):
     key = (method, route.path)
     if key in _KNOWN_NON_JWT_ROUTES:
         pytest.skip("single-use bearer token scheme, not JWT -- see _KNOWN_NON_JWT_ROUTES")
+    if key in _KNOWN_SIGNATURE_AUTH_ROUTES:
+        pytest.skip("provider-signed webhook, no JWT caller -- see _KNOWN_SIGNATURE_AUTH_ROUTES")
     if key in _KNOWN_SHADOWED_DEAD_ROUTES:
         pytest.skip("structurally un-auth'd but unreachable dead code -- see _KNOWN_SHADOWED_DEAD_ROUTES")
     assert _route_has_auth_dependency(route), (
@@ -406,3 +420,18 @@ def test_external_agent_registration_listing_is_isolated_per_tenant(client: Test
 
     bob_get = client.get("/api/v1/external-agents/matrix-ext-agent-01", headers=_bearer(BOB))
     assert bob_get.status_code in (403, 404), bob_get.text
+
+
+def test_signature_auth_exemptions_are_only_the_anthropic_webhook(client: TestClient):
+    from routers.connectors import anthropic_webhook
+
+    exempt = {
+        (method, route.path): route.endpoint
+        for route in IN_SCOPE_ROUTES
+        for method in route.methods or ()
+        if (method, route.path) in _KNOWN_SIGNATURE_AUTH_ROUTES
+    }
+    assert set(exempt) == set(_KNOWN_SIGNATURE_AUTH_ROUTES)
+    assert all(endpoint is anthropic_webhook for endpoint in exempt.values()), exempt
+    for method, path in _KNOWN_SIGNATURE_AUTH_ROUTES:
+        assert client.request(method, path, content=b"{}").status_code in {400, 404}

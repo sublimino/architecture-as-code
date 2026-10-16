@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useSearchParams } from 'react-router-dom'
 import {
   connectorsApi,
   connectorErrorMessage,
@@ -283,9 +283,29 @@ function LiveEnvironmentView({ providerId }: { providerId: string }) {
   )
 }
 
+const ENV_TABS = ['all', 'general', 'network', 'packages', 'agents'] as const
+type EnvTabId = (typeof ENV_TABS)[number]
+
+function parseTab(value: string | null): EnvTabId {
+  const t = (value ?? 'all').toLowerCase()
+  return (ENV_TABS as readonly string[]).includes(t) ? (t as EnvTabId) : 'all'
+}
+
 function DemoEnvironmentView({ providerId, env }: { providerId: string; env: RemoteEnvironmentFixture }) {
   const { getAccessTokenSilently } = useAuth0()
-  const [activeTab, setActiveTab] = useState<'all' | 'general' | 'network' | 'packages' | 'agents'>('all')
+  // The ?tab= query parameter is the source of truth, so a tab can be linked to.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = parseTab(searchParams.get('tab'))
+  const setActiveTab = (tab: EnvTabId) =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (tab === 'all') next.delete('tab')
+        else next.set('tab', tab)
+        return next
+      },
+      { replace: true },
+    )
   const [syncStatus, setSyncStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState(false)
@@ -361,8 +381,9 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
           <button
             key={tab.id}
             role="tab"
+            data-testid={`env-tab-${tab.id}`}
             aria-selected={activeTab === tab.id}
-            onClick={() => setActiveTab(tab.id as typeof activeTab)}
+            onClick={() => setActiveTab(tab.id as EnvTabId)}
             style={{
               background: 'none',
               border: 'none',
@@ -483,12 +504,18 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Link to={`/agents?selected=${ag.id}`} className="btn btn-secondary btn-sm" style={{ textDecoration: 'none' }}>
+                  <Link
+                    to={`/agents?selected=${encodeURIComponent(ag.id)}&drawer=${encodeURIComponent(ag.id)}`}
+                    className="btn btn-secondary btn-sm"
+                    data-testid={`btn-view-dossier-${ag.id}`}
+                    style={{ textDecoration: 'none' }}
+                  >
                     View Dossier ↗
                   </Link>
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm"
+                    data-testid={`btn-claim-agent-${ag.id}`}
                     onClick={() => setClaimedAgents((prev) => ({ ...prev, [ag.id]: true }))}
                     disabled={claimedAgents[ag.id]}
                   >

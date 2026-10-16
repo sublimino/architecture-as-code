@@ -99,6 +99,25 @@ describe('RemoteEnvironmentPage (demo mode)', () => {
     await waitFor(() => expect(scan).toHaveBeenCalledWith('test-token', 'claude'))
     expect(await screen.findByText(/Synchronized just now/i)).toBeInTheDocument()
   })
+
+  it('opens the tab named in ?tab= and shows only that section', () => {
+    renderPage('/settings/connectors/claude?tab=agents')
+    expect(screen.getByTestId('env-tab-agents')).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('heading', { name: /Connected Agents & Workloads/i })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /^General$/ })).not.toBeInTheDocument()
+  })
+
+  it('falls back to all sections for an unknown ?tab= value', () => {
+    renderPage('/settings/connectors/claude?tab=bogus')
+    expect(screen.getByTestId('env-tab-all')).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('links each agent to its dossier with the evidence drawer open', () => {
+    renderPage('/settings/connectors/claude?tab=agents')
+    const link = screen.getAllByTestId(/^btn-view-dossier-/)[0]
+    const id = link.getAttribute('data-testid')!.replace('btn-view-dossier-', '')
+    expect(link).toHaveAttribute('href', `/agents?selected=${encodeURIComponent(id)}&drawer=${encodeURIComponent(id)}`)
+  })
 })
 
 describe('RemoteEnvironmentPage (live mode)', () => {

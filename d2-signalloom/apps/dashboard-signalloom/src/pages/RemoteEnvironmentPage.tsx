@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { useParams, Link, useSearchParams } from 'react-router-dom'
 import {
@@ -6,14 +6,17 @@ import {
   connectorErrorMessage,
   demoRemoteEnvironment,
   isRemoteEnvironmentProvider,
+  type RemoteAgent,
   type SyncResult,
 } from '../api/connectorsClient'
+import { syncModeLabel, useRemoteAgents, type StreamConnection } from '../hooks/useConnectorStream'
 import type { RemoteEnvironmentFixture } from '../api/fakeData'
 import { useAuth0 } from '../auth/oidc'
 import type { TenantConnector } from '../types/connectors'
 import SyncLogsModal from '../components/connectors/SyncLogsModal'
 import ButtonWait from '../components/ButtonWait'
 import NotFoundPage from './NotFoundPage'
+import { isDemoMode, subscribeDemoMode } from '../api/demoMode'
 
 // Remote environment console for an AI provider connector.
 //
@@ -106,6 +109,11 @@ function count(n: number | null | undefined): string {
 export default function RemoteEnvironmentPage() {
   const { providerId } = useParams<{ providerId: string }>()
   const id = providerId?.toLowerCase()
+  // Re-render when the demo toggle flips. The two modes are different view
+  // components, so a flip unmounts one and mounts the other: no connector,
+  // scan or agent state carries across.
+  const [, setDemo] = useState(isDemoMode)
+  useEffect(() => subscribeDemoMode(setDemo), [])
   if (!isRemoteEnvironmentProvider(id)) {
     return (
       <div data-testid="remote-env-not-found">
@@ -269,19 +277,8 @@ function LiveEnvironmentView({ providerId }: { providerId: string }) {
             </p>
           </Section>
 
-          <Section title="Connected Agents & Workloads" subtitle="Agents reported by the last scan.">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-              <p style={{ margin: 0, fontSize: 13, color: 'var(--text)' }}>
-                {syncResult ? `${count(syncResult.records_scanned.agents)} agents reported by the last scan.` : 'No scan has run yet.'}
-              </p>
-              <button type="button" className="btn btn-secondary btn-sm" disabled title="Claim discovered agents from Discovery">
-                Claim to Tenant
-              </button>
-            </div>
-            <p data-testid="live-claim-explanation" style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--muted)' }}>
-              The scan reports agent counts, not agent identities, so there is nothing to claim here. Claim discovered agents from{' '}
-              <Link to="/discovery">Discovery</Link>.
-            </p>
+          <Section title="Connected Agents & Workloads" subtitle="Remote agents and sessions as the provider reports them, updated live.">
+            <RemoteAgentsPanel providerId={providerId} />
           </Section>
         </>
       )}
@@ -293,6 +290,144 @@ function LiveEnvironmentView({ providerId }: { providerId: string }) {
           onClose={() => setShowLogs(false)}
           onRescan={() => handleSyncNow(true)}
         />
+      )}
+    </div>
+  )
+}
+
+function connectionLabel(c: StreamConnection): string {
+  switch (c.status) {
+    case 'open':
+      return 'Live updates connected'
+    case 'connecting':
+      return 'Connecting to live updates…'
+    case 'reconnecting':
+      return `Connection lost, reconnecting in ${Math.ceil((c.retryInMs ?? 0) / 1000)} s${c.error ? ` (${c.error})` : ''}`
+    case 'demo':
+      return 'Demo data'
+    default:
+      return 'Live updates not connected'
+  }
+}
+
+function agentTone(a: RemoteAgent) {
+  if (a.gone_at) return tone.muted
+  const s = (a.status ?? '').toLowerCase()
+  if (['running', 'active', 'busy'].includes(s)) return tone.teal
+  if (['error', 'failed', 'errored'].includes(s)) return tone.red
+  if (['idle', 'terminated', 'stopped', 'archived', ''].includes(s)) return tone.muted
+  return tone.cyan
+}
+
+const agentLabel = (a: RemoteAgent) => a.name ?? a.external_id
+
+/** Polite announcements for changes after the first load: never for the initial list. */
+function useChangeAnnouncement(agents: RemoteAgent[], ready: boolean): string {
+  const prev = useRef<Map<string, RemoteAgent> | null>(null)
+  const [message, setMessage] = useState('')
+  useEffect(() => {
+    if (!ready) return
+    const before = prev.current
+    prev.current = new Map(agents.map((a) => [a.external_id, a]))
+    if (!before) return
+    const changes: string[] = []
+    for (const a of agents) {
+      const was = before.get(a.external_id)
+      if (!was) changes.push(`${agentLabel(a)} appeared`)
+      else if (a.gone_at && !was.gone_at) changes.push(`${agentLabel(a)} is gone`)
+      else if (a.status !== was.status) changes.push(`${agentLabel(a)} is now ${a.status ?? 'unknown'}`)
+    }
+    // Keep the last few so changes landing in consecutive renders are all read.
+    if (changes.length) setMessage((m) => [...(m ? m.split('. ') : []), ...changes].slice(-3).join('. '))
+  }, [agents, ready])
+  return message
+}
+
+function RemoteAgentsPanel({ providerId }: { providerId: string }) {
+  const { view, connection } = useRemoteAgents(providerId)
+  const announcement = useChangeAnnouncement(view.agents, view.status === 'ready')
+  const sync = view.syncState
+  const connTone = connection.status === 'open' ? tone.teal : connection.status === 'reconnecting' ? tone.amber : tone.muted
+  return (
+    <div data-testid="remote-agents-panel">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12, fontSize: 12 }}>
+        <span data-testid="stream-connection" role="status" aria-live="polite" style={{ ...pill, ...connTone }}>
+          {connectionLabel(connection)}
+        </span>
+        {sync && (
+          <span data-testid="remote-sync-state" style={{ color: 'var(--muted)' }}>
+            {syncModeLabel(sync)} • {sync.last_success_at ? `Last synced ${fmtTs(sync.last_success_at)}` : 'Never synced'}
+            {sync.mode === 'poll' && sync.next_poll_at ? ` • Next poll ${fmtTs(sync.next_poll_at)}` : ''}
+          </span>
+        )}
+      </div>
+      {sync?.last_error && (
+        <div data-testid="remote-sync-error" style={{ ...tone.red, padding: '8px 12px', borderRadius: 6, fontSize: 12, marginBottom: 12 }}>
+          Last sync error: {sync.last_error}
+        </div>
+      )}
+      <div className="sr-only" aria-live="polite" data-testid="remote-agents-announcer">
+        {announcement}
+      </div>
+      {view.status === 'loading' ? (
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>Loading remote agents…</p>
+      ) : view.status === 'not_configured' ? (
+        <p data-testid="remote-agents-not-configured" style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
+          The connectors API reports no configured connector for this provider, so there is no remote runtime state to show.
+        </p>
+      ) : (
+        <>
+          {view.status === 'error' && (
+            <div role="alert" data-testid="remote-agents-error" style={{ ...tone.red, padding: '8px 12px', borderRadius: 6, fontSize: 12, marginBottom: 12 }}>
+              {view.error}
+            </div>
+          )}
+          {view.agents.length === 0 && view.status === 'ready' ? (
+            <p data-testid="remote-agents-empty" style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
+              The provider reports no agents or sessions for this connector.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {view.agents.map((a) => (
+                <div
+                  key={a.external_id}
+                  data-testid={`remote-agent-${a.external_id}`}
+                  data-gone={a.gone_at ? 'true' : 'false'}
+                  style={{ ...tileStyle, padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', opacity: a.gone_at ? 0.7 : 1 }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{agentLabel(a)}</span>
+                      <span style={{ ...pill, fontSize: 11, ...tone.muted }}>{a.kind}</span>
+                      {a.model && <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text)' }}>{a.model}</span>}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'monospace', marginTop: 4 }}>
+                      {a.external_id}
+                      {a.version != null && ` • v${a.version}`}
+                      {` • Last seen ${fmtTs(a.last_seen_at)}`}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ ...pill, ...agentTone(a), whiteSpace: 'nowrap' }}>
+                      {a.gone_at ? `Gone ${fmtTs(a.gone_at)}` : a.status ?? 'status not reported'}
+                    </span>
+                    {a.external_id && (
+                      // Claiming happens in Discovery; this page only links there.
+                      <Link
+                        to={`/discovery?provider=${encodeURIComponent(providerId)}&selected=${encodeURIComponent(a.external_id)}`}
+                        className="btn btn-secondary btn-sm"
+                        data-testid={`claim-in-discovery-${a.external_id}`}
+                        style={{ textDecoration: 'none' }}
+                      >
+                        Claim in Discovery
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   )

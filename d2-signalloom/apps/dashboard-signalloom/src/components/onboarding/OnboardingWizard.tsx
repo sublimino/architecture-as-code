@@ -27,7 +27,7 @@
  * owns create, test, toggle and delete; a second copy of that flow inside the
  * wizard would be a second place for it to drift.
  */
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth0 } from '../../auth/oidc'
 import { getTenantIdFromToken } from '../../auth/tenant'
@@ -131,6 +131,18 @@ export default function OnboardingWizard({
   })
 
   const [tenantProfileError, setTenantProfileError] = useState<string | undefined>(undefined)
+
+  // The form (and its submit button) unmounts the moment settingsCompleted
+  // flips true, which would otherwise drop focus to <body> with nothing
+  // announced. Land it on Done (the primary next action) or, if this mode
+  // has no onCompleted handler to wire one, on the banner itself.
+  const completedBannerRef = useRef<HTMLDivElement>(null)
+  const doneButtonRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!settingsCompleted) return
+    if (doneButtonRef.current) doneButtonRef.current.focus()
+    else completedBannerRef.current?.focus()
+  }, [settingsCompleted])
 
   // The risk profile as the server holds it. null means it could not be read,
   // so there is no baseline to diff against or risk_load to carry forward.
@@ -538,19 +550,45 @@ export default function OnboardingWizard({
 
       {/* The risk profile is optional, so a failed save warns and lets the user
           carry on -- but it must never fail silently, or they would believe a
-          declaration landed when it did not. */}
+          declaration landed when it did not. Amber warning tone, not the red
+          assertive ValidationErrorBanner: this is non-blocking, not an error. */}
       {tenantProfileError && (
         <div style={{ maxWidth: 760, margin: '0 auto 20px', padding: '0 20px' }}>
-          <ValidationErrorBanner
-            errors={[tenantProfileError]}
-            onDismiss={() => setTenantProfileError(undefined)}
-          />
+          <div
+            role="status"
+            data-testid="tenant-profile-warning"
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: 12,
+              padding: '12px 16px',
+              borderRadius: 'var(--radius)',
+              border: '1px solid var(--amber)',
+              background: 'var(--amber-bg)',
+              color: 'var(--text)',
+              fontSize: 13,
+            }}
+          >
+            <span>{tenantProfileError}</span>
+            <button
+              type="button"
+              onClick={() => setTenantProfileError(undefined)}
+              aria-label="Dismiss warning"
+              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: 2 }}
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 
       {settingsCompleted ? (
         <div style={{ maxWidth: 760, margin: '0 auto 24px', padding: '0 20px' }}>
           <div
+            ref={completedBannerRef}
+            role="status"
+            tabIndex={-1}
             data-testid="onboarding-settings-completed-banner"
             style={{
               padding: '20px 24px',
@@ -562,7 +600,7 @@ export default function OnboardingWizard({
             <p
               style={{
                 margin: 0,
-                fontSize: '15px',
+                fontSize: 15,
                 lineHeight: 1.5,
                 color: 'var(--text)',
                 fontWeight: 500,
@@ -581,6 +619,7 @@ export default function OnboardingWizard({
               </button>
               {onCompleted && (
                 <button
+                  ref={doneButtonRef}
                   type="button"
                   className="btn btn-primary"
                   data-testid="settings-done-button"
@@ -604,7 +643,7 @@ export default function OnboardingWizard({
                   background: 'var(--surface)',
                   border: '1px solid var(--border)',
                   color: 'var(--muted)',
-                  fontSize: '0.875rem',
+                  fontSize: 12.25,
                   lineHeight: 1.5,
                 }}
               >

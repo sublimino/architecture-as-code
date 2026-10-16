@@ -3,6 +3,7 @@ import { useSearchParams, Link } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { isDemoMode } from '../api/demoMode'
+import LoadingState from '../components/LoadingState'
 import {
   demoPolicyEvaluationAgent,
   demoPolicyEvaluationAttestation,
@@ -45,14 +46,6 @@ type LiveLookup =
   | { state: 'not-found' }
   | { state: 'found'; agent: AgentResponse }
 
-const panel: React.CSSProperties = {
-  padding: 24,
-  marginBottom: 24,
-  background: 'var(--surface)',
-  border: '1px solid var(--border)',
-  borderRadius: 8,
-}
-
 const label: React.CSSProperties = { fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }
 
 function LivePolicyEvaluation() {
@@ -61,6 +54,9 @@ function LivePolicyEvaluation() {
   const agentParam = searchParams.get('agent') ?? ''
   const normalizedFwId = normalizeFrameworkId(searchParams.get('framework') || 'eu-ai-act')
   const [lookup, setLookup] = useState<LiveLookup>({ state: 'loading' })
+  // Bumped by the error state's Retry action to re-run the effect below without
+  // duplicating its mounted-guard fetch logic at a second call site.
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
     let mounted = true
@@ -95,31 +91,38 @@ function LivePolicyEvaluation() {
     return () => {
       mounted = false
     }
-  }, [getAccessTokenSilently, agentParam])
+  }, [getAccessTokenSilently, agentParam, retryKey])
 
+  // Breadcrumb landmark with muted links, matching the house pattern
+  // (RemoteEnvironmentPage) rather than a plain unlabelled div.
   const breadcrumb = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
-      <Link to="/compliance" style={{ color: 'var(--cyan)', textDecoration: 'none' }}>
+    <nav aria-label="Breadcrumb" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
+      <Link to="/compliance" style={{ color: 'var(--muted)', textDecoration: 'none' }}>
         ← Back to Compliance
       </Link>
       <span>/</span>
       <span style={{ color: 'var(--text)', fontWeight: 600 }}>Policy Evaluation</span>
-    </div>
+    </nav>
   )
 
   let body: React.ReactNode
   if (lookup.state === 'loading') {
-    body = <div className="card" style={panel}>Loading agent…</div>
+    body = <LoadingState variant="block" status="loading" label="agent" testId="eval-loading" />
   } else if (lookup.state === 'error') {
     body = (
-      <div className="card" role="alert" data-testid="eval-load-error" style={{ ...panel, borderColor: 'var(--error)' }}>
-        <strong style={{ color: 'var(--error)' }}>Could not load agents:</strong> {lookup.message}
-      </div>
+      <LoadingState
+        variant="block"
+        status="error"
+        label="agent"
+        error={lookup.message}
+        onRetry={() => setRetryKey((k) => k + 1)}
+        testId="eval-load-error"
+      />
     )
   } else if (lookup.state === 'choose') {
     body = (
-      <div className="card" data-testid="eval-choose-agent" style={panel}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, margin: '0 0 8px', color: 'var(--text)' }}>Choose an agent to evaluate</h1>
+      <div className="card" data-testid="eval-choose-agent" style={{ marginBottom: 24 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 8px', color: 'var(--text)' }}>Choose an agent to evaluate</h1>
         <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 0 }}>
           Pick an agent below or open one from the <Link to="/agents" style={{ color: 'var(--cyan)' }}>agents page</Link>.
         </p>
@@ -144,7 +147,7 @@ function LivePolicyEvaluation() {
     )
   } else if (lookup.state === 'not-found') {
     body = (
-      <div className="card" role="alert" data-testid="eval-agent-not-found" style={panel}>
+      <div className="card" role="status" data-testid="eval-agent-not-found" style={{ marginBottom: 24 }}>
         <strong>No agent matches {agentParam}</strong>
         <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 0 }}>
           Check the id or name, or pick one from the <Link to="/agents" style={{ color: 'var(--cyan)' }}>agents page</Link>.
@@ -156,7 +159,7 @@ function LivePolicyEvaluation() {
     const summary = agent.compliance_summary
     body = (
       <>
-        <div className="card" style={panel}>
+        <div className="card" style={{ marginBottom: 24 }}>
           <h1 data-testid="eval-header-title" style={{ fontSize: 22, fontWeight: 700, margin: '0 0 8px', color: 'var(--text)' }}>
             Policy Evaluation: {agent.name}
           </h1>
@@ -186,7 +189,7 @@ function LivePolicyEvaluation() {
             </div>
           </div>
         </div>
-        <div className="card" data-testid="eval-not-evaluated" style={panel}>
+        <div className="card" data-testid="eval-not-evaluated" style={{ marginBottom: 24 }}>
           <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 8px', color: 'var(--text)' }}>Policy checks: not evaluated</h2>
           <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
             There is no live policy-evaluation results API behind this page yet, so no per-check verdict, cost or

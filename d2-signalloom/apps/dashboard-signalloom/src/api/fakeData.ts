@@ -1,3 +1,5 @@
+import type { RemoteAgent, RemoteAgentsSnapshot } from './connectorsClient'
+
 // Fake-data fixtures for demo mode.
 //
 // resolveFake(method, path, body) returns a shape-valid fixture for any of the
@@ -476,6 +478,47 @@ export const remoteEnvironmentFixtures: Record<'claude' | 'openai', RemoteEnviro
     celPolicies: DEMO_CEL_POLICIES,
     connectedAgents: [connectedAgentFrom(openaiAgentFixture, 'ses_openai_01', '5m ago')],
   },
+}
+
+// Demo-mode remote agents snapshot (GET /connectors/{id}/remote-agents), built
+// from the same connected agents as the environment fixture above so the two
+// views agree, plus one session the provider has stopped reporting.
+export function demoRemoteAgentsSnapshot(providerId: string): RemoteAgentsSnapshot | null {
+  if (providerId !== 'claude' && providerId !== 'openai') return null
+  const env = remoteEnvironmentFixtures[providerId]
+  const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
+  const agents: RemoteAgent[] = env.connectedAgents.map((a) => ({
+    external_id: a.id,
+    kind: 'agent',
+    name: a.name,
+    model: a.model ?? null,
+    status: a.status === 'active' ? 'running' : 'idle',
+    version: null,
+    external_updated_at: ago(16),
+    first_seen_at: ago(24 * 60),
+    last_seen_at: ago(1),
+    last_changed_at: ago(16),
+    gone_at: null,
+  }))
+  agents.push({
+    external_id: `ses_${providerId}_demo_ended`,
+    kind: 'session',
+    name: `${env.envName} session (ended)`,
+    model: null,
+    status: 'terminated',
+    version: null,
+    external_updated_at: ago(45),
+    first_seen_at: ago(120),
+    last_seen_at: ago(45),
+    last_changed_at: ago(45),
+    gone_at: ago(44),
+  })
+  return {
+    provider_id: providerId,
+    connector_id: `conn-${providerId}-01`,
+    sync_state: { mode: 'stream', last_poll_at: null, last_success_at: ago(1), last_error: null, next_poll_at: null },
+    agents,
+  }
 }
 
 let demoAgents = buildInitialAgents()

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import PolicyEvaluationPage from './PolicyEvaluationPage'
@@ -185,6 +185,19 @@ describe('PolicyEvaluationPage (live mode)', () => {
     expectNoFixture(container)
   })
 
+  it('the not-found state is role=status, not an assertive interrupt on first render', async () => {
+    renderPage(['/evaluations?framework=eu-ai-act&agent=ghost-agent'])
+
+    const notFound = await screen.findByTestId('eval-agent-not-found')
+    expect(notFound).toHaveAttribute('role', 'status')
+  })
+
+  it('always renders a labelled Breadcrumb landmark, even while choosing an agent', async () => {
+    renderPage(['/evaluations?framework=eu-ai-act'])
+
+    expect(await screen.findByRole('navigation', { name: 'Breadcrumb' })).toBeInTheDocument()
+  })
+
   it.each(['PAYMENTS-BOT', 'payments'])('does not match the lookalike %s (case or substring)', async (ref) => {
     renderPage([`/evaluations?framework=eu-ai-act&agent=${ref}`])
     expect(await screen.findByTestId('eval-agent-not-found')).toHaveTextContent(`No agent matches ${ref}`)
@@ -234,6 +247,20 @@ describe('PolicyEvaluationPage (live mode)', () => {
     expect(await screen.findByTestId('eval-load-error')).toHaveTextContent('upstream 503')
     expect(screen.queryByTestId('eval-header-title')).toBeNull()
     expectNoFixture(container)
+  })
+
+  it('retries the failed load and recovers once the API succeeds', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.agents.list).mockRejectedValueOnce(new Error('upstream 503'))
+    renderPage(['/evaluations?agent=payments-bot'])
+
+    const errorPanel = await screen.findByTestId('eval-load-error')
+    await user.click(within(errorPanel).getByTestId('error-retry'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('eval-header-title')).toHaveTextContent('Policy Evaluation: payments-bot')
+    })
+    expect(api.agents.list).toHaveBeenCalledTimes(2)
   })
 
   it('demo mode with no ?agent= still renders the demo fixture agent', async () => {

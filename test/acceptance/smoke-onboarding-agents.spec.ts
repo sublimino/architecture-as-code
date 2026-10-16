@@ -139,14 +139,19 @@ test.describe("Signal Loom Rapid Demo Smoke Suite (SLON-P2-4)", () => {
         page.getByRole("heading", { level: 1, name: /Identity Provider Linkage|Identity Provider/i }),
       ).toBeVisible({ timeout: 10_000 });
 
-      // Select Dex OIDC provider and execute live/fixture connection probe
-      const dexOption = page.locator('[data-testid="idp-option-dex"]');
-      await expect(dexOption).toBeVisible({ timeout: 5_000 });
-      await dexOption.click();
-
-      const testConnBtn = page.locator('[data-testid="test-idp-connection-button"]');
-      await expect(testConnBtn).toBeVisible();
-      await testConnBtn.click();
+      // Dex is the portal's own issuer: Test Connection in its modal is the
+      // session probe (GET /api/v1/me), answered by the server.
+      await expect(page.locator('[data-testid="idp-option-dex"]')).toBeVisible({ timeout: 5_000 });
+      await page.locator('[data-testid="configure-idp-dex"]').click();
+      const dexDialog = page.getByRole("dialog");
+      await expect(dexDialog).toBeVisible();
+      await dexDialog.locator('[data-testid="btn-modal-test-connection"]').click();
+      await expect(dexDialog.locator('[data-testid="test-connection-success"]')).toContainText(
+        "Portal session verified",
+        { timeout: 10_000 },
+      );
+      await dexDialog.locator('[data-testid="btn-modal-save-connector"]').click();
+      await expect(dexDialog).toBeHidden();
 
       const connSuccess = page.locator('[data-testid="idp-connection-success"]');
       await expect(connSuccess).toBeVisible({ timeout: 10_000 });

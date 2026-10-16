@@ -944,6 +944,23 @@ describe('AgentsPage — URL Deep-Link Engine & Secondary Filters', () => {
     expect(screen.getByTestId('drawer-agent-name')).toHaveTextContent('Drawer Bot')
   })
 
+  it('opens no drawer (and never a lookalike agent) for an unknown agent_01 deep link', async () => {
+    const claudeLike = makeAgent({ id: 'claude-agent-1', name: 'Daily News Jokester', type: 'claude', model_name: 'claude-x' })
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: [claudeLike], total: 1 })
+    vi.mocked(api.agents.get).mockRejectedValue(new Error('404'))
+    renderPage(['/agents?drawer=agent_01UnknownXyz'])
+    await screen.findByText('Daily News Jokester')
+    await waitFor(() => expect(api.agents.get).toHaveBeenCalledWith(expect.anything(), 'agent_01UnknownXyz'))
+    expect(screen.queryByTestId('agent-evidence-drawer')).not.toBeInTheDocument()
+  })
+
+  it('opens the drawer for a deep link that is the :<id> suffix of an agent id', async () => {
+    const agent = makeAgent({ id: 'remote:agent_01Exact', name: 'Exact Remote' })
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: [agent], total: 1 })
+    renderPage(['/agents?drawer=agent_01Exact'])
+    expect(await screen.findByTestId('drawer-agent-name')).toHaveTextContent('Exact Remote')
+  })
+
   it('does not render Live containment cockpit at the top of the agents page, but renders it in drawer when open', async () => {
     const agent = makeAgent({ id: 'agent-cockpit-check', name: 'Cockpit Check Agent' })
     ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({

@@ -1333,7 +1333,7 @@ def _redact_for(principal: Principal, result: SyncResult) -> SyncResult:
     })
 
 
-_KIND_LABEL = {"agent": "agents", "session": "sessions"}
+_KIND_LABEL = {"agent": "agents", "session": "sessions", "environment": "environments"}
 
 
 async def _list_anthropic_models(key: str, logs: list[SyncLogEntry], workspace_id: str | None = None) -> int | None:
@@ -1582,6 +1582,30 @@ class RemoteAgent(BaseModel):
     # The registry agent this remote agent is claimed as (migration 072), or None.
     claimed_agent_id: str | None = None
     claimed_at: str | None = None
+    raw_hash: str | None = None
+    system_prompt: str | None = None
+    environment_config: dict[str, Any] = Field(default_factory=dict)
+    user_metadata: dict[str, Any] = Field(default_factory=dict)
+    metrics: dict[str, Any] = Field(default_factory=dict)
+
+
+class RemoteAgentSnapshot(BaseModel):
+    tenant_id: str
+    connector_id: str
+    external_id: str
+    raw_hash: str
+    kind: str
+    name: str | None = None
+    model: str | None = None
+    status: str | None = None
+    version: str | None = None
+    system_prompt: str | None = None
+    tools: list[Any] = Field(default_factory=list)
+    environment_config: dict[str, Any] = Field(default_factory=dict)
+    user_metadata: dict[str, Any] = Field(default_factory=dict)
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    raw: dict[str, Any] = Field(default_factory=dict)
+    observed_at: str
 
 
 class RemoteSyncState(BaseModel):
@@ -1655,6 +1679,35 @@ async def list_connector_remote_agents(
     agents, state = await remote_agent_sync.list_remote_agents(pool, tenant_id, row["connector_id"])
     return RemoteAgentsResponse(provider_id=row["provider_id"], connector_id=row["connector_id"],
                                 sync_state=state, agents=agents)
+
+
+@router.get("/api/v1/connectors/{provider_id}/remote-agents/{external_id}/snapshots", response_model=list[RemoteAgentSnapshot])
+@router.get("/api/connectors/{provider_id}/remote-agents/{external_id}/snapshots", response_model=list[RemoteAgentSnapshot])
+@router.get("/connectors/{provider_id}/remote-agents/{external_id}/snapshots", response_model=list[RemoteAgentSnapshot])
+@router.get("/api/v1/connectors/{provider_id}/remote-agents/{external_id}/history", response_model=list[RemoteAgentSnapshot])
+@router.get("/api/connectors/{provider_id}/remote-agents/{external_id}/history", response_model=list[RemoteAgentSnapshot])
+@router.get("/connectors/{provider_id}/remote-agents/{external_id}/history", response_model=list[RemoteAgentSnapshot])
+async def list_connector_remote_agent_snapshots(
+    provider_id: str,
+    external_id: str,
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+) -> list[RemoteAgentSnapshot]:
+    """Content-addressed version history of a remote agent/session/environment."""
+    tenant_id = principal.tenant
+    pool = await _store_pool("Reading remote agent snapshots")
+    if pool is None:
+        _ensure_tenant_connectors_seeded(tenant_id)
+        with _CONN_LOCK:
+            match = next((c for c in _TENANT_CONNECTORS_DATA.get(tenant_id, [])
+                          if c["connector_id"] == provider_id or c["provider_id"] == provider_id), None)
+        if match is None:
+            raise APIError(404, "connector_not_configured", f"No connector '{provider_id}' for this tenant")
+        return []
+    row = await pool.fetchrow(_SQL_GET, tenant_id, provider_id)
+    if row is None:
+        raise APIError(404, "connector_not_configured", f"No connector '{provider_id}' for this tenant")
+    snapshots = await remote_agent_sync.list_remote_agent_snapshots(pool, tenant_id, row["connector_id"], external_id)
+    return [RemoteAgentSnapshot(**s) for s in snapshots]
 
 
 class RemoteAgentClaimResponse(BaseModel):

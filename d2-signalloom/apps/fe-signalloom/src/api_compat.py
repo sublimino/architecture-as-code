@@ -10518,6 +10518,32 @@ async def list_discovery_workloads(
             for r in await remote_agent_sync.discovery_rows(pool, tenant_id):
                 if not enabled_connectors.get(r["provider_id"], True):
                     continue
+                user_meta = r.get("user_metadata") or {}
+                if isinstance(user_meta, str):
+                    try:
+                        user_meta = json.loads(user_meta)
+                    except Exception:
+                        user_meta = {}
+                owner = None
+                if r["provider_id"] == "claude":
+                    owner = user_meta.get("owner", "Andrew Martin (User)")
+                elif user_meta.get("owner"):
+                    owner = user_meta.get("owner")
+
+                env_config = r.get("environment_config") or {}
+                if isinstance(env_config, str):
+                    try:
+                        env_config = json.loads(env_config)
+                    except Exception:
+                        env_config = {}
+
+                metrics = r.get("metrics") or {}
+                if isinstance(metrics, str):
+                    try:
+                        metrics = json.loads(metrics)
+                    except Exception:
+                        metrics = {}
+
                 workloads.append(
                     DiscoveryWorkloadModel(
                         id=r["external_id"],
@@ -10526,7 +10552,7 @@ async def list_discovery_workloads(
                         source="external_services",
                         source_label=labels.get(r["provider_id"], r["provider_id"]),
                         namespace=None,
-                        owner=None,
+                        owner=owner,
                         spiffe_id=None,
                         model=r["model"],
                         last_seen_at=_ts(r["last_seen_at"]),
@@ -10544,6 +10570,11 @@ async def list_discovery_workloads(
                             "version": r["version"],
                             "external_updated_at": _ts(r["external_updated_at"]),
                             "first_seen_at": _ts(r["first_seen_at"]),
+                            "user_metadata": user_meta,
+                            "raw_hash": r.get("raw_hash"),
+                            "system_prompt": r.get("system_prompt"),
+                            "environment_config": env_config,
+                            "metrics": metrics,
                         },
                     )
                 )

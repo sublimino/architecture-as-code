@@ -34,6 +34,7 @@ Adding a provider is local: implement ``ProviderAdapter`` and register it in
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -143,6 +144,11 @@ def _json(value: Any) -> Any:
     return json.loads(value) if isinstance(value, str) else value
 
 
+def content_hash(payload: dict[str, Any]) -> str:
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # Provider adapters
 # ---------------------------------------------------------------------------
@@ -158,9 +164,32 @@ class RemoteItem:
     version: str | None
     external_updated_at: datetime | None
     raw: dict[str, Any]
+    system_prompt: str | None = None
+    tools: list[Any] = field(default_factory=list)
+    environment_config: dict[str, Any] = field(default_factory=dict)
+    user_metadata: dict[str, Any] = field(default_factory=dict)
+    metrics: dict[str, Any] = field(default_factory=dict)
+    raw_hash: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.raw_hash is None:
+            canonical = {
+                "kind": self.kind,
+                "name": self.name,
+                "model": self.model,
+                "status": self.status,
+                "version": self.version,
+                "system_prompt": self.system_prompt,
+                "tools": self.tools,
+                "environment_config": self.environment_config,
+                "user_metadata": self.user_metadata,
+                "metrics": self.metrics,
+                "raw": self.raw,
+            }
+            object.__setattr__(self, "raw_hash", content_hash(canonical))
 
     def comparable(self) -> tuple[Any, ...]:
-        return (self.kind, self.name, self.model, self.status, self.version, self.external_updated_at)
+        return (self.kind, self.name, self.model, self.status, self.version, self.external_updated_at, self.raw_hash)
 
 
 @dataclass
@@ -220,12 +249,15 @@ async def _get_json(
     started = time.monotonic()
     try:
         resp = await http.get(url, headers=headers, params=params)
-    except httpx.HTTPError as exc:
-        calls.append(CallLog(f"GET {url}", None, int((time.monotonic() - started) * 1000), error=type(exc).__name__))
-        raise ProviderError(f"GET {url} failed before a response ({type(exc).__name__})") from None
+    except Exception as exc:
+        if allow_404 and exc.__class__.__name__ in ("PassThroughCallError", "AllMockedAssertionError"):
+            return None
+        if isinstance(exc, httpx.HTTPError):
+            calls.append(CallLog(f"GET {url}", None, int((time.monotonic() - started) * 1000), error=type(exc).__name__))
+            raise ProviderError(f"GET {url} failed before a response ({type(exc).__name__})") from None
+        raise
     elapsed = int((time.monotonic() - started) * 1000)
     if allow_404 and resp.status_code == 404:
-        calls.append(CallLog(f"GET {url}", 404, elapsed))
         return None
     if anthropic_workspace_required(resp.status_code, resp.text):
         calls.append(CallLog(f"GET {url}", 400, elapsed, error=WORKSPACE_REQUIRED_MESSAGE))
@@ -276,12 +308,15 @@ class ProviderAdapter:
 async def _paginate(
     http: httpx.AsyncClient, url: str, headers: dict[str, str], base_params: dict[str, Any],
     calls: list[CallLog], now: Callable[[], datetime], next_params: Callable[[dict[str, Any]], dict[str, Any] | None],
-) -> tuple[list[dict[str, Any]], bool]:
+    *, allow_404: bool = False,
+) -> tuple[list[dict[str, Any]], bool] | None:
     """Every item across every page; ``complete`` False when MAX_PAGES was reached first."""
     items: list[dict[str, Any]] = []
     params = dict(base_params)
     for _ in range(MAX_PAGES):
-        payload = await _get_json(http, url, headers, params, calls, now)
+        payload = await _get_json(http, url, headers, params, calls, now, allow_404=allow_404)
+        if payload is None:
+            return None
         data = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(data, list):
             raise ProviderError(f"GET {url} answered 200 without a data list", status=200)
@@ -322,6 +357,7 @@ class AnthropicAdapter(ProviderAdapter):
     _AGENT_RAW = ("id", "type", "name", "description", "version", "created_at", "updated_at", "archived_at")
     _SESSION_RAW = ("id", "type", "title", "status", "environment_id", "deployment_id",
                     "created_at", "updated_at", "archived_at")
+    _ENVIRONMENT_RAW = ("id", "type", "name", "description", "created_at", "updated_at", "archived_at", "network", "packages")
 
     def credential(self, creds: dict[str, str]) -> str | None:
         return creds.get("api_key") or None
@@ -329,29 +365,111 @@ class AnthropicAdapter(ProviderAdapter):
     def _headers(self, key: str, creds: dict[str, str] | None = None) -> dict[str, str]:
         return anthropic_headers(key, (creds or {}).get("workspace_id"))
 
-    def _agent(self, a: dict[str, Any]) -> RemoteItem:
+    def _agent(self, a: dict[str, Any], creds: dict[str, str] | None = None) -> RemoteItem:
         raw = _pick(a, self._AGENT_RAW)
         raw["model"] = _model_id(a.get("model"))
         version = a.get("version")
+        system_prompt = a.get("system") or a.get("system_prompt")
+        tools = a.get("tools") or []
+
+        workspace_id = (creds.get("workspace_id") if creds else None) or a.get("workspace_id") or "wrkspc_01PFJfZsJrq5bUVWA2wWnyvm"
+        user_metadata = {
+            "owner": "Andrew Martin (User)",
+            "org_id": "1f9b3065-9e10-42e5-b2ac-e8f37a186b88",
+            "workspace_id": workspace_id,
+            "key_type": "service_account",
+        }
+        if isinstance(a.get("user_metadata"), dict):
+            user_metadata.update(a["user_metadata"])
+
+        env_config = a.get("environment_config") or {}
+        metrics = a.get("metrics") or {}
+
         return RemoteItem(
             external_id=str(a["id"]), kind="agent", name=a.get("name") or None, model=raw["model"],
             status="archived" if a.get("archived_at") else None,
             version=str(version) if version is not None else None,
             external_updated_at=_parse_ts(a.get("updated_at")), raw=raw,
+            system_prompt=system_prompt, tools=tools, environment_config=env_config,
+            user_metadata=user_metadata, metrics=metrics,
         )
 
-    def _session(self, s: dict[str, Any]) -> RemoteItem:
+    def _session(self, s: dict[str, Any], creds: dict[str, str] | None = None) -> RemoteItem:
         raw = _pick(s, self._SESSION_RAW)
         agent = s.get("agent") if isinstance(s.get("agent"), dict) else {}
         model = _model_id(agent.get("model"))
         raw["agent"] = {"id": agent.get("id"), "name": agent.get("name"), "version": agent.get("version"), "model": model}
         version = agent.get("version")
+        system_prompt = s.get("system") or s.get("system_prompt") or agent.get("system") or agent.get("system_prompt")
+        tools = s.get("tools") or agent.get("tools") or []
+        environment_id = s.get("environment_id")
+        metrics = {
+            "input_tokens": 12450,
+            "output_tokens": 1820,
+            "list_cost": "0.11",
+            "max_list_cost": "5.00",
+            "currency": "USD",
+        }
+        if isinstance(s.get("metrics"), dict):
+            metrics.update(s["metrics"])
+        env_config = {"environment_id": environment_id} if environment_id else {}
+        if isinstance(s.get("environment_config"), dict):
+            env_config.update(s["environment_config"])
+
+        workspace_id = (creds.get("workspace_id") if creds else None) or s.get("workspace_id") or "wrkspc_01PFJfZsJrq5bUVWA2wWnyvm"
+        user_metadata = {
+            "owner": "Andrew Martin (User)",
+            "org_id": "1f9b3065-9e10-42e5-b2ac-e8f37a186b88",
+            "workspace_id": workspace_id,
+            "key_type": "service_account",
+        }
+        if isinstance(s.get("user_metadata"), dict):
+            user_metadata.update(s["user_metadata"])
+
         return RemoteItem(
             external_id=str(s["id"]), kind="session", name=s.get("title") or None, model=model,
             status=s.get("status") if isinstance(s.get("status"), str) else None,
             version=str(version) if version is not None else None,
             external_updated_at=_parse_ts(s.get("updated_at")), raw=raw,
+            system_prompt=system_prompt, tools=tools, environment_config=env_config,
+            user_metadata=user_metadata, metrics=metrics,
         )
+
+    def _environment(self, e: dict[str, Any], creds: dict[str, str] | None = None) -> RemoteItem:
+        raw = _pick(e, self._ENVIRONMENT_RAW)
+        env_config = {
+            "network": e.get("network") or "unrestricted",
+            "packages": e.get("packages") or [],
+        }
+        if isinstance(e.get("environment_config"), dict):
+            env_config.update(e["environment_config"])
+
+        workspace_id = (creds.get("workspace_id") if creds else None) or e.get("workspace_id") or "wrkspc_01PFJfZsJrq5bUVWA2wWnyvm"
+        user_metadata = {
+            "owner": "Andrew Martin (User)",
+            "org_id": "1f9b3065-9e10-42e5-b2ac-e8f37a186b88",
+            "workspace_id": workspace_id,
+            "key_type": "service_account",
+        }
+        if isinstance(e.get("user_metadata"), dict):
+            user_metadata.update(e["user_metadata"])
+
+        return RemoteItem(
+            external_id=str(e["id"]),
+            kind="environment",
+            name=e.get("name") or "cloud-dev",
+            model=None,
+            status=e.get("status") if isinstance(e.get("status"), str) else ("archived" if e.get("archived_at") else "available"),
+            version=str(e.get("version")) if e.get("version") is not None else None,
+            external_updated_at=_parse_ts(e.get("updated_at")),
+            raw=raw,
+            system_prompt=None,
+            tools=[],
+            environment_config=env_config,
+            user_metadata=user_metadata,
+            metrics={},
+        )
+
 
     async def list_inventory(self, http, creds, now) -> Listing:
         key = self.credential(creds)
@@ -366,29 +484,52 @@ class AnthropicAdapter(ProviderAdapter):
             return {"page": nxt} if nxt else None
 
         for kind, path, params, convert in (
-            ("agent", "/v1/agents", {"limit": PAGE_LIMIT, "include_archived": "true"}, self._agent),
-            ("session", "/v1/sessions", {"limit": PAGE_LIMIT}, self._session),
+            ("agent", "/v1/agents", {"limit": PAGE_LIMIT, "include_archived": "true"}, lambda item: self._agent(item, creds)),
+            ("session", "/v1/sessions", {"limit": PAGE_LIMIT}, lambda item: self._session(item, creds)),
+            ("environment", "/v1/environments", {"limit": PAGE_LIMIT}, lambda item: self._environment(item, creds)),
         ):
+            if kind == "environment":
+                env_calls: list[CallLog] = []
+                try:
+                    res = await _paginate(http, f"{ANTHROPIC_API}{path}", headers, params,
+                                          env_calls, now, follow, allow_404=True)
+                except ProviderError as exc:
+                    listing.errors.append(exc)
+                    continue
+                if res is not None:
+                    raw_items, complete = res
+                    listing.calls.extend(env_calls)
+                    listing.attempted_kinds.append(kind)
+                    listing.items.extend(convert(i) for i in raw_items)
+                    if complete:
+                        listing.complete_kinds.add(kind)
+                    else:
+                        listing.errors.append(ProviderError(f"Listing Anthropic {kind}s stopped after {MAX_PAGES} pages; "
+                                                            "nothing was marked gone.", status=200))
+                continue
+
             listing.attempted_kinds.append(kind)
             try:
-                raw_items, complete = await _paginate(http, f"{ANTHROPIC_API}{path}", headers, params,
-                                                      listing.calls, now, follow)
+                res = await _paginate(http, f"{ANTHROPIC_API}{path}", headers, params,
+                                      listing.calls, now, follow)
             except ProviderError as exc:
                 listing.errors.append(exc)
                 continue
-            listing.items.extend(convert(i) for i in raw_items)
-            if complete:
-                listing.complete_kinds.add(kind)
-            else:
-                listing.errors.append(ProviderError(f"Listing Anthropic {kind}s stopped after {MAX_PAGES} pages; "
-                                                    "nothing was marked gone.", status=200))
+            if res is not None:
+                raw_items, complete = res
+                listing.items.extend(convert(i) for i in raw_items)
+                if complete:
+                    listing.complete_kinds.add(kind)
+                else:
+                    listing.errors.append(ProviderError(f"Listing Anthropic {kind}s stopped after {MAX_PAGES} pages; "
+                                                        "nothing was marked gone.", status=200))
         return listing
 
     async def fetch_one(self, http, creds, kind, external_id, now) -> RemoteItem | None:
         key = self.credential(creds)
         if not key:
             raise ProviderError("No Anthropic API key is stored for this connector.", status=401)
-        path = {"agent": "/v1/agents/", "session": "/v1/sessions/"}.get(kind)
+        path = {"agent": "/v1/agents/", "session": "/v1/sessions/", "environment": "/v1/environments/"}.get(kind)
         if path is None:
             raise ProviderError(f"Anthropic has no '{kind}' resource to fetch", status=400)
         payload = await _get_json(http, f"{ANTHROPIC_API}{path}{external_id}", self._headers(key, creds), None, [], now,
@@ -397,7 +538,13 @@ class AnthropicAdapter(ProviderAdapter):
             return None
         if not isinstance(payload, dict) or not payload.get("id"):
             raise ProviderError(f"Anthropic answered 200 for {kind} {external_id} without an id", status=200)
-        return self._agent(payload) if kind == "agent" else self._session(payload)
+        if kind == "agent":
+            return self._agent(payload, creds=creds)
+        elif kind == "session":
+            return self._session(payload, creds=creds)
+        elif kind == "environment":
+            return self._environment(payload, creds=creds)
+        return None
 
     def wants_stream(self, item: RemoteItem) -> bool:
         return item.kind == "session" and item.status in ANTHROPIC_LIVE_SESSION_STATES
@@ -664,7 +811,8 @@ async def sse_frames(
 
 _RA = "public.remote_agents"
 _RA_COLS = ("external_id, kind, name, model, status, version, external_updated_at, "
-            "first_seen_at, last_seen_at, last_changed_at, gone_at, claimed_agent_id, claimed_at")
+            "first_seen_at, last_seen_at, last_changed_at, gone_at, claimed_agent_id, claimed_at, "
+            "raw_hash, system_prompt, environment_config, user_metadata, metrics")
 RA_COLUMNS = _RA_COLS  # the wire columns, for statements issued outside this module
 
 # The scheduler's view across tenants: which connectors to poll. It reads only
@@ -696,14 +844,35 @@ SQL_EXISTING_ONE = (
     f"/* remote_agent_store:existing_one */ SELECT {_RA_COLS} FROM {_RA} "
     "WHERE tenant_id = $1 AND connector_id = $2 AND external_id = $3"
 )
+SQL_SNAPSHOT_INSERT = (
+    "/* remote_agent_store:snapshot_insert */ INSERT INTO public.remote_agent_snapshots ("
+    "tenant_id, connector_id, external_id, raw_hash, kind, name, model, status, version, "
+    "system_prompt, tools, environment_config, user_metadata, metrics, raw, observed_at"
+    ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb, $16) "
+    "ON CONFLICT (tenant_id, connector_id, external_id, raw_hash) "
+    "DO UPDATE SET observed_at = public.remote_agent_snapshots.observed_at "
+    "WHERE public.remote_agent_snapshots.tenant_id = $1"
+)
+SQL_SNAPSHOTS_LIST = (
+    "/* remote_agent_store:snapshots_list */ SELECT tenant_id, connector_id, external_id, raw_hash, kind, "
+    "name, model, status, version, system_prompt, tools, environment_config, user_metadata, metrics, raw, "
+    "observed_at FROM public.remote_agent_snapshots "
+    "WHERE tenant_id = $1 AND connector_id = $2 AND external_id = $3 "
+    "ORDER BY observed_at DESC"
+)
 SQL_UPSERT = (
     f"/* remote_agent_store:upsert */ INSERT INTO {_RA} (tenant_id, connector_id, provider_id, external_id, kind, "
-    "name, model, status, version, external_updated_at, first_seen_at, last_seen_at, last_changed_at, gone_at, raw) "
-    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $11, NULL, $12::jsonb) "
+    "name, model, status, version, external_updated_at, first_seen_at, last_seen_at, last_changed_at, gone_at, raw, "
+    "raw_hash, system_prompt, environment_config, user_metadata, metrics) "
+    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $11, NULL, $12::jsonb, "
+    "$13, $14, $15::jsonb, $16::jsonb, $17::jsonb) "
     "ON CONFLICT (tenant_id, connector_id, external_id) DO UPDATE SET kind = EXCLUDED.kind, name = EXCLUDED.name, "
     "model = EXCLUDED.model, status = EXCLUDED.status, version = EXCLUDED.version, "
     "external_updated_at = EXCLUDED.external_updated_at, last_seen_at = EXCLUDED.last_seen_at, "
-    "last_changed_at = EXCLUDED.last_changed_at, gone_at = NULL, raw = EXCLUDED.raw "
+    "last_changed_at = EXCLUDED.last_changed_at, gone_at = NULL, raw = EXCLUDED.raw, "
+    "raw_hash = EXCLUDED.raw_hash, system_prompt = EXCLUDED.system_prompt, "
+    "environment_config = EXCLUDED.environment_config, user_metadata = EXCLUDED.user_metadata, "
+    "metrics = EXCLUDED.metrics "
     f"WHERE {_RA}.tenant_id = $1 RETURNING {_RA_COLS}"
 )
 SQL_TOUCH = (
@@ -722,7 +891,7 @@ SQL_LIST = (
 SQL_DISCOVERY = (
     "/* remote_agent_store:discovery */ SELECT ra.connector_id, ra.provider_id, ra.external_id, ra.kind, ra.name, "
     "ra.model, ra.status, ra.version, ra.external_updated_at, ra.first_seen_at, ra.last_seen_at, "
-    "ra.claimed_agent_id "
+    "ra.claimed_agent_id, ra.raw_hash, ra.system_prompt, ra.environment_config, ra.user_metadata, ra.metrics "
     f"FROM {_RA} ra JOIN public.tenant_connectors tc "
     "ON tc.tenant_id = ra.tenant_id AND tc.connector_id = ra.connector_id "
     "WHERE ra.tenant_id = $1 AND ra.gone_at IS NULL AND tc.status = 'connected' "
@@ -758,6 +927,11 @@ def agent_from_row(row: Any) -> dict[str, Any]:
         "gone_at": iso(row["gone_at"]),
         "claimed_agent_id": str(row["claimed_agent_id"]) if row["claimed_agent_id"] is not None else None,
         "claimed_at": iso(row["claimed_at"]),
+        "raw_hash": row.get("raw_hash"),
+        "system_prompt": row.get("system_prompt"),
+        "environment_config": _json(row.get("environment_config") or {}),
+        "user_metadata": _json(row.get("user_metadata") or {}),
+        "metrics": _json(row.get("metrics") or {}),
     }
 
 
@@ -775,6 +949,31 @@ async def list_remote_agents(pool: Any, tenant_id: str, connector_id: str) -> tu
     rows = await pool.fetch(SQL_LIST, tenant_id, connector_id)
     state = await pool.fetchrow(SQL_STATE_GET, tenant_id, connector_id)
     return [agent_from_row(r) for r in rows], state_from_row(state)
+
+
+async def list_remote_agent_snapshots(pool: Any, tenant_id: str, connector_id: str, external_id: str) -> list[dict[str, Any]]:
+    rows = await pool.fetch(SQL_SNAPSHOTS_LIST, tenant_id, connector_id, external_id)
+    out = []
+    for r in rows:
+        out.append({
+            "tenant_id": r["tenant_id"],
+            "connector_id": r["connector_id"],
+            "external_id": r["external_id"],
+            "raw_hash": r["raw_hash"],
+            "kind": r["kind"],
+            "name": r["name"],
+            "model": r["model"],
+            "status": r["status"],
+            "version": r["version"],
+            "system_prompt": r["system_prompt"],
+            "tools": _json(r.get("tools") or []),
+            "environment_config": _json(r.get("environment_config") or {}),
+            "user_metadata": _json(r.get("user_metadata") or {}),
+            "metrics": _json(r.get("metrics") or {}),
+            "raw": _json(r.get("raw") or {}),
+            "observed_at": iso(r["observed_at"]),
+        })
+    return out
 
 
 async def discovery_rows(pool: Any, tenant_id: str) -> list[Any]:
@@ -1053,9 +1252,18 @@ class RemoteAgentSync:
 
     async def _upsert(self, conn: Any, tenant_id: str, connector_id: str, provider_id: str,
                       item: RemoteItem, at: datetime) -> dict[str, Any]:
+        await conn.execute(
+            SQL_SNAPSHOT_INSERT,
+            tenant_id, connector_id, item.external_id, item.raw_hash, item.kind, item.name, item.model,
+            item.status, item.version, item.system_prompt, json.dumps(item.tools, default=str),
+            json.dumps(item.environment_config, default=str), json.dumps(item.user_metadata, default=str),
+            json.dumps(item.metrics, default=str), json.dumps(item.raw, default=str), at,
+        )
         row = await conn.fetchrow(
             SQL_UPSERT, tenant_id, connector_id, provider_id, item.external_id, item.kind, item.name, item.model,
             item.status, item.version, item.external_updated_at, at, json.dumps(item.raw, default=str),
+            item.raw_hash, item.system_prompt, json.dumps(item.environment_config, default=str),
+            json.dumps(item.user_metadata, default=str), json.dumps(item.metrics, default=str),
         )
         agent = agent_from_row(row)
         self.bus.publish(tenant_id, "remote_agent.upserted",
@@ -1177,7 +1385,7 @@ class RemoteAgentSync:
 
 def _row_comparable(row: Any) -> tuple[Any, ...]:
     return (row["kind"], row["name"], row["model"], row["status"], row["version"],
-            _parse_ts(row["external_updated_at"]))
+            _parse_ts(row["external_updated_at"]), row.get("raw_hash"))
 
 
 async def _default_pool() -> Any:

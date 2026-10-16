@@ -23,7 +23,8 @@ from tests.connector_store_fake import FakeConnectorPool
 
 _MARKER = re.compile(r"/\*\s*remote_agent_store:([a-z_]+)\s*\*/")
 _RA_COLS = ("external_id", "kind", "name", "model", "status", "version", "external_updated_at",
-            "first_seen_at", "last_seen_at", "last_changed_at", "gone_at", "claimed_agent_id", "claimed_at")
+            "first_seen_at", "last_seen_at", "last_changed_at", "gone_at", "claimed_agent_id", "claimed_at",
+            "raw_hash", "system_prompt", "environment_config", "user_metadata", "metrics")
 _UNSCOPED_OPS = {"due", "lock", "unlock"}
 
 
@@ -31,6 +32,7 @@ class FakeRemoteAgentPool(FakeConnectorPool):
     def __init__(self) -> None:
         super().__init__()
         self.remote_agents: dict[tuple[str, str, str], dict[str, Any]] = {}
+        self.snapshots: dict[tuple[str, str, str, str], dict[str, Any]] = {}
         self.sync_state: dict[tuple[str, str], dict[str, Any]] = {}
         self.locks: set[tuple[str, str]] = set()
         self.held_elsewhere: set[tuple[str, str]] = set()
@@ -99,7 +101,7 @@ class FakeRemoteAgentPool(FakeConnectorPool):
         self.ops.append(op)
         flat = " ".join(sql.split())
         if op not in _UNSCOPED_OPS:
-            scoped = "VALUES ($1," in flat if op in ("upsert", "state_put") else "tenant_id = $1" in flat
+            scoped = "VALUES ($1," in flat if op in ("upsert", "state_put", "snapshot_insert") else "tenant_id = $1" in flat
             if not scoped:
                 raise AssertionError(f"remote_agent_store:{op} is not scoped by tenant_id = $1: {flat}")
             # A conflict update must not be able to touch another tenant's row either.
@@ -136,15 +138,54 @@ class FakeRemoteAgentPool(FakeConnectorPool):
             rows = [dict(r) for (t, c, _), r in self.remote_agents.items() if t == tenant and c == args[1]]
             if op == "list":
                 rows.sort(key=lambda r: (r["gone_at"] is not None, r["kind"], r["name"] is None, r["name"] or "", r["external_id"]))
-            return [{k: r[k] for k in _RA_COLS} for r in rows]
+            return [{k: r.get(k) for k in _RA_COLS} for r in rows]
 
         if op == "existing_one":
             r = self.remote_agents.get((tenant, args[1], args[2]))
-            return [{k: r[k] for k in _RA_COLS}] if r else []
+            return [{k: r.get(k) for k in _RA_COLS}] if r else []
+
+        if op == "snapshot_insert":
+            (_, connector_id, external_id, raw_hash, kind, name, model, status, version,
+             system_prompt, tools, environment_config, user_metadata, metrics, raw, observed_at) = args
+            key = (tenant, connector_id, external_id, raw_hash)
+            if key not in self.snapshots:
+                self.snapshots[key] = {
+                    "tenant_id": tenant,
+                    "connector_id": connector_id,
+                    "external_id": external_id,
+                    "raw_hash": raw_hash,
+                    "kind": kind,
+                    "name": name,
+                    "model": model,
+                    "status": status,
+                    "version": version,
+                    "system_prompt": system_prompt,
+                    "tools": json.loads(tools) if isinstance(tools, str) else tools,
+                    "environment_config": json.loads(environment_config) if isinstance(environment_config, str) else environment_config,
+                    "user_metadata": json.loads(user_metadata) if isinstance(user_metadata, str) else user_metadata,
+                    "metrics": json.loads(metrics) if isinstance(metrics, str) else metrics,
+                    "raw": json.loads(raw) if isinstance(raw, str) else raw,
+                    "observed_at": observed_at,
+                }
+            return None
+
+        if op == "snapshots_list":
+            rows = [r for (t, c, e, _), r in self.snapshots.items() if t == tenant and c == args[1] and e == args[2]]
+            rows.sort(key=lambda r: r["observed_at"], reverse=True)
+            return [dict(r) for r in rows]
 
         if op == "upsert":
-            (_, connector_id, provider_id, external_id, kind, name, model, status, version,
-             ext_updated, at, raw) = args
+            if len(args) == 17:
+                (_, connector_id, provider_id, external_id, kind, name, model, status, version,
+                 ext_updated, at, raw, raw_hash, system_prompt, env_config, user_meta, metrics) = args
+            else:
+                (_, connector_id, provider_id, external_id, kind, name, model, status, version,
+                 ext_updated, at, raw) = args
+                raw_hash = None
+                system_prompt = None
+                env_config = "{}"
+                user_meta = "{}"
+                metrics = "{}"
             key = (tenant, connector_id, external_id)
             prior = self.remote_agents.get(key)
             row = {
@@ -152,13 +193,19 @@ class FakeRemoteAgentPool(FakeConnectorPool):
                 "external_id": external_id, "kind": kind, "name": name, "model": model, "status": status,
                 "version": version, "external_updated_at": ext_updated,
                 "first_seen_at": prior["first_seen_at"] if prior else at,
-                "last_seen_at": at, "last_changed_at": at, "gone_at": None, "raw": json.loads(raw),
+                "last_seen_at": at, "last_changed_at": at, "gone_at": None,
+                "raw": json.loads(raw) if isinstance(raw, str) else raw,
                 # The conflict update does not touch the claim link.
                 "claimed_agent_id": prior["claimed_agent_id"] if prior else None,
                 "claimed_at": prior["claimed_at"] if prior else None,
+                "raw_hash": raw_hash,
+                "system_prompt": system_prompt,
+                "environment_config": json.loads(env_config) if isinstance(env_config, str) else (env_config or {}),
+                "user_metadata": json.loads(user_meta) if isinstance(user_meta, str) else (user_meta or {}),
+                "metrics": json.loads(metrics) if isinstance(metrics, str) else (metrics or {}),
             }
             self.remote_agents[key] = row
-            return [{k: row[k] for k in _RA_COLS}]
+            return [{k: row.get(k) for k in _RA_COLS}]
 
         if op == "touch":
             _, connector_id, at, ids = args
@@ -184,9 +231,10 @@ class FakeRemoteAgentPool(FakeConnectorPool):
             for (t, c, _), r in sorted(self.remote_agents.items()):
                 conn = self.connectors.get((t, c))
                 if t == tenant and r["gone_at"] is None and conn is not None and conn["status"] == "connected":
-                    out.append({k: r[k] for k in ("connector_id", "provider_id", "external_id", "kind", "name", "model",
+                    out.append({k: r.get(k) for k in ("connector_id", "provider_id", "external_id", "kind", "name", "model",
                                                   "status", "version", "external_updated_at", "first_seen_at",
-                                                  "last_seen_at", "claimed_agent_id")})
+                                                  "last_seen_at", "claimed_agent_id", "raw_hash", "system_prompt",
+                                                  "environment_config", "user_metadata", "metrics")})
             return out
 
         if op == "registry_upsert":

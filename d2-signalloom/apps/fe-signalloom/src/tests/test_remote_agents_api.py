@@ -32,9 +32,10 @@ def _session(i: str, status: str) -> dict:
             "updated_at": "2026-10-03T00:00:00Z"}
 
 
-def _mock_claude(mock: respx.MockRouter, agents: list[dict], sessions: list[dict]):
+def _mock_claude(mock: respx.MockRouter, agents: list[dict], sessions: list[dict], environments: list[dict] | None = None):
     mock.get(f"{ANTHROPIC}/v1/agents").mock(return_value=httpx.Response(200, json={"data": agents, "next_page": None}))
     mock.get(f"{ANTHROPIC}/v1/sessions").mock(return_value=httpx.Response(200, json={"data": sessions, "next_page": None}))
+    mock.get(f"{ANTHROPIC}/v1/environments").mock(return_value=httpx.Response(200, json={"data": environments or [], "next_page": None}))
     mock.get(f"{ANTHROPIC}/v1/models").mock(return_value=httpx.Response(200, json={"data": [{"id": "m"}]}))
 
 
@@ -67,7 +68,8 @@ def test_a_scan_stores_the_listing_and_the_read_api_returns_it_for_that_tenant_o
         assert set(by_id) == {"agent_1", "sess_1"}
         assert set(by_id["sess_1"]) == {"external_id", "kind", "name", "model", "status", "version",
                                         "external_updated_at", "first_seen_at", "last_seen_at", "last_changed_at", "gone_at",
-                                        "claimed_agent_id", "claimed_at"}
+                                        "claimed_agent_id", "claimed_at",
+                                        "raw_hash", "system_prompt", "environment_config", "user_metadata", "metrics"}
         assert by_id["sess_1"]["claimed_agent_id"] is None and by_id["sess_1"]["claimed_at"] is None
         assert (by_id["sess_1"]["kind"], by_id["sess_1"]["status"], by_id["sess_1"]["model"]) == (
             "session", "idle", "claude-sonnet-4-6")

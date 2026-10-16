@@ -821,12 +821,16 @@ function getMockSyncResult(providerId: string): SyncResult {
   }
 }
 
-export function isConnectorsMockMode(): boolean {
-  const envMode = (import.meta.env.VITE_CONNECTORS_API_MODE as string | undefined)?.toLowerCase()
+export function resolveConnectorsMockMode(envMode: string | undefined, production: boolean, demo: boolean): boolean {
+  if (production) return false
   if (envMode === 'live') return false
   if (envMode === 'mock') return true
-  if (isProductionEnv) return false
-  return isDemoMode()
+  return demo
+}
+
+export function isConnectorsMockMode(): boolean {
+  const envMode = (import.meta.env.VITE_CONNECTORS_API_MODE as string | undefined)?.toLowerCase()
+  return resolveConnectorsMockMode(envMode, isProductionEnv, isDemoMode())
 }
 
 /**

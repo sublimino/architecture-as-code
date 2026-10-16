@@ -5,6 +5,7 @@ import {
   connectorErrorMessage,
   connectorsApi,
   isConnectorsMockMode,
+  resolveConnectorsMockMode,
   mockConnectorsApi,
   liveConnectorsApi,
   http,
@@ -58,6 +59,23 @@ describe('connectorsClient mode dispatch & honesty', () => {
       } finally {
         ;(import.meta.env as Record<string, unknown>).VITE_CONNECTORS_API_MODE = orig
       }
+    })
+  })
+
+  describe('resolveConnectorsMockMode', () => {
+    it('never resolves to mock in a production environment, whatever the override or demo toggle', () => {
+      for (const envMode of ['mock', 'live', undefined]) {
+        for (const demo of [true, false]) {
+          expect(resolveConnectorsMockMode(envMode, true, demo), `${envMode}/${demo}`).toBe(false)
+        }
+      }
+    })
+
+    it('outside production honours the override, then the demo toggle', () => {
+      expect(resolveConnectorsMockMode('mock', false, false)).toBe(true)
+      expect(resolveConnectorsMockMode('live', false, true)).toBe(false)
+      expect(resolveConnectorsMockMode(undefined, false, true)).toBe(true)
+      expect(resolveConnectorsMockMode(undefined, false, false)).toBe(false)
     })
   })
 

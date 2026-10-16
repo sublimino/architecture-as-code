@@ -149,6 +149,27 @@ describe('connector stream store (live mode)', () => {
     await vi.waitFor(() => expect(names('claude')).toEqual(['a1:running', 'a2:idle']))
   })
 
+  it('refetches every subscribed snapshot on stream.reset, on the same open connection', async () => {
+    // The server could not replay from our Last-Event-ID: whatever it would have
+    // sent is lost, so only a fresh snapshot is correct.
+    let claudeState = snapshot('claude', [agent('a1')])
+    const list = vi
+      .spyOn(connectorsApi, 'listRemoteAgents')
+      .mockImplementation(async (_t, p) => (p === 'claude' ? claudeState : snapshot(p, [agent('o1')])))
+    sub('claude')
+    sub('openai')
+    await vi.waitFor(() => expect(connectorStreamStore.getState().connection.status).toBe('open'))
+    await vi.waitFor(() => expect(names('claude')).toEqual(['a1:idle']))
+    await vi.waitFor(() => expect(view('openai')?.status).toBe('ready'))
+    const callsBefore = list.mock.calls.length
+    claudeState = snapshot('claude', [agent('a1', { status: 'running' }), agent('a2')])
+    server.connections[0].send(frame('stream.reset', {}))
+    await vi.waitFor(() => expect(names('claude')).toEqual(['a1:running', 'a2:idle']))
+    const refetched = list.mock.calls.slice(callsBefore).map((c) => c[1]).sort()
+    expect(refetched).toEqual(['claude', 'openai'])
+    expect(server.connections).toHaveLength(1)
+  })
+
   it('replays events that arrive while a snapshot is in flight on top of it', async () => {
     const pending: Array<(s: RemoteAgentsSnapshot) => void> = []
     const list = vi

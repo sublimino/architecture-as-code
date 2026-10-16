@@ -119,6 +119,8 @@ export type ConnectorStreamEvent =
   | { type: 'remote_agent.upserted'; provider_id: string; connector_id: string; agent: RemoteAgent }
   | { type: 'remote_agent.gone'; provider_id: string; connector_id: string; external_id: string; gone_at: string }
   | { type: 'connector.sync_state'; provider_id: string; connector_id: string; sync_state: ConnectorSyncState }
+  /** The server could not replay from Last-Event-ID; every snapshot must be refetched. */
+  | { type: 'stream.reset' }
 
 /** Absolute URL of the connector event stream. */
 export function connectorStreamUrl(): string {

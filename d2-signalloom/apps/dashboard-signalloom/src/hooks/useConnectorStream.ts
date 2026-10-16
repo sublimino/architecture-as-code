@@ -48,7 +48,9 @@ const LOADING: RemoteAgentsView = { status: 'loading', error: null, connectorId:
 const IDLE: StreamConnection = { status: 'idle', error: null, retryInMs: null }
 const INITIAL: ConnectorStreamState = { connection: IDLE, providers: {} }
 
-function applyEvent(view: RemoteAgentsView, ev: ConnectorStreamEvent): RemoteAgentsView {
+type ProviderStreamEvent = Exclude<ConnectorStreamEvent, { type: 'stream.reset' }>
+
+function applyEvent(view: RemoteAgentsView, ev: ProviderStreamEvent): RemoteAgentsView {
   switch (ev.type) {
     case 'remote_agent.upserted': {
       const i = view.agents.findIndex((a) => a.external_id === ev.agent.external_id)
@@ -70,7 +72,7 @@ function createConnectorStreamStore() {
   const listeners = new Set<() => void>()
   const refs = new Map<string, number>()
   // Snapshot fetches in flight, with the events seen since the earliest began.
-  const inflight = new Map<string, { seq: number; buffer: ConnectorStreamEvent[] }>()
+  const inflight = new Map<string, { seq: number; buffer: ProviderStreamEvent[] }>()
   let getToken: (() => Promise<string>) | null = null
   let stream: ConnectorStreamHandle | null = null
   let streamId = 0
@@ -126,6 +128,11 @@ function createConnectorStreamStore() {
   }
 
   function onEvent(ev: ConnectorStreamEvent) {
+    if (ev.type === 'stream.reset') {
+      // The server could not replay what we missed: refetch every snapshot.
+      refs.forEach((_n, providerId) => load(providerId))
+      return
+    }
     const view = state.providers[ev.provider_id]
     if (!view) return
     if (view.connectorId && ev.connector_id !== view.connectorId) {

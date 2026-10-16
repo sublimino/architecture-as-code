@@ -99,6 +99,11 @@ describe('toConnectorStreamEvent', () => {
     ).toEqual({ type: 'connector.sync_state', provider_id: 'openai', connector_id: 'c2', sync_state })
   })
 
+  it('decodes stream.reset, which carries no provider (the server cannot replay: refetch everything)', () => {
+    expect(toConnectorStreamEvent({ event: 'stream.reset', data: '{}', id: '7' })).toEqual({ type: 'stream.reset' })
+    expect(toConnectorStreamEvent({ event: 'stream.reset', data: 'not json', id: '' })).toBeNull()
+  })
+
   it('drops unknown event types and malformed payloads instead of guessing', () => {
     expect(toConnectorStreamEvent({ event: 'message', data: '{}', id: '' })).toBeNull()
     expect(toConnectorStreamEvent({ event: 'remote_agent.upserted', data: 'not json', id: '' })).toBeNull()

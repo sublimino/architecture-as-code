@@ -282,6 +282,15 @@ describe('AgentTrustTopologyPage — URL deep-link parameter ingestion', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'planner' })).toBeInTheDocument()
     })
+    expect(screen.queryByTestId('topology-deeplink-not-found')).not.toBeInTheDocument()
+  })
+
+  it('does not select a lookalike node for a fragment of an id; says no node matches', async () => {
+    renderPage(<AgentTrustTopologyPage />, ['/agent-trust-topology?actor=plan'])
+    const notice = await screen.findByTestId('topology-deeplink-not-found')
+    expect(notice).toHaveAttribute('role', 'status')
+    expect(notice).toHaveTextContent('No node matches plan')
+    expect(screen.queryByRole('heading', { name: 'planner' })).not.toBeInTheDocument()
   })
 })
 

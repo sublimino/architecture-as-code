@@ -6243,6 +6243,12 @@ async def get_agent(
     agent_id: str,
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
 ) -> AgentResponse:
+    # The id must name the agent: exact id or exact name. No prefix, no shared
+    # service account, no empty id: each of those resolved a deep link to a
+    # different workload ("agent-nono-evidenced-..." for an agent_01... id).
+    canonical_id = agent_id.removeprefix("supercred:")
+    candidate_ids = {cid for cid in (agent_id, canonical_id) if cid}
+
     # Try discovery correlation
     discovered_match: dict[str, Any] | None = None
     payload: dict[str, Any] | None = None
@@ -6251,28 +6257,18 @@ async def get_agent(
             res = await client.get(AGENT_DISCOVERY_URL)
             _check_response_status(res, AGENT_DISCOVERY_URL)
             payload = res.json()
-        canonical_id = agent_id.removeprefix("supercred:")
-        candidate_ids = {agent_id, canonical_id}
         if isinstance(payload, dict):
             for d in payload.get("agents", []):
                 if not isinstance(d, dict):
                     continue
                 d_id = str(d.get("id")) if d.get("id") is not None else None
                 d_name = str(d.get("name")) if d.get("name") is not None else None
-                d_sa = str(d.get("service_account")) if d.get("service_account") is not None else None
-                if (
-                    d_id in candidate_ids
-                    or d_name in candidate_ids
-                    or d_sa in candidate_ids
-                    or any(d_id and d_id.startswith(cid) for cid in candidate_ids)
-                ):
+                if d_id in candidate_ids or d_name in candidate_ids:
                     discovered_match = d
                     break
     except Exception:
         pass
 
-    canonical_id = agent_id.removeprefix("supercred:")
-    candidate_ids = {agent_id, canonical_id}
     pool = await _get_pool()
     stun_index = await _latest_stun_index(tenant_id, pool)
     disc_keys = (

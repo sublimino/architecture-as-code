@@ -3,19 +3,35 @@
  * with pre-flight checks and tenant objection handling on Kusari agent workload.
  */
 import { test, expect } from "./fixtures";
-import { login, config } from "./helpers";
+import { login, config, getAuthToken } from "./helpers";
 
 const BASE = config.base;
-const KUSARI_AGENT_ID = "agent-kusari-847cc7d984-mwg8c";
+const DEFAULT_KUSARI_AGENT_ID = "agent-kusari-847cc7d984-mwg8c";
 
 test.describe("Kusari Agent Onboarding Guide & Claim Modal Pre-Flight Checks", () => {
+  let kusariAgentId = DEFAULT_KUSARI_AGENT_ID;
+
   test.beforeEach(async ({ page }) => {
     // Authenticate with live mode
     await login(page, { demoMode: false });
+    try {
+      const token = await getAuthToken(page);
+      const res = await page.request.get(`${BASE}/api/agents`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok()) {
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : data.agents || [];
+        const match = list.find((a: any) => typeof a.id === "string" && a.id.startsWith("agent-kusari"));
+        if (match?.id) {
+          kusariAgentId = match.id;
+        }
+      }
+    } catch {}
   });
 
   test("Overview tab shows unclaimed banner with onboarding and pre-flight claim links", async ({ page }) => {
-    await page.goto(`${BASE}/agents/${KUSARI_AGENT_ID}?tab=overview`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${BASE}/agents/${kusariAgentId}?tab=overview`, { waitUntil: "domcontentloaded" });
 
     // Check that the agent dossier loads
     await expect(page.locator("h1")).toContainText(/kusari/i, { timeout: 15_000 });
@@ -36,7 +52,7 @@ test.describe("Kusari Agent Onboarding Guide & Claim Modal Pre-Flight Checks", (
   });
 
   test("Onboarding tab displays pre-flight diagnostic matrix, tenant objection, and remediation runbook", async ({ page }) => {
-    await page.goto(`${BASE}/agents/${KUSARI_AGENT_ID}?tab=onboarding`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${BASE}/agents/${kusariAgentId}?tab=onboarding`, { waitUntil: "domcontentloaded" });
 
     // Tab container is visible
     const guideTab = page.getByTestId("agent-onboarding-tab");
@@ -60,7 +76,7 @@ test.describe("Kusari Agent Onboarding Guide & Claim Modal Pre-Flight Checks", (
   });
 
   test("Claim Agent Workload modal displays 2-column layout with right-hand pre-flight diagnostics", async ({ page }) => {
-    await page.goto(`${BASE}/agents/${KUSARI_AGENT_ID}?tab=overview`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${BASE}/agents/${kusariAgentId}?tab=overview`, { waitUntil: "domcontentloaded" });
 
     // Open claim modal
     const openClaimBtn = page.getByTestId("overview-open-claim-modal-btn");

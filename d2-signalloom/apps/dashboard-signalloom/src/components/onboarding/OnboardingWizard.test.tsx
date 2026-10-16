@@ -152,8 +152,9 @@ describe('OnboardingWizard component', () => {
       await waitFor(() => expect(screen.getByText('Identity Provider Linkage')).toBeInTheDocument())
       expect(screen.queryByTestId('onboarding-welcome')).not.toBeInTheDocument()
       expect(screen.getByTestId('idp-option-dex')).toBeInTheDocument()
-      // A stored 'connected' run state restores the tick without a new probe.
-      expect(screen.getByTestId('idp-connection-success')).toBeInTheDocument()
+      // provider_run_state is written by this client; it is not a server verdict,
+      // so resuming does not restore the "verified" tick.
+      expect(screen.queryByTestId('idp-connection-success')).not.toBeInTheDocument()
       expect(clientApi.me).not.toHaveBeenCalled()
     })
 
@@ -474,6 +475,18 @@ describe('OnboardingWizard component', () => {
 
       await user.click(screen.getByTestId('goto-dashboard-button'))
       expect(mockNavigate).toHaveBeenCalledWith('/overview', { replace: true })
+    })
+
+    it('does not celebrate a verified connection that was only claimed by stored client state', async () => {
+      const user = userEvent.setup()
+      resumeAt(4, { dex: { status: 'connected' } })
+      renderWizard()
+      await waitFor(() => expect(screen.getByTestId('complete-onboarding-button')).toBeInTheDocument())
+      await user.click(screen.getByTestId('complete-onboarding-button'))
+      const celebration = await screen.findByTestId('completion-celebration')
+      expect(celebration).toHaveTextContent('Connection not verified')
+      expect(celebration).not.toHaveTextContent('Connection verified'.replace(/^/, '✓ '))
+      expect(onboardingApi.complete).toHaveBeenCalled()
     })
 
     it('renders the error banner when the completion API rejects', async () => {

@@ -227,10 +227,10 @@ export default function OnboardingWizard({
         const pid = state.selected_provider_ids[0]
         setIdpConfig((prev) => ({ ...prev, providerId: pid, issuerUrl: pid === 'dex' ? prev.issuerUrl : undefined }))
       }
-      const stored = state?.provider_run_state?.[state?.selected_provider_ids?.[0] ?? 'dex']
-      if (stored?.status === 'connected') {
-        setIdpConfig((prev) => ({ ...prev, connectionTested: true }))
-      }
+      // provider_run_state is written by this client, so a stored 'connected' is
+      // a claim, not a verdict, and no server field records a verified verdict
+      // (last_tested_at is stamped on a 401 too). connectionTested therefore
+      // stays false on resume until Test Connection gets a verdict this session.
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Failed to load onboarding status from server.')
     } finally {

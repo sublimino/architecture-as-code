@@ -2,6 +2,33 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import IdpLinkageStep from './IdpLinkageStep'
+import { connectorsApi } from '../../api/connectorsClient'
+
+vi.mock('../../auth/oidc', () => ({
+  useAuth0: () => ({
+    getAccessTokenSilently: vi.fn().mockResolvedValue('test-bearer-token'),
+  }),
+}))
+
+vi.mock('../../api/connectorsClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../api/connectorsClient')>()
+  return {
+    ...actual,
+    connectorsApi: {
+      ...actual.connectorsApi,
+      createConnector: vi.fn().mockResolvedValue({
+        connector_id: 'conn-test-123',
+        provider_id: 'claude',
+        status: 'connected',
+      }),
+      configure: vi.fn().mockResolvedValue({
+        connector_id: 'conn-test-123',
+        provider_id: 'claude',
+        status: 'connected',
+      }),
+    },
+  }
+})
 
 describe('IdpLinkageStep component', () => {
   const mockOnNext = vi.fn()
@@ -245,5 +272,85 @@ describe('IdpLinkageStep component', () => {
     await user.click(screen.getByTestId('next-step-button'))
     expect(screen.getByText('API Key is required.')).toBeInTheDocument()
     expect(mockOnNext).not.toHaveBeenCalled()
+  })
+
+  it('clicking Configure on Claude opens ConnectorConfigureModal', async () => {
+    const user = userEvent.setup()
+    renderStep()
+
+    const configureBtn = screen.getByTestId('configure-idp-claude')
+    expect(configureBtn).toBeInTheDocument()
+    await user.click(configureBtn)
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Configure Anthropic Claude/i })).toBeInTheDocument()
+    expect(screen.getByTestId('input-connector-api-key')).toBeInTheDocument()
+  })
+
+  it('saving from ConnectorConfigureModal updates IdpLinkageStep credentials and registers connector immediately', async () => {
+    const user = userEvent.setup()
+    renderStep()
+
+    const configureBtn = screen.getByTestId('configure-idp-claude')
+    await user.click(configureBtn)
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    const apiKeyInput = screen.getByTestId('input-connector-api-key')
+    await user.type(apiKeyInput, 'sk-ant-api03-modal-test-key')
+
+    const wsInput = screen.getByTestId('input-connector-workspace-id')
+    await user.type(wsInput, 'wrkspc_modal_scope')
+
+    const saveBtn = screen.getByTestId('btn-modal-save-connector')
+    await user.click(saveBtn)
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    // Step state updated and shows success
+    expect(await screen.findByTestId('idp-connection-success')).toBeInTheDocument()
+
+    // connectorsApi.createConnector or configure called
+    expect(connectorsApi.createConnector).toHaveBeenCalledWith(
+      'test-bearer-token',
+      expect.objectContaining({
+        provider_id: 'claude',
+        credentials: expect.objectContaining({
+          api_key: 'sk-ant-api03-modal-test-key',
+          workspace_id: 'wrkspc_modal_scope',
+        }),
+      }),
+    )
+
+    // Submitting next step passes through updated credentials
+    await user.click(screen.getByTestId('next-step-button'))
+    expect(mockOnNext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: 'claude',
+        apiKey: 'sk-ant-api03-modal-test-key',
+        workspaceId: 'wrkspc_modal_scope',
+        connectionTested: true,
+      }),
+    )
+  })
+
+  it('clicking Configure on OpenAI opens modal and allows testing live connection in modal', async () => {
+    const user = userEvent.setup()
+    renderStep()
+
+    const configureBtn = screen.getByTestId('configure-idp-openai')
+    await user.click(configureBtn)
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Configure OpenAI Platform/i })).toBeInTheDocument()
+
+    const apiKeyInput = screen.getByTestId('input-connector-api-key')
+    await user.type(apiKeyInput, 'sk-openai-live-modal-key')
+
+    const testModalBtn = screen.getByTestId('btn-modal-test-connection')
+    await user.click(testModalBtn)
+
+    expect(await screen.findByTestId('test-connection-success')).toBeInTheDocument()
   })
 })

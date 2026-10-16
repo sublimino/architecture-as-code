@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import DiscoveryPage from './DiscoveryPage'
@@ -430,6 +430,20 @@ describe('DiscoveryPage Super Datatable', () => {
 
     await userEvent.click(gitopsBtn)
     expect(gitopsBtn).toHaveAttribute('aria-pressed', 'false')
+  })
+})
+
+// ── Design-system audit A3: the Governed badge's background must come from
+// a token (var(--teal-bg)), not the raw rgba(20, 184, 166, 0.15) literal —
+// rule 1, colour comes only from tokens. ───────────────────────────────────
+
+describe('Discovery page (design-system A3: Governed badge)', () => {
+  it('renders the Governed badge with a tokenised background, not a raw rgba literal', async () => {
+    renderPage('/discovery')
+    const row = await screen.findByTestId('discovery-row-gov-1')
+    const badge = within(row).getByText('Governed')
+    expect(badge.getAttribute('style') ?? '').not.toMatch(/rgba\(/)
+    expect(badge.getAttribute('style')).toContain('var(--teal-bg)')
   })
 })
 

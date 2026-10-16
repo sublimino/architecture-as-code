@@ -32,6 +32,7 @@ import { findMatchingAgent } from '../data/agentMatching'
 import { hasGitOpsMetadata } from '../data/workloadFilters'
 import ButtonWait from '../components/ButtonWait'
 import SyncLogsModal from '../components/connectors/SyncLogsModal'
+import SyncStatusPill, { type SyncTone } from '../components/connectors/SyncStatusPill'
 import {
   connectorsApi,
   claimRemoteAgent,
@@ -596,34 +597,23 @@ function sourceError(src: DiscoverySourceView): string | null {
   return src.connector.last_scan_error ?? src.syncState?.last_error ?? src.syncStateError
 }
 
-const SYNC_TINT: Record<'live' | 'poll' | 'other', { bg: string; color: string; border: string }> = {
-  live: { bg: 'var(--teal-bg)', color: 'var(--teal)', border: 'var(--teal-border)' },
-  poll: { bg: 'var(--cyan-bg)', color: 'var(--cyan)', border: 'var(--cyan-border)' },
-  other: { bg: 'var(--surface2)', color: 'var(--muted)', border: 'var(--border)' },
-}
-
+// Design-system audit rules 4/12: a sync badge with its own radius/padding
+// (previously 4px/2px 7px against .tag's 3px/2px 8px) is one more pill
+// geometry in a file that already has several. The shared SyncStatusPill
+// gives this the same .tag shape as every other sync-status pill in the
+// app; the live/poll/other tone mapping below is unchanged from before.
 function SyncBadge({ providerId, state }: { providerId: string; state: DiscoverySourceSyncState | null }) {
   const label = syncModeLabel(state)
   if (!label) return null
   const mode = state?.mode
-  const tint =
-    label === 'Live' || mode === 'poll+stream' ? SYNC_TINT.live : mode === 'poll' ? SYNC_TINT.poll : SYNC_TINT.other
+  const tone: SyncTone = label === 'Live' || mode === 'poll+stream' ? 'teal' : mode === 'poll' ? 'cyan' : 'muted'
   return (
-    <span
-      data-testid={`discovery-source-${providerId}-sync`}
-      style={{
-        fontSize: 10.5,
-        fontWeight: 600,
-        padding: '2px 7px',
-        borderRadius: 4,
-        background: tint.bg,
-        color: tint.color,
-        border: `1px solid ${tint.border}`,
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {label}
-    </span>
+    <SyncStatusPill
+      testId={`discovery-source-${providerId}-sync`}
+      tone={tone}
+      label={label}
+      style={{ whiteSpace: 'nowrap' }}
+    />
   )
 }
 
@@ -892,7 +882,10 @@ function WorkloadRow({
                 fontWeight: 600,
                 padding: '3px 8px',
                 borderRadius: 4,
-                background: 'rgba(20, 184, 166, 0.15)',
+                // Design-system audit rule 1: colour comes only from tokens.
+                // The raw rgba(20, 184, 166, 0.15) literal never switched
+                // with the theme; var(--teal-bg) is the themed equivalent.
+                background: 'var(--teal-bg)',
                 color: colors.tealLoom,
                 textDecoration: 'none',
               }}
@@ -916,12 +909,14 @@ function WorkloadRow({
               )}
             </button>
           ) : isGoverned ? (
+            // Same rule-1 fix as the "Claimed →" link above: a tokenised
+            // background instead of the raw rgba(20, 184, 166, 0.15) literal.
             <span style={{
               fontSize: 11,
               fontWeight: 600,
               padding: '3px 8px',
               borderRadius: 4,
-              background: 'rgba(20, 184, 166, 0.15)',
+              background: 'var(--teal-bg)',
               color: colors.tealLoom,
             }}>
               Governed
@@ -957,11 +952,28 @@ function WorkloadRow({
           )}
         </div>
         {remoteClaim?.error && (
+          // Design-system audit rule 11: --error on a plain surface measures
+          // 3.70:1 in dark, below the 4.5:1 AA floor for this text size. The
+          // message goes on --text; colour is carried by the dot instead,
+          // which only owes 3:1 as non-text UI (same pattern as
+          // SyncStatusPill's amber/red dot).
           <div
             role="alert"
             data-testid={`claim-remote-error-${workload.id}`}
-            style={{ fontSize: 10.5, color: colors.red, marginTop: 4, maxWidth: 240, marginLeft: 'auto', textAlign: 'right' }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              gap: 4,
+              fontSize: 10.5,
+              color: 'var(--text)',
+              marginTop: 4,
+              maxWidth: 240,
+              marginLeft: 'auto',
+              textAlign: 'right',
+            }}
           >
+            <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: colors.red, flexShrink: 0 }} />
             {remoteClaim.error}
           </div>
         )}

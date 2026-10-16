@@ -213,10 +213,14 @@ describe('Discovery sources strip', () => {
 
     expect(claude).toHaveTextContent('Anthropic Claude')
     expect(within(claude).getByTestId('discovery-source-claude-sync')).toHaveTextContent('Polling every 5 min')
+    // Design-system audit rule 12: the sync label goes through the shared
+    // .tag geometry (SyncStatusPill) instead of its own ad hoc pill.
+    expect(within(claude).getByTestId('discovery-source-claude-sync')).toHaveClass('tag')
     expect(within(claude).getByTestId('discovery-source-claude-last-scan')).toHaveTextContent('Last scanned 10m ago')
 
     expect(openai).toHaveTextContent('OpenAI')
     expect(within(openai).getByTestId('discovery-source-openai-sync')).toHaveTextContent('Live')
+    expect(within(openai).getByTestId('discovery-source-openai-sync')).toHaveClass('tag')
     expect(within(openai).getByTestId('discovery-source-openai-last-scan')).toHaveTextContent('Never scanned')
     expect(within(openai).getByTestId('discovery-source-openai-error')).toHaveTextContent(
       'OpenAI returned 401: invalid API key',
@@ -359,6 +363,10 @@ describe('Claiming a provider-hosted agent (live)', () => {
     expect(screen.queryByTestId('claim-remote-btn-agent_01')).not.toBeInTheDocument()
     // The other provider row is untouched.
     expect(screen.getByTestId('claim-remote-btn-asst_9')).not.toBeDisabled()
+    // Design-system audit rule 1: colour comes only from tokens, never a raw
+    // rgba() literal.
+    expect(link.getAttribute('style') ?? '').not.toMatch(/rgba\(/)
+    expect(link.getAttribute('style')).toContain('var(--teal-bg)')
   })
 
   it('shows a failed claim on the row and lets the operator retry', async () => {
@@ -370,6 +378,11 @@ describe('Claiming a provider-hosted agent (live)', () => {
     expect(err).toHaveTextContent('no longer listed by the provider')
     expect(screen.getByTestId('claim-remote-btn-agent_01')).not.toBeDisabled()
     expect(screen.queryByTestId('remote-claimed-link-agent_01')).not.toBeInTheDocument()
+    // Design-system audit rule 11: --error on plain surfaces measures
+    // 3.70:1 in dark, below the 4.5:1 AA floor for this text size. The
+    // message goes on --text; colour is carried by the dot instead.
+    expect(err.getAttribute('style')).toContain('color: var(--text)')
+    expect(err.getAttribute('style')).not.toMatch(/color:\s*var\(--error\)/)
   })
 
   it('a row the backend already reports claimed shows Claimed with its link, no Claim button', async () => {

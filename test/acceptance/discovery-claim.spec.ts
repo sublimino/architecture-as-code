@@ -91,7 +91,7 @@ test.describe("Surface 2: Multi-Source Discovery & Auto-Claim (Desktop 1280x800)
     await confirmBtn.click();
 
     // Toast feedback should announce auto-claim success
-    const toast = page.locator('[role="status"]');
+    const toast = page.getByTestId("discovery-feedback-toast");
     await expect(toast).toBeVisible({ timeout: 10_000 });
     await expect(toast).toContainText(/auto-claimed/i);
   });

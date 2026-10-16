@@ -1570,6 +1570,7 @@ export default function DiscoveryPage() {
       {feedbackToast && (
         <div
           role="status"
+          data-testid="discovery-feedback-toast"
           style={{
             marginBottom: 16,
             padding: '12px 18px',

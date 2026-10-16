@@ -77,7 +77,8 @@ Each slice owns its namespaces, images, tests, and lifecycle.
 | `d2-signalloom/infra/kagent/` (D5) | Kagent AI agent framework: CRDs, declarative agents, SPIFFE and OpenBao | `make swarm-kagent-up`, then `make demo-kagent-up` | [`docs/kagent-d5.md`](docs/kagent-d5.md) |
 
 The Signal Loom documentation service ([`d2-signalloom/apps/docs-signalloom/`](d2-signalloom/apps/docs-signalloom/))
-and the AgentMaxxing console (the dashboard route `/demos/agentmaxxing`) deploy
+serves user documentation at `/docs` and the engineering portal at `/dev-docs`.
+It and the AgentMaxxing console (the dashboard route `/demos/agentmaxxing`) deploy
 with `make demo-signalloom-up`. The AgentMaxxing console demonstrates five-stage
 deterministic agent containment with progressive log streaming and Landlock LSM policy
 checks.

@@ -675,6 +675,11 @@ async def delete_connector(
             raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
 
         match["status"] = "disconnected"
+        # Disconnecting forgets the tenant's key and what it observed, so a later
+        # re-enable cannot test or scan with the old credential.
+        for key in (match["connector_id"], match["provider_id"]):
+            _TENANT_CONNECTOR_CREDENTIALS.get(tenant_id, {}).pop(key, None)
+            _TENANT_SYNC_RESULTS.get(tenant_id, {}).pop(key, None)
         audit_entry = {
             "eventType": "CONNECTOR_STATUS_CHANGED",
             "action": "tenant.connector_disconnected",

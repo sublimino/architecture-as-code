@@ -578,3 +578,37 @@ def test_toggle_does_not_stamp_last_tested_at(monkeypatch):
             resp = client.post(f"/api/v1/connectors/{conn_id}/toggle", headers=_token("alice"), json={"enabled": enabled})
             assert resp.status_code == 200, resp.text
             assert resp.json()["last_tested_at"] is None
+
+
+# ---------------------------------------------------------------------------
+# 11. Disconnect forgets the credentials and the stored scan results.
+# ---------------------------------------------------------------------------
+
+def test_disconnect_then_reenable_does_not_reuse_the_old_key(monkeypatch):
+    with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
+        _mock_good_claude(mock)
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        assert client.post("/api/v1/connectors/claude/scan", headers=_token("alice")).status_code == 200
+        calls_before = len(mock.calls)
+        assert client.delete(f"/api/v1/connectors/{conn_id}", headers=_token("alice")).status_code == 200
+        assert client.post(f"/api/v1/connectors/{conn_id}/toggle", headers=_token("alice"), json={"enabled": True}).status_code == 200
+
+        body = client.post(f"/api/v1/connectors/{conn_id}/test", headers=_token("alice")).json()
+        assert body["valid"] is False
+        scan = client.post("/api/v1/connectors/claude/scan", headers=_token("alice")).json()
+        assert scan["status"] == "error"
+        assert len(mock.calls) == calls_before
+        with connectors_mod._CONN_LOCK:
+            assert connectors_mod._TENANT_CONNECTOR_CREDENTIALS.get("tenant-a", {}) == {}
+
+
+def test_disconnect_drops_the_stored_scan_result(monkeypatch):
+    with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
+        _mock_good_claude(mock)
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        client.post("/api/v1/connectors/claude/scan", headers=_token("alice"))
+        client.delete(f"/api/v1/connectors/{conn_id}", headers=_token("alice"))
+        for key in (conn_id, "claude"):
+            resp = client.get(f"/api/v1/connectors/{key}/logs", headers=_token("alice"))
+            assert resp.status_code == 404
+            assert _error_code(resp) == "never_scanned"

@@ -151,7 +151,9 @@ function LiveEnvironmentView({ providerId }: { providerId: string }) {
     void load()
   }, [load])
 
-  const handleSyncNow = async () => {
+  // rethrow: the logs modal's rescan must reject on failure so the modal shows
+  // the error rather than re-listing old logs as if the scan had worked.
+  const handleSyncNow = async (rethrow = false) => {
     setSyncing(true)
     setError(null)
     try {
@@ -159,6 +161,7 @@ function LiveEnvironmentView({ providerId }: { providerId: string }) {
       setSyncResult(await connectorsApi.triggerScan(token, providerId))
     } catch (err) {
       setError(connectorErrorMessage(err, 'Scan failed.'))
+      if (rethrow) throw err
     } finally {
       setSyncing(false)
     }
@@ -205,7 +208,7 @@ function LiveEnvironmentView({ providerId }: { providerId: string }) {
                 <button type="button" className="btn btn-secondary btn-sm" data-testid="btn-env-sync-logs" onClick={() => setShowLogs(true)}>
                   Sync Logs
                 </button>
-                <button type="button" className="btn btn-primary btn-sm" data-testid="btn-env-sync-now" onClick={handleSyncNow} disabled={syncing}>
+                <button type="button" className="btn btn-primary btn-sm" data-testid="btn-env-sync-now" onClick={() => void handleSyncNow()} disabled={syncing}>
                   {syncing ? 'Scanning...' : 'Sync Now'}
                 </button>
                 <Link to="/settings?tab=connectors" className="btn btn-secondary btn-sm" style={{ textDecoration: 'none' }}>
@@ -276,7 +279,7 @@ function LiveEnvironmentView({ providerId }: { providerId: string }) {
           providerId={providerId}
           providerName={providerName}
           onClose={() => setShowLogs(false)}
-          onRescan={handleSyncNow}
+          onRescan={() => handleSyncNow(true)}
         />
       )}
     </div>
@@ -312,7 +315,7 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
   const [claimedAgents, setClaimedAgents] = useState<Record<string, boolean>>({})
   const passing = env.celPolicies.filter((p) => p.status === 'PASS').length
 
-  const handleSyncNow = async () => {
+  const handleSyncNow = async (rethrow = false) => {
     setError(null)
     try {
       const token = await getAccessTokenSilently()
@@ -320,6 +323,7 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
       setSyncStatus('Synchronized just now')
     } catch (err) {
       setError(connectorErrorMessage(err, 'Scan failed.'))
+      if (rethrow) throw err
     }
   }
 
@@ -360,7 +364,7 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
             <button type="button" className="btn btn-secondary btn-sm" data-testid="btn-env-sync-logs" onClick={() => setShowLogs(true)}>
               Sync Logs
             </button>
-            <button type="button" className="btn btn-primary btn-sm" data-testid="btn-env-sync-now" onClick={handleSyncNow}>
+            <button type="button" className="btn btn-primary btn-sm" data-testid="btn-env-sync-now" onClick={() => void handleSyncNow()}>
               Sync Now
             </button>
             <Link to="/settings?tab=connectors" className="btn btn-secondary btn-sm" style={{ textDecoration: 'none' }}>
@@ -529,7 +533,7 @@ function DemoEnvironmentView({ providerId, env }: { providerId: string; env: Rem
       )}
 
       {showLogs && (
-        <SyncLogsModal isOpen providerId={providerId} providerName={env.providerName} onClose={() => setShowLogs(false)} onRescan={handleSyncNow} />
+        <SyncLogsModal isOpen providerId={providerId} providerName={env.providerName} onClose={() => setShowLogs(false)} onRescan={() => handleSyncNow(true)} />
       )}
     </div>
   )

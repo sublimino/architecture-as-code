@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom'
 import DiscoveryPage from './DiscoveryPage'
 import { api } from '../api/client'
 import type { DiscoveryWorkload, DiscoveryWorkloadsResponse } from '../types/api'
@@ -116,11 +116,24 @@ const mockMultiSourceResponse: DiscoveryWorkloadsResponse = {
   },
 }
 
+function LocationDisplay() {
+  const location = useLocation()
+  return <div data-testid="location-display">{location.search}</div>
+}
+
 function renderPage(initialEntry = '/discovery') {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
-        <Route path="/discovery" element={<DiscoveryPage />} />
+        <Route
+          path="/discovery"
+          element={
+            <>
+              <DiscoveryPage />
+              <LocationDisplay />
+            </>
+          }
+        />
         <Route path="/discovery/accounts/:accountId" element={<div>ACCOUNT DETAIL PAGE</div>} />
         <Route path="/onboarding" element={<div>ONBOARDING WIZARD</div>} />
       </Routes>
@@ -430,6 +443,43 @@ describe('DiscoveryPage Super Datatable', () => {
 
     await userEvent.click(gitopsBtn)
     expect(gitopsBtn).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('navigating with ?agent=agent_01FoEhnKF9QsC5DGmuELhm7G opens the drawer automatically and closing it cleans up the query param', async () => {
+    const claudeWorkload = makeWorkload({
+      id: 'agent_01FoEhnKF9QsC5DGmuELhm7G',
+      name: 'claude-remote-agent',
+      source: 'external_services',
+      source_label: 'Anthropic Claude',
+      namespace: 'claude-env',
+      status: 'discovered',
+      owner: 'andrew@controlplane.com',
+      metadata: { provider_id: 'claude' },
+    })
+
+    ;(api.discovery.workloads as ReturnType<typeof vi.fn>).mockResolvedValue({
+      workloads: [claudeWorkload, ...mockMultiSourceResponse.workloads],
+      total: 6,
+      summary: mockMultiSourceResponse.summary,
+    })
+
+    renderPage('/discovery?agent=agent_01FoEhnKF9QsC5DGmuELhm7G')
+    await screen.findByTestId('discovery-workload-name-agent_01FoEhnKF9QsC5DGmuELhm7G')
+
+    const drawer = await screen.findByTestId('discovered-workload-drawer')
+    expect(drawer).toBeInTheDocument()
+    expect(screen.getByTestId('drawer-workload-name')).toHaveTextContent('claude-remote-agent')
+    expect(screen.getByTestId('drawer-workload-id')).toHaveTextContent('agent_01FoEhnKF9QsC5DGmuELhm7G')
+    expect(screen.getByTestId('location-display')).toHaveTextContent('agent=agent_01FoEhnKF9QsC5DGmuELhm7G')
+
+    // Close the drawer and verify it cleans up the query param
+    const closeBtn = screen.getByTestId('drawer-close-btn')
+    await userEvent.click(closeBtn)
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('discovered-workload-drawer')).not.toBeInTheDocument()
+    })
+    expect(screen.getByTestId('location-display')).not.toHaveTextContent('agent=')
   })
 })
 

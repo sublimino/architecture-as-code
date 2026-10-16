@@ -204,4 +204,138 @@ describe('DiscoveredWorkloadDrawer', () => {
     unmount()
     frame.remove()
   })
+
+  describe('Claude User & Remote Agent Card', () => {
+    const mockClaudeWorkload: DiscoveryWorkload = {
+      id: 'claude:agent_01FoEhnKF9QsC5DGmuELhm7G',
+      name: 'claude-swe-worker',
+      source: 'external_services',
+      source_label: 'Anthropic Claude',
+      namespace: 'external-claude',
+      status: 'discovered',
+      owner: 'dev@signalloom.local',
+      spiffe_id: null,
+      model: 'claude-3-7-sonnet',
+      last_seen_at: '2026-10-16T12:00:00Z',
+      recommendations: {
+        config: 'pass',
+        content: 'pass',
+        supply_chain: 'pass',
+        eu_ai_act: 'pass',
+      },
+      metadata: {
+        provider_id: 'claude',
+        raw_hash: '9a8f7e6d5c4b3a210fedcba987654321',
+        system_prompt: 'You are an autonomous Claude coding agent with secure bash execution.',
+        user_metadata: {
+          owner: 'Andrew Martin (User)',
+          org_id: '1f9b3065-9e10-42e5-b2ac-e8f37a186b88',
+          workspace_id: 'wrkspc_01PFJfZsJrq5bUVWA2wWnyvm',
+          key_type: 'service_account',
+        },
+        environment_config: {
+          env_name: 'cloud-dev',
+          env_id: 'env_01CyCigBbDRSLTzSCyyHQ7eT',
+          network_egress: 'Unrestricted (0.0.0.0/0)',
+          package_registries: 'PyPI, npm, apt allowed',
+        },
+        metrics: {
+          input_tokens: '12.4k',
+          output_tokens: '1.8k',
+          cost: 0.11,
+          limit: 5.0,
+        },
+      },
+    }
+
+    it('renders Claude user card with identity, deduplicated versioning, prompt audit, and metrics', () => {
+      render(
+        <MemoryRouter>
+          <DiscoveredWorkloadDrawer
+            isOpen={true}
+            workload={mockClaudeWorkload}
+            onClose={vi.fn()}
+            onEnroll={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </MemoryRouter>,
+      )
+
+      // Prominent Claude User & Remote Agent Card
+      const card = screen.getByTestId('drawer-claude-user-card')
+      expect(card).toBeInTheDocument()
+      expect(screen.getByText('Claude User & Managed Agent Card')).toBeInTheDocument()
+
+      // Identity & Organization Grid
+      expect(screen.getByTestId('drawer-claude-user-owner')).toHaveTextContent('dev@signalloom.local')
+      expect(screen.getByTestId('drawer-claude-org-id')).toHaveTextContent('1f9b3065-9e10-42e5-b2ac-e8f37a186b88')
+      expect(screen.getByTestId('drawer-claude-workspace-id')).toHaveTextContent('wrkspc_01PFJfZsJrq5bUVWA2wWnyvm')
+      expect(screen.getByTestId('drawer-claude-exec-identity')).toHaveTextContent('service_account')
+
+      // Content-Addressed Versioning & Deduplication Banner
+      expect(screen.getByTestId('drawer-claude-snapshot-hash')).toHaveTextContent('SHA-256: 9a8f7e6d5c4b...')
+      expect(screen.getByTestId('drawer-claude-dedup-badge')).toHaveTextContent('✓ Storage Deduplicated · Versioned Snapshot')
+
+      // Environment & Network Containment Section
+      expect(screen.getByTestId('drawer-claude-environment')).toHaveTextContent('cloud-dev (env_01CyCigBbDRSLTzSCyyHQ7eT)')
+      expect(screen.getByTestId('drawer-claude-network-egress')).toHaveTextContent('Unrestricted (0.0.0.0/0)')
+      expect(screen.getByTestId('drawer-claude-package-registries')).toHaveTextContent('PyPI, npm, apt allowed')
+
+      // System Prompt Audit Preview
+      const details = screen.getByTestId('drawer-claude-system-prompt')
+      expect(details).toBeInTheDocument()
+      expect(details).toHaveTextContent('System Prompt Audit')
+      expect(details).toHaveTextContent('You are an autonomous Claude coding agent with secure bash execution.')
+
+      // Usage & Cost Metrics
+      expect(screen.getByTestId('drawer-claude-tokens-metric')).toHaveTextContent('12.4k input / 1.8k output')
+      expect(screen.getByTestId('drawer-claude-cost-metric')).toHaveTextContent('$0.11 / $5.00 limit')
+    })
+
+    it('falls back to default values when user_metadata or raw_hash are omitted on a Claude workload', () => {
+      const minimalClaude: DiscoveryWorkload = {
+        ...mockClaudeWorkload,
+        owner: null,
+        metadata: {
+          provider_id: 'claude',
+        },
+      }
+      render(
+        <MemoryRouter>
+          <DiscoveredWorkloadDrawer
+            isOpen={true}
+            workload={minimalClaude}
+            onClose={vi.fn()}
+            onEnroll={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </MemoryRouter>,
+      )
+
+      expect(screen.getByTestId('drawer-claude-user-card')).toBeInTheDocument()
+      expect(screen.getByTestId('drawer-claude-user-owner')).toHaveTextContent('Andrew Martin (User)')
+      expect(screen.getByTestId('drawer-claude-org-id')).toHaveTextContent('1f9b3065-9e10-42e5-b2ac-e8f37a186b88')
+      expect(screen.getByTestId('drawer-claude-workspace-id')).toHaveTextContent('wrkspc_01PFJfZsJrq5bUVWA2wWnyvm')
+      expect(screen.getByTestId('drawer-claude-exec-identity')).toHaveTextContent('service_account')
+      expect(screen.getByTestId('drawer-claude-snapshot-hash')).toHaveTextContent('SHA-256: 7a8f9b... (Content-Addressed)')
+      expect(screen.getByTestId('drawer-claude-dedup-badge')).toHaveTextContent('✓ Storage Deduplicated · Versioned Snapshot')
+    })
+
+    it('does NOT render Claude card for non-Claude workloads', () => {
+      render(
+        <MemoryRouter>
+          <DiscoveredWorkloadDrawer
+            isOpen={true}
+            workload={mockWorkload}
+            onClose={vi.fn()}
+            onEnroll={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </MemoryRouter>,
+      )
+
+      expect(screen.queryByTestId('drawer-claude-user-card')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('drawer-claude-system-prompt')).not.toBeInTheDocument()
+    })
+  })
 })

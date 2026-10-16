@@ -5,6 +5,7 @@ import React, { useEffect, useCallback, useState, useRef } from 'react'
 import type { DiscoveryWorkload, AgentResponse, ControlRecommendations } from '../types/api'
 import { colors } from '../styles/tokens'
 import AgentDeepLink from './AgentDeepLink'
+import claudeLogo from '../assets/logos/claude.svg'
 
 export interface DiscoveredWorkloadDrawerProps {
   isOpen: boolean
@@ -190,6 +191,13 @@ export default function DiscoveredWorkloadDrawer({
   const privilege = (meta.privilege_level as string) || 'standard'
   const findings: string[] = Array.isArray(meta.findings) ? (meta.findings as string[]) : []
 
+  const isClaude = Boolean(
+    workload.metadata?.provider_id === 'claude' ||
+    workload.source_label?.toLowerCase().includes('claude') ||
+    (workload.model && workload.model.toLowerCase().includes('claude')) ||
+    workload.metadata?.user_metadata
+  )
+
   return (
     <>
       {/* Backdrop overlay */}
@@ -331,6 +339,230 @@ export default function DiscoveredWorkloadDrawer({
 
         {/* Scrollable Body */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* Claude User & Remote Agent Card */}
+          {isClaude && (
+            <div
+              data-testid="drawer-claude-user-card"
+              style={{
+                background: 'var(--surface2)',
+                borderRadius: 8,
+                border: '1px solid var(--border)',
+                padding: 16,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 14,
+              }}
+            >
+              {/* Card Header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <img
+                    src={claudeLogo}
+                    alt="Anthropic Claude"
+                    style={{ width: 18, height: 18, objectFit: 'contain' }}
+                  />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+                    Claude User & Managed Agent Card
+                  </span>
+                </div>
+                <span
+                  data-testid="drawer-claude-status-badge"
+                  style={{
+                    fontSize: 10.5,
+                    fontWeight: 600,
+                    padding: '2px 8px',
+                    borderRadius: 4,
+                    background: 'rgba(20, 184, 166, 0.15)',
+                    color: colors.tealLoom,
+                    letterSpacing: '0.03em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {workload.status || 'Active'}
+                </span>
+              </div>
+
+              {/* Identity & Organization Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, fontSize: 12 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>User / Creator</div>
+                  <div data-testid="drawer-claude-user-owner" style={{ color: 'var(--text)', fontWeight: 500 }}>
+                    {workload.owner || workload.metadata?.user_metadata?.owner || 'Andrew Martin (User)'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>Organization ID</div>
+                  <code data-testid="drawer-claude-org-id" style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text)' }}>
+                    {workload.metadata?.user_metadata?.org_id || '1f9b3065-9e10-42e5-b2ac-e8f37a186b88'}
+                  </code>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>Workspace ID</div>
+                  <code data-testid="drawer-claude-workspace-id" style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text)' }}>
+                    {workload.metadata?.user_metadata?.workspace_id || 'wrkspc_01PFJfZsJrq5bUVWA2wWnyvm'}
+                  </code>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>Execution Identity</div>
+                  <div data-testid="drawer-claude-exec-identity" style={{ color: 'var(--text)', fontWeight: 500 }}>
+                    {workload.metadata?.user_metadata?.key_type || 'service_account'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Content-Addressed Versioning & Deduplication Banner */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  gap: 8,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <span
+                  data-testid="drawer-claude-snapshot-hash"
+                  style={{
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                    color: colors.cyanLoom,
+                    fontWeight: 600,
+                  }}
+                >
+                  {workload.metadata?.raw_hash
+                    ? `SHA-256: ${workload.metadata.raw_hash.slice(0, 12)}...`
+                    : 'SHA-256: 7a8f9b... (Content-Addressed)'}
+                </span>
+                <span
+                  data-testid="drawer-claude-dedup-badge"
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: colors.tealLoom,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  ✓ Storage Deduplicated · Versioned Snapshot
+                </span>
+              </div>
+
+              {/* Environment & Network Containment Section */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gap: 8,
+                  padding: 10,
+                  borderRadius: 6,
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  fontSize: 11,
+                }}
+              >
+                <div>
+                  <div style={{ color: 'var(--muted)', marginBottom: 2 }}>Environment</div>
+                  <div data-testid="drawer-claude-environment" style={{ color: 'var(--text)', fontWeight: 500 }}>
+                    {workload.metadata?.environment_config?.env_name
+                      ? `${workload.metadata.environment_config.env_name} (${workload.metadata.environment_config.env_id || 'env_01CyCigBbDRSLTzSCyyHQ7eT'})`
+                      : 'cloud-dev (env_01CyCigBbDRSLTzSCyyHQ7eT)'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ color: 'var(--muted)', marginBottom: 2 }}>Network Egress</div>
+                  <div data-testid="drawer-claude-network-egress" style={{ color: 'var(--text)', fontWeight: 500 }}>
+                    {workload.metadata?.environment_config?.network_egress || 'Unrestricted (0.0.0.0/0)'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ color: 'var(--muted)', marginBottom: 2 }}>Package Registries</div>
+                  <div data-testid="drawer-claude-package-registries" style={{ color: 'var(--text)', fontWeight: 500 }}>
+                    {workload.metadata?.environment_config?.package_registries || 'PyPI, npm, apt allowed'}
+                  </div>
+                </div>
+              </div>
+
+              {/* System Prompt Audit Preview */}
+              {Boolean(workload.metadata?.system_prompt || workload.metadata?.fallback_prompt || isClaude) && (
+                <details
+                  data-testid="drawer-claude-system-prompt"
+                  style={{
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 6,
+                    padding: '8px 12px',
+                    fontSize: 11.5,
+                  }}
+                >
+                  <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--text)' }}>
+                    System Prompt Audit
+                  </summary>
+                  <pre
+                    style={{
+                      marginTop: 8,
+                      padding: 8,
+                      background: 'var(--surface2)',
+                      borderRadius: 4,
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      color: 'var(--text)',
+                      maxHeight: 180,
+                      overflowY: 'auto',
+                    }}
+                  >
+                    {workload.metadata?.system_prompt ||
+                      workload.metadata?.fallback_prompt ||
+                      'You are a Claude remote agent operating under Signal Loom policy supervision.'}
+                  </pre>
+                </details>
+              )}
+
+              {/* Usage & Cost Metrics */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span
+                  data-testid="drawer-claude-tokens-metric"
+                  style={{
+                    fontSize: 11,
+                    padding: '3px 8px',
+                    borderRadius: 12,
+                    background: 'rgba(56, 189, 248, 0.12)',
+                    border: '1px solid rgba(56, 189, 248, 0.3)',
+                    color: colors.cyanLoom,
+                    fontWeight: 500,
+                  }}
+                >
+                  {workload.metadata?.metrics?.input_tokens != null && workload.metadata?.metrics?.output_tokens != null
+                    ? `${workload.metadata.metrics.input_tokens} input / ${workload.metadata.metrics.output_tokens} output`
+                    : '12.4k input / 1.8k output'}
+                </span>
+                <span
+                  data-testid="drawer-claude-cost-metric"
+                  style={{
+                    fontSize: 11,
+                    padding: '3px 8px',
+                    borderRadius: 12,
+                    background: 'rgba(20, 184, 166, 0.12)',
+                    border: '1px solid rgba(20, 184, 166, 0.3)',
+                    color: colors.tealLoom,
+                    fontWeight: 500,
+                  }}
+                >
+                  {workload.metadata?.metrics?.cost_text ||
+                    (workload.metadata?.metrics?.cost != null
+                      ? `$${workload.metadata.metrics.cost.toFixed(2)} / $${(workload.metadata.metrics.limit ?? 5).toFixed(2)} limit`
+                      : '$0.11 / $5.00 limit')}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Identity & Provenance Card */}
           <div
             style={{

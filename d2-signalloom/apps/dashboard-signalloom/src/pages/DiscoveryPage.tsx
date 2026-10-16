@@ -1070,8 +1070,20 @@ export default function DiscoveryPage() {
   const selectedExternalId = searchParams.get('selected')
 
   // Discovered Workload Drawer & Claim Modal state
-  const selectedWorkloadId = searchParams.get('workload')
+  const selectedWorkloadId =
+    searchParams.get('workload') ||
+    searchParams.get('agent') ||
+    searchParams.get('selected') ||
+    searchParams.get('sidebar')
+
   const selectedWorkload = useMemo(() => {
+    if (providerFilter && selectedExternalId) {
+      return (
+        workloads.find(
+          (w) => w.id === selectedExternalId && rowProviderId(w) === providerFilter,
+        ) || null
+      )
+    }
     if (selectedWorkloadId) {
       return (
         workloads.find(
@@ -1098,7 +1110,10 @@ export default function DiscoveryPage() {
     (id: string) => {
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev)
-        next.set('workload', id)
+        next.delete('workload')
+        next.delete('selected')
+        next.delete('sidebar')
+        next.set('agent', id)
         return next
       })
     },
@@ -1108,8 +1123,10 @@ export default function DiscoveryPage() {
   const handleCloseDrawer = useCallback(() => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
+      next.delete('agent')
       next.delete('workload')
       next.delete('selected')
+      next.delete('sidebar')
       return next
     })
   }, [setSearchParams])
@@ -1603,7 +1620,7 @@ export default function DiscoveryPage() {
             onLogs={setLogsProviderId}
           />
 
-          {selectedExternalId && !selectedWorkload && !selectedWorkloadId && (
+          {selectedExternalId && !selectedWorkload && !searchParams.get('workload') && !searchParams.get('agent') && !searchParams.get('sidebar') && (
             <div
               role="status"
               data-testid="discovery-deeplink-missing"

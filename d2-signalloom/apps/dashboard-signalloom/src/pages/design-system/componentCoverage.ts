@@ -207,6 +207,7 @@ const SOURCE_SYMBOLS: readonly SourceSymbols[] = [
   ['components/help/HelpCardComponents.tsx', 'CopyableCodeBlock DocLinkCard'],
   ['pages/DeploySensorHelpPage.tsx', 'DeploySensorHelpPage'],
   ['pages/OnboardAgentHelpPage.tsx', 'OnboardAgentHelpPage'],
+  ['pages/RemoteEnvironmentPage.tsx', 'RemoteEnvironmentPage'],
 ]
 
 type Representation =
@@ -286,6 +287,7 @@ const ROUTE_SOURCES: readonly [source: string, href: string, state: string][] = 
   ['views/AuditTrail.tsx', '/audit', 'Open Audit Trail with demo mode enabled.'],
   ['pages/DeploySensorHelpPage.tsx', '/settings/help/deploy-sensor', 'Open Settings and choose Deploy Sensor Help in the infrastructure guide.'],
   ['pages/OnboardAgentHelpPage.tsx', '/settings/help/onboard-agent', 'Open Settings and choose Onboard Agent Help in the agent integration guide.'],
+  ['pages/RemoteEnvironmentPage.tsx', '/settings/connectors/claude', 'Open the Remote Environment Console for a connected provider to view configuration, network egress rules, CEL compliance, and running agent metadata.'],
 ]
 
 for (const route of ROUTE_SOURCES) routeSource(...route)

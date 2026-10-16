@@ -905,6 +905,17 @@ export default function Settings() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        {isConnected && (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            data-testid={`view-environment-${p.provider_id}`}
+                            onClick={() => navigate(`/settings/connectors/${p.provider_id}`)}
+                            style={{ fontSize: 12, padding: '5px 12px' }}
+                          >
+                            View Environment
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="btn btn-secondary btn-sm"

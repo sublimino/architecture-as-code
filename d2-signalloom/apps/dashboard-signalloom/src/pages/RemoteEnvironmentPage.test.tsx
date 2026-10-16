@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { AxiosError, AxiosHeaders } from 'axios'
 import { connectorsApi, type SyncResult } from '../api/connectorsClient'
@@ -185,6 +185,37 @@ describe('RemoteEnvironmentPage (live mode)', () => {
     vi.mocked(connectorsApi.listConnectors).mockResolvedValue([])
     renderPage()
     expect(await screen.findByTestId('live-not-connected')).toHaveTextContent(/not connected/i)
+  })
+})
+
+describe('RemoteEnvironmentPage (demo-mode flip without a reload)', () => {
+  beforeEach(() => {
+    vi.spyOn(connectorsApi, 'listProviders').mockResolvedValue([provider])
+    vi.spyOn(connectorsApi, 'listConnectors').mockResolvedValue([connector])
+    vi.spyOn(connectorsApi, 'getSyncLogs').mockResolvedValue(lastScan)
+  })
+
+  it('drops the demo fixture and loads the live connector when demo mode is switched off', async () => {
+    setDemoMode(true)
+    renderPage()
+    expect(screen.getByText('US$23.57')).toBeInTheDocument()
+
+    act(() => setDemoMode(false))
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Claude (tenant prod)' })).toBeInTheDocument()
+    const text = document.body.textContent ?? ''
+    for (const s of FIXTURE_STRINGS) expect(text, s).not.toContain(s)
+  })
+
+  it('drops live state and shows the demo fixture when demo mode is switched on', async () => {
+    setDemoMode(false)
+    renderPage()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Claude (tenant prod)' })).toBeInTheDocument()
+
+    act(() => setDemoMode(true))
+
+    expect(await screen.findByText('US$23.57')).toBeInTheDocument()
+    expect(screen.queryByText('Claude (tenant prod)')).not.toBeInTheDocument()
   })
 })
 

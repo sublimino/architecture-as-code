@@ -13,6 +13,7 @@ import { useAuth0 } from '../auth/oidc'
 import type { TenantConnector } from '../types/connectors'
 import SyncLogsModal from '../components/connectors/SyncLogsModal'
 import NotFoundPage from './NotFoundPage'
+import { isDemoMode, subscribeDemoMode } from '../api/demoMode'
 
 // Remote environment console for an AI provider connector.
 //
@@ -105,6 +106,11 @@ function count(n: number | null | undefined): string {
 export default function RemoteEnvironmentPage() {
   const { providerId } = useParams<{ providerId: string }>()
   const id = providerId?.toLowerCase()
+  // Re-render when the demo toggle flips. The two modes are different view
+  // components, so a flip unmounts one and mounts the other: no connector,
+  // scan or agent state carries across.
+  const [, setDemo] = useState(isDemoMode)
+  useEffect(() => subscribeDemoMode(setDemo), [])
   if (!isRemoteEnvironmentProvider(id)) {
     return (
       <div data-testid="remote-env-not-found">

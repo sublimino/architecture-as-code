@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { connectorsApi, connectorErrorMessage, isRemoteEnvironmentProvider } from '../api/connectorsClient'
+import { subscribeDemoMode } from '../api/demoMode'
 import type { TenantSettingsResponse, FrameworkResponse, NHIScan, PlatformUser } from '../types/api'
 import type { ConnectorProvider, TenantConnector } from '../types/connectors'
 import LoadingState from '../components/LoadingState'
@@ -227,7 +228,12 @@ export default function Settings() {
     [setSearchParams],
   )
 
+  // Bumped on every demo-mode flip: a load that started in the other mode
+  // must not write its connector list over this one's.
+  const modeGenerationRef = useRef(0)
+
   const load = useCallback(async () => {
+    const generation = modeGenerationRef.current
     try {
       const token = await getAccessTokenSilently()
       const [settingsRes, frameworksRes, scansRes, providersRes, connectorsRes, usersRes] = await Promise.allSettled([
@@ -238,6 +244,7 @@ export default function Settings() {
         connectorsApi.listConnectors(token),
         api.users(token),
       ])
+      if (generation !== modeGenerationRef.current) return
       if (settingsRes.status === 'fulfilled') {
         setSettings(settingsRes.value)
         setOrgName(settingsRes.value.org_name ?? '')
@@ -412,6 +419,28 @@ export default function Settings() {
     const t = setInterval(load, POLL_MS)
     return () => clearInterval(t)
   }, [load])
+
+  // Switching demo mode without a reload changes which backend answers, so
+  // everything held from the other mode is dropped (connector rows, scan
+  // errors, any open connector modal) and reloaded. Otherwise a mock connector
+  // id stays on screen and its next action is sent to the live API.
+  const loadRef = useRef(load)
+  loadRef.current = load
+  useEffect(
+    () =>
+      subscribeDemoMode(() => {
+        modeGenerationRef.current += 1
+        setConnectors([])
+        setProviders([])
+        setScanErrors({})
+        setScanningProviderId(null)
+        setConfiguringProvider(null)
+        setSyncLogProvider(null)
+        setDisconnectTarget(null)
+        void loadRef.current()
+      }),
+    [],
+  )
 
   if (loading) return <LoadingState variant="block" status="loading" label="settings" testId="settings-load-state" />
   if (error) return <LoadingState variant="block" status="error" label="settings" error={error} onRetry={load} testId="settings-load-state" />

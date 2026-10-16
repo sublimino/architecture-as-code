@@ -82,7 +82,7 @@ export interface SyncResult {
 // null where the engine has not observed it; nothing here is inferred.
 
 /** How the backend learns of changes upstream. Unknown modes pass through as-is. */
-export type RemoteSyncMode = 'poll' | 'stream' | 'webhook'
+export type RemoteSyncMode = 'poll' | 'poll+stream' | 'backoff' | 'stream' | 'webhook'
 
 export interface ConnectorSyncState {
   mode: RemoteSyncMode | (string & {})
@@ -90,6 +90,8 @@ export interface ConnectorSyncState {
   last_success_at: string | null
   last_error: string | null
   next_poll_at: string | null
+  /** Present on the backend's sync_state; drives the backoff label. */
+  consecutive_failures?: number
 }
 
 export interface RemoteAgent {

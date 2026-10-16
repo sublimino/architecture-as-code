@@ -41,6 +41,7 @@ import {
   type DiscoverySourceSyncState,
 } from '../api/connectorsClient'
 import type { TenantConnector } from '../types/connectors'
+import { pollIntervalLabel } from '../hooks/useConnectorStream'
 
 const POLL_MS = 15 * 60 * 1000
 const PAGE_SIZE = 50
@@ -570,18 +571,11 @@ function fmtAgo(iso: string): string {
 
 // The poll interval the engine scheduled (next_poll_at - last_poll_at), in
 // seconds below 90 s so a 30 s interval is not rounded to "1 min".
-function pollInterval(s: DiscoverySourceSyncState): string | null {
-  if (!s.last_poll_at || !s.next_poll_at) return null
-  const secs = Math.round((Date.parse(s.next_poll_at) - Date.parse(s.last_poll_at)) / 1000)
-  if (!Number.isFinite(secs) || secs <= 0) return null
-  return secs < 90 ? `${secs} s` : `${Math.round(secs / 60)} min`
-}
-
 // Backend modes (remote_agent_sync): poll | poll+stream | backoff.
 function syncModeLabel(s: DiscoverySourceSyncState | null): string | null {
   if (!s) return null
   if (s.mode === 'stream' || s.mode === 'webhook') return 'Live'
-  const every = pollInterval(s)
+  const every = pollIntervalLabel(s)
   if (s.mode === 'poll') return every ? `Polling every ${every}` : 'Polling'
   if (s.mode === 'poll+stream') return every ? `Live sessions + polling every ${every}` : 'Live sessions + polling'
   if (s.mode === 'backoff') {

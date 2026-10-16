@@ -239,15 +239,29 @@ function createConnectorStreamStore() {
 
 export const connectorStreamStore = createConnectorStreamStore()
 
-/** Upstream sync mode as a short phrase: what the backend is doing, not the browser. */
+/** The backend's poll interval, from its own last and next poll times; null when unobserved. */
+export function pollIntervalLabel(s: Pick<ConnectorSyncState, 'last_poll_at' | 'next_poll_at'>): string | null {
+  if (!s.last_poll_at || !s.next_poll_at) return null
+  const secs = Math.round((Date.parse(s.next_poll_at) - Date.parse(s.last_poll_at)) / 1000)
+  if (!Number.isFinite(secs) || secs <= 0) return null
+  return secs < 90 ? `${secs} s` : `${Math.round(secs / 60)} min`
+}
+
+/**
+ * Upstream sync mode as a short phrase: what the backend is doing, not the browser.
+ * Backend modes (remote_agent_sync): poll | poll+stream | backoff.
+ */
 export function syncModeLabel(s: ConnectorSyncState): string {
   if (s.mode === 'stream') return 'Live (provider stream)'
   if (s.mode === 'webhook') return 'Live (provider webhooks)'
-  if (s.mode === 'poll') {
-    const from = s.last_poll_at ? Date.parse(s.last_poll_at) : NaN
-    const to = s.next_poll_at ? Date.parse(s.next_poll_at) : NaN
-    const secs = Math.round((to - from) / 1000)
-    return Number.isFinite(secs) && secs > 0 ? `Polling every ${secs} s` : 'Polling'
+  const every = pollIntervalLabel(s)
+  if (s.mode === 'poll') return every ? `Polling every ${every}` : 'Polling'
+  if (s.mode === 'poll+stream') return every ? `Live sessions + polling every ${every}` : 'Live sessions + polling'
+  if (s.mode === 'backoff') {
+    const n = s.consecutive_failures
+    return typeof n === 'number' && n > 0
+      ? `Backing off after errors (${n} consecutive failure${n === 1 ? '' : 's'})`
+      : 'Backing off after errors'
   }
   return `Sync mode: ${s.mode}`
 }

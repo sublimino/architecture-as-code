@@ -1,26 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import ValidationErrorBanner from './ValidationErrorBanner'
 import ProviderLogo from './ProviderLogo'
 import { useAuth0 } from '../../auth/oidc'
 import { connectorsApi } from '../../api/connectorsClient'
 import ConnectorConfigureModal from '../ConnectorConfigureModal'
-import type { ConnectorProvider } from '../../types/connectors'
+import type { VerificationOutcome } from './connectorVerification'
+import type { ConnectorCreateRequest, ConnectorProvider, TenantConnector } from '../../types/connectors'
 
 export interface IdpConfigData {
   providerId: string
   providerName: string
-  issuerUrl: string
-  clientId: string
-  clientSecret?: string
-  scopes: string
+  // Only in-cluster Dex has an issuer the wizard knows; connector providers
+  // are described by their own wizard_config fields, held by the server.
+  issuerUrl?: string
+  // True only when a check answered by the server said so in this setup.
   connectionTested?: boolean
-  //: What the last successful test reported, so a resumed step can show it.
+  // What the last successful check reported, so a resumed step can show it.
   connectionMessage?: string
-  authMode?: 'api_key' | 'oidc'
-  apiKey?: string
-  workspaceId?: string
-  testMode?: 'live' | 'simulated'
 }
 
 export interface ConnectionTestResult {
@@ -33,122 +30,57 @@ interface IdpLinkageStepProps {
   onNext: (data: IdpConfigData) => void
   onBack: () => void
   onSkip: () => void
-  //: Runs the real check. The wizard passes a verifier that calls GET /api/v1/me
-  //: with the session bearer; the step itself never fabricates a result.
+  skipLabel?: string
+  // The Dex check. The wizard passes a verifier that calls GET /api/v1/me with
+  // the session bearer; the step itself never fabricates a result.
   onTestConnection?: (issuerUrl: string) => Promise<ConnectionTestResult>
 }
+
+const DEX_ID = 'dex'
+const DEX_ISSUER = 'https://dex.inf-signalloom.svc.cluster.local:5556/dex'
 
 interface IdpOption {
   id: string
   name: string
   tagline: string
-  defaultIssuer: string
-  defaultClientId: string
-  defaultScopes: string
 }
 
+// Each id other than dex is a backend connector provider_id
+// (fe-signalloom routers/connectors.py STANDARD_PROVIDERS). Dex is the
+// portal's own login issuer: there is no connector to create for it.
 const IDP_OPTIONS: IdpOption[] = [
-  {
-    id: 'dex',
-    name: 'Dex OIDC (In-Cluster)',
-    tagline: 'Local Kubernetes native OIDC provider with SPIFFE trust federation.',
-    defaultIssuer: 'https://dex.inf-signalloom.svc.cluster.local:5556/dex',
-    defaultClientId: 'signalloom-dashboard',
-    defaultScopes: 'openid profile email groups federated:id',
-  },
-  {
-    id: 'okta',
-    name: 'Okta Workforce Identity',
-    tagline: 'Enterprise cloud SSO with SCIM user and group lifecycle provisioning.',
-    defaultIssuer: 'https://dev-signalloom.okta.com/oauth2/default',
-    defaultClientId: 'signalloom-okta-client',
-    defaultScopes: 'openid profile email okta.groups.read',
-  },
-  {
-    id: 'ad_entra',
-    name: 'Microsoft Entra ID',
-    tagline: 'Azure Active Directory cloud IAM with conditional access integration.',
-    defaultIssuer: 'https://login.microsoftonline.com/common/v2.0',
-    defaultClientId: 'signalloom-entra-app',
-    defaultScopes: 'openid profile email User.Read',
-  },
-  {
-    id: 'google_workspace',
-    name: 'Google Cloud IAM / Workspace',
-    tagline: 'Google Identity services with OAuth2 Workload Identity Federation.',
-    defaultIssuer: 'https://accounts.google.com',
-    defaultClientId: 'signalloom-google-auth',
-    defaultScopes: 'openid email profile',
-  },
-  {
-    id: 'aws_iam',
-    name: 'AWS IAM Identity Center',
-    tagline: 'AWS IAM Identity Center OIDC endpoint with AWS IRSA trust roles.',
-    defaultIssuer: 'https://identitycenter.us-east-1.amazonaws.com',
-    defaultClientId: 'signalloom-aws-client',
-    defaultScopes: 'openid profile email',
-  },
-  {
-    id: 'claude',
-    name: 'Anthropic Claude',
-    tagline: 'Read-only agent discovery, model inventory, and CEL compliance governance.',
-    defaultIssuer: 'https://api.anthropic.com/v1',
-    defaultClientId: 'wrkspc_default',
-    defaultScopes: 'models.read messages.read batches.read',
-  },
-  {
-    id: 'openai',
-    name: 'OpenAI Platform',
-    tagline: 'Read-only assistant agent discovery, run telemetry, and tool permission audit.',
-    defaultIssuer: 'https://api.openai.com/v1',
-    defaultClientId: 'signalloom-openai-reader',
-    defaultScopes: 'assistants.read models.read threads.read',
-  },
+  { id: DEX_ID, name: 'Dex OIDC (In-Cluster)', tagline: 'Local Kubernetes native OIDC provider with SPIFFE trust federation.' },
+  { id: 'okta', name: 'Okta Workforce Identity', tagline: 'Enterprise cloud SSO with SCIM user and group lifecycle provisioning.' },
+  { id: 'ad_entra', name: 'Microsoft Entra ID', tagline: 'Azure Active Directory cloud IAM with conditional access integration.' },
+  { id: 'google_workspace', name: 'Google Cloud IAM / Workspace', tagline: 'Google Identity services with OAuth2 Workload Identity Federation.' },
+  { id: 'aws_iam', name: 'AWS IAM Identity Center', tagline: 'AWS IAM Identity Center OIDC endpoint with AWS IRSA trust roles.' },
+  { id: 'claude', name: 'Anthropic Claude', tagline: 'Read-only agent discovery, model inventory, and CEL compliance governance.' },
+  { id: 'openai', name: 'OpenAI Platform', tagline: 'Read-only assistant agent discovery, run telemetry, and tool permission audit.' },
 ]
 
-type AuthMode = 'api_key' | 'oidc'
-type TestMode = 'live' | 'simulated'
+const DEX_PROVIDER: ConnectorProvider = {
+  provider_id: DEX_ID,
+  display_name: 'Dex OIDC (In-Cluster)',
+  wizard_config: {
+    fields: [],
+    permissions: [],
+    docs_link: '',
+    help_text:
+      `Dex (${DEX_ISSUER}) is the portal's own login issuer, so there is nothing to store. ` +
+      'Test Connection checks that the portal accepts this browser session (GET /api/v1/me).',
+  },
+}
 
-function idpOptionToProvider(opt: IdpOption): ConnectorProvider {
-  return {
-    provider_id: opt.id,
-    display_name: opt.name,
-    wizard_config: {
-      fields: [
-        {
-          name: 'issuer_url',
-          label: 'OIDC Issuer URL',
-          type: 'text',
-          required: true,
-          placeholder: opt.defaultIssuer,
-        },
-        {
-          name: 'client_id',
-          label: 'Client ID',
-          type: 'text',
-          required: true,
-          placeholder: opt.defaultClientId,
-        },
-        {
-          name: 'client_secret',
-          label: 'Client Secret',
-          type: 'password',
-          required: false,
-          placeholder: '••••••••••••••••',
-        },
-        {
-          name: 'scopes',
-          label: 'OAuth2 / OIDC Scopes',
-          type: 'text',
-          required: true,
-          placeholder: opt.defaultScopes,
-        },
-      ],
-      permissions: ['read', 'telemetry'],
-      docs_link: '',
-      help_text: opt.tagline,
-    },
-  }
+const STATUS_TESTID: Record<VerificationOutcome['status'], string> = {
+  verified: 'idp-connection-success',
+  failed: 'idp-connection-error',
+  unchecked: 'idp-connection-unchecked',
+}
+
+const STATUS_COLOUR: Record<VerificationOutcome['status'], string> = {
+  verified: 'var(--teal)',
+  failed: 'var(--error)',
+  unchecked: 'var(--amber)',
 }
 
 function useSafeSearchParams() {
@@ -160,282 +92,117 @@ function useSafeSearchParams() {
   }
 }
 
+const isLive = (c: TenantConnector) => c.status !== 'disconnected'
+
 export default function IdpLinkageStep({
   initialValues,
   onNext,
   onBack,
   onSkip,
+  skipLabel = 'Skip for now',
   onTestConnection,
 }: IdpLinkageStepProps) {
-  const auth0 = useAuth0()
-  const getAccessTokenSilently = auth0?.getAccessTokenSilently
-  const [configuringOption, setConfiguringOption] = useState<IdpOption | null>(null)
-
+  const { getAccessTokenSilently } = useAuth0()
   const [searchParams] = useSafeSearchParams()
   const deepLinkDoneRef = useRef(false)
 
-  const [selectedIdpId, setSelectedIdpId] = useState<string>(
-    initialValues?.providerId ?? 'dex',
-  )
+  const [providers, setProviders] = useState<ConnectorProvider[] | null>(null)
+  const [connectors, setConnectors] = useState<TenantConnector[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
 
-  const [configuredProviders, setConfiguredProviders] = useState<Record<string, boolean>>(() => {
-    return initialValues?.connectionTested && initialValues?.providerId
-      ? { [initialValues.providerId]: true }
-      : {}
-  })
+  const [selectedId, setSelectedId] = useState<string>(initialValues?.providerId ?? DEX_ID)
+  const [configuringId, setConfiguringId] = useState<string | null>(null)
+  const [outcomes, setOutcomes] = useState<Record<string, VerificationOutcome>>(() =>
+    initialValues?.connectionTested && initialValues.providerId
+      ? {
+          [initialValues.providerId]: {
+            status: 'verified',
+            message: initialValues.connectionMessage ?? 'Verified earlier in this setup.',
+          },
+        }
+      : {},
+  )
+  const [errors, setErrors] = useState<string[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const token = await getAccessTokenSilently()
+        const [p, c] = await Promise.all([
+          connectorsApi.listProviders(token),
+          connectorsApi.listConnectors(token),
+        ])
+        if (cancelled) return
+        setProviders(p)
+        setConnectors(c)
+      } catch (err) {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Could not load connector providers.')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // Loaded once per mount: the step re-mounts each time the wizard shows it.
+  }, [])
 
   useEffect(() => {
     if (deepLinkDoneRef.current) return
     const target = searchParams.get('provider') || searchParams.get('configure')
-    if (target) {
-      const opt = IDP_OPTIONS.find((o) => o.id === target)
-      if (opt) {
-        deepLinkDoneRef.current = true
-        setSelectedIdpId(opt.id)
-        setConfiguringOption(opt)
-      }
+    if (target && IDP_OPTIONS.some((o) => o.id === target)) {
+      deepLinkDoneRef.current = true
+      setSelectedId(target)
+      setConfiguringId(target)
     }
   }, [searchParams])
 
-  const activeOption = IDP_OPTIONS.find((o) => o.id === selectedIdpId) ?? IDP_OPTIONS[0]
-  const isAiProvider = selectedIdpId === 'claude' || selectedIdpId === 'openai'
+  const providerFor = (id: string): ConnectorProvider | undefined =>
+    id === DEX_ID ? DEX_PROVIDER : providers?.find((p) => p.provider_id === id)
+  const connectorFor = (id: string) => connectors.find((c) => c.provider_id === id && isLive(c))
+  const isConfigured = (id: string) => (id === DEX_ID ? outcomes[id]?.status === 'verified' : Boolean(connectorFor(id)))
 
-  // AI providers default to OIDC unless specified, preserving existing tests, but offering easy tab toggle
-  const [authMode, setAuthMode] = useState<AuthMode>(initialValues?.authMode ?? 'oidc')
-  const [testMode, setTestMode] = useState<TestMode>(initialValues?.testMode ?? 'live')
+  const activeOption = IDP_OPTIONS.find((o) => o.id === selectedId) ?? IDP_OPTIONS[0]
+  const selectedOutcome = outcomes[selectedId]
 
-  // API Key fields
-  const [apiKey, setApiKey] = useState<string>(initialValues?.apiKey ?? '')
-  const [showApiKey, setShowApiKey] = useState<boolean>(false)
-  const [workspaceOrOrgId, setWorkspaceOrOrgId] = useState<string>(initialValues?.workspaceId ?? '')
-
-  // OIDC fields
-  const [issuerUrl, setIssuerUrl] = useState<string>(
-    initialValues?.issuerUrl ?? activeOption.defaultIssuer,
-  )
-  const [clientId, setClientId] = useState<string>(
-    initialValues?.clientId ?? activeOption.defaultClientId,
-  )
-  const [clientSecret, setClientSecret] = useState<string>(
-    initialValues?.clientSecret ?? '••••••••••••••••',
-  )
-  const [scopes, setScopes] = useState<string>(
-    initialValues?.scopes ?? activeOption.defaultScopes,
-  )
-
-  const [testingConnection, setTestingConnection] = useState(false)
-  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>(
-    initialValues?.connectionTested ? 'success' : 'idle',
-  )
-  const [connectionMessage, setConnectionMessage] = useState<string | null>(
-    initialValues?.connectionTested ? (initialValues.connectionMessage ?? 'Portal session verified') : null,
-  )
-  const [errors, setErrors] = useState<string[]>([])
-
-  const handleSelectIdp = (opt: IdpOption) => {
-    setSelectedIdpId(opt.id)
-    setIssuerUrl(opt.defaultIssuer)
-    setClientId(opt.defaultClientId)
-    setScopes(opt.defaultScopes)
-    setConnectionStatus('idle')
-    setConnectionMessage(null)
+  const openConfigure = (opt: IdpOption) => {
+    setSelectedId(opt.id)
+    setErrors([])
+    setConfiguringId(opt.id)
   }
 
-  const handleSaveFromModal = async (payload: {
-    provider_id: string
-    display_name?: string
-    credentials: Record<string, string>
-    metadata?: Record<string, unknown>
-  }) => {
-    setSelectedIdpId(payload.provider_id)
-    if (payload.credentials.api_key) {
-      setApiKey(payload.credentials.api_key)
-    }
-    if (payload.credentials.workspace_id) {
-      setWorkspaceOrOrgId(payload.credentials.workspace_id)
-    } else if (payload.credentials.openai_org_id) {
-      setWorkspaceOrOrgId(payload.credentials.openai_org_id)
-    }
-    if (payload.credentials.issuer_url) {
-      setIssuerUrl(payload.credentials.issuer_url)
-    }
-    if (payload.credentials.client_id) {
-      setClientId(payload.credentials.client_id)
-    }
-    if (payload.credentials.client_secret) {
-      setClientSecret(payload.credentials.client_secret)
-    }
-    if (payload.credentials.scopes) {
-      setScopes(payload.credentials.scopes)
-    }
-    if (payload.metadata?.auth_mode) {
-      setAuthMode(payload.metadata.auth_mode as AuthMode)
-    }
-    if (payload.metadata?.test_mode) {
-      setTestMode(payload.metadata.test_mode as TestMode)
-    }
-
-    try {
-      let token = ''
-      if (getAccessTokenSilently) {
-        try {
-          token = await getAccessTokenSilently()
-        } catch {
-          // Token retrieval failed or unauthenticated
-        }
-      }
-      const apiTarget = connectorsApi as any
-      const configureFn = apiTarget?.createConnector ?? apiTarget?.configure
-      if (typeof configureFn === 'function') {
-        await configureFn(token, {
-          provider_id: payload.provider_id,
-          display_name: payload.display_name,
-          credentials: payload.credentials,
-          metadata: payload.metadata,
-        })
-      }
-    } catch (err) {
-      console.warn('Failed to register connector immediately:', err)
-    }
-
-    setConfiguredProviders((prev) => ({ ...prev, [payload.provider_id]: true }))
-    setConnectionStatus('success')
-    setConnectionMessage(
-      payload.display_name
-        ? `${payload.display_name} configured successfully`
-        : 'Connector configured successfully',
-    )
-    setConfiguringOption(null)
-  }
-
-  const handleTestConnectionFromModal = async (
-    providerId: string,
-    credentials: Record<string, string>,
-    mode: 'live' | 'simulated',
-  ): Promise<{ ok: boolean; message: string }> => {
-    if (credentials.issuer_url && onTestConnection) {
-      return await onTestConnection(credentials.issuer_url)
-    }
-    let token = ''
-    if (getAccessTokenSilently) {
-      try {
-        token = await getAccessTokenSilently()
-      } catch {}
-    }
-    try {
-      const res = await connectorsApi.testConnector(token, providerId, credentials)
-      return {
-        ok: res.valid && res.scopes_ok,
-        message:
-          res.message ||
-          (res.error_msg
-            ? `✗ ${res.error_msg}`
-            : `✓ Connection verified for ${providerId}.`),
-      }
-    } catch (err: any) {
-      return {
-        ok: false,
-        message: err?.response?.data?.detail || err?.message || 'Connection test failed',
-      }
-    }
-  }
-
-  const handleTestConnection = async () => {
-    setTestingConnection(true)
-    setConnectionStatus('idle')
-    setConnectionMessage(null)
-
-    if (isAiProvider && authMode === 'api_key') {
-      if (!apiKey.trim()) {
-        setConnectionStatus('error')
-        setConnectionMessage('Please enter an API Key to test connection.')
-        setTestingConnection(false)
-        return
-      }
-
-      if (testMode === 'live') {
-        if (selectedIdpId === 'claude' && apiKey.startsWith('sk-ant-')) {
-          setConnectionStatus('success')
-          setConnectionMessage('Verified connection to Anthropic Claude API. Discovered models and batch agent queue.')
-        } else if (selectedIdpId === 'openai' && apiKey.startsWith('sk-')) {
-          setConnectionStatus('success')
-          setConnectionMessage('Verified connection to OpenAI Platform API. Assistants and tools telemetry accessible.')
-        } else {
-          setConnectionStatus('success')
-          setConnectionMessage('API key verified. Ready for read-only agent discovery and telemetry ingestion.')
-        }
-      } else {
-        setConnectionStatus('success')
-        setConnectionMessage('Simulated test verified. 2 sample agent workloads ready to ingest for CEL compliance.')
-      }
-      setTestingConnection(false)
-      return
-    }
-
-    if (!issuerUrl.trim().startsWith('http://') && !issuerUrl.trim().startsWith('https://')) {
-      setConnectionStatus('error')
-      setConnectionMessage(
-        isAiProvider
-          ? 'Invalid Endpoint URL. Must start with https:// or http://'
-          : 'Invalid OIDC Issuer URL. Must start with https:// or http://',
-      )
-      setTestingConnection(false)
-      return
-    }
-
-    // The verifier is the wizard's: it calls a real portal route with the
-    // session's bearer and reports what the server said. No verifier means no
-    // claim, never a green tick.
+  const verifyDex = async (): Promise<VerificationOutcome> => {
     if (!onTestConnection) {
-      setConnectionStatus('error')
-      setConnectionMessage('No connection verifier is wired to this step, so nothing was checked.')
-      setTestingConnection(false)
-      return
+      return { status: 'failed', message: 'No connection verifier is wired to this step, so nothing was checked.' }
     }
-    try {
-      const result = await onTestConnection(issuerUrl.trim())
-      setConnectionStatus(result.ok ? 'success' : 'error')
-      setConnectionMessage(result.message)
-    } catch (err) {
-      setConnectionStatus('error')
-      setConnectionMessage(err instanceof Error ? err.message : 'Connection test failed.')
-    } finally {
-      setTestingConnection(false)
-    }
+    const result = await onTestConnection(DEX_ISSUER)
+    return { status: result.ok ? 'verified' : 'failed', message: result.message }
   }
 
-  const validate = (): boolean => {
-    const errs: string[] = []
-
-    if (isAiProvider && authMode === 'api_key' && !apiKey.trim() && !configuredProviders[selectedIdpId]) {
-      errs.push('API Key is required. Please configure the provider.')
-      setErrors(errs)
-      return false
-    }
-
-    setErrors(errs)
-    return errs.length === 0
+  const saveFor = (id: string) => async (payload: ConnectorCreateRequest) => {
+    if (id === DEX_ID) return
+    // A rejection propagates to the modal, which shows it and stays open.
+    const token = await getAccessTokenSilently()
+    const created = await connectorsApi.createConnector(token, payload)
+    setConnectors((prev) => [...prev.filter((c) => c.provider_id !== created.provider_id), created])
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (validate()) {
-      onNext({
-        providerId: selectedIdpId,
-        providerName: activeOption.name,
-        issuerUrl: authMode === 'api_key' ? activeOption.defaultIssuer : (issuerUrl.trim() || activeOption.defaultIssuer),
-        clientId: authMode === 'api_key' ? (workspaceOrOrgId.trim() || activeOption.defaultClientId) : (clientId.trim() || activeOption.defaultClientId),
-        clientSecret: authMode === 'api_key' ? apiKey.trim() : clientSecret.trim(),
-        scopes: authMode === 'api_key' ? activeOption.defaultScopes : (scopes.trim() || activeOption.defaultScopes),
-        authMode,
-        apiKey: apiKey.trim(),
-        workspaceId: workspaceOrOrgId.trim(),
-        testMode,
-        connectionTested: connectionStatus === 'success' || Boolean(configuredProviders[selectedIdpId]),
-        connectionMessage: connectionStatus === 'success' ? (connectionMessage ?? undefined) : undefined,
-      })
+    if (selectedId !== DEX_ID && !connectorFor(selectedId)) {
+      setErrors([`Configure ${activeOption.name} before continuing, or skip this step.`])
+      return
     }
+    setErrors([])
+    onNext({
+      providerId: selectedId,
+      providerName: activeOption.name,
+      issuerUrl: selectedId === DEX_ID ? DEX_ISSUER : undefined,
+      connectionTested: selectedOutcome?.status === 'verified',
+      connectionMessage: selectedOutcome?.status === 'verified' ? selectedOutcome.message : undefined,
+    })
   }
+
+  const configuringProvider = configuringId ? providerFor(configuringId) : undefined
 
   return (
     <div style={{ maxWidth: 760, margin: '0 auto' }}>
@@ -451,39 +218,38 @@ export default function IdpLinkageStep({
 
       <ValidationErrorBanner errors={errors} onDismiss={() => setErrors([])} />
 
+      {loadError && (
+        <div data-testid="idp-providers-error" role="alert" style={{ color: 'var(--error)', fontSize: 13, marginBottom: 16 }}>
+          Connector providers could not be loaded: {loadError}. Only in-cluster Dex can be configured.
+        </div>
+      )}
+
       <form noValidate onSubmit={handleSubmit}>
-        {/* IdP Selection Grid */}
         <div style={{ marginBottom: 24 }}>
           <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 10 }}>
             Select Identity Provider
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
             {IDP_OPTIONS.map((opt) => {
-              const isSelected = selectedIdpId === opt.id
+              const isSelected = selectedId === opt.id
               return (
                 <div
                   key={opt.id}
                   data-testid={`idp-option-${opt.id}`}
-                  onClick={() => {
-                    handleSelectIdp(opt)
-                    setConfiguringOption(opt)
-                  }}
+                  onClick={() => openConfigure(opt)}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      handleSelectIdp(opt)
-                      setConfiguringOption(opt)
-                    }
+                    if (e.key === 'Enter' || e.key === ' ') openConfigure(opt)
                   }}
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'flex-start',
                     padding: '14px 16px',
-                    borderRadius: 8,
+                    borderRadius: 'var(--radius)',
                     border: isSelected ? '2px solid var(--cyan)' : '1px solid var(--border)',
-                    background: isSelected ? 'rgba(6, 182, 212, 0.08)' : 'var(--surface)',
+                    background: isSelected ? 'var(--cyan-focus)' : 'var(--surface)',
                     cursor: 'pointer',
                     textAlign: 'left',
                     transition: 'all 0.15s ease',
@@ -491,18 +257,14 @@ export default function IdpLinkageStep({
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, width: '100%' }}>
                     <ProviderLogo providerId={opt.id} displayName={opt.name} size={28} />
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', flex: 1 }}>
-                      {opt.name}
-                    </span>
-                    {opt.id === 'dex' && (
-                      <span className="tag" style={{ background: 'rgba(6, 182, 212, 0.16)', color: 'var(--cyan)', fontSize: 10 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', flex: 1 }}>{opt.name}</span>
+                    {opt.id === DEX_ID && (
+                      <span className="tag" style={{ background: 'var(--cyan-bg)', color: 'var(--cyan)', fontSize: 10 }}>
                         Default
                       </span>
                     )}
                   </div>
-                  <span style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.4, flex: 1 }}>
-                    {opt.tagline}
-                  </span>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.4, flex: 1 }}>{opt.tagline}</span>
                   <div
                     style={{
                       display: 'flex',
@@ -520,36 +282,17 @@ export default function IdpLinkageStep({
                       data-testid={`configure-idp-${opt.id}`}
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleSelectIdp(opt)
-                        setConfiguringOption(opt)
+                        openConfigure(opt)
                       }}
                       style={{ fontSize: 11, padding: '3px 10px' }}
                     >
                       Configure
                     </button>
-                    <button
-                      type="button"
-                      data-testid={`configure-provider-${opt.id}`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleSelectIdp(opt)
-                        setConfiguringOption(opt)
-                      }}
-                      style={{ display: 'none' }}
-                      aria-hidden="true"
-                    >
-                      Configure
-                    </button>
-                    {(configuredProviders[opt.id] || (isSelected && connectionStatus === 'success')) && (
+                    {isConfigured(opt.id) && (
                       <span
                         className="tag"
                         data-testid={`configured-tag-${opt.id}`}
-                        style={{
-                          background: 'rgba(16, 185, 129, 0.16)',
-                          color: 'var(--teal)',
-                          fontSize: 10,
-                          padding: '2px 6px',
-                        }}
+                        style={{ background: 'var(--teal-bg)', color: 'var(--teal)', fontSize: 10, padding: '2px 6px' }}
                       >
                         ✓ Configured
                       </span>
@@ -561,44 +304,15 @@ export default function IdpLinkageStep({
           </div>
         </div>
 
-        {/* Hidden compatibility inputs for existing integration tests */}
-        <div style={{ display: 'none' }} aria-hidden="true">
-          <input
-            data-testid="input-idp-issuer-url"
-            value={issuerUrl}
-            onChange={(e) => setIssuerUrl(e.target.value)}
-          />
-          <input
-            data-testid="input-idp-client-id"
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-          />
-          <input
-            data-testid="input-idp-scopes"
-            value={scopes}
-            onChange={(e) => setScopes(e.target.value)}
-          />
-          <input
-            data-testid="input-idp-api-key"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-          />
-          <button
-            type="button"
-            data-testid="test-idp-connection-button"
-            onClick={handleTestConnection}
+        {selectedOutcome && (
+          <div
+            data-testid={STATUS_TESTID[selectedOutcome.status]}
+            style={{ fontSize: 13, color: STATUS_COLOUR[selectedOutcome.status], lineHeight: 1.5, marginBottom: 8 }}
           >
-            Test
-          </button>
-          {connectionStatus === 'success' && (
-            <span data-testid="idp-connection-success">✓ {connectionMessage}</span>
-          )}
-          {connectionStatus === 'error' && (
-            <span data-testid="idp-connection-error">✗ {connectionMessage}</span>
-          )}
-        </div>
+            {activeOption.name}: {selectedOutcome.message}
+          </div>
+        )}
 
-        {/* Action Buttons */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 24 }}>
           <button
             type="button"
@@ -613,10 +327,11 @@ export default function IdpLinkageStep({
             <button
               type="button"
               className="btn btn-secondary"
+              data-testid="step-skip-button"
               onClick={onSkip}
               style={{ fontSize: 13 }}
             >
-              Skip for now
+              {skipLabel}
             </button>
             <button
               type="submit"
@@ -630,27 +345,16 @@ export default function IdpLinkageStep({
         </div>
       </form>
 
-      {configuringOption && (
+      {configuringId && configuringProvider && (
         <ConnectorConfigureModal
-          isOpen={Boolean(configuringOption)}
-          provider={idpOptionToProvider(configuringOption)}
-          initialAuthMode={
-            authMode === 'api_key'
-              ? 'api_key'
-              : initialValues?.authMode === 'oidc'
-              ? 'oidc'
-              : undefined
-          }
-          initialApiKey={configuringOption.id === selectedIdpId ? (apiKey || undefined) : undefined}
-          initialWorkspaceId={configuringOption.id === selectedIdpId ? (workspaceOrOrgId || undefined) : undefined}
-          initialIssuerUrl={configuringOption.id === selectedIdpId ? issuerUrl : configuringOption.defaultIssuer}
-          initialClientId={configuringOption.id === selectedIdpId ? clientId : configuringOption.defaultClientId}
-          initialClientSecret={configuringOption.id === selectedIdpId && clientSecret !== '••••••••••••••••' ? clientSecret : undefined}
-          initialScopes={configuringOption.id === selectedIdpId ? scopes : configuringOption.defaultScopes}
-          initialTestMode={configuringOption.id === selectedIdpId ? testMode : undefined}
-          onClose={() => setConfiguringOption(null)}
-          onSave={handleSaveFromModal}
-          onTestConnection={handleTestConnectionFromModal}
+          key={configuringId}
+          isOpen
+          provider={configuringProvider}
+          connector={connectorFor(configuringId)}
+          onClose={() => setConfiguringId(null)}
+          onSave={saveFor(configuringId)}
+          verify={configuringId === DEX_ID ? verifyDex : undefined}
+          onTested={(outcome) => setOutcomes((prev) => ({ ...prev, [configuringId]: outcome }))}
         />
       )}
     </div>

@@ -37,6 +37,10 @@ async function req<T>(
   return res.data
 }
 
+// POST /connectors/providers/{id}/test: the stored-connector result minus the
+// connector it would belong to, since nothing has been saved yet.
+export type ProviderCredentialTestResult = Omit<ConnectorTestResult, 'connector_id'>
+
 export interface SyncLogEntry {
   id: string
   timestamp: string
@@ -70,8 +74,15 @@ export interface ConnectorsApi {
   listProviders(token: string): Promise<ConnectorProvider[]>
   listConnectors(token: string): Promise<TenantConnector[]>
   createConnector(token: string, body: ConnectorCreateRequest): Promise<TenantConnector>
-  deleteConnector(token: string, id: string): Promise<void>
   testConnector(token: string, id: string, credentials?: Record<string, string>): Promise<ConnectorTestResult>
+  // Tests credentials before anything is saved. The server answers 501
+  // test_unsupported when the provider has no real verifier; a caller must
+  // report that as "not checked", never as a pass.
+  testProviderCredentials(
+    token: string,
+    providerId: string,
+    credentials: Record<string, string>,
+  ): Promise<ProviderCredentialTestResult>
   toggleConnector(token: string, id: string, enabled?: boolean): Promise<TenantConnector>
   triggerScan(token: string, providerId: string): Promise<SyncResult>
   getSyncLogs(token: string, providerId: string): Promise<SyncResult>
@@ -113,6 +124,12 @@ const liveConnectorsApi: ConnectorsApi = {
     req<ConnectorTestResult>(`/connectors/${id}/test`, token, {
       method: 'POST',
       data: credentials ? { credentials } : undefined,
+    }),
+
+  testProviderCredentials: (token, providerId, credentials) =>
+    req<ProviderCredentialTestResult>(`/connectors/providers/${encodeURIComponent(providerId)}/test`, token, {
+      method: 'POST',
+      data: { credentials },
     }),
 
   toggleConnector: async (token, id, enabled) => {
@@ -430,6 +447,18 @@ const mockConnectorsApi: ConnectorsApi = {
         : id === 'openai'
         ? '✓ Verified connection to OpenAI Platform API. Discovered live agent: Customer Support Triage Assistant'
         : `✓ Connection verified for ${id}.`,
+    }
+    return delay(result, 100)
+  },
+
+  testProviderCredentials: async (_token, _providerId, credentials) => {
+    const invalid = Object.values(credentials).some((v) => v.toLowerCase().includes('invalid'))
+    const result: ProviderCredentialTestResult = {
+      valid: !invalid,
+      scopes_ok: !invalid,
+      error_msg: invalid ? 'Invalid credentials (mock).' : null,
+      credential_expires_at: invalid ? null : futureIso(90),
+      needs_rotation: false,
     }
     return delay(result, 100)
   },
@@ -774,6 +803,10 @@ export const connectorsApi: ConnectorsApi = {
     isConnectorsMockMode() ? mockConnectorsApi.deleteConnector(token, id) : liveConnectorsApi.deleteConnector(token, id),
   testConnector: (token, id) =>
     isConnectorsMockMode() ? mockConnectorsApi.testConnector(token, id) : liveConnectorsApi.testConnector(token, id),
+  testProviderCredentials: (token, providerId, credentials) =>
+    isConnectorsMockMode()
+      ? mockConnectorsApi.testProviderCredentials(token, providerId, credentials)
+      : liveConnectorsApi.testProviderCredentials(token, providerId, credentials),
   toggleConnector: (token, id, enabled) =>
     isConnectorsMockMode() ? mockConnectorsApi.toggleConnector(token, id, enabled) : liveConnectorsApi.toggleConnector(token, id, enabled),
   triggerScan: (token, providerId) =>

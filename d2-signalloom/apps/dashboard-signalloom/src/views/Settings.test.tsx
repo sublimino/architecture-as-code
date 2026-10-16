@@ -99,7 +99,7 @@ const STUB_WIZARD = { fields: [], permissions: [], docs_link: '', help_text: '' 
 const MOCK_PROVIDERS: ConnectorProvider[] = [
   { provider_id: 'ad_entra', display_name: 'Microsoft Entra ID', wizard_config: STUB_WIZARD },
   { provider_id: 'okta', display_name: 'Okta', wizard_config: STUB_WIZARD },
-  { provider_id: 'openai', display_name: 'OpenAI', wizard_config: STUB_WIZARD },
+  { provider_id: 'openai', display_name: 'OpenAI', wizard_config: { ...STUB_WIZARD, fields: [{ name: 'api_key', label: 'OpenAI API Key', type: 'password', required: true }] } },
 ]
 
 const appCtxValue = {
@@ -412,15 +412,15 @@ describe('Settings: Service Connectors', () => {
     expect(screen.getByText(/Configure Microsoft Entra ID/i)).toBeInTheDocument()
   })
 
-  it('opens configure modal with API Key and OIDC tabs when clicking Configure on AI provider', async () => {
+  it('opens configure modal with the provider wizard_config fields when clicking Configure on AI provider', async () => {
     renderSettings(['/settings?tab=connectors'])
     await screen.findByText('Service Connectors')
     const configBtn = screen.getByTestId('configure-connector-openai')
     await userEvent.click(configBtn)
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     expect(screen.getByText(/Configure OpenAI/i)).toBeInTheDocument()
-    expect(screen.getByTestId('tab-auth-api-key')).toBeInTheDocument()
-    expect(screen.getByTestId('tab-auth-oidc')).toBeInTheDocument()
+    expect(screen.getByTestId('wizard-field-api_key')).toBeInTheDocument()
+    expect(screen.queryByTestId('tab-auth-oidc')).not.toBeInTheDocument()
   })
 
   it('saves configured connector via modal and updates list', async () => {
@@ -442,7 +442,7 @@ describe('Settings: Service Connectors', () => {
     await userEvent.click(configBtn)
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
 
-    const apiKeyInput = screen.getByTestId('input-connector-api-key')
+    const apiKeyInput = screen.getByTestId('wizard-field-api_key')
     await userEvent.type(apiKeyInput, 'sk-proj-testkey')
 
     const saveBtn = screen.getByTestId('btn-modal-save-connector')

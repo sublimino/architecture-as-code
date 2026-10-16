@@ -27,6 +27,7 @@ export default function WizardFieldRenderer({ fields, values, onChange, disabled
           {field.type === 'select' ? (
             <select
               id={`wf-${field.name}`}
+              data-testid={`wizard-field-${field.name}`}
               value={values[field.name] ?? ''}
               onChange={(e) => onChange(field.name, e.target.value)}
               disabled={disabled}
@@ -40,6 +41,7 @@ export default function WizardFieldRenderer({ fields, values, onChange, disabled
           ) : (
             <input
               id={`wf-${field.name}`}
+              data-testid={`wizard-field-${field.name}`}
               type={field.type === 'password' ? 'password' : 'text'}
               autoComplete="off"
               value={values[field.name] ?? ''}

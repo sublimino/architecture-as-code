@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { ConnectorCreateRequest, ConnectorProvider, TenantConnector } from '../types/connectors'
 import { useAuth0 } from '../auth/oidc'
 import ProviderLogo from './onboarding/ProviderLogo'
@@ -38,6 +38,13 @@ const RESULT_COLOUR: Record<VerificationOutcome['status'], string> = {
   unchecked: 'var(--amber)',
 }
 
+// Design-system audit rule 11: only failed/unchecked need the dot-carries-the-
+// colour treatment (teal/verified already passes AA as direct text colour).
+const RESULT_DOT: Partial<Record<VerificationOutcome['status'], string>> = {
+  failed: 'var(--error)',
+  unchecked: 'var(--amber)',
+}
+
 export default function ConnectorConfigureModal({
   provider,
   connector,
@@ -54,6 +61,35 @@ export default function ConnectorConfigureModal({
   const [testResult, setTestResult] = useState<VerificationOutcome | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  // A1 (design-system audit): Escape closes, matching SyncLogsModal's
+  // existing behaviour on the same Settings row.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    if (isOpen) window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
+
+  // A1 (design-system audit): initial focus moves into the dialog, and is
+  // restored to whatever was focused before opening. Scoped to the `isOpen`
+  // transition only (not every render) so the restore doesn't fire just
+  // because a parent re-creates `onClose` on re-render.
+  useEffect(() => {
+    if (!isOpen) return
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    const panel = dialogRef.current
+    // Prefer the first real form field over the Close button, which is the
+    // first focusable element in DOM order but not where a keyboard user
+    // typing credentials wants to land.
+    const firstField = panel?.querySelector<HTMLElement>('input, select, textarea')
+    ;(firstField ?? panel)?.focus()
+    return () => {
+      previouslyFocused?.focus()
+    }
+  }, [isOpen])
 
   if (!isOpen) return null
 
@@ -117,20 +153,9 @@ export default function ConnectorConfigureModal({
   }
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'color-mix(in srgb, var(--bg) 70%, transparent)',
-        backdropFilter: 'blur(6px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 2000,
-        padding: 16,
-      }}
-    >
+    <div className="modal-overlay">
       <div
+        ref={dialogRef}
         className="card slide-up"
         style={{
           width: 580,
@@ -142,6 +167,7 @@ export default function ConnectorConfigureModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="configure-connector-title"
+        tabIndex={-1}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -220,8 +246,27 @@ export default function ConnectorConfigureModal({
                 <span
                   data-testid={RESULT_TESTID[testResult.status]}
                   role="status"
-                  style={{ fontSize: 12, color: RESULT_COLOUR[testResult.status], lineHeight: 1.4 }}
+                  style={{
+                    fontSize: 12,
+                    // Design-system audit rule 11 / finding C5: `--error` and
+                    // `--amber` measured 3.02-3.39:1 as text, under the 4.5:1
+                    // AA floor. `--teal` (verified) doesn't have that problem
+                    // and keeps its direct colour; failed/unchecked move the
+                    // body to `--text` and carry the colour on a dot instead.
+                    color: RESULT_DOT[testResult.status] ? 'var(--text)' : RESULT_COLOUR[testResult.status],
+                    lineHeight: 1.4,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
                 >
+                  {RESULT_DOT[testResult.status] && (
+                    <span
+                      aria-hidden="true"
+                      data-testid="test-connection-result-dot"
+                      style={{ width: 6, height: 6, borderRadius: '50%', background: RESULT_DOT[testResult.status], flexShrink: 0 }}
+                    />
+                  )}
                   {testResult.message}
                 </span>
               )}
@@ -240,7 +285,11 @@ export default function ConnectorConfigureModal({
                 background: tint('var(--error)', 0.1),
                 border: `1px solid ${tint('var(--error)', 0.3)}`,
                 borderRadius: 'var(--radius-sm)',
-                color: 'var(--error)',
+                // Design-system audit rule 11 / finding C4: `--error` as body
+                // text measured 3.39:1 in dark, under the 4.5:1 AA floor for
+                // 12px text. The red rule (the border above) carries the
+                // colour; the message itself reads in `--text`.
+                color: 'var(--text)',
                 fontSize: 12,
               }}
             >

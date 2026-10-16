@@ -83,4 +83,13 @@ describe('RemoteSyncBadge', () => {
     render(<RemoteSyncBadge providerId="claude" />)
     await waitFor(() => expect(badge()).toHaveAttribute('aria-live', 'polite'))
   })
+
+  // ── Design-system audit A2: shared sync-status pill ─────────────────────
+
+  it('renders via the shared SyncStatusPill tag', async () => {
+    withState(state({ mode: 'stream' }))
+    render(<RemoteSyncBadge providerId="claude" />)
+    await waitFor(() => expect(badge()).toHaveTextContent(/^Live$/))
+    expect(badge()).toHaveClass('tag')
+  })
 })

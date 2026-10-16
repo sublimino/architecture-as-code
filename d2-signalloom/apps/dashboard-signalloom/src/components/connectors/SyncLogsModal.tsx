@@ -5,6 +5,7 @@ import { useAuth0 } from '../../auth/oidc'
 import ProviderLogo from '../onboarding/ProviderLogo'
 import ButtonWait from '../ButtonWait'
 import LoadingState from '../LoadingState'
+import SyncStatusPill, { type SyncTone } from './SyncStatusPill'
 
 export interface SyncLogsModalProps {
   isOpen: boolean
@@ -48,7 +49,9 @@ const levelTone: Record<string, (typeof tone)[keyof typeof tone]> = {
   error: tone.red,
 }
 
-const statusTone = { success: tone.teal, warning: tone.amber, error: tone.red }
+// A2 (design-system audit): the header status badge is the shared
+// SyncStatusPill, not a hand-rolled pill (finding S3).
+const STATUS_PILL_TONE: Record<string, SyncTone> = { success: 'teal', warning: 'amber', error: 'red' }
 const statusLabel = { success: 'Success', warning: 'Warning', error: 'Error' }
 
 const pillStyle = {
@@ -188,21 +191,10 @@ export default function SyncLogsModal({
   if (!isOpen) return null
 
   const status = syncResult?.status
-  const badge = status ? statusTone[status] : null
 
   return (
     <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
-        backdropFilter: 'blur(4px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 2000,
-        padding: 16,
-      }}
+      className="modal-overlay"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
@@ -243,22 +235,8 @@ export default function SyncLogsModal({
                 <h2 id="sync-logs-title" style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--text)' }}>
                   {providerName}
                 </h2>
-                {status && badge && (
-                  <span
-                    data-testid="sync-status-badge"
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 600,
-                      textTransform: 'uppercase',
-                      padding: '2px 8px',
-                      borderRadius: 'var(--radius)',
-                      background: badge.bg,
-                      color: badge.color,
-                      border: `1px solid ${badge.border}`,
-                    }}
-                  >
-                    {statusLabel[status]}
-                  </span>
+                {status && (
+                  <SyncStatusPill tone={STATUS_PILL_TONE[status]} label={statusLabel[status]} testId="sync-status-badge" />
                 )}
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -293,7 +271,10 @@ export default function SyncLogsModal({
                 borderRadius: 'var(--radius-sm)',
                 background: 'var(--red-bg)',
                 border: '1px solid var(--red-border)',
-                color: 'var(--error)',
+                // Design-system audit rule 11: `--error` as body text measured
+                // 3.02:1 in dark, under the 4.5:1 AA floor. The red border
+                // carries the colour; the message reads in `--text`.
+                color: 'var(--text)',
                 fontSize: 12,
               }}
             >
@@ -394,34 +375,24 @@ export default function SyncLogsModal({
               <input
                 type="text"
                 data-testid="sync-log-search"
+                aria-label="Search sync logs"
                 placeholder="Search logs, endpoints, messages…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                style={{
-                  flex: 1,
-                  padding: '6px 10px',
-                  fontSize: 12,
-                  borderRadius: 'var(--radius-sm)',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text)',
-                  outline: 'none',
-                }}
+                // Design-system audit rule 6/7, finding S7: an inline border
+                // and outline:none here beat the shared input focus style and
+                // removed the focus cue entirely. Form controls are already
+                // styled globally (global.css input/select rule); only the
+                // layout (`flex`) and this modal's smaller type size stay.
+                style={{ flex: 1, fontSize: 12 }}
               />
               <select
                 data-testid="sync-log-level-filter"
+                aria-label="Log level"
                 value={levelFilter}
                 onChange={(e) => setLevelFilter(e.target.value as LogLevelFilter)}
-                style={{
-                  padding: '6px 10px',
-                  fontSize: 12,
-                  borderRadius: 'var(--radius-sm)',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text)',
-                  cursor: 'pointer',
-                  outline: 'none',
-                }}
+                // Finding S8: same duplication/outline-removal as the search
+                // input above — the global input/select rule covers this.
               >
                 <option value="ALL">ALL LEVELS</option>
                 <option value="INFO">INFO</option>
@@ -439,7 +410,7 @@ export default function SyncLogsModal({
                 onClick={handleCopyLogs}
                 disabled={!syncResult}
               >
-                {copied ? 'Copied!' : 'Copy Logs'}
+                {copied ? <span role="status">Copied!</span> : 'Copy Logs'}
               </button>
               <button
                 type="button"
@@ -551,7 +522,7 @@ export default function SyncLogsModal({
 
                         {log.details && (
                           <details data-testid={`wire-trace-payload-${log.id}`} style={{ marginTop: 2 }}>
-                            <summary style={{ cursor: 'pointer', color: 'var(--cyan)', fontSize: 11, outline: 'none' }}>
+                            <summary style={{ cursor: 'pointer', color: 'var(--cyan)', fontSize: 11 }}>
                               Inspect wire payload JSON
                             </summary>
                             <pre

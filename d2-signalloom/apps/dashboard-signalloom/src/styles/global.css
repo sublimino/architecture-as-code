@@ -136,6 +136,22 @@ select option { background: var(--surface); }
   padding: 20px;
 }
 
+/* One modal overlay for the whole app (design-system audit, rule 14 / A1).
+   ConnectorConfigureModal and SyncLogsModal each hand-rolled a different
+   scrim (a themed color-mix() and an unthemed rgba(0,0,0,.75) respectively) —
+   this is the themed one, so it reads correctly in dark, light and andy. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 16px;
+}
+
 .btn {
   display: inline-flex;
   align-items: center;

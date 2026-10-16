@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import ConnectorConfigureModal from './ConnectorConfigureModal'
 import type { ConnectorProvider, TenantConnector } from '../types/connectors'
@@ -259,6 +259,67 @@ describe('ConnectorConfigureModal', () => {
   it('renders nothing when closed', () => {
     render(<ConnectorConfigureModal isOpen={false} provider={claude} onClose={onClose} onSave={onSave} />)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  // ── Design-system audit A1: shared overlay, Escape-to-close, focus ──────
+
+  it('uses the shared modal-overlay class instead of a hand-rolled scrim', () => {
+    open()
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.parentElement).toHaveClass('modal-overlay')
+    expect(dialog.parentElement?.getAttribute('style') ?? '').toBe('')
+  })
+
+  it('closes on the Escape key', () => {
+    open()
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('moves focus into the dialog on open', async () => {
+    open()
+    await waitFor(() => expect(screen.getByTestId('wizard-field-api_key')).toHaveFocus())
+  })
+
+  it('restores focus to the element that was focused before opening, on close', async () => {
+    const trigger = document.createElement('button')
+    document.body.appendChild(trigger)
+    trigger.focus()
+    expect(trigger).toHaveFocus()
+
+    const { rerender } = render(
+      <ConnectorConfigureModal isOpen provider={claude} onClose={onClose} onSave={onSave} />,
+    )
+    await waitFor(() => expect(screen.getByTestId('wizard-field-api_key')).toHaveFocus())
+
+    rerender(<ConnectorConfigureModal isOpen={false} provider={claude} onClose={onClose} onSave={onSave} />)
+    await waitFor(() => expect(trigger).toHaveFocus())
+    trigger.remove()
+  })
+
+  // ── Design-system audit A3: error/warning text off red/amber tint ───────
+
+  it('renders the save error body in --text, with --error carried by the border rather than the text', async () => {
+    const user = userEvent.setup()
+    onSave.mockRejectedValue(new Error('403 forbidden'))
+    open()
+    await user.type(screen.getByTestId('wizard-field-api_key'), 'sk-ant-k')
+    await user.click(screen.getByTestId('btn-modal-save-connector'))
+    const banner = await screen.findByTestId('connector-save-error')
+    expect(banner.getAttribute('style') ?? '').toContain('color: var(--text)')
+  })
+
+  it('renders the test-connection result in --text with a status dot carrying the colour', async () => {
+    const user = userEvent.setup()
+    api.testProviderCredentials.mockResolvedValue({ ...ok, valid: false, scopes_ok: false, error_msg: 'invalid x-api-key' })
+    open()
+    await user.type(screen.getByTestId('wizard-field-api_key'), 'sk-ant-looks-fine')
+    await user.click(screen.getByTestId('btn-modal-test-connection'))
+
+    const result = await screen.findByTestId('test-connection-error')
+    expect(result.getAttribute('style') ?? '').toContain('color: var(--text)')
+    expect(result.querySelector('[data-testid="test-connection-result-dot"]')).toBeInTheDocument()
   })
 
   // rules-of-hooks is off repo-wide, and React 18 does not throw when an early

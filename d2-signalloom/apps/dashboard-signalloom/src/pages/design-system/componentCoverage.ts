@@ -35,6 +35,7 @@ const SOURCE_SYMBOLS: readonly SourceSymbols[] = [
   ['components/ThemeToggle.tsx', 'ThemeToggle'],
   ['components/ApiKeyRevealModal.tsx', 'ApiKeyRevealModal'],
   ['components/ConnectorConfigureModal.tsx', 'ConnectorConfigureModal'],
+  ['components/connectors/SyncLogsModal.tsx', 'SyncLogsModal'],
   ['components/CodingAgentsTab.tsx', 'CodingAgentsTab'],
   ['components/agents/ClaimModal.tsx', 'ClaimModal'],
   ['components/DelegationChainNode.tsx', 'DelegationChainNode'],
@@ -300,6 +301,7 @@ routeSource('components/CurrencySetting.tsx', '/settings', 'Open Settings and us
 routeSource('components/ApiKeyRotateModal.tsx', '/settings', 'Open Settings and choose Rotate on an existing API key.')
 routeSource('components/ApiKeyRevealModal.tsx', '/settings', 'Open Settings and create or rotate an API key to reveal the one-time key modal.')
 routeSource('components/ConnectorConfigureModal.tsx', '/settings', 'Open Settings, select Connectors tab, and choose Configure or toggle a connector.')
+routeSource('components/connectors/SyncLogsModal.tsx', '/settings', 'Open Settings, select Connectors tab, and choose See Log on a connected connector to inspect wire traces.')
 routeSource('components/AgentIdentityTab.tsx', '/agents/demo-agent', 'Open the demo agent and choose the Identity tab.')
 routeSource('components/AgentOverviewTab.tsx', '/agents/demo-agent', 'Open the demo agent and choose the Overview tab.')
 routeSource('components/AgentAssessmentsTab.tsx', '/agents/demo-agent', 'Open the demo agent and choose the Assessments tab.')

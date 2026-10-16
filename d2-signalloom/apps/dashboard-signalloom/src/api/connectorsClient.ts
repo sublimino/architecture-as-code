@@ -37,6 +37,35 @@ async function req<T>(
   return res.data
 }
 
+export interface SyncLogEntry {
+  id: string
+  timestamp: string
+  level: 'info' | 'warn' | 'error' | 'debug'
+  message: string
+  endpoint?: string
+  status_code?: number
+  duration_ms?: number
+  details?: Record<string, unknown>
+}
+
+export interface SyncResult {
+  provider_id: string
+  synced_at: string
+  duration_ms: number
+  status: 'success' | 'warning' | 'error'
+  records_scanned: {
+    agents: number
+    models: number
+    environments: number
+    tools: number
+  }
+  policies_evaluated: {
+    egress_rules: number
+    violations: number
+  }
+  logs: SyncLogEntry[]
+}
+
 export interface ConnectorsApi {
   listProviders(token: string): Promise<ConnectorProvider[]>
   listConnectors(token: string): Promise<TenantConnector[]>
@@ -44,6 +73,8 @@ export interface ConnectorsApi {
   deleteConnector(token: string, id: string): Promise<void>
   testConnector(token: string, id: string): Promise<ConnectorTestResult>
   toggleConnector(token: string, id: string, enabled?: boolean): Promise<TenantConnector>
+  triggerScan(token: string, providerId: string): Promise<SyncResult>
+  getSyncLogs(token: string, providerId: string): Promise<SyncResult>
   getStatus(token: string): Promise<{
     status: string
     synced_at: string
@@ -86,6 +117,14 @@ const liveConnectorsApi: ConnectorsApi = {
       method: 'POST',
       data: enabled !== undefined ? { enabled } : {},
     })
+  },
+
+  triggerScan: async (token, providerId) => {
+    return req<SyncResult>(`/connectors/${providerId}/scan`, token, { method: 'POST' })
+  },
+
+  getSyncLogs: async (token, providerId) => {
+    return req<SyncResult>(`/connectors/${providerId}/logs`, token)
   },
 
   getStatus: async (token) => {
@@ -401,6 +440,297 @@ const mockConnectorsApi: ConnectorsApi = {
       80,
     )
   },
+
+  triggerScan: async (_token, providerId) => {
+    const now = new Date().toISOString()
+    mockConnectors = mockConnectors.map((c) =>
+      c.provider_id === providerId || c.connector_id === providerId
+        ? { ...c, last_scan_at: now }
+        : c,
+    )
+    return delay(getMockSyncResult(providerId), 120)
+  },
+
+  getSyncLogs: async (_token, providerId) => {
+    return delay(getMockSyncResult(providerId), 60)
+  },
+}
+
+function getMockSyncResult(providerId: string): SyncResult {
+  const now = new Date().toISOString()
+  if (providerId === 'claude') {
+    return {
+      provider_id: 'claude',
+      synced_at: now,
+      duration_ms: 142,
+      status: 'success',
+      records_scanned: {
+        agents: 3,
+        models: 4,
+        environments: 1,
+        tools: 2,
+      },
+      policies_evaluated: {
+        egress_rules: 2,
+        violations: 0,
+      },
+      logs: [
+        {
+          id: 'log-claude-1',
+          timestamp: new Date(Date.now() - 140).toISOString(),
+          level: 'info',
+          message: 'Initiating discovery sync with Anthropic Claude API...',
+        },
+        {
+          id: 'log-claude-2',
+          timestamp: new Date(Date.now() - 110).toISOString(),
+          level: 'debug',
+          message: 'Discovered model catalog: claude-3-5-sonnet-20241022, claude-3-haiku-20240307, claude-3-opus-20240229',
+          endpoint: 'GET /v1/models',
+          status_code: 200,
+          duration_ms: 142,
+          details: {
+            models: ['claude-3-5-sonnet-20241022', 'claude-3-haiku-20240307', 'claude-3-opus-20240229'],
+            default_context: 200000,
+            max_tokens: 8192,
+          },
+        },
+        {
+          id: 'log-claude-3',
+          timestamp: new Date(Date.now() - 85).toISOString(),
+          level: 'debug',
+          message: 'Queried batch message processing queues (0 active batches)',
+          endpoint: 'GET /v1/messages/batches',
+          status_code: 200,
+          duration_ms: 98,
+          details: {
+            active_batches: 0,
+            pending_batches: 0,
+            queue_status: 'idle',
+          },
+        },
+        {
+          id: 'log-claude-4',
+          timestamp: new Date(Date.now() - 60).toISOString(),
+          level: 'info',
+          message: 'Inspecting remote execution environment cloud-dev (env_01CyCigBbDRSLTzSCyyHQ7eT)',
+          details: {
+            environment_id: 'env_01CyCigBbDRSLTzSCyyHQ7eT',
+            name: 'cloud-dev',
+            runtime: 'linux-container',
+          },
+        },
+        {
+          id: 'log-claude-5',
+          timestamp: new Date(Date.now() - 40).toISOString(),
+          level: 'debug',
+          message: 'Audited egress policy: checking allowed hosts 0/16 restrictions',
+          endpoint: 'GET /v1/environments/env_01CyCigBbDRSLTzSCyyHQ7eT/networking',
+          status_code: 200,
+          duration_ms: 84,
+          details: {
+            allowed_hosts_count: 0,
+            max_hosts: 16,
+            cel_rules_enforced: true,
+            default_egress: 'deny',
+          },
+        },
+        {
+          id: 'log-claude-6',
+          timestamp: new Date(Date.now() - 20).toISOString(),
+          level: 'info',
+          message: 'Verified agent sandbox tools: MCP servers allowed, package managers allowed',
+          details: {
+            mcp_servers_allowed: true,
+            package_managers_allowed: true,
+            sandboxing: 'landlock',
+          },
+        },
+        {
+          id: 'log-claude-7',
+          timestamp: now,
+          level: 'info',
+          message: 'Sync completed successfully. 3 agents, 4 models, 1 environment, 2 tools discovered.',
+          details: {
+            agents: 3,
+            models: 4,
+            environments: 1,
+            tools: 2,
+          },
+        },
+      ],
+    }
+  }
+
+  if (providerId === 'openai') {
+    return {
+      provider_id: 'openai',
+      synced_at: now,
+      duration_ms: 168,
+      status: 'success',
+      records_scanned: {
+        agents: 2,
+        models: 3,
+        environments: 1,
+        tools: 3,
+      },
+      policies_evaluated: {
+        egress_rules: 2,
+        violations: 0,
+      },
+      logs: [
+        {
+          id: 'log-openai-1',
+          timestamp: new Date(Date.now() - 160).toISOString(),
+          level: 'info',
+          message: 'Connecting to OpenAI API management endpoint...',
+        },
+        {
+          id: 'log-openai-2',
+          timestamp: new Date(Date.now() - 120).toISOString(),
+          level: 'debug',
+          message: 'Scanned OpenAI models: gpt-4o, gpt-4o-mini, o1-preview',
+          endpoint: 'GET /v1/models',
+          status_code: 200,
+          duration_ms: 110,
+          details: {
+            models: ['gpt-4o', 'gpt-4o-mini', 'o1-preview'],
+            organization: 'org-signalloom',
+          },
+        },
+        {
+          id: 'log-openai-3',
+          timestamp: new Date(Date.now() - 70).toISOString(),
+          level: 'debug',
+          message: 'Discovered assistant definitions and tools',
+          endpoint: 'GET /v1/assistants',
+          status_code: 200,
+          duration_ms: 135,
+          details: {
+            assistants_count: 2,
+            code_interpreter_enabled: true,
+            file_search_enabled: true,
+          },
+        },
+        {
+          id: 'log-openai-4',
+          timestamp: new Date(Date.now() - 30).toISOString(),
+          level: 'info',
+          message: 'CEL network policy evaluation passed with 0 egress violations.',
+          details: {
+            rules_evaluated: 2,
+            violations: 0,
+          },
+        },
+        {
+          id: 'log-openai-5',
+          timestamp: now,
+          level: 'info',
+          message: 'OpenAI discovery sync completed successfully.',
+        },
+      ],
+    }
+  }
+
+  if (providerId === 'dex') {
+    return {
+      provider_id: 'dex',
+      synced_at: now,
+      duration_ms: 88,
+      status: 'success',
+      records_scanned: {
+        agents: 1,
+        models: 0,
+        environments: 1,
+        tools: 0,
+      },
+      policies_evaluated: {
+        egress_rules: 1,
+        violations: 0,
+      },
+      logs: [
+        {
+          id: 'log-dex-1',
+          timestamp: new Date(Date.now() - 80).toISOString(),
+          level: 'info',
+          message: 'Contacting Dex OIDC identity provider discovery endpoint...',
+        },
+        {
+          id: 'log-dex-2',
+          timestamp: new Date(Date.now() - 50).toISOString(),
+          level: 'debug',
+          message: 'Fetched OIDC discovery document and JWKS keys',
+          endpoint: 'GET /.well-known/openid-configuration',
+          status_code: 200,
+          duration_ms: 45,
+          details: {
+            issuer: 'https://dex.inf-signalloom.svc.cluster.local:5556/dex',
+            signing_algs: ['RS256'],
+          },
+        },
+        {
+          id: 'log-dex-3',
+          timestamp: new Date(Date.now() - 25).toISOString(),
+          level: 'debug',
+          message: 'Retrieved registered OAuth2 client definitions',
+          endpoint: 'GET /api/v1/auth/clients',
+          status_code: 200,
+          duration_ms: 55,
+          details: {
+            client_count: 4,
+          },
+        },
+        {
+          id: 'log-dex-4',
+          timestamp: now,
+          level: 'info',
+          message: 'Dex identity provider sync completed successfully.',
+        },
+      ],
+    }
+  }
+
+  // Fallback for any other provider
+  return {
+    provider_id: providerId,
+    synced_at: now,
+    duration_ms: 120,
+    status: 'success',
+    records_scanned: {
+      agents: 2,
+      models: 1,
+      environments: 1,
+      tools: 1,
+    },
+    policies_evaluated: {
+      egress_rules: 2,
+      violations: 0,
+    },
+    logs: [
+      {
+        id: `log-${providerId}-1`,
+        timestamp: new Date(Date.now() - 110).toISOString(),
+        level: 'info',
+        message: `Initiating discovery sync with ${providerId} provider...`,
+      },
+      {
+        id: `log-${providerId}-2`,
+        timestamp: new Date(Date.now() - 60).toISOString(),
+        level: 'debug',
+        message: `Queried service accounts and roles from ${providerId}`,
+        endpoint: `/api/v1/${providerId}/resources`,
+        status_code: 200,
+        duration_ms: 120,
+        details: { provider: providerId, status: 'synced' },
+      },
+      {
+        id: `log-${providerId}-3`,
+        timestamp: now,
+        level: 'info',
+        message: `Sync completed successfully for ${providerId}.`,
+      },
+    ],
+  }
 }
 
 export function isConnectorsMockMode(): boolean {
@@ -424,6 +754,10 @@ export const connectorsApi: ConnectorsApi = {
     isConnectorsMockMode() ? mockConnectorsApi.testConnector(token, id) : liveConnectorsApi.testConnector(token, id),
   toggleConnector: (token, id, enabled) =>
     isConnectorsMockMode() ? mockConnectorsApi.toggleConnector(token, id, enabled) : liveConnectorsApi.toggleConnector(token, id, enabled),
+  triggerScan: (token, providerId) =>
+    isConnectorsMockMode() ? mockConnectorsApi.triggerScan(token, providerId) : liveConnectorsApi.triggerScan(token, providerId),
+  getSyncLogs: (token, providerId) =>
+    isConnectorsMockMode() ? mockConnectorsApi.getSyncLogs(token, providerId) : liveConnectorsApi.getSyncLogs(token, providerId),
   getStatus: (token) =>
     isConnectorsMockMode() ? mockConnectorsApi.getStatus(token) : liveConnectorsApi.getStatus(token),
 }

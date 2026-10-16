@@ -275,22 +275,22 @@ describe('connectorsClient mode dispatch & honesty', () => {
       expect(claudeDiscovery?.source).toBe('external_services')
       expect(claudeDiscovery?.source_label).toBe('Anthropic Claude')
       expect(claudeDiscovery?.model).toBe('claude-3-5-sonnet-20241022')
-      expect(claudeDiscovery?.metadata.runtime).toEqual({
+      expect(claudeDiscovery!.metadata!.runtime).toEqual({
         model: 'claude-3-5-sonnet-20241022',
         framework: 'claude-code',
       })
-      expect(claudeDiscovery?.metadata.operational_state).toEqual({
+      expect(claudeDiscovery!.metadata!.operational_state).toEqual({
         runtime_status: 'running',
       })
-      expect(claudeDiscovery?.metadata.tools).toEqual(['read_sec_filing', 'calculate_risk_var'])
-      expect(claudeDiscovery?.metadata.guardrails).toEqual({
+      expect(claudeDiscovery!.metadata!.tools).toEqual(['read_sec_filing', 'calculate_risk_var'])
+      expect(claudeDiscovery!.metadata!.guardrails).toEqual({
         prompt_injection_filter: true,
         human_override_active: true,
       })
-      expect(claudeDiscovery?.metadata.telemetry).toEqual({
+      expect(claudeDiscovery!.metadata!.telemetry).toEqual({
         token_usage: { total: 170500 },
       })
-      expect(claudeDiscovery?.metadata.responsibility).toEqual({
+      expect(claudeDiscovery!.metadata!.responsibility).toEqual({
         owner_name: 'Risk Ops',
         owner_id: 'risk-ops@signalloom.demo',
       })
@@ -299,22 +299,22 @@ describe('connectorsClient mode dispatch & honesty', () => {
       expect(openaiDiscovery?.source).toBe('external_services')
       expect(openaiDiscovery?.source_label).toBe('OpenAI')
       expect(openaiDiscovery?.model).toBe('gpt-4o')
-      expect(openaiDiscovery?.metadata.runtime).toEqual({
+      expect(openaiDiscovery!.metadata!.runtime).toEqual({
         model: 'gpt-4o',
         framework: 'openai-assistants',
       })
-      expect(openaiDiscovery?.metadata.operational_state).toEqual({
+      expect(openaiDiscovery!.metadata!.operational_state).toEqual({
         runtime_status: 'running',
       })
-      expect(openaiDiscovery?.metadata.tools).toEqual(['file_search', 'route_ticket'])
-      expect(openaiDiscovery?.metadata.guardrails).toEqual({
+      expect(openaiDiscovery!.metadata!.tools).toEqual(['file_search', 'route_ticket'])
+      expect(openaiDiscovery!.metadata!.guardrails).toEqual({
         prompt_injection_filter: true,
         human_override_active: true,
       })
-      expect(openaiDiscovery?.metadata.telemetry).toEqual({
+      expect(openaiDiscovery!.metadata!.telemetry).toEqual({
         token_usage: { total: 85000 },
       })
-      expect(openaiDiscovery?.metadata.responsibility).toEqual({
+      expect(openaiDiscovery!.metadata!.responsibility).toEqual({
         owner_name: 'Support Ops',
         owner_id: 'support-ops@signalloom.demo',
       })
@@ -329,6 +329,92 @@ describe('connectorsClient mode dispatch & honesty', () => {
       expect(openaiAgentFixture.guardrails).toEqual({ prompt_injection_filter: true, human_override_active: true })
       expect(openaiAgentFixture.telemetry).toEqual({ token_usage: { total: 85000 } })
       expect(openaiAgentFixture.responsibility?.owner_name).toBe('Support Ops')
+    })
+
+    it('returns realistic mock sync logs for claude, openai, and dex with wire telemetry', async () => {
+      demoModeModule.setDemoMode(true)
+
+      // Test claude sync logs
+      const claudeResult = await connectorsApi.getSyncLogs('demo-token', 'claude')
+      expect(claudeResult.provider_id).toBe('claude')
+      expect(claudeResult.status).toBe('success')
+      expect(claudeResult.records_scanned).toEqual({
+        agents: 3,
+        models: 4,
+        environments: 1,
+        tools: 2,
+      })
+      expect(claudeResult.policies_evaluated).toEqual({
+        egress_rules: 2,
+        violations: 0,
+      })
+
+      // Verify specific required log signatures
+      const messages = claudeResult.logs.map((l) => l.message).join(' ')
+      expect(messages).toContain('claude-3-5-sonnet-20241022')
+      expect(messages).toContain('batch message processing queues')
+      expect(messages).toContain('env_01CyCigBbDRSLTzSCyyHQ7eT')
+      expect(messages).toContain('0/16')
+      expect(messages).toContain('MCP servers allowed, package managers allowed')
+
+      // Check debug wire traces in claude
+      const modelsLog = claudeResult.logs.find((l) => l.endpoint === 'GET /v1/models')
+      expect(modelsLog).toBeDefined()
+      expect(modelsLog?.status_code).toBe(200)
+      expect(modelsLog?.duration_ms).toBeGreaterThan(0)
+      expect(modelsLog?.details).toHaveProperty('models')
+
+      // Test triggerScan updates connector and returns fresh result
+      const scannedResult = await connectorsApi.triggerScan('demo-token', 'claude')
+      expect(scannedResult.provider_id).toBe('claude')
+      expect(scannedResult.records_scanned.models).toBe(4)
+
+      // Test OpenAI sync logs
+      const openaiResult = await connectorsApi.getSyncLogs('demo-token', 'openai')
+      expect(openaiResult.provider_id).toBe('openai')
+      expect(openaiResult.records_scanned.agents).toBe(2)
+      const openaiMessages = openaiResult.logs.map((l) => l.message).join(' ')
+      expect(openaiMessages).toContain('gpt-4o')
+
+      // Test Dex sync logs
+      const dexResult = await connectorsApi.getSyncLogs('demo-token', 'dex')
+      expect(dexResult.provider_id).toBe('dex')
+      expect(dexResult.records_scanned.environments).toBe(1)
+      const dexMessages = dexResult.logs.map((l) => l.message).join(' ')
+      expect(dexMessages).toContain('Dex')
+    })
+
+    it('routes triggerScan and getSyncLogs to liveConnectorsApi when demoMode is false', async () => {
+      demoModeModule.setDemoMode(false)
+      const mockResult = {
+        provider_id: 'claude',
+        synced_at: '2026-10-16T12:00:00Z',
+        duration_ms: 120,
+        status: 'success',
+        records_scanned: { agents: 1, models: 1, environments: 1, tools: 1 },
+        policies_evaluated: { egress_rules: 1, violations: 0 },
+        logs: [],
+      }
+
+      const httpSpy = vi.spyOn(http, 'request').mockResolvedValue({ data: mockResult })
+
+      const scanRes = await connectorsApi.triggerScan('live-token', 'claude')
+      expect(httpSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: '/api/connectors/claude/scan',
+          method: 'POST',
+        }),
+      )
+      expect(scanRes.provider_id).toBe('claude')
+
+      const logRes = await connectorsApi.getSyncLogs('live-token', 'claude')
+      expect(httpSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: '/api/connectors/claude/logs',
+          method: 'GET',
+        }),
+      )
+      expect(logRes.provider_id).toBe('claude')
     })
   })
 })

@@ -20,6 +20,7 @@ import GovernancePolicyTable from '../components/GovernancePolicyTable'
 import DeploySensorHelpPage from '../pages/DeploySensorHelpPage'
 import OnboardAgentHelpPage from '../pages/OnboardAgentHelpPage'
 import OnboardingWizard from '../components/onboarding/OnboardingWizard'
+import SyncLogsModal from '../components/connectors/SyncLogsModal'
 
 const POLL_MS = 15 * 60 * 1000
 
@@ -138,6 +139,8 @@ export default function Settings() {
   const [disconnectTarget, setDisconnectTarget] = useState<TenantConnector | null>(null)
   const [disconnecting, setDisconnecting] = useState(false)
   const [configuringProvider, setConfiguringProvider] = useState<ConnectorProvider | null>(null)
+  const [syncLogProvider, setSyncLogProvider] = useState<ConnectorProvider | null>(null)
+  const [scanningProviderId, setScanningProviderId] = useState<string | null>(null)
   const [cadenceHours, setCadenceHours] = useState(24)
   const [alertEmail, setAlertEmail] = useState('')
   const [alertThreshold, setAlertThreshold] = useState(1)
@@ -354,6 +357,18 @@ export default function Settings() {
       return [...prev, saved]
     })
     refreshOnboardingState()
+  }
+
+  async function handleScanConnector(providerId: string) {
+    setScanningProviderId(providerId)
+    try {
+      const token = await getAccessTokenSilently()
+      await connectorsApi.triggerScan(token, providerId)
+      const freshConnectors = await connectorsApi.listConnectors(token)
+      setConnectors(freshConnectors)
+    } finally {
+      setScanningProviderId(null)
+    }
   }
 
   useEffect(() => {
@@ -905,6 +920,46 @@ export default function Settings() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        {isConnected && (
+                          <>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              data-testid={`scan-connector-${p.provider_id}`}
+                              onClick={() => handleScanConnector(p.provider_id)}
+                              disabled={scanningProviderId === p.provider_id}
+                              style={{ fontSize: 12, padding: '5px 12px' }}
+                            >
+                              {scanningProviderId === p.provider_id ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                  <span
+                                    style={{
+                                      width: 10,
+                                      height: 10,
+                                      border: '2px solid currentColor',
+                                      borderRightColor: 'transparent',
+                                      borderRadius: '50%',
+                                      display: 'inline-block',
+                                      animation: 'spin 0.75s linear infinite',
+                                    }}
+                                  />
+                                  Scanning...
+                                </span>
+                              ) : (
+                                'Scan Now'
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              data-testid={`view-logs-${p.provider_id}`}
+                              onClick={() => setSyncLogProvider(p)}
+                              style={{ fontSize: 12, padding: '5px 12px' }}
+                            >
+                              See Log
+                            </button>
+                          </>
+                        )}
                         <button
                           type="button"
                           className="btn btn-secondary btn-sm"
@@ -947,6 +1002,20 @@ export default function Settings() {
                 connector={connectors.find((c) => c.provider_id === configuringProvider.provider_id)}
                 onClose={() => setConfiguringProvider(null)}
                 onSave={handleSaveConnector}
+              />
+            )}
+            {syncLogProvider && (
+              <SyncLogsModal
+                isOpen={Boolean(syncLogProvider)}
+                providerId={syncLogProvider.provider_id}
+                providerName={syncLogProvider.display_name}
+                onClose={() => setSyncLogProvider(null)}
+                onRescan={async () => {
+                  const token = await getAccessTokenSilently()
+                  await connectorsApi.triggerScan(token, syncLogProvider.provider_id)
+                  const freshConnectors = await connectorsApi.listConnectors(token)
+                  setConnectors(freshConnectors)
+                }}
               />
             )}
           </SectionCard>

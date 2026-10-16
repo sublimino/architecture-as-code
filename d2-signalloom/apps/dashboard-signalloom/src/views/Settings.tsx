@@ -19,6 +19,7 @@ import type { PolicyRule } from '../types/policies'
 import GovernancePolicyTable from '../components/GovernancePolicyTable'
 import DeploySensorHelpPage from '../pages/DeploySensorHelpPage'
 import OnboardAgentHelpPage from '../pages/OnboardAgentHelpPage'
+import OnboardingWizard from '../components/onboarding/OnboardingWizard'
 
 const POLL_MS = 15 * 60 * 1000
 
@@ -29,6 +30,7 @@ export type SettingsTabId =
   | 'governance'
   | 'deploy-sensor'
   | 'onboard-agent'
+  | 'onboarding'
 
 export interface SettingsTab {
   id: SettingsTabId
@@ -42,6 +44,7 @@ export const SETTINGS_TABS: SettingsTab[] = [
   { id: 'governance', label: 'Governance & Policy' },
   { id: 'deploy-sensor', label: 'Deploy Sensor' },
   { id: 'onboard-agent', label: 'Onboard Agent' },
+  { id: 'onboarding', label: 'Onboarding Flow' },
 ]
 
 function Field({ label, value, mono }: { label: string; value: string | number | null | undefined; mono?: boolean }) {
@@ -705,6 +708,28 @@ export default function Settings() {
               </div>
             </div>
           </SectionCard>
+
+          <SectionCard title="Onboarding & Initial Setup">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>
+                  Onboarding Configuration Flow
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+                  Re-run or modify the 5-step onboarding flow (Tenant identity, IdP linkage, Scan cadence, API keys, and Containment policy).
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                data-testid="btn-launch-onboarding-in-settings"
+                onClick={() => handleSelectTab('onboarding')}
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                Launch Onboarding Flow
+              </button>
+            </div>
+          </SectionCard>
         </div>
       )}
 
@@ -1270,6 +1295,26 @@ export default function Settings() {
           data-testid="settings-tabpanel-onboard-agent"
         >
           <OnboardAgentHelpPage />
+        </div>
+      )}
+
+      {/* Tab 7: Onboarding Flow */}
+      {activeTab === 'onboarding' && (
+        <div
+          role="tabpanel"
+          id="settings-tabpanel-onboarding"
+          aria-labelledby="settings-tab-onboarding"
+          data-testid="settings-tabpanel-onboarding"
+          style={{ paddingTop: 8 }}
+        >
+          <OnboardingWizard
+            mode="settings"
+            allowReplay={true}
+            onCompleted={() => {
+              refreshOnboardingState()
+              void load()
+            }}
+          />
         </div>
       )}
 

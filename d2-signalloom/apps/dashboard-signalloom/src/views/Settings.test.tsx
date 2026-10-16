@@ -54,6 +54,19 @@ vi.mock('../api/connectorsClient', () => ({
   },
 }))
 
+vi.mock('../components/onboarding/OnboardingWizard', () => ({
+  default: vi.fn((props: { mode?: string; allowReplay?: boolean; onCompleted?: () => void }) => (
+    <div
+      data-testid="mock-onboarding-wizard"
+      data-mode={props.mode}
+      data-allow-replay={String(props.allowReplay)}
+    >
+      Mock Onboarding Wizard
+    </div>
+  )),
+}))
+
+
 function makeSettings(overrides: Partial<TenantSettingsResponse> = {}): TenantSettingsResponse {
   return {
     tenant_id: 'tenant-1',
@@ -164,7 +177,7 @@ describe('Settings: Tabs Navigation & Section Distribution', () => {
     })
   })
 
-  it('renders tab navigation bar with 4 tabs and correct accessible ARIA attributes', async () => {
+  it('renders tab navigation bar with 7 tabs and correct accessible ARIA attributes', async () => {
     renderSettings()
     expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
 
@@ -172,7 +185,7 @@ describe('Settings: Tabs Navigation & Section Distribution', () => {
     expect(tablist).toBeInTheDocument()
 
     const tabs = screen.getAllByRole('tab')
-    expect(tabs).toHaveLength(6)
+    expect(tabs).toHaveLength(7)
 
     const expectedTabs = [
       { id: 'general', label: 'General' },
@@ -181,6 +194,7 @@ describe('Settings: Tabs Navigation & Section Distribution', () => {
       { id: 'governance', label: 'Governance & Policy' },
       { id: 'deploy-sensor', label: 'Deploy Sensor' },
       { id: 'onboard-agent', label: 'Onboard Agent' },
+      { id: 'onboarding', label: 'Onboarding Flow' },
     ]
 
     expectedTabs.forEach((tab, index) => {
@@ -196,6 +210,7 @@ describe('Settings: Tabs Navigation & Section Distribution', () => {
     expect(tabs[3]).toHaveAttribute('aria-selected', 'false')
     expect(tabs[4]).toHaveAttribute('aria-selected', 'false')
     expect(tabs[5]).toHaveAttribute('aria-selected', 'false')
+    expect(tabs[6]).toHaveAttribute('aria-selected', 'false')
 
     const panel = screen.getByRole('tabpanel')
     expect(panel).toHaveAttribute('id', 'settings-tabpanel-general')
@@ -292,6 +307,44 @@ describe('Settings: Tabs Navigation & Section Distribution', () => {
     expect(screen.getByTestId('settings-guide-card-deploy-sensor')).toBeInTheDocument()
     expect(screen.getByTestId('settings-guide-card-onboard-agent')).toBeInTheDocument()
     expect(screen.queryByText('Compliance Frameworks')).not.toBeInTheDocument()
+  })
+
+  it('renders "Onboarding & Initial Setup" card in General tab with launch button that switches to onboarding tab', async () => {
+    renderSettings()
+    expect(await screen.findByText('Organization')).toBeInTheDocument()
+
+    const launchBtn = screen.getByTestId('btn-launch-onboarding-in-settings')
+    expect(launchBtn).toBeInTheDocument()
+    expect(launchBtn).toHaveTextContent('Launch Onboarding Flow')
+
+    await userEvent.click(launchBtn)
+
+    const onboardingTab = screen.getByRole('tab', { name: 'Onboarding Flow' })
+    expect(onboardingTab).toHaveAttribute('aria-selected', 'true')
+
+    const panel = screen.getByRole('tabpanel')
+    expect(panel).toHaveAttribute('id', 'settings-tabpanel-onboarding')
+    expect(screen.getByTestId('settings-tabpanel-onboarding')).toBeInTheDocument()
+    expect(screen.getByTestId('mock-onboarding-wizard')).toBeInTheDocument()
+  })
+
+  it('clicking the Onboarding Flow tab renders settings-tabpanel-onboarding and mounts OnboardingWizard', async () => {
+    renderSettings()
+    await screen.findByText('Organization')
+
+    const onboardingTab = screen.getByRole('tab', { name: 'Onboarding Flow' })
+    await userEvent.click(onboardingTab)
+
+    expect(onboardingTab).toHaveAttribute('aria-selected', 'true')
+    const panel = screen.getByTestId('settings-tabpanel-onboarding')
+    expect(panel).toBeInTheDocument()
+    expect(panel).toHaveAttribute('role', 'tabpanel')
+    expect(panel).toHaveAttribute('aria-labelledby', 'settings-tab-onboarding')
+
+    const wizard = screen.getByTestId('mock-onboarding-wizard')
+    expect(wizard).toBeInTheDocument()
+    expect(wizard).toHaveAttribute('data-mode', 'settings')
+    expect(wizard).toHaveAttribute('data-allow-replay', 'true')
   })
 })
 

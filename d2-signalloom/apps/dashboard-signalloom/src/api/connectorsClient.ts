@@ -105,6 +105,9 @@ export interface RemoteAgent {
   last_changed_at: string | null
   /** Set once the provider stops reporting it; the row is kept, not deleted. */
   gone_at: string | null
+  /** The registry agent this was claimed as (POST .../claim), or null. Absent in older payloads. */
+  claimed_agent_id?: string | null
+  claimed_at?: string | null
 }
 
 export interface RemoteAgentsSnapshot {
@@ -983,5 +986,37 @@ export async function getDiscoverySourceSyncState(
     if (apiErrorCode(err) === 'connector_not_configured') return null
     throw err
   }
+}
+
+// ── Remote agent claim (W14) ────────────────────────────────────────────────
+// POST /connectors/{provider_id}/remote-agents/{external_id}/claim links a
+// remote agent the sync observed to a tenant registry agent. 201 the first
+// time, 200 with the same agent after; 404 connector_not_configured /
+// remote_agent_not_found, 409 remote_agent_gone. Demo mode has no remote
+// agents to claim, so it refuses rather than inventing a registry agent.
+
+export interface RemoteAgentClaim {
+  agent_id: string
+  agent_name: string
+  display_name: string
+  provider_id: string
+  connector_id: string
+  external_id: string
+  kind: string
+  model: string | null
+  claimed_at: string | null
+  /** False when the agent was already claimed and this returned the existing link. */
+  created: boolean
+}
+
+export async function claimRemoteAgent(token: string, providerId: string, externalId: string): Promise<RemoteAgentClaim> {
+  if (isConnectorsMockMode()) {
+    throw new Error('Claiming a provider-hosted agent needs the live connectors API; demo mode has none to claim.')
+  }
+  return req<RemoteAgentClaim>(
+    `/connectors/${encodeURIComponent(providerId)}/remote-agents/${encodeURIComponent(externalId)}/claim`,
+    token,
+    { method: 'POST' },
+  )
 }
 

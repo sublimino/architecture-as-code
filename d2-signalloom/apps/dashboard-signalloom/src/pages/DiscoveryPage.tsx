@@ -34,6 +34,7 @@ import ButtonWait from '../components/ButtonWait'
 import SyncLogsModal from '../components/connectors/SyncLogsModal'
 import {
   connectorsApi,
+  claimRemoteAgent,
   connectorErrorMessage,
   getDiscoverySourceSyncState,
   isRemoteEnvironmentProvider,
@@ -548,6 +549,13 @@ function claimUnavailableReason(w: DiscoveryWorkload): string {
   return `Claim needs a Kubernetes namespace and pod. This agent runs on ${w.source_label}, and the claim API has no field for a provider-hosted agent yet.`
 }
 
+// The registry agent a provider-hosted row was claimed as (backend
+// metadata.claimed_agent_id, migration 072), or null.
+function remoteClaimedAgentId(w: DiscoveryWorkload): string | null {
+  const id = w.metadata?.claimed_agent_id
+  return typeof id === 'string' && id ? id : null
+}
+
 const DISMISS_UNAVAILABLE_REASON =
   'Ignore applies to directory identities (POST /nhi/discovered/{id}/dismiss); provider-hosted agents are not in that store.'
 
@@ -751,13 +759,26 @@ interface WorkloadRowProps {
   onDismiss: (id: string) => void
   onOpen: (id: string) => void
   selected?: boolean
+  /** Claim of a provider-hosted agent (live mode only). */
+  onClaimRemote?: (w: DiscoveryWorkload) => void
+  remoteClaim?: RemoteClaimState
 }
 
-function WorkloadRow({ workload, matchedAgent, onEnroll, onDismiss, onOpen, selected = false }: WorkloadRowProps) {
+interface RemoteClaimState {
+  busy: boolean
+  error: string | null
+}
+
+function WorkloadRow({
+  workload, matchedAgent, onEnroll, onDismiss, onOpen, selected = false, onClaimRemote, remoteClaim,
+}: WorkloadRowProps) {
   const isIgnored = workload.status === 'ignored'
   const isGoverned = workload.status === 'governed'
   const isRevoked = workload.status === 'revoked'
   const providerHosted = isProviderHosted(workload)
+  // Live only: demo rows are fixtures, and a demo claim would invent a registry agent.
+  const remoteClaimable = providerHosted && Boolean(onClaimRemote) && !isDemoMode()
+  const claimedAgentId = providerHosted ? remoteClaimedAgentId(workload) : null
 
   const rowStyle: React.CSSProperties = {
     borderBottom: '1px solid var(--border)',
@@ -867,7 +888,40 @@ function WorkloadRow({ workload, matchedAgent, onEnroll, onDismiss, onOpen, sele
       {/* Actions */}
       <td style={{ ...td, textAlign: 'right' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
-          {isGoverned ? (
+          {claimedAgentId ? (
+            <Link
+              to={`/agents?selected=${encodeURIComponent(claimedAgentId)}`}
+              data-testid={`remote-claimed-link-${workload.id}`}
+              title="Open the registry agent this provider agent was claimed as"
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                padding: '3px 8px',
+                borderRadius: 4,
+                background: 'rgba(20, 184, 166, 0.15)',
+                color: colors.tealLoom,
+                textDecoration: 'none',
+              }}
+            >
+              Claimed →
+            </Link>
+          ) : remoteClaimable && !isGoverned ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              data-testid={`claim-remote-btn-${workload.id}`}
+              style={{ fontSize: 11, padding: '4px 10px', background: colors.cyanLoom, borderColor: colors.cyanLoom }}
+              onClick={() => onClaimRemote?.(workload)}
+              disabled={remoteClaim?.busy}
+              title={`Claim this ${workload.source_label} agent into your tenant's agent registry`}
+            >
+              {remoteClaim?.busy ? (
+                <ButtonWait label={`Claiming ${workload.name}`} testId={`claim-remote-wait-${workload.id}`} />
+              ) : (
+                'Claim'
+              )}
+            </button>
+          ) : isGoverned ? (
             <span style={{
               fontSize: 11,
               fontWeight: 600,
@@ -908,7 +962,16 @@ function WorkloadRow({ workload, matchedAgent, onEnroll, onDismiss, onOpen, sele
             </>
           )}
         </div>
-        {providerHosted && !isGoverned && (
+        {remoteClaim?.error && (
+          <div
+            role="alert"
+            data-testid={`claim-remote-error-${workload.id}`}
+            style={{ fontSize: 10.5, color: colors.red, marginTop: 4, maxWidth: 240, marginLeft: 'auto', textAlign: 'right' }}
+          >
+            {remoteClaim.error}
+          </div>
+        )}
+        {providerHosted && !isGoverned && !remoteClaimable && !claimedAgentId && (
           <div
             id={`claim-unavailable-reason-${workload.id}`}
             data-testid={`claim-unavailable-reason-${workload.id}`}
@@ -1035,6 +1098,7 @@ export default function DiscoveryPage() {
     return null
   }, [workloads, selectedWorkloadId, selectedExternalId, providerFilter])
   const [claimWorkload, setClaimWorkload] = useState<DiscoveryWorkload | null>(null)
+  const [remoteClaims, setRemoteClaims] = useState<Record<string, RemoteClaimState>>({})
 
   const handleOpenWorkload = useCallback(
     (id: string) => {
@@ -1357,6 +1421,35 @@ export default function DiscoveryPage() {
       setTimeout(() => setFeedbackToast(null), 4000)
     } catch (e) {
       alert(`Enrollment failed: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  // Claim a provider-hosted agent into the tenant registry (live only).
+  async function handleClaimRemote(w: DiscoveryWorkload) {
+    const providerId = rowProviderId(w)
+    if (!providerId) return
+    const meta = w.metadata || {}
+    const externalId = typeof meta.external_id === 'string' && meta.external_id ? meta.external_id : w.id
+    setRemoteClaims((prev) => ({ ...prev, [w.id]: { busy: true, error: null } }))
+    try {
+      const token = await getAccessTokenSilently()
+      const res = await claimRemoteAgent(token, providerId, externalId)
+      setWorkloads((prev) =>
+        prev.map((x) =>
+          x.id === w.id
+            ? { ...x, status: 'governed' as DiscoveryLifecycleState, metadata: { ...x.metadata, claimed_agent_id: res.agent_id } }
+            : x,
+        ),
+      )
+      setRemoteClaims((prev) => {
+        const next = { ...prev }
+        delete next[w.id]
+        return next
+      })
+      setFeedbackToast(`${w.name} claimed into your agent registry.`)
+      setTimeout(() => setFeedbackToast(null), 4000)
+    } catch (e) {
+      setRemoteClaims((prev) => ({ ...prev, [w.id]: { busy: false, error: connectorErrorMessage(e, 'Claim failed.') } }))
     }
   }
 
@@ -1722,6 +1815,8 @@ export default function DiscoveryPage() {
                     onDismiss={handleDismissWorkload}
                     onOpen={handleOpenWorkload}
                     selected={selectedWorkload?.id === w.id}
+                    onClaimRemote={handleClaimRemote}
+                    remoteClaim={remoteClaims[w.id]}
                   />
                 )
               }}

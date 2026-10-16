@@ -57,7 +57,9 @@ spec:
           port: 53
     # The kubectl-proxy sidecar reaches kube-apiserver (ClusterIP :443, node :6443
     # after DNAT) so the telemetry poller can scrape the kubelet's cAdvisor through
-    # the API proxy. Bound to cluster service CIDRs so public egress on 443 remains denied.
+    # the API proxy. Bound to cluster service CIDRs: this rule grants no public
+    # egress. Public 443 for this pod comes from one place only, the
+    # allow-portal-public-https-egress exemption (SA-TODO-001) below.
     - to:
         - ipBlock:
             cidr: 10.96.0.0/12
@@ -171,6 +173,65 @@ spec:
       ports:
         - protocol: TCP
           port: 8082
+---
+# SECURITY EXEMPTION SA-TODO-001. Temporary. Principal decision 2026-10-16.
+#
+# The live AI provider connectors (Anthropic, OpenAI) run in the portal pod and
+# must reach api.anthropic.com and api.openai.com. Plain NetworkPolicy under
+# kindnet has no FQDN rules, so the only way to admit those hosts is by IP, and
+# their IPs are not stable. The principal therefore accepted public HTTPS egress
+# for this pod until the enterprise security architecture names a replacement:
+# an L7 egress proxy, a service mesh egress gateway, or an eBPF/Cilium FQDN
+# policy. The register entry, blast radius and exit criterion are in
+# docs/signalloom/security-architecture-todos.md.
+#
+# Shape, pinned by d2-signalloom/test/portal-public-egress.bats:
+#   - selects the portal Deployment only. Both labels are required: the
+#     bao-spire proof Jobs carry the consumer label too.
+#   - TCP 443 only.
+#   - 0.0.0.0/0 minus every private, CGNAT, link-local (cloud metadata),
+#     loopback and kind cluster range, so it adds no in-cluster path. The pod
+#     and service CIDRs are inside 10.0.0.0/8 and are listed again on purpose.
+#   - IPv4 only. The kind pods have no IPv6 route.
+# The policy is pod-scoped, so the kubectl-proxy sidecar shares the grant.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-portal-public-https-egress
+  annotations:
+    security.signalloom.ai/exemption-id: SA-TODO-001
+    security.signalloom.ai/decision-date: "2026-10-16"
+    security.signalloom.ai/reason: >-
+      Live AI provider connectors (Anthropic, OpenAI) in the portal need HTTPS
+      to public provider APIs. Enterprise security architecture documentation
+      is not yet complete.
+    security.signalloom.ai/replacement: >-
+      L7 egress proxy with FQDN allow-list, or service mesh egress gateway, or
+      eBPF/Cilium FQDN NetworkPolicy.
+    security.signalloom.ai/register: docs/signalloom/security-architecture-todos.md
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: fe-signalloom
+      bao.controlplane.io/consumer: fe-signalloom
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+              - 10.244.0.0/16
+              - 10.96.0.0/12
+      ports:
+        - protocol: TCP
+          port: 443
 ---
 # Public exposure is permitted only through the selected gateway namespace;
 # direct cross-namespace access to the portal is denied by default.

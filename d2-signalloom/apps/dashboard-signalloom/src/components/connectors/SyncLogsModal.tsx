@@ -212,6 +212,7 @@ export default function SyncLogsModal({
     >
       <div
         className="card slide-up"
+        data-testid="sync-logs-modal"
         style={{
           width: 760,
           maxWidth: '100%',

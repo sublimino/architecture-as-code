@@ -309,6 +309,87 @@ test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
     await expect(page.locator('[data-testid="onboarding-wizard-container"]')).toBeVisible();
     await expect(page.locator('[data-testid="onboarding-progress-header"]')).toBeVisible();
   });
+
+  test("executes connector scan now, verifies sync logs modal with telemetry, and inspects remote environment console page", async ({ page }) => {
+    // 1. Visit Settings Connectors tab
+    await page.goto(`${DASHBOARD_URL}/settings?tab=connectors`);
+    await expect(page.locator('[data-testid="settings-tabpanel-connectors"]')).toBeVisible({ timeout: 15_000 });
+
+    // 2. Ensure Claude connector is configured/connected
+    const configureBtn = page.locator('[data-testid="configure-connector-claude"]');
+    await expect(configureBtn).toBeVisible();
+    await configureBtn.click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+
+    // Fill in API key and save
+    const keyInput = page.locator('[data-testid="input-connector-api-key"]');
+    await keyInput.fill("sk-ant-api03-acceptance-test-key");
+    const wsInput = page.locator('[data-testid="input-connector-workspace-id"]');
+    if (await wsInput.isVisible()) {
+      await wsInput.fill("wrkspc_01CyCigBbDRSLTzSCyyHQ7eT");
+    }
+
+    const saveBtn = page.locator('[data-testid="btn-modal-save-connector"]');
+    await saveBtn.click();
+    await expect(dialog).not.toBeVisible({ timeout: 10_000 });
+
+    // 3. Test Scan Now action
+    const scanBtn = page.locator('[data-testid="scan-connector-claude"]');
+    await expect(scanBtn).toBeVisible();
+    await scanBtn.click();
+    // After scan completes, button is ready again
+    await expect(scanBtn).toBeEnabled({ timeout: 10_000 });
+
+    // 4. Test See Log / Sync Logs Modal
+    const viewLogsBtn = page.locator('[data-testid="view-logs-claude"]');
+    await expect(viewLogsBtn).toBeVisible();
+    await viewLogsBtn.click();
+
+    const logsModal = page.locator('[data-testid="sync-logs-modal"]');
+    await expect(logsModal).toBeVisible({ timeout: 10_000 });
+    await expect(logsModal).toContainText(/Sync & Telemetry Logs/i);
+    await expect(logsModal).toContainText(/Anthropic Claude/i);
+
+    // Verify search and level filter exist
+    await expect(page.locator('[data-testid="sync-log-search"]')).toBeVisible();
+    await expect(page.locator('[data-testid="sync-log-level-filter"]')).toBeVisible();
+    await expect(page.locator('[data-testid="btn-copy-sync-logs"]')).toBeVisible();
+
+    // Close logs modal
+    const closeLogsBtn = page.locator('[data-testid="btn-close-sync-logs"]');
+    await closeLogsBtn.click();
+    await expect(logsModal).not.toBeVisible();
+
+    // 5. Navigate to Remote Environment Console Page
+    const viewEnvBtn = page.locator('[data-testid="view-environment-claude"]');
+    await expect(viewEnvBtn).toBeVisible();
+    await viewEnvBtn.click();
+
+    // Verify on Remote Environment Console page
+    await expect(page).toHaveURL(/\/settings\/connectors\/claude/);
+    const envPage = page.locator('[data-testid="remote-environment-page"]');
+    await expect(envPage).toBeVisible({ timeout: 15_000 });
+
+    // Verify header, ID, and credits
+    await expect(page.locator('[data-testid="env-title"]')).toContainText("cloud-dev");
+    await expect(page.locator('[data-testid="env-badge-id"]')).toContainText("env_01CyCigBbDRSLTzSCyyHQ7eT");
+    await expect(page.locator('[data-testid="env-credit-balance"]')).toContainText("US$23.57");
+
+    // Verify Network Egress & CEL Governance section
+    await expect(page.locator('[data-testid="network-egress-section"]')).toBeVisible();
+    await expect(page.locator('[data-testid="package-managers-badge"]')).toContainText("ENABLED");
+    await expect(page.locator('[data-testid="mcp-servers-badge"]')).toContainText("ENABLED");
+    await expect(page.locator('[data-testid="allowed-hosts-list"]')).toContainText("0/16");
+    await expect(page.locator('[data-testid="cel-policy-card"]')).toBeVisible();
+
+    // Verify Back to Connectors link
+    const backBtn = page.locator('[data-testid="link-back-connectors"]');
+    await expect(backBtn).toBeVisible();
+    await backBtn.click();
+    await expect(page).toHaveURL(/tab=connectors/);
+  });
 });
 
 

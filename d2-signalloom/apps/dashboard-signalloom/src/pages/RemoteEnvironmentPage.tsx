@@ -208,7 +208,7 @@ export default function RemoteEnvironmentPage() {
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-              <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: 'var(--text)' }}>
+              <h1 data-testid="env-title" style={{ fontSize: 24, fontWeight: 700, margin: 0, color: 'var(--text)' }}>
                 {env.envName}
               </h1>
               <span
@@ -229,6 +229,7 @@ export default function RemoteEnvironmentPage() {
                 {syncStatus || env.status}
               </span>
               <span
+                data-testid="env-credit-balance"
                 style={{
                   padding: '3px 10px',
                   borderRadius: 99,
@@ -250,7 +251,7 @@ export default function RemoteEnvironmentPage() {
               <span>•</span>
               <span>Organization: {env.orgName}</span>
               <span>•</span>
-              <span style={{ fontFamily: 'monospace' }}>ID: {env.envId}</span>
+              <span data-testid="env-badge-id" style={{ fontFamily: 'monospace' }}>ID: {env.envId}</span>
               <span>•</span>
               <span>Last updated: {env.lastUpdated}</span>
               <span>(Last updated 16 minutes ago)</span>
@@ -430,6 +431,7 @@ export default function RemoteEnvironmentPage() {
       {/* Section 2: Network Egress & CEL Governance */}
       {(activeTab === 'all' || activeTab === 'network') && (
         <section
+          data-testid="network-egress-section"
           className="card"
           style={{
             padding: 22,
@@ -494,6 +496,7 @@ export default function RemoteEnvironmentPage() {
                       Allow package managers (PyPI, npm)
                     </span>
                     <span
+                      data-testid="package-managers-badge"
                       style={{
                         padding: '2px 8px',
                         borderRadius: 4,
@@ -519,6 +522,7 @@ export default function RemoteEnvironmentPage() {
                       Allow MCP servers configured on agent
                     </span>
                     <span
+                      data-testid="mcp-servers-badge"
                       style={{
                         padding: '2px 8px',
                         borderRadius: 4,
@@ -542,7 +546,7 @@ export default function RemoteEnvironmentPage() {
               <div style={{ padding: 14, background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Allowed hosts</span>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--cyan)' }}>
+                  <span data-testid="allowed-hosts-list" style={{ fontSize: 12, fontWeight: 600, color: 'var(--cyan)' }}>
                     {env.allowedHosts.length}/{env.maxAllowedHosts} configured
                   </span>
                 </div>

@@ -153,6 +153,7 @@ const EXPECTED_LIVE_REGIONS: readonly [testId: string, role: string][] = [
   ['ds-loadingstate-inline-success', 'status'],
   ['ds-stream-live-stream-announce', 'status'],
   ['fleet-risk-gauge', 'status'],
+  ['idp-connection-success', 'status'],
   ['open-findings-panel', 'status'],
   ['stepper-aria-live', 'status'],
   ['validation-error-banner', 'alert'],

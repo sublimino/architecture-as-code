@@ -242,7 +242,7 @@ export const claudeAgentFixture: AgentResponse = {
   id: 'claude-agent-fin-analyst',
   name: 'Financial Risk Intelligence Agent',
   type: 'claude-code',
-  owner: 'Risk Ops',
+  owner: 'risk-ops@signalloom.demo',
   tenant_id: TENANT,
   lifecycle_state: 'active',
   last_transition_at: NOW,
@@ -252,7 +252,7 @@ export const claudeAgentFixture: AgentResponse = {
   model_name: 'claude-3-5-sonnet-20241022',
   created_at: NOW,
   record_class: 'discovered',
-  is_registry_linked: true,
+  is_registry_linked: false,
   runtime: {
     model: 'claude-3-5-sonnet-20241022',
     framework: 'claude-code',
@@ -291,7 +291,7 @@ export const openaiAgentFixture: AgentResponse = {
   model_name: 'gpt-4o',
   created_at: NOW,
   record_class: 'discovered',
-  is_registry_linked: true,
+  is_registry_linked: false,
   runtime: {
     model: 'gpt-4o',
     framework: 'openai-assistants',
@@ -365,12 +365,117 @@ function buildInitialAgents(): DemoAgentRecord[] {
   ]
 }
 
-export const allFakeAgents: AgentResponse[] = [
-  ...buildInitialAgents().map((r) => r.agent),
-  claudeAgentFixture,
-  openaiAgentFixture,
-  dailyNewsJokesterAgentFixture,
+// Demo-mode remote environment views (pages/RemoteEnvironmentPage.tsx). Live
+// mode never reads these: the connectors API returns no credit balance,
+// egress configuration or policy results, so the live page says so instead.
+export interface RemoteEnvironmentFixture {
+  providerName: string
+  envName: string
+  hosting: string
+  hostingNote: string
+  orgName: string
+  envId: string
+  lastUpdated: string
+  creditBalance: string
+  status: string
+  description: string
+  workspaceId: string
+  outboundPolicy: string
+  allowedHosts: string[]
+  maxAllowedHosts: number
+  packagesDescription: string
+  metadata: Record<string, string>
+  celPolicies: Array<{ id: string; name: string; status: 'PASS' | 'FAIL'; description: string }>
+  connectedAgents: Array<{
+    id: string
+    name: string
+    status: 'active' | 'idle'
+    sessionId: string
+    lastActive: string
+    model?: string
+    createdBy?: string
+  }>
+}
+
+const DEMO_CEL_POLICIES: RemoteEnvironmentFixture['celPolicies'] = [
+  {
+    id: 'cis-5.2.8',
+    name: 'cis-5.2.8: NET_RAW capability not held',
+    status: 'PASS',
+    description: 'External runtime container drops NET_RAW capability, preventing packet spoofing and raw socket access.',
+  },
+  {
+    id: 'egress-confinement',
+    name: 'egress-confinement: No unrestricted 0.0.0.0/0 egress',
+    status: 'PASS',
+    description: 'Default-deny egress posture enforced; egress restricted to permitted registries and configured MCP endpoints.',
+  },
+  {
+    id: 'mcp-attestation',
+    name: 'mcp-attestation: MCP servers require SPIFFE identity',
+    status: 'PASS',
+    description: 'Agent-to-agent MCP connections require valid cryptographic SPIFFE SVID issuance and verification.',
+  },
 ]
+
+function connectedAgentFrom(
+  a: AgentResponse,
+  sessionId: string,
+  lastActive: string,
+): RemoteEnvironmentFixture['connectedAgents'][number] {
+  return {
+    id: a.id,
+    name: a.name,
+    status: a.lifecycle_state === 'active' ? 'active' : 'idle',
+    model: a.model_name ?? undefined,
+    createdBy: a.responsibility?.owner_name ?? undefined,
+    sessionId,
+    lastActive,
+  }
+}
+
+export const remoteEnvironmentFixtures: Record<'claude' | 'openai', RemoteEnvironmentFixture> = {
+  claude: {
+    providerName: 'Anthropic Claude',
+    envName: 'cloud-dev',
+    hosting: 'Cloud',
+    hostingNote: "Can't be changed after creation",
+    orgName: "Andy's Individual Org",
+    envId: 'env_01CyCigBbDRSLTzSCyyHQ7eT',
+    lastUpdated: '16m ago',
+    creditBalance: 'US$23.57',
+    status: 'Active · Synchronized',
+    description: 'What sessions in this environment are for',
+    workspaceId: 'wrkspc_signalloom_demo',
+    outboundPolicy: "Outbound traffic is blocked except for what's allowed below.",
+    allowedHosts: [],
+    maxAllowedHosts: 16,
+    packagesDescription: 'No packages beyond the standard image.',
+    metadata: { owner: 'andy', cluster: 'osramp-kind', tier: 'development' },
+    celPolicies: DEMO_CEL_POLICIES,
+    connectedAgents: [connectedAgentFrom(dailyNewsJokesterAgentFixture, 'ses_01CyCigBbDRSLTzSCyyHQ7eT', '2 hours ago')],
+  },
+  openai: {
+    providerName: 'OpenAI',
+    envName: 'openai-dev',
+    hosting: 'Cloud',
+    hostingNote: "Can't be changed after creation",
+    orgName: "Andy's Individual Org",
+    envId: 'env_openai_01CyCigBbDRSL',
+    lastUpdated: '10m ago',
+    creditBalance: 'US$48.20',
+    status: 'Active · Synchronized',
+    description: 'Sandbox runtime for OpenAI Assistant and Code Interpreter workloads',
+    workspaceId: 'org-signalloom',
+    outboundPolicy: "Outbound traffic is blocked except for what's allowed below.",
+    allowedHosts: [],
+    maxAllowedHosts: 16,
+    packagesDescription: 'Standard python3 runtime image.',
+    metadata: { owner: 'andy', cluster: 'osramp-kind', tier: 'development' },
+    celPolicies: DEMO_CEL_POLICIES,
+    connectedAgents: [connectedAgentFrom(openaiAgentFixture, 'ses_openai_01', '5m ago')],
+  },
+}
 
 let demoAgents = buildInitialAgents()
 

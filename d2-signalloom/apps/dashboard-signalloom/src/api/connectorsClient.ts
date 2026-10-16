@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { isDemoMode, isProductionEnv } from './demoMode'
+import { remoteEnvironmentFixtures } from './fakeData'
 import type {
   ConnectorCreateRequest,
   ConnectorCreateResponse,
@@ -37,33 +38,71 @@ async function req<T>(
   return res.data
 }
 
+// endpoint, status_code and details are wire telemetry: the server sends them
+// as null to anyone who is not a superadmin.
 export interface SyncLogEntry {
   id: string
   timestamp: string
   level: 'info' | 'warn' | 'error' | 'debug'
   message: string
-  endpoint?: string
-  status_code?: number
-  duration_ms?: number
-  details?: Record<string, unknown>
+  endpoint?: string | null
+  status_code?: number | null
+  duration_ms?: number | null
+  details?: Record<string, unknown> | null
 }
 
+// A null count means the scan did not observe that kind of record (the
+// upstream call failed or the provider has no such API), never zero.
 export interface SyncResult {
   provider_id: string
   synced_at: string
   duration_ms: number
   status: 'success' | 'warning' | 'error'
   records_scanned: {
-    agents: number
-    models: number
-    environments: number
-    tools: number
+    agents: number | null
+    models: number | null
+    environments: number | null
+    tools: number | null
   }
   policies_evaluated: {
     egress_rules: number
     violations: number
-  }
+  } | null
   logs: SyncLogEntry[]
+}
+
+// The API's error envelope is {"error": {"code", "message"}}; null when the
+// failure carries no such code (network down, non-API response).
+export function apiErrorCode(err: unknown): string | null {
+  if (!axios.isAxiosError(err)) return null
+  const code = (err.response?.data as { error?: { code?: unknown } } | undefined)?.error?.code
+  return typeof code === 'string' ? code : null
+}
+
+const CONNECTOR_ERROR_COPY: Record<string, string> = {
+  connector_not_configured: 'This provider is not connected for your tenant. Configure it first.',
+  scan_unsupported: 'Scanning is not supported for this provider yet.',
+  never_scanned: 'This connector has not been scanned yet.',
+  test_unsupported: 'Credential testing is not supported for this provider yet.',
+}
+
+/** A user-facing sentence for a failed connectors API call. */
+export function connectorErrorMessage(err: unknown, fallback = 'The connectors API request failed.'): string {
+  const code = apiErrorCode(err)
+  if (code && CONNECTOR_ERROR_COPY[code]) return CONNECTOR_ERROR_COPY[code]
+  if (axios.isAxiosError(err)) {
+    const message = (err.response?.data as { error?: { message?: unknown } } | undefined)?.error?.message
+    if (typeof message === 'string' && message) return message
+  }
+  return err instanceof Error && err.message ? err.message : fallback
+}
+
+// Providers whose connector has a remote-environment view.
+export const REMOTE_ENVIRONMENT_PROVIDERS = ['claude', 'openai'] as const
+export type RemoteEnvironmentProviderId = (typeof REMOTE_ENVIRONMENT_PROVIDERS)[number]
+
+export function isRemoteEnvironmentProvider(id: string | undefined): id is RemoteEnvironmentProviderId {
+  return (REMOTE_ENVIRONMENT_PROVIDERS as readonly string[]).includes(id ?? '')
 }
 
 export interface ConnectorsApi {
@@ -74,7 +113,8 @@ export interface ConnectorsApi {
   testConnector(token: string, id: string): Promise<ConnectorTestResult>
   toggleConnector(token: string, id: string, enabled?: boolean): Promise<TenantConnector>
   triggerScan(token: string, providerId: string): Promise<SyncResult>
-  getSyncLogs(token: string, providerId: string): Promise<SyncResult>
+  /** The last scan's result, or null when the connector has never been scanned. */
+  getSyncLogs(token: string, providerId: string): Promise<SyncResult | null>
   getStatus(token: string): Promise<{
     status: string
     synced_at: string
@@ -119,21 +159,15 @@ const liveConnectorsApi: ConnectorsApi = {
     })
   },
 
-  triggerScan: async (token, providerId) => {
-    try {
-      return await req<SyncResult>(`/connectors/${providerId}/scan`, token, { method: 'POST' })
-    } catch (err) {
-      console.warn(`[connectorsClient] live triggerScan failed for ${providerId}, falling back to mock result:`, err)
-      return getMockSyncResult(providerId)
-    }
-  },
+  triggerScan: (token, providerId) =>
+    req<SyncResult>(`/connectors/${providerId}/scan`, token, { method: 'POST' }),
 
   getSyncLogs: async (token, providerId) => {
     try {
       return await req<SyncResult>(`/connectors/${providerId}/logs`, token)
     } catch (err) {
-      console.warn(`[connectorsClient] live getSyncLogs failed for ${providerId}, falling back to mock result:`, err)
-      return getMockSyncResult(providerId)
+      if (apiErrorCode(err) === 'never_scanned') return null
+      throw err
     }
   },
 
@@ -468,6 +502,8 @@ const mockConnectorsApi: ConnectorsApi = {
 
 function getMockSyncResult(providerId: string): SyncResult {
   const now = new Date().toISOString()
+  const claudeAgents = remoteEnvironmentFixtures.claude.connectedAgents.length
+  const openaiAgents = remoteEnvironmentFixtures.openai.connectedAgents.length
   if (providerId === 'claude') {
     return {
       provider_id: 'claude',
@@ -475,8 +511,8 @@ function getMockSyncResult(providerId: string): SyncResult {
       duration_ms: 142,
       status: 'success',
       records_scanned: {
-        agents: 3,
-        models: 4,
+        agents: claudeAgents,
+        models: 3,
         environments: 1,
         tools: 2,
       },
@@ -560,10 +596,10 @@ function getMockSyncResult(providerId: string): SyncResult {
           id: 'log-claude-7',
           timestamp: now,
           level: 'info',
-          message: 'Sync completed successfully. 3 agents, 4 models, 1 environment, 2 tools discovered.',
+          message: `Sync completed successfully. ${claudeAgents} agents, 3 models, 1 environment, 2 tools discovered.`,
           details: {
-            agents: 3,
-            models: 4,
+            agents: claudeAgents,
+            models: 3,
             environments: 1,
             tools: 2,
           },
@@ -579,7 +615,7 @@ function getMockSyncResult(providerId: string): SyncResult {
       duration_ms: 168,
       status: 'success',
       records_scanned: {
-        agents: 2,
+        agents: openaiAgents,
         models: 3,
         environments: 1,
         tools: 3,
@@ -617,7 +653,7 @@ function getMockSyncResult(providerId: string): SyncResult {
           status_code: 200,
           duration_ms: 135,
           details: {
-            assistants_count: 2,
+            assistants_count: openaiAgents,
             code_interpreter_enabled: true,
             file_search_enabled: true,
           },

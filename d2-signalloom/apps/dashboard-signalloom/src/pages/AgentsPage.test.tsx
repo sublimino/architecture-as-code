@@ -1816,7 +1816,7 @@ describe('AgentsPage — Claude Managed Parity & Runtime Display', () => {
     expect(within(row).getByText('claude-managed')).toBeInTheDocument()
   })
 
-  it('displays claude-managed for Claude agents identified by framework, type, or model name', async () => {
+  it('displays the framework the server reported, never claude-managed inferred from type or model name', async () => {
     const agentFramework = makeAgent({
       id: 'agent-fw',
       name: 'Agent Framework',
@@ -1842,7 +1842,7 @@ describe('AgentsPage — Claude Managed Parity & Runtime Display', () => {
       model_name: 'claude-3-5-sonnet-20241022',
       runtime: {
         namespace: 'cloud-dev',
-        framework: undefined,
+        framework: 'LangGraph',
         execution_mode: 'autonomous',
       },
     })
@@ -1858,8 +1858,9 @@ describe('AgentsPage — Claude Managed Parity & Runtime Display', () => {
     const rowModel = screen.getByTestId('agent-row-agent-model')
 
     expect(within(rowFw).getByText('claude-managed')).toBeInTheDocument()
-    expect(within(rowType).getByText('claude-managed')).toBeInTheDocument()
-    expect(within(rowModel).getByText('claude-managed')).toBeInTheDocument()
+    expect(within(rowType).queryByText('claude-managed')).not.toBeInTheDocument()
+    expect(within(rowModel).queryByText('claude-managed')).not.toBeInTheDocument()
+    expect(within(rowModel).getByText('LangGraph')).toBeInTheDocument()
   })
 
   it('sorts and filters claude-managed agents seamlessly', async () => {

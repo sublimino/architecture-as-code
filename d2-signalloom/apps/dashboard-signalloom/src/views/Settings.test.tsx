@@ -370,7 +370,7 @@ describe('Settings: Service Connectors', () => {
     expect(notConfigured).toHaveLength(3)
   })
 
-  it('shows "Connected" for providers with an active connector', async () => {
+  it('shows "Connected" for providers with an active connector and allows viewing environment', async () => {
     vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
       { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
     ])
@@ -378,6 +378,11 @@ describe('Settings: Service Connectors', () => {
     expect(await screen.findByText('Connected')).toBeInTheDocument()
     const notConfigured = screen.getAllByText('Not configured')
     expect(notConfigured).toHaveLength(2)
+
+    const viewEnvBtn = screen.getByTestId('view-environment-okta')
+    expect(viewEnvBtn).toBeInTheDocument()
+    await userEvent.click(viewEnvBtn)
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/connectors/okta')
   })
 
   it('shows toggle ON for connected providers and OFF for unconfigured', async () => {

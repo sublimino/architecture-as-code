@@ -1,0 +1,117 @@
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import RemoteEnvironmentPage from './RemoteEnvironmentPage'
+
+function renderPage(initialEntries = ['/settings/connectors/claude']) {
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <Routes>
+        <Route path="/settings/connectors/:providerId" element={<RemoteEnvironmentPage />} />
+        <Route path="/settings/connectors" element={<RemoteEnvironmentPage />} />
+        <Route path="/connectors/:providerId" element={<RemoteEnvironmentPage />} />
+      </Routes>
+    </MemoryRouter>
+  )
+}
+
+describe('RemoteEnvironmentPage', () => {
+  it('renders environment header, badges, and credit balance', () => {
+    renderPage(['/settings/connectors/claude'])
+
+    // Breadcrumb
+    expect(screen.getByText('Settings')).toBeInTheDocument()
+    expect(screen.getByText('Connectors')).toBeInTheDocument()
+    expect(screen.getByText(/Anthropic Claude \(cloud-dev\)/i)).toBeInTheDocument()
+
+    // Environment name
+    expect(screen.getByRole('heading', { level: 1, name: /cloud-dev/i })).toBeInTheDocument()
+
+    // Badges
+    expect(screen.getByText(/Cloud Hosting/i)).toBeInTheDocument()
+    expect(screen.getByText(/Organization: Andy's Individual Org/i)).toBeInTheDocument()
+    expect(screen.getByText(/ID: env_01CyCigBbDRSLTzSCyyHQ7eT/i)).toBeInTheDocument()
+    expect(screen.getByText(/Last updated: 16m ago/i)).toBeInTheDocument()
+
+    // Status and Credits
+    expect(screen.getByText(/Active · Synchronized/i)).toBeInTheDocument()
+    expect(screen.getByText('US$23.57')).toBeInTheDocument()
+  })
+
+  it('renders action bar with sync buttons and back to connectors link', () => {
+    renderPage(['/settings/connectors/claude'])
+
+    const syncNowBtn = screen.getByTestId('btn-env-sync-now')
+    const syncLogsBtn = screen.getByTestId('btn-env-sync-logs')
+    const backLink = screen.getByTestId('link-back-connectors')
+
+    expect(syncNowBtn).toBeInTheDocument()
+    expect(syncLogsBtn).toBeInTheDocument()
+    expect(backLink).toBeInTheDocument()
+    expect(backLink).toHaveAttribute('href', expect.stringContaining('/settings?tab=connectors'))
+
+    // Trigger sync now action
+    fireEvent.click(syncNowBtn)
+    expect(screen.getByText(/Synchronized just now/i)).toBeInTheDocument()
+
+    // Trigger sync logs toggle
+    fireEvent.click(syncLogsBtn)
+    expect(screen.getByText(/Synchronization Audit Logs/i)).toBeInTheDocument()
+  })
+
+  it('renders General section with hosting details', () => {
+    renderPage(['/settings/connectors/claude'])
+
+    expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument()
+    expect(screen.getByText("Can't be changed after creation")).toBeInTheDocument()
+    expect(screen.getByText('What sessions in this environment are for')).toBeInTheDocument()
+    expect(screen.getByText(/wrkspc_01/i)).toBeInTheDocument()
+  })
+
+  it('renders Network Egress and CEL Governance section with package managers, MCP servers, and allowed hosts', () => {
+    renderPage(['/settings/connectors/claude'])
+
+    expect(screen.getByRole('heading', { name: /Network Egress & CEL Governance/i })).toBeInTheDocument()
+    expect(screen.getByText(/Outbound traffic is blocked except for what's allowed below/i)).toBeInTheDocument()
+
+    expect(screen.getByText(/Allow package managers \(PyPI, npm\)/i)).toBeInTheDocument()
+    expect(screen.getByText(/Allow MCP servers configured on agent/i)).toBeInTheDocument()
+    expect(screen.getByText(/0\/16 configured/i)).toBeInTheDocument()
+    expect(screen.getByText(/Hostnames or IPv4 addresses, one per line/i)).toBeInTheDocument()
+
+    // CEL Policy Assessment Card
+    expect(screen.getByTestId('cel-policy-card')).toBeInTheDocument()
+    expect(screen.getByText(/cis-5.2.8: NET_RAW capability not held/i)).toBeInTheDocument()
+    expect(screen.getByText(/egress-confinement: No unrestricted 0.0.0.0\/0 egress/i)).toBeInTheDocument()
+    expect(screen.getByText(/mcp-attestation: MCP servers require SPIFFE identity/i)).toBeInTheDocument()
+
+    const passBadges = screen.getAllByText('PASS')
+    expect(passBadges.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('renders Container Packages & Metadata section', () => {
+    renderPage(['/settings/connectors/claude'])
+
+    expect(screen.getByRole('heading', { name: /Container Packages & Metadata/i })).toBeInTheDocument()
+    expect(screen.getByText('No packages beyond the standard image.')).toBeInTheDocument()
+    expect(screen.getByText(/"owner": "andy"/i)).toBeInTheDocument()
+    expect(screen.getByText(/"cluster": "osramp-kind"/i)).toBeInTheDocument()
+  })
+
+  it('renders Connected Agents & Workloads section with running agent metadata and claim controls', () => {
+    renderPage(['/settings/connectors/claude'])
+
+    expect(screen.getByRole('heading', { name: /Connected Agents & Workloads/i })).toBeInTheDocument()
+    expect(screen.getByText('claude-code-researcher')).toBeInTheDocument()
+    expect(screen.getByText(/ses_01CyCigBbDRSLTzSCyyHQ7eT/i)).toBeInTheDocument()
+    expect(screen.getByText('data-sync-agent')).toBeInTheDocument()
+    expect(screen.getByText('active')).toBeInTheDocument()
+    expect(screen.getByText('idle')).toBeInTheDocument()
+  })
+
+  it('defaults to claude when providerId is not specified or fallback', () => {
+    renderPage(['/settings/connectors'])
+
+    expect(screen.getByText(/Anthropic Claude \(cloud-dev\)/i)).toBeInTheDocument()
+  })
+})

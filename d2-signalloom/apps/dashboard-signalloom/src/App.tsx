@@ -103,6 +103,7 @@ const CallbackPage = lazy(() => import('./pages/CallbackPage'))
 const AdminUsersPage = lazy(() => import('./pages/admin/UsersPage'))
 const AdminFeaturesPage = lazy(() => import('./pages/admin/FeaturesPage'))
 const PolicyEvaluationPage = lazy(() => import('./pages/PolicyEvaluationPage'))
+const RemoteEnvironmentPage = lazy(() => import('./pages/RemoteEnvironmentPage'))
 
 export interface ApiKeyRevealData {
   key: string
@@ -483,6 +484,8 @@ export default function App() {
                 <Route path="/audit" element={<ProtectedRoute><GatedRoute flag="page_audit"><AuditTrailPage /></GatedRoute></ProtectedRoute>} />
                 <Route path="/workspaces" element={<Navigate to="/discovery" replace />} />
                 <Route path="/connectors" element={<Navigate to="/federated-services" replace />} />
+                <Route path="/connectors/:providerId" element={<ProtectedRoute><RemoteEnvironmentPage /></ProtectedRoute>} />
+                <Route path="/settings/connectors/:providerId" element={<ProtectedRoute><RemoteEnvironmentPage /></ProtectedRoute>} />
                 <Route path="/federated-services" element={<ProtectedRoute><GatedRoute flag="page_federated_services"><FederatedServicesPage /></GatedRoute></ProtectedRoute>} />
                 <Route path="/cryptography" element={<ProtectedRoute><GatedRoute flag="page_cryptography"><CryptographyPage /></GatedRoute></ProtectedRoute>} />
                 <Route path="/credential-inventory" element={<ProtectedRoute><GatedRoute flag="page_credential_inventory"><CredentialInventoryPage /></GatedRoute></ProtectedRoute>} />

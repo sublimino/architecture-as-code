@@ -410,6 +410,54 @@ describe('Settings: Service Connectors', () => {
     expect(screen.getByTestId('scan-connector-okta')).not.toBeDisabled()
   })
 
+  it.each([
+    ['error', 'Scan failed'],
+    ['warning', 'Scan incomplete'],
+  ] as const)('shows the row error when a scan returns status %s, naming what failed', async (status, prefix) => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
+    ])
+    vi.mocked(connectorsApi.triggerScan).mockResolvedValue({
+      provider_id: 'okta', synced_at: '2026-10-16T12:00:00Z', duration_ms: 5, status,
+      records_scanned: { agents: null, models: null, environments: null, tools: null }, policies_evaluated: null,
+      logs: [
+        { id: 'log-1', timestamp: '2026-10-16T12:00:00Z', level: 'info', message: 'Listed 2 Anthropic agents.' },
+        { id: 'log-2', timestamp: '2026-10-16T12:00:00Z', level: 'error', message: 'Listing Anthropic models failed (HTTP 401).' },
+      ],
+    })
+    renderSettings(['/settings?tab=connectors'])
+    await userEvent.click(await screen.findByTestId('scan-connector-okta'))
+    const alert = await screen.findByTestId('scan-error-okta')
+    expect(alert).toHaveTextContent(prefix)
+    expect(alert).toHaveTextContent('Listing Anthropic models failed (HTTP 401).')
+    expect(alert).not.toHaveTextContent('Listed 2 Anthropic agents.')
+  })
+
+  it('shows no row error after a successful scan', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
+    ])
+    vi.mocked(connectorsApi.triggerScan).mockResolvedValue({
+      provider_id: 'okta', synced_at: '2026-10-16T12:00:00Z', duration_ms: 5, status: 'success',
+      records_scanned: { agents: 1, models: 1, environments: null, tools: null }, policies_evaluated: null, logs: [],
+    })
+    renderSettings(['/settings?tab=connectors'])
+    await userEvent.click(await screen.findByTestId('scan-connector-okta'))
+    expect(connectorsApi.triggerScan).toHaveBeenCalledWith('test-token', 'okta')
+    await waitFor(() => expect(screen.getByTestId('scan-connector-okta')).not.toBeDisabled())
+    expect(screen.queryByTestId('scan-error-okta')).not.toBeInTheDocument()
+  })
+
+  it('shows the last scan error the server recorded for the connector', async () => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, last_scan_status: 'error', last_scan_error: 'Listing Anthropic agents failed (HTTP 500).', metadata: {}, created_at: '2026-01-01' },
+    ])
+    renderSettings(['/settings?tab=connectors'])
+    const alert = await screen.findByTestId('scan-error-okta')
+    expect(alert).toHaveTextContent('Listing Anthropic agents failed (HTTP 500).')
+    expect(screen.getByTestId('sync-status-okta')).toHaveTextContent('Not yet scanned')
+  })
+
   it('calls a connector Synced only once it has been scanned, with a valid token border', async () => {
     vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
       { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: '2026-10-01T00:00:00Z', last_scan_at: null, metadata: {}, created_at: '2026-01-01' },

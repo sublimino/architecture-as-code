@@ -502,3 +502,45 @@ def test_fixture_new_connector_keeps_demo_timestamps(monkeypatch):
         conn_id = _create(client, _token("alice"), "okta", {"api_token": "t"})
         row = _row_for(client, _token("alice"), conn_id)
         assert row["last_tested_at"] and row["last_scan_at"] and row["credential_expires_at"]
+
+
+@pytest.mark.parametrize("agents_status, models_status, expected", [
+    (401, 401, "error"),
+    (200, 401, "warning"),
+])
+def test_live_unsuccessful_scan_does_not_stamp_last_scan_at_and_records_why(monkeypatch, agents_status, models_status, expected):
+    with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
+        mock.get(f"{ANTHROPIC}/v1/agents").mock(return_value=httpx.Response(agents_status, json={"data": []}))
+        mock.get(f"{ANTHROPIC}/v1/models").mock(return_value=httpx.Response(models_status, json={"data": []}))
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        resp = client.post("/api/v1/connectors/claude/scan", headers=_token("alice"))
+        assert resp.json()["status"] == expected
+        row = _row_for(client, _token("alice"), conn_id)
+        assert row["last_scan_at"] is None
+        assert row["last_scan_status"] == expected
+        assert "401" in row["last_scan_error"]
+
+
+def test_live_successful_scan_stamps_last_scan_at_with_the_scan_time(monkeypatch):
+    with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
+        _mock_good_claude(mock)
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        body = client.post("/api/v1/connectors/claude/scan", headers=_token("alice")).json()
+        row = _row_for(client, _token("alice"), conn_id)
+        assert body["status"] == "success"
+        assert row["last_scan_at"] == body["synced_at"]
+        assert (row["last_scan_status"], row["last_scan_error"]) == ("success", None)
+
+
+def test_live_failed_scan_after_a_success_keeps_the_last_successful_time(monkeypatch):
+    with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
+        agents = mock.get(f"{ANTHROPIC}/v1/agents").mock(return_value=httpx.Response(200, json={"data": []}))
+        models = mock.get(f"{ANTHROPIC}/v1/models").mock(return_value=httpx.Response(200, json={"data": []}))
+        conn_id = _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        first = client.post("/api/v1/connectors/claude/scan", headers=_token("alice")).json()
+        agents.mock(return_value=httpx.Response(500))
+        models.mock(return_value=httpx.Response(500))
+        client.post("/api/v1/connectors/claude/scan", headers=_token("alice"))
+        row = _row_for(client, _token("alice"), conn_id)
+        assert row["last_scan_at"] == first["synced_at"]
+        assert row["last_scan_status"] == "error"

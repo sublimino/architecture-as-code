@@ -83,7 +83,11 @@ class TenantConnector(BaseModel):
     status: ConnectorStatusType = "connected"
     credential_expires_at: str | None = None
     last_tested_at: str | None = None
+    # Time of the last fully successful scan. A failed or partial scan leaves it
+    # alone and records its outcome in last_scan_status / last_scan_error.
     last_scan_at: str | None = None
+    last_scan_status: Literal["success", "warning", "error"] | None = None
+    last_scan_error: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=_now_iso)
 
@@ -1192,7 +1196,17 @@ async def scan_connector(
         )
 
     with _CONN_LOCK:
-        match["last_scan_at"] = result.synced_at
+        # last_scan_at means "synced": only a scan that observed everything it
+        # asked for earns it. A warning is a partial scan (some listings
+        # failed), so it records its status and error but keeps the previous
+        # successful time.
+        if result.status == "success":
+            match["last_scan_at"] = result.synced_at
+            match["last_scan_error"] = None
+        else:
+            failures = [log.message for log in result.logs if log.level == "error"]
+            match["last_scan_error"] = " ".join(failures) or f"Scan finished with status '{result.status}'."
+        match["last_scan_status"] = result.status
         stored = _TENANT_SYNC_RESULTS.setdefault(tenant_id, {})
         stored[canonical_provider] = result
         stored[connector_id] = result

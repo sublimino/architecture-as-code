@@ -1,6 +1,6 @@
 module github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/fe-signalloom/pkg/telemetry
 
-go 1.22.0
+go 1.27.2
 
 require (
 	github.com/prometheus/client_model v0.6.1

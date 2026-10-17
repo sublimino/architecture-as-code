@@ -18,6 +18,7 @@ FORBIDDEN_LITERALS = (
     "1f9b3065-9e10-42e5-b2ac-e8f37a186b88",  # fabricated org_id
     "wrkspc_01PFJfZsJrq5bUVWA2wWnyvm",        # fabricated workspace_id fallback
     "Andrew Martin (User)",                    # fabricated owner
+    "12450",                                   # fabricated metrics.input_tokens (W22: missed by W21)
 )
 
 

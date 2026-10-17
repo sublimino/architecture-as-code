@@ -58,11 +58,55 @@ DEFAULT_SYSTEM_FLAGS: dict[str, bool] = {
     "page_agentmaxxing": False,
 }
 
-#: Pre-packaged feature flag bundles for customer profiles and partner onboarding.
+#: The EAP View flag set, captured live from tenant-demo on 2026-10-17. It is the
+#: early-access read-only account type: discovery, the agent registry and the
+#: policy catalogue, nothing that acts or exposes raw telemetry. Pinned literally
+#: by tests/test_feature_account_types.py and by
+#: d2-signalloom/contracts/feature-account-types.json.
+_EAP_VIEW_FLAGS: dict[str, bool] = {
+    "core_governance": True,
+    "audit": True,
+    "compliance": True,
+    "demos_fleet": False,
+    "supercred": False,
+    "rbac_analysis": False,
+    "collusion_access": False,
+    "page_discovery": True,
+    "page_agents": True,
+    "page_topology": False,
+    "page_weave": False,
+    "page_signals": False,
+    "page_risk": False,
+    "page_policies": True,
+    "page_compliance": False,
+    "page_audit": False,
+    "page_federated_services": False,
+    "page_cryptography": False,
+    "page_credential_inventory": False,
+    "page_signal_store": False,
+    "page_feeds": False,
+    "page_network_tests": False,
+    "page_agentmaxxing": False,
+}
+
+#: Pre-packaged feature flag sets. Entries of kind "account_type" are the account
+#: types a tenant is assigned (docs/signalloom/feature-flag-account-types.md);
+#: "bundle" entries are other presets a superadmin may apply.
 FEATURE_PRESETS: dict[str, dict[str, Any]] = {
-    "eap_pilot": {
-        "name": "EAP Pilot Preset",
-        "description": "Enterprise early access pilot preset. Exposes core agent governance, telemetry, compliance, and credential inventories while suppressing internal demos, experimental labs, federated services, and topology.",
+    "eap_view": {
+        "name": "EAP View (read-only)",
+        "kind": "account_type",
+        "status": "confirmed",
+        "aliases": [],
+        "description": "Early access, read-only. Discovery, the agent registry and the policy catalogue. No signals, risk, audit or compliance pages, no demos or labs.",
+        "flags": dict(_EAP_VIEW_FLAGS),
+    },
+    "eap_full": {
+        "name": "EAP Full",
+        "kind": "account_type",
+        "status": "draft",
+        "aliases": ["eap_pilot"],
+        "description": "Early access, full system. Adds signals, the Weave, risk, compliance, audit, cryptography and credential inventory to EAP View; demos, labs, topology and federated services stay off. Draft: exact contents pending confirmation.",
         "flags": {
             "core_governance": True,
             "audit": True,
@@ -89,37 +133,19 @@ FEATURE_PRESETS: dict[str, dict[str, Any]] = {
             "page_agentmaxxing": False,
         },
     },
-    "full_demo": {
-        "name": "Full Platform Demo",
-        "description": "Complete platform demonstration bundle with every page, demo scenario, and experimental laboratory enabled.",
-        "flags": {
-            "core_governance": True,
-            "audit": True,
-            "compliance": True,
-            "demos_fleet": True,
-            "supercred": True,
-            "rbac_analysis": True,
-            "collusion_access": True,
-            "page_discovery": True,
-            "page_agents": True,
-            "page_topology": True,
-            "page_weave": True,
-            "page_signals": True,
-            "page_risk": True,
-            "page_policies": True,
-            "page_compliance": True,
-            "page_audit": True,
-            "page_federated_services": True,
-            "page_cryptography": True,
-            "page_credential_inventory": True,
-            "page_signal_store": True,
-            "page_feeds": True,
-            "page_network_tests": True,
-            "page_agentmaxxing": True,
-        },
+    "full": {
+        "name": "Full",
+        "kind": "account_type",
+        "status": "confirmed",
+        "aliases": ["full_demo"],
+        "description": "Every page, demo scenario and experimental lab enabled.",
+        "flags": {key: True for key in DEFAULT_SYSTEM_FLAGS},
     },
     "minimal_governance": {
         "name": "Minimal Governance",
+        "kind": "bundle",
+        "status": "confirmed",
+        "aliases": [],
         "description": "Focused minimal posture exposing only the agent registry and authoritative immutable audit log.",
         "flags": {
             "core_governance": True,
@@ -149,18 +175,81 @@ FEATURE_PRESETS: dict[str, dict[str, Any]] = {
     },
 }
 
+#: The account types, in the order the Feature Flags page offers them.
+ACCOUNT_TYPE_IDS: tuple[str, ...] = tuple(
+    k for k, v in FEATURE_PRESETS.items() if v["kind"] == "account_type"
+)
+
+#: Deprecated preset ids that still apply, mapped to their canonical id.
+PRESET_ALIASES: dict[str, str] = {
+    alias: canonical
+    for canonical, preset in FEATURE_PRESETS.items()
+    for alias in preset["aliases"]
+}
+
+
+def resolve_preset_id(preset_name: str) -> str | None:
+    """Canonical preset id for a preset id or deprecated alias; None if unknown."""
+    if preset_name in FEATURE_PRESETS:
+        return preset_name
+    return PRESET_ALIASES.get(preset_name)
+
 
 def get_preset(preset_name: str) -> dict[str, Any] | None:
-    """Retrieve preset configuration dictionary by preset name."""
-    return FEATURE_PRESETS.get(preset_name)
+    """Retrieve preset configuration by preset id or deprecated alias."""
+    canonical = resolve_preset_id(preset_name)
+    return FEATURE_PRESETS[canonical] if canonical else None
 
 
 def list_presets() -> list[dict[str, Any]]:
-    """Return list of available preset bundles for superadmin selection."""
+    """Return the canonical presets (aliases ride on their entry) for superadmin selection."""
     return [
-        {"id": k, "name": v["name"], "description": v["description"], "flags": v["flags"]}
+        {
+            "id": k,
+            "name": v["name"],
+            "kind": v["kind"],
+            "status": v["status"],
+            "aliases": list(v["aliases"]),
+            "description": v["description"],
+            "flags": dict(v["flags"]),
+        }
         for k, v in FEATURE_PRESETS.items()
     ]
+
+
+class AccountTypeState(BaseModel):
+    """What the Feature Flags page says about a tenant's account type.
+
+    ``id`` is the recorded type (None when none was ever applied). ``customised``
+    is true when the tenant's effective flags no longer equal that type's set.
+    ``matches`` names the preset whose set the effective flags equal exactly, if
+    any, so a tenant configured by hand can still be recognised.
+    """
+
+    id: str | None = Field(default=None, description="Recorded account type (canonical preset id)")
+    customised: bool = Field(default=False, description="Effective flags differ from the recorded type")
+    matches: str | None = Field(default=None, description="Preset whose flags equal the effective flags")
+    label: str = Field(..., description="Human-readable account type, as the page shows it")
+
+
+def _matching_preset(effective: dict[str, bool]) -> str | None:
+    for preset_id, preset in FEATURE_PRESETS.items():
+        if all(effective.get(k) == v for k, v in preset["flags"].items()):
+            return preset_id
+    return None
+
+
+def describe_account_type(recorded: str | None, effective: dict[str, bool]) -> AccountTypeState:
+    """Derive the account type state from the recorded type and the effective flags."""
+    matches = _matching_preset(effective)
+    preset = FEATURE_PRESETS.get(recorded) if recorded else None
+    if preset is None:
+        label = f"Unassigned (flags match {FEATURE_PRESETS[matches]['name']})" if matches else "Unassigned"
+        return AccountTypeState(id=None, customised=False, matches=matches, label=label)
+    customised = any(effective.get(k) != v for k, v in preset["flags"].items())
+    label = f"Custom, based on {preset['name']}" if customised else preset["name"]
+    return AccountTypeState(id=recorded, customised=customised, matches=matches, label=label)
+
 
 #: In-memory evaluation cache: (tenant_id, flag_key) -> (enabled, config, timestamp)
 _FLAG_CACHE_TTL_SECONDS = 10.0
@@ -626,12 +715,78 @@ class FeatureFlagRepository:
         pool_or_conn: Any,
         tenant_id: str,
         preset_name: str,
+        updated_by: str | None = None,
     ) -> dict[str, bool]:
-        """Apply a named preset bundle of flags to a tenant."""
-        preset = get_preset(preset_name)
-        if not preset:
+        """Apply a preset (or deprecated alias) and record it as the tenant's account type."""
+        canonical = resolve_preset_id(preset_name)
+        if canonical is None:
             raise ValueError(f"Unknown preset: {preset_name}")
-        return await cls.update_tenant_flags(pool_or_conn, tenant_id, preset["flags"])
+        applied = await cls.update_tenant_flags(
+            pool_or_conn, tenant_id, FEATURE_PRESETS[canonical]["flags"]
+        )
+        await AccountTypeRepository.record(pool_or_conn, tenant_id, canonical, False, updated_by)
+        return applied
+
+
+class AccountTypeRepository:
+    """Per-tenant account type record (migration 074, public.tenant_account_types)."""
+
+    @classmethod
+    async def get(cls, pool_or_conn: Any, tenant_id: str) -> dict[str, Any] | None:
+        """The tenant's recorded account type row, or None if none was ever applied."""
+        async with _acquire_connection(pool_or_conn) as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT tenant_id, account_type, customised, updated_by, updated_at
+                FROM public.tenant_account_types
+                WHERE tenant_id = $1
+                """,
+                tenant_id,
+            )
+            return dict(row) if row is not None else None
+
+    @classmethod
+    async def record(
+        cls,
+        pool_or_conn: Any,
+        tenant_id: str,
+        account_type: str,
+        customised: bool,
+        updated_by: str | None,
+    ) -> dict[str, Any]:
+        """Upsert the tenant's account type row."""
+        async with _acquire_connection(pool_or_conn) as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO public.tenant_account_types (
+                    tenant_id, account_type, customised, updated_by, updated_at
+                )
+                VALUES ($1, $2, $3, $4, NOW())
+                ON CONFLICT (tenant_id) DO UPDATE
+                    SET account_type = EXCLUDED.account_type,
+                        customised = EXCLUDED.customised,
+                        updated_by = EXCLUDED.updated_by,
+                        updated_at = NOW()
+                RETURNING tenant_id, account_type, customised, updated_by, updated_at
+                """,
+                tenant_id,
+                account_type,
+                bool(customised),
+                updated_by,
+            )
+            return dict(row)
+
+    @classmethod
+    async def refresh(
+        cls, pool_or_conn: Any, tenant_id: str, updated_by: str | None
+    ) -> AccountTypeState:
+        """Re-derive the tenant's state after a flag change and persist ``customised``."""
+        record = await cls.get(pool_or_conn, tenant_id)
+        effective = await FeatureFlagRepository.evaluate_all_flags(pool_or_conn, tenant_id)
+        state = describe_account_type(record["account_type"] if record else None, effective)
+        if record is not None and bool(record["customised"]) != state.customised:
+            await cls.record(pool_or_conn, tenant_id, record["account_type"], state.customised, updated_by)
+        return state
 
 
 

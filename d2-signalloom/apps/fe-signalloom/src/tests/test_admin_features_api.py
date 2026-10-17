@@ -1,7 +1,7 @@
 """Test suite for Superadmin Feature Flag Management API (/api/v1/admin/features).
 
 Verifies:
-1. GET /api/v1/admin/features/presets returns available preset bundles (eap_pilot, full_demo, etc.).
+1. GET /api/v1/admin/features/presets returns the account types (eap_view, eap_full, full) and bundles.
 2. GET /api/v1/admin/features authorization and tenant inspection.
 3. PUT /api/v1/admin/features batch update and preset application.
 4. PUT /api/v1/admin/features/{flag_key} single flag update.
@@ -56,7 +56,7 @@ def test_get_presets_unauthenticated_returns_401() -> None:
     assert resp.status_code == 401
 
 
-def test_get_presets_returns_eap_pilot_and_catalogue() -> None:
+def test_get_presets_returns_account_types_and_catalogue() -> None:
     client = EAPClient(main_app, subject=EAP_OPERATOR)
     resp = client.get("/api/v1/admin/features/presets")
     assert resp.status_code == 200
@@ -64,11 +64,12 @@ def test_get_presets_returns_eap_pilot_and_catalogue() -> None:
 
     assert "presets" in data
     preset_ids = [p["id"] for p in data["presets"]]
-    assert "eap_pilot" in preset_ids
-    assert "full_demo" in preset_ids
-    assert "minimal_governance" in preset_ids
+    # eap_pilot and full_demo are deprecated aliases of eap_full and full: still
+    # applicable, listed once under their canonical entry.
+    assert preset_ids == ["eap_view", "eap_full", "full", "minimal_governance"]
 
-    eap_preset = next(p for p in data["presets"] if p["id"] == "eap_pilot")
+    eap_preset = next(p for p in data["presets"] if p["id"] == "eap_full")
+    assert eap_preset["aliases"] == ["eap_pilot"]
     assert eap_preset["flags"]["core_governance"] is True
     assert eap_preset["flags"]["page_discovery"] is True
     assert eap_preset["flags"]["demos_fleet"] is False

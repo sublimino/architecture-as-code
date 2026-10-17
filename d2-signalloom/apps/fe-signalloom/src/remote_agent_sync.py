@@ -357,7 +357,7 @@ class AnthropicAdapter(ProviderAdapter):
     _AGENT_RAW = ("id", "type", "name", "description", "version", "created_at", "updated_at", "archived_at")
     _SESSION_RAW = ("id", "type", "title", "status", "environment_id", "deployment_id",
                     "created_at", "updated_at", "archived_at")
-    _ENVIRONMENT_RAW = ("id", "type", "name", "description", "created_at", "updated_at", "archived_at", "network", "packages")
+    _ENVIRONMENT_RAW = ("id", "type", "name", "description", "created_at", "updated_at", "archived_at", "config")
 
     def credential(self, creds: dict[str, str]) -> str | None:
         return creds.get("api_key") or None
@@ -372,13 +372,8 @@ class AnthropicAdapter(ProviderAdapter):
         system_prompt = a.get("system") or a.get("system_prompt")
         tools = a.get("tools") or []
 
-        workspace_id = (creds.get("workspace_id") if creds else None) or a.get("workspace_id") or "wrkspc_01PFJfZsJrq5bUVWA2wWnyvm"
-        user_metadata = {
-            "owner": "Andrew Martin (User)",
-            "org_id": "1f9b3065-9e10-42e5-b2ac-e8f37a186b88",
-            "workspace_id": workspace_id,
-            "key_type": "service_account",
-        }
+        workspace_id = (creds.get("workspace_id") if creds else None) or a.get("workspace_id")
+        user_metadata: dict[str, Any] = {"workspace_id": workspace_id} if workspace_id else {}
         if isinstance(a.get("user_metadata"), dict):
             user_metadata.update(a["user_metadata"])
 
@@ -403,26 +398,15 @@ class AnthropicAdapter(ProviderAdapter):
         system_prompt = s.get("system") or s.get("system_prompt") or agent.get("system") or agent.get("system_prompt")
         tools = s.get("tools") or agent.get("tools") or []
         environment_id = s.get("environment_id")
-        metrics = {
-            "input_tokens": 12450,
-            "output_tokens": 1820,
-            "list_cost": "0.11",
-            "max_list_cost": "5.00",
-            "currency": "USD",
-        }
+        metrics: dict[str, Any] = {}
         if isinstance(s.get("metrics"), dict):
             metrics.update(s["metrics"])
         env_config = {"environment_id": environment_id} if environment_id else {}
         if isinstance(s.get("environment_config"), dict):
             env_config.update(s["environment_config"])
 
-        workspace_id = (creds.get("workspace_id") if creds else None) or s.get("workspace_id") or "wrkspc_01PFJfZsJrq5bUVWA2wWnyvm"
-        user_metadata = {
-            "owner": "Andrew Martin (User)",
-            "org_id": "1f9b3065-9e10-42e5-b2ac-e8f37a186b88",
-            "workspace_id": workspace_id,
-            "key_type": "service_account",
-        }
+        workspace_id = (creds.get("workspace_id") if creds else None) or s.get("workspace_id")
+        user_metadata: dict[str, Any] = {"workspace_id": workspace_id} if workspace_id else {}
         if isinstance(s.get("user_metadata"), dict):
             user_metadata.update(s["user_metadata"])
 
@@ -437,27 +421,32 @@ class AnthropicAdapter(ProviderAdapter):
 
     def _environment(self, e: dict[str, Any], creds: dict[str, str] | None = None) -> RemoteItem:
         raw = _pick(e, self._ENVIRONMENT_RAW)
-        env_config = {
-            "network": e.get("network") or "unrestricted",
-            "packages": e.get("packages") or [],
+
+        config = e.get("config") if isinstance(e.get("config"), dict) else {}
+        networking = config.get("networking") if isinstance(config.get("networking"), dict) else {}
+        packages = config.get("packages") if isinstance(config.get("packages"), dict) else {}
+
+        network_type = networking.get("type")
+        env_config: dict[str, Any] = {
+            "network": network_type if isinstance(network_type, str) and network_type else "unknown",
         }
+        for key in ("allowed_hosts", "allow_mcp_servers", "allow_package_managers"):
+            if key in networking:
+                env_config[key] = networking[key]
+        if packages:
+            env_config["packages"] = packages
         if isinstance(e.get("environment_config"), dict):
             env_config.update(e["environment_config"])
 
-        workspace_id = (creds.get("workspace_id") if creds else None) or e.get("workspace_id") or "wrkspc_01PFJfZsJrq5bUVWA2wWnyvm"
-        user_metadata = {
-            "owner": "Andrew Martin (User)",
-            "org_id": "1f9b3065-9e10-42e5-b2ac-e8f37a186b88",
-            "workspace_id": workspace_id,
-            "key_type": "service_account",
-        }
+        workspace_id = (creds.get("workspace_id") if creds else None) or e.get("workspace_id")
+        user_metadata: dict[str, Any] = {"workspace_id": workspace_id} if workspace_id else {}
         if isinstance(e.get("user_metadata"), dict):
             user_metadata.update(e["user_metadata"])
 
         return RemoteItem(
             external_id=str(e["id"]),
             kind="environment",
-            name=e.get("name") or "cloud-dev",
+            name=e.get("name") or None,
             model=None,
             status=e.get("status") if isinstance(e.get("status"), str) else ("archived" if e.get("archived_at") else "available"),
             version=str(e.get("version")) if e.get("version") is not None else None,

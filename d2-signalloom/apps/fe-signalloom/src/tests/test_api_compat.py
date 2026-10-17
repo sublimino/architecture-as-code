@@ -902,7 +902,7 @@ def test_enriched_inventory_preserves_discovery_fields(client, monkeypatch):
     assert agent["runtime"]["namespace"] == "fe-signalloom-agents"
     assert agent["runtime"]["pod_uid"] == "uid-worker-123"
     assert agent["runtime"]["framework"] == "kagent"
-    assert agent["identity"]["spiffe_id"] == "spiffe://osramp.acme.local/ns/fe-signalloom-agents/sa/sa-worker"
+    assert agent["identity"]["spiffe_id"] == "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-worker"
     assert agent["identity"]["spiffe_status"] == "linked"
     assert agent["responsibility"]["assignment_status"] == "registry_unlinked"
     assert agent["assessment_summary"]["status"] == "not_assessed"
@@ -1688,7 +1688,7 @@ def test_dossier_identity_separation_of_planes(client, monkeypatch):
     # Discovered workload has no human authorizing principal -> None (rendered as Unassigned / Registry not linked)
     assert ident["authorizing_principal_id"] is None
     # Executing actor is the workload SVID
-    assert ident["executing_actor_id"] == "spiffe://osramp.acme.local/ns/fe-signalloom-agents/sa/sa-discovered"
+    assert ident["executing_actor_id"] == "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/sa-discovered"
     assert ident["delegation_hops"] == 0
     # Selectors are populated
     assert "k8s:ns:fe-signalloom-agents" in ident["selectors"]

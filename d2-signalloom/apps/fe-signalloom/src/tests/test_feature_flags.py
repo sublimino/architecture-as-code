@@ -32,6 +32,12 @@ class MockDatabase:
         self.custom_account_types: dict[str, dict[str, Any]] = {}
         # audit_events inserts, as the positional args the handler passed
         self.audit: list[tuple[Any, ...]] = []
+        # tenant_feature_flag_versions (migration 077): tenant_id -> version
+        self.flag_versions: dict[str, int] = {}
+
+    def bump_flag_version(self, tenant_id: str) -> int:
+        self.flag_versions[tenant_id] = self.flag_versions.get(tenant_id, 0) + 1
+        return self.flag_versions[tenant_id]
 
     def insert_or_update(
         self, tenant_id: str, flag_key: str, enabled: bool, config_json_str: str
@@ -76,6 +82,19 @@ class FakeConnection:
 
     def __init__(self, db: MockDatabase) -> None:
         self.db = db
+
+    def transaction(self, **_kwargs: Any) -> _FakeTransaction:
+        """No-op transaction: this fake never suspends mid-statement, so a
+        unit of work cannot interleave with another one. The latency-injecting
+        subclass in test_feature_flag_concurrency.py models real interleaving."""
+        return _FakeTransaction()
+
+    async def fetchval(self, query: str, *args: Any) -> Any:
+        if "INSERT INTO public.tenant_feature_flag_versions" in query:
+            return self.db.bump_flag_version(args[0])
+        if "FROM public.tenant_feature_flag_versions" in query:
+            return self.db.flag_versions.get(args[0])
+        raise NotImplementedError(f"Unhandled fetchval query: {query}")
 
     async def fetch(self, query: str, *args: Any) -> list[dict[str, Any]]:
         if "WHERE tenant_id = $1" in query and "ORDER BY flag_key" in query:
@@ -155,6 +174,14 @@ class FakeConnection:
         raise NotImplementedError(f"Unhandled execute query: {query}")
 
 
+class _FakeTransaction:
+    async def __aenter__(self) -> _FakeTransaction:
+        return self
+
+    async def __aexit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
+        pass
+
+
 class FakePool:
     """Fake asyncpg Pool managing FakeConnection instances."""
 
@@ -175,6 +202,10 @@ class FakePool:
     async def fetchrow(self, query: str, *args: Any) -> dict[str, Any] | None:
         async with self.acquire() as conn:
             return await conn.fetchrow(query, *args)
+
+    async def fetchval(self, query: str, *args: Any) -> Any:
+        async with self.acquire() as conn:
+            return await conn.fetchval(query, *args)
 
 
 class _FakePoolContext:

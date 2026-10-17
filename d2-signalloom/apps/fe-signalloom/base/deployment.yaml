@@ -39,12 +39,12 @@ spec:
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef:
-                  name: discovery-portal-database
+                  name: discovery-portal-database-credentials
                   key: POSTGRES_USER
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: discovery-portal-database
+                  name: discovery-portal-database-credentials
                   key: POSTGRES_PASSWORD
           securityContext:
             runAsNonRoot: true
@@ -119,7 +119,7 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: discovery-portal-database
+                  name: discovery-portal-database-credentials
                   key: DATABASE_URL
             - name: API_JWT_ISSUER
               # Must track Dex's issuer exactly, or every token the dashboard

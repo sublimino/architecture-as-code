@@ -9,7 +9,16 @@ if (!action || !pgPort) {
   process.exit(1);
 }
 
-const sql = new SQL(`postgres://signalloom:signalloom@localhost:${pgPort}/signalloom`);
+// The superuser password is minted per cluster (scripts/postgres-superuser-secret.sh);
+// read it from the Secret rather than assuming a constant.
+function pgPassword(): string {
+  if (process.env.SIGNALLOOM_PG_PASSWORD) return process.env.SIGNALLOOM_PG_PASSWORD;
+  const out = Bun.spawnSync(["kubectl", "-n", "inf-signalloom", "get", "secret", "postgresql-superuser", "-o", "jsonpath={.data.password}"]);
+  if (out.exitCode !== 0) throw new Error("cannot read inf-signalloom/postgresql-superuser; set SIGNALLOOM_PG_PASSWORD");
+  return Buffer.from(out.stdout.toString().trim(), "base64").toString();
+}
+
+const sql = new SQL(`postgres://signalloom:${encodeURIComponent(pgPassword())}@localhost:${pgPort}/signalloom`);
 
 try {
   if (action === "cleanup") {

@@ -77,7 +77,20 @@ data:
     bao auth enable jwt
     bao write auth/jwt/config jwks_url="$JWKS_URL"
     bao policy write inf-bao-admin "$CONFIG_DIR/inf-bao-admin.hcl"
-    bao write auth/jwt/role/inf-bao-admin role_type=jwt bound_audiences=openbao bound_subject="$ADMIN_SUBJECT" user_claim=sub token_policies=inf-bao-admin token_ttl=15m token_max_ttl=15m token_type=service
+    # JSON on stdin, the estate convention (openbao-agent-jwt-source.bats reads
+    # bound_audiences from it). bound_subject must equal ADMIN_SUBJECT above.
+    bao write auth/jwt/role/inf-bao-admin - <<'ROLE'
+    {
+      "role_type": "jwt",
+      "bound_audiences": "openbao",
+      "bound_subject": "spiffe://signalloom.demo/ns/inf-bao/sa/openbao-admin",
+      "user_claim": "sub",
+      "token_policies": "inf-bao-admin",
+      "token_ttl": "15m",
+      "token_max_ttl": "15m",
+      "token_type": "service"
+    }
+    ROLE
 
     trap - EXIT
     bao token revoke -self

@@ -8,7 +8,6 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/spire-trust-anchor.sh"
 
 readonly BAO_NAMESPACE="${BAO_NAMESPACE:-inf-bao}"
-readonly BAO_ROOT_TOKEN="${BAO_ROOT_TOKEN:-signalloom-demo-root-token}"
 readonly SIGNALLOOM_NAMESPACE="${SIGNALLOOM_NAMESPACE:-fe-signalloom}"
 readonly CONSUMER_LABEL="bao.controlplane.io/consumer"
 readonly CONSUMER_QUERY='kustomizations.kustomize.toolkit.fluxcd.io,ocirepositories.source.toolkit.fluxcd.io'
@@ -79,7 +78,7 @@ register_spire_proof_identity() {
 configure_openbao_jwt_validation() {
   require_command jq
   require_command openssl
-  sync_openbao_jwt_validation "$BAO_NAMESPACE" "$BAO_ROOT_TOKEN"
+  sync_openbao_jwt_validation "$BAO_NAMESPACE"
 }
 
 bao_up() {

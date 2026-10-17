@@ -107,14 +107,14 @@
     },
     {
       "id": "SLAAT-P1-3-F6",
-      "title": "Static root token (signalloom-demo-root-token) is hardcoded across multiple live ConfigMaps/Jobs",
+      "title": "Static root token (<retired static root token>) is hardcoded across multiple live ConfigMaps/Jobs",
       "severity": "INFO (accepted, pre-existing demo convention)",
       "status": "confirmed",
       "exploitable_today": false,
       "component": "d2-signalloom/infra/inf-bao/configs/base/*.yaml, d2-signalloom/infra/inf-bao/controllers/base/openbao-agent-generic-role.yaml",
-      "description": "The literal string 'signalloom-demo-root-token' is used as BAO_TOKEN in at least four bootstrap Jobs and this probe's own exec sessions. This is a known, pre-existing, cluster-wide-blast-radius credential with no rotation or lease. It is explicitly a demo convention (named 'demo' in-place) and this audit does not treat it as a new discovery, but it is recorded here per the Objective's request to document all policy risks, and should be the first thing closed before any path toward a shared or production environment.",
+      "description": "The literal string '<retired static root token>' is used as BAO_TOKEN in at least four bootstrap Jobs and this probe's own exec sessions. This is a known, pre-existing, cluster-wide-blast-radius credential with no rotation or lease. It is explicitly a demo convention (named 'demo' in-place) and this audit does not treat it as a new discovery, but it is recorded here per the Objective's request to document all policy risks, and should be the first thing closed before any path toward a shared or production environment.",
       "evidence": [
-        "grep -rn 'signalloom-demo-root-token' d2-signalloom/infra/inf-bao -> 4+ occurrences across ConfigMaps/Jobs"
+        "grep -rn '<retired static root token>' d2-signalloom/infra/inf-bao -> 4+ occurrences across ConfigMaps/Jobs"
       ],
       "remediation": "Replace the static root token with a short-lived, auto-unseal-derived admin credential or a dedicated bootstrap AppRole, scoped to setup-time only.",
       "remediation_phase": "SLAAT-P2-3"

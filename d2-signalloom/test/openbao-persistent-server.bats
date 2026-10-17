@@ -63,8 +63,10 @@ doc() { yq ea "[select(.kind==\"$2\" and .metadata.name==\"$3\")] | .[0] | $4" "
 @test "init: admin role is bound to exactly one SPIFFE ID with a 15m token" {
   script="$(doc "$INIT" ConfigMap openbao-init-config '.data."init.sh"')"
   [[ "$script" == *'ADMIN_SUBJECT="spiffe://signalloom.demo/ns/inf-bao/sa/openbao-admin"'* ]]
-  [[ "$script" == *'bound_subject="$ADMIN_SUBJECT"'* ]]
-  [[ "$script" == *'token_ttl=15m token_max_ttl=15m'* ]]
+  [[ "$script" == *'"bound_subject": "spiffe://signalloom.demo/ns/inf-bao/sa/openbao-admin"'* ]]
+  [[ "$script" == *'"bound_audiences": "openbao"'* ]]
+  [[ "$script" == *'"token_ttl": "15m"'* ]]
+  [[ "$script" == *'"token_max_ttl": "15m"'* ]]
 }
 
 @test "init: admin policy cannot read raw storage, mint root, rekey, touch audit, or widen itself" {
@@ -121,7 +123,7 @@ secrets enable -path=secret kv-v2
 auth enable jwt
 write auth/jwt/config jwks_url=http://spire-oidc.inf-bao.svc.cluster.local:8008/keys
 policy write inf-bao-admin ${WORK}/config/inf-bao-admin.hcl
-write auth/jwt/role/inf-bao-admin role_type=jwt bound_audiences=openbao bound_subject=spiffe://signalloom.demo/ns/inf-bao/sa/openbao-admin user_claim=sub token_policies=inf-bao-admin token_ttl=15m token_max_ttl=15m token_type=service
+write auth/jwt/role/inf-bao-admin -
 token revoke -self"
   [ "$calls" = "$expected" ]
   # every call after init ran as the root token, in the environment only

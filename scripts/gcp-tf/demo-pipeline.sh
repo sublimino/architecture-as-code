@@ -840,6 +840,9 @@ run_stage \
      test/healthcheck.bats \
      test/k8s-afm-preflight.bats test/keys-dir-path-safety.bats \
      test/connector-credential-key.bats \
+     test/postgres-superuser-secret.bats test/openbao-secrets.bats \
+     test/bao-admin-lib.bats \
+     test/openbao-no-static-root-token.bats \
      test/kind-config-heredoc.bats test/kind-load-verified.bats \
      test/node-doctor.bats test/prelive-node-ready.bats \
      test/resourceset-activation-race.bats test/resourceset-inputs-declarative.bats \
@@ -1259,7 +1262,7 @@ run_stage \
 run_stage \
   "SPIRE/OpenBao JWT trust drift" \
   "stage6e-spire-trust-drift.tap" \
-  "cd ${WORK_DIR} && source scripts/lib/spire-trust-anchor.sh && sync_openbao_jwt_validation inf-bao signalloom-demo-root-token >/dev/null 2>&1 || true; ${BATS_BIN} --tap test/spire-openbao-trust-drift.bats"
+  "cd ${WORK_DIR} && source scripts/lib/spire-trust-anchor.sh && sync_openbao_jwt_validation inf-bao >/dev/null 2>&1 || true; ${BATS_BIN} --tap test/spire-openbao-trust-drift.bats"
 
 # The d2-signalloom suite, and it is HERE rather than in tier 0 for a reason
 # worth stating: `make -C d2-signalloom test` GLOBS d2-signalloom/test/*.bats,

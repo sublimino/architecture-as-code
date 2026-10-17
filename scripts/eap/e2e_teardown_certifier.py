@@ -307,7 +307,13 @@ async def run_certification() -> dict[str, Any]:
     # 2. OpenBao Setup & Transit Provisioning
     openbao_port = os.getenv("SIGNALLOOM_TEARDOWN_OPENBAO_PORT", "18200")
     openbao_url = f"http://127.0.0.1:{openbao_port}"
-    openbao_token = "signalloom-demo-root-token"
+    # No static root token (SA-TODO-003): take the current 15-minute
+    # inf-bao-admin token from deploy/openbao-admin unless one is supplied.
+    openbao_token = os.getenv("SIGNALLOOM_TEARDOWN_OPENBAO_TOKEN") or subprocess.run(
+        ["kubectl", "-n", "inf-bao", "exec", "deployment/openbao-admin", "-c", "bao", "--",
+         "cat", "/var/run/secrets/openbao/token"],
+        check=True, capture_output=True, text=True, timeout=30,
+    ).stdout.strip()
     transport = BoundedHTTPTransport(allow_http_loopback=True)
 
     print(f"[*] OpenBao Endpoint:        {openbao_url}")

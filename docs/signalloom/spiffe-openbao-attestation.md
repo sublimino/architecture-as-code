@@ -31,7 +31,7 @@ workloads.
                      │ JWT exchange
 ┌────────────────────▼────────────────────────────────────┐
 │  OpenBao (inf-bao)                                      │
-│  ├ Mode: dev (unsealed, signalloom-demo-root-token)     │
+│  ├ Mode: server, Postgres storage, static seal          │
 │  ├ JWT auth: validates SPIFFE JWT, issues Bao token     │
 │  ├ Role: signalloom-fe-signalloom                       │
 │  │   Bound subject: spiffe://signalloom.demo/ns/...     │

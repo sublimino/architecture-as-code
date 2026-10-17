@@ -46,10 +46,9 @@
 #
 # WHAT IS DELIBERATELY NOT PROTECTED
 #
-# BAO_TOKEN. The demo root token is already a plaintext literal in
-# d2-signalloom/infra/inf-bao/configs/base/openbao-bootstrap.yaml and is not the
-# credential this script exists to protect. It is read from the OpenBao pod's
-# own environment when available so it usually stays out of argv anyway.
+# BAO_TOKEN. There is no static root token (SA-TODO-003). Every remote snippet
+# runs in deploy/openbao-admin, container bao, and reads that pod's 15-minute
+# inf-bao-admin token from its own file, so no token crosses argv.
 
 #
 # WHERE THE KEY COMES FROM
@@ -83,7 +82,6 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 KUBECTL="${KUBECTL:-kubectl}"
 BAO_NS="${KAGENT_BAO_NAMESPACE:-inf-bao}"
 BAO_ADDR="${KAGENT_BAO_ADDR:-http://127.0.0.1:8200}"
-BAO_TOKEN="${KAGENT_BAO_TOKEN:-signalloom-demo-root-token}"
 KV_MOUNT="${KAGENT_KV_MOUNT:-secret}"
 
 AGENTS_NS="${KAGENT_AGENTS_NAMESPACE:-fe-signalloom-agents}"
@@ -180,20 +178,17 @@ trust_domain() {
 
 bao_pod() {
   local pod
-  pod="$("$KUBECTL" get pod -n "$BAO_NS" -l app.kubernetes.io/name=openbao -o name 2>/dev/null | sed -n 1p)"
-  if [ -z "$pod" ]; then
-    pod="$("$KUBECTL" get pod -n "$BAO_NS" -o name 2>/dev/null | grep -E 'pod/openbao-[0-9a-f]' | sed -n 1p)"
-  fi
-  [ -n "$pod" ] || fail "no OpenBao pod found in namespace ${BAO_NS}"
+  pod="$("$KUBECTL" get pod -n "$BAO_NS" -l app.kubernetes.io/name=openbao-admin -o name 2>/dev/null | sed -n 1p)"
+  [ -n "$pod" ] || fail "no openbao-admin pod found in namespace ${BAO_NS}"
   printf '%s' "$pod"
 }
 
-# Preamble every remote snippet shares. BAO_TOKEN is taken from the pod's own
-# environment when it is set there, so the token normally never enters argv.
+# Preamble every remote snippet shares. It runs in the openbao-admin pod and
+# reads that pod's inf-bao-admin token from its file, never from argv.
 bao_preamble() {
-  cat <<PRE
-export BAO_ADDR="\${BAO_ADDR:-${BAO_ADDR}}"
-export BAO_TOKEN="\${BAO_TOKEN:-\${VAULT_TOKEN:-${BAO_TOKEN}}}"
+  cat <<'PRE'
+export BAO_ADDR="http://openbao.inf-bao.svc.cluster.local:8200"
+export BAO_TOKEN="$(cat /var/run/secrets/openbao/token)"
 PRE
 }
 
@@ -305,7 +300,7 @@ echo 'seeded ${agent}'
 
   # The one place the key crosses a process boundary, and it crosses on stdin.
   _shield_on
-  printf '%s' "$VALIDATED_KEY" | "$KUBECTL" exec -i -n "$BAO_NS" "$pod" -- sh -ec "$remote"
+  printf '%s' "$VALIDATED_KEY" | "$KUBECTL" exec -i -n "$BAO_NS" "$pod" -c bao -- sh -ec "$remote"
   local rc=$?
   _shield_off
   [ "$rc" -eq 0 ] || fail "OpenBao seed failed (exit ${rc})"
@@ -333,7 +328,7 @@ cmd_sync() {
   log "==> Reading the credential back from OpenBao"
   log "    path: ${path}"
   _shield_on
-  "$KUBECTL" exec -n "$BAO_NS" "$pod" -- sh -ec "$(bao_preamble)
+  "$KUBECTL" exec -n "$BAO_NS" "$pod" -c bao -- sh -ec "$(bao_preamble)
 bao kv get -field=value ${path}" >"$staged" 2>/dev/null || true
   _shield_off
 
@@ -397,7 +392,7 @@ cmd_verify() {
     sp="$(spiffe_path_for "$agent")"
     path="${KV_MOUNT}/agents/${sp}/anthropic/api-key"
     _shield_on
-    out="$("$KUBECTL" exec -n "$BAO_NS" "$pod" -- sh -ec "$(bao_preamble)
+    out="$("$KUBECTL" exec -n "$BAO_NS" "$pod" -c bao -- sh -ec "$(bao_preamble)
 bao kv get -field=value ${path}" 2>/dev/null || true)"
     len="${#out}"
     digest="$(printf '%s' "$out" | sha256sum | cut -c1-12)"

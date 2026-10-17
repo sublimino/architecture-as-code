@@ -9,8 +9,8 @@
 #   run_slet_p4_2_acceptance.sh --evidence-dir DIR   # keep metrics + transcripts
 #
 # Tier 2 needs an OpenBao token. It is taken from BAO_TOKEN if set; otherwise
-# it is read at runtime from the OpenBao Deployment, and ONLY if that server is
-# running in -dev mode (the kind demo cluster). It is never printed or written.
+# it is the current 15-minute inf-bao-admin token from deploy/openbao-admin
+# (SA-TODO-003: there is no static root token). It is never printed or written.
 # ==============================================================================
 set -euo pipefail
 
@@ -36,15 +36,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "${live}" == 1 && -z "${BAO_TOKEN:-}" ]]; then
-  args="$(kubectl --context "${context}" -n "${bao_ns}" get deploy openbao \
-    -o jsonpath='{.spec.template.spec.containers[0].args}')"
-  if [[ "${args}" != *'"-dev"'* ]]; then
-    echo "refusing: OpenBao in ${context}/${bao_ns} is not a -dev server; export BAO_TOKEN yourself" >&2
-    exit 3
-  fi
-  BAO_TOKEN="$(kubectl --context "${context}" -n "${bao_ns}" get deploy openbao \
-    -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="BAO_DEV_ROOT_TOKEN_ID")].value}')"
-  [[ -n "${BAO_TOKEN}" ]] || { echo "could not discover the dev token" >&2; exit 3; }
+  # shellcheck source=scripts/lib/bao-admin.sh
+  source "${here}/../lib/bao-admin.sh"
+  BAO_TOKEN="$(BAO_NAMESPACE="${bao_ns}" BAO_ADMIN_KUBECTL_ARGS="--context ${context}" bao_admin_token)"
+  [[ -n "${BAO_TOKEN}" ]] || { echo "could not get an inf-bao-admin token from deploy/openbao-admin" >&2; exit 3; }
   export BAO_TOKEN
 fi
 [[ "${live}" == 1 ]] && export SLET_LIVE_CLUSTER=1

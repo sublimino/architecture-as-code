@@ -12,10 +12,14 @@
 # openbao-init.yaml) and keeps a 15-minute token in a memory-backed file that
 # never leaves the pod. Host scripts run one bao command at a time:
 #
-#   kubectl -n inf-bao exec -i deploy/openbao-admin -c bao -- bao-admin <args>
+#   kubectl -n inf-bao exec deploy/openbao-admin -c bao -- bao-admin <args>
+#   kubectl -n inf-bao exec deploy/openbao-admin -c bao -- with-bao-admin sh -ec '<script>'
 #
-# `bao-admin` reads the token from the file and execs bao, so the token is
-# never on the host, on argv, or in kubectl's request.
+# Both read the token from the file and set it in their own environment, so
+# the token is never on the host, on argv, or in kubectl's request.
+# scripts/lib/bao-admin.sh wraps both for host scripts. The one exception is
+# bao_admin_token there, for tools that must call OpenBao over HTTP from the
+# host: it copies the current 15-minute token out, never a long-lived one.
 #
 # Exposure: anyone allowed `pods/exec` in inf-bao can act as inf-bao-admin.
 # That is the same set of people who can read Secret openbao-seal-key, which
@@ -65,6 +69,15 @@ data:
     BAO_TOKEN="$(cat /var/run/secrets/openbao/token)"
     export BAO_ADDR BAO_TOKEN
     exec bao "$@"
+  with-bao-admin: |
+    #!/bin/sh
+    # Run any command (typically `sh -ec '<several bao calls>'`) with
+    # BAO_ADDR and BAO_TOKEN set to inf-bao-admin. The token stays in this pod.
+    set -eu
+    BAO_ADDR="http://openbao.inf-bao.svc.cluster.local:8200"
+    BAO_TOKEN="$(cat /var/run/secrets/openbao/token)"
+    export BAO_ADDR BAO_TOKEN
+    exec "$@"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -139,8 +152,7 @@ spec:
             limits: {memory: 64Mi}
           volumeMounts:
             - name: config
-              mountPath: /etc/openbao/agent.hcl
-              subPath: agent.hcl
+              mountPath: /etc/openbao
               readOnly: true
             - name: wrapper
               mountPath: /opt/openbao-admin
@@ -162,6 +174,8 @@ spec:
             items:
               - key: bao-admin
                 path: bao-admin
+              - key: with-bao-admin
+                path: with-bao-admin
             defaultMode: 0555
         - name: spire-sockets
           hostPath:

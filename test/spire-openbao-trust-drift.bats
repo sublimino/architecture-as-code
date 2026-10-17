@@ -97,7 +97,6 @@
 # rather than comparing lengths.
 
 BAO_NAMESPACE="${BAO_NAMESPACE:-inf-bao}"
-BAO_ROOT_TOKEN="${BAO_ROOT_TOKEN:-signalloom-demo-root-token}"
 
 setup_file() {
   export ANCHOR_ROOT="$(cd "${BATS_TEST_FILENAME%/*}/.." && pwd)"
@@ -126,7 +125,7 @@ setup() {
   # Catches the never-synced and the wiped-config cases, which the membership
   # test below cannot distinguish from a total rotation on its own. An empty
   # auth/jwt/config fails every login exactly like a drifted one.
-  run openbao_jwt_validation_keys "$BAO_NAMESPACE" "$BAO_ROOT_TOKEN"
+  run openbao_jwt_validation_keys "$BAO_NAMESPACE"
   [ "$status" -eq 0 ]
   [ -n "$output" ]
 }
@@ -154,12 +153,12 @@ setup() {
   der="$output"
   [ -n "$der" ]
 
-  openbao_jwt_validation_keys "$BAO_NAMESPACE" "$BAO_ROOT_TOKEN" >"$BATS_TEST_TMPDIR/bao.txt"
+  openbao_jwt_validation_keys "$BAO_NAMESPACE" >"$BATS_TEST_TMPDIR/bao.txt"
   if ! grep -Fqx "$der" "$BATS_TEST_TMPDIR/bao.txt"; then
     printf 'ACTIVE SPIRE JWT authority %s is ABSENT from OpenBao auth/jwt/config.\n' "$active_kid" >&2
     printf 'Every SPIFFE->OpenBao login is failing NOW with "no known key successfully validated the token signature".\n' >&2
     printf 'Affected roles: agent-trust-planner, agent-trust-triage, signalloom-cardvault-agent, signalloom-fe-signalloom.\n' >&2
-    printf 'Re-sync with: sync_openbao_jwt_validation %s <root-token> (scripts/lib/spire-trust-anchor.sh)\n' "$BAO_NAMESPACE" >&2
+    printf 'Re-sync with: sync_openbao_jwt_validation %s (scripts/lib/spire-trust-anchor.sh)\n' "$BAO_NAMESPACE" >&2
     return 1
   fi
 }
@@ -196,13 +195,13 @@ setup() {
 
   run env PATH="$stub:$PATH" bash -c "
     source '$root/scripts/lib/spire-trust-anchor.sh'
-    assert_openbao_accepts_spire_jwt_keys '$BAO_NAMESPACE' '$BAO_ROOT_TOKEN'
+    assert_openbao_accepts_spire_jwt_keys '$BAO_NAMESPACE'
   "
   [ "$status" -ne 0 ]
 }
 
 @test "OpenBao accepts every JWT-SVID key SPIRE currently publishes" {
-  run assert_openbao_accepts_spire_jwt_keys "$BAO_NAMESPACE" "$BAO_ROOT_TOKEN"
+  run assert_openbao_accepts_spire_jwt_keys "$BAO_NAMESPACE"
   if [ "$status" -ne 0 ]; then
     printf '%s\n' "$output" >&2
     printf 'A SPIRE key rotation is pending or complete and OpenBao holds a stale snapshot.\n' >&2

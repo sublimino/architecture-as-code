@@ -52,8 +52,7 @@ done
 
 KC() { kubectl --context "${SLAAT_KUBE_CONTEXT}" "$@"; }
 BAO() {
-  KC -n "${SLAAT_BAO_NAMESPACE}" exec deploy/openbao -- sh -c "
-    export BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token
+  KC -n "${SLAAT_BAO_NAMESPACE}" exec deploy/openbao-admin -c bao -- with-bao-admin sh -c "
     $1
   " 2>/dev/null | tr -d '\r'
 }

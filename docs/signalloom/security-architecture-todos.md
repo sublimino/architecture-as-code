@@ -161,8 +161,8 @@ delete the sealing key Secret.
 **Blocker (found 2026-10-17).** The OpenBao server in `inf-bao` cannot hold
 these credentials yet. It runs `bao server -dev` from image
 `quay.io/openbao/openbao:2.1.1`. In dev mode, storage is `inmem` and HA
-is off. There is one Shamir key share, and the root token is the static value
-`signalloom-demo-root-token`. A pod restart loses every secret. The manifest is
+is off. There is one Shamir key share, and the root token is a static value in
+the manifest. A pod restart loses every secret. The manifest is
 [`openbao-spire.yaml`](../../d2-signalloom/infra/inf-bao/controllers/base/openbao-spire.yaml).
 If connector credentials moved there now, a restart would erase them, and the
 old sealed copies would be gone after migration. The credential move waits
@@ -247,9 +247,9 @@ through GitOps. Each step is one commit with a test.
    in with `inf-bao-admin`. Their `bao` commands stay the same and stay
    idempotent. Add `kustomize.toolkit.fluxcd.io/force: Enabled` where a pod
    template changes.
-6. Change the host scripts to get a token as in decision 2. Remove
-   `signalloom-demo-root-token` from every tracked file. Add a test that fails
-   if the string comes back.
+6. Change the host scripts to get a token as in decision 2. Remove the
+   static root token from every tracked file. Add a test that fails if it
+   comes back.
 7. Proof: restart the OpenBao pod. Check that `kv/signalloom/fe-signalloom`
    is still there, that every role still logs in, and that the
    `bao-spire-positive-proof` Job passes.

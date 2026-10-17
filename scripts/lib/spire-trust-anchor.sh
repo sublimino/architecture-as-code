@@ -413,12 +413,19 @@ spire_jwt_key_der_for_kid() {
 # Every key OpenBao will currently accept a JWT-SVID signature from, one per
 # line, in the same encoding as spire_jwt_svid_keys.
 # Supports both dynamic jwks_url discovery and static jwt_validation_pubkeys.
+# Run one bao command as inf-bao-admin inside deploy/openbao-admin (SA-TODO-003:
+# there is no static root token). Self-contained rather than sourcing
+# scripts/lib/bao-admin.sh, because the spire-openbao-sync CronJob mounts this
+# file alone from ConfigMap spire-trust-anchor-lib.
+_spire_bao_admin() {
+  local namespace="$1"; shift
+  kubectl -n "$namespace" exec deployment/openbao-admin -c bao -- bao-admin "$@"
+}
+
 openbao_jwt_validation_keys() {
-  local namespace="$1" token="$2" config encoded pem jwks_url jwks_body jwk_out
+  local namespace="$1" config encoded pem jwks_url jwks_body jwk_out
   local -a encoded_pems=() jwks=()
-  config="$(kubectl -n "$namespace" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$token" \
-    bao read -format=json auth/jwt/config)" || return 1
+  config="$(_spire_bao_admin "$namespace" read -format=json auth/jwt/config)" || return 1
 
   jwks_url="$(jq -r '.data.jwks_url // empty' <<<"$config")"
   if [[ -n "$jwks_url" ]]; then
@@ -458,13 +465,11 @@ openbao_jwt_validation_keys() {
 
 # Point OpenBao at the live SPIRE OIDC discovery provider JWKS endpoint.
 sync_openbao_jwt_validation() {
-  local namespace="$1" token="$2"
+  local namespace="$1"
   local jwks_url="http://spire-oidc.${namespace}.svc.cluster.local:8008/keys"
-  kubectl -n "$namespace" exec deployment/openbao -- env \
-    BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$token" \
-    bao write auth/jwt/config jwks_url="$jwks_url" || {
-    printf 'sync_openbao_jwt_validation: OpenBao refused jwks_url write — check BAO_TOKEN validity and openbao pod health\n' >&2
-    printf 'Recovery: kubectl -n %s exec deployment/openbao -- env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=<token> bao status\n' "$namespace" >&2
+  _spire_bao_admin "$namespace" write auth/jwt/config jwks_url="$jwks_url" || {
+    printf 'sync_openbao_jwt_validation: OpenBao refused jwks_url write — check the openbao-admin pod (inf-bao-admin token) and openbao pod health\n' >&2
+    printf 'Recovery: kubectl -n %s exec deployment/openbao-admin -c bao -- bao-admin status\n' "$namespace" >&2
     return 1
   }
   printf 'sync_openbao_jwt_validation: configured OpenBao auth/jwt/config with live jwks_url=%s\n' "$jwks_url"
@@ -474,16 +479,14 @@ sync_openbao_jwt_validation() {
 # SPIRE's live bundle and OpenBao's live config (dynamic jwks_url or static keys) —
 # so neither can be satisfied by a hardcoded expectation that has quietly stopped being true.
 assert_openbao_accepts_spire_jwt_keys() {
-  local namespace="$1" token="$2" key held found spire_out bao_out config jwks_url
+  local namespace="$1" key held found spire_out bao_out config jwks_url
   local -a spire_keys=() bao_keys=()
 
-  config="$(kubectl -n "$namespace" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$token" \
-    bao read -format=json auth/jwt/config)" || return 1
+  config="$(_spire_bao_admin "$namespace" read -format=json auth/jwt/config)" || return 1
   jwks_url="$(jq -r '.data.jwks_url // empty' <<<"$config")"
 
   spire_out="$(spire_jwt_svid_keys "$namespace")" || return 1
-  bao_out="$(openbao_jwt_validation_keys "$namespace" "$token")" || return 1
+  bao_out="$(openbao_jwt_validation_keys "$namespace")" || return 1
   [[ -n "$spire_out" ]] || {
     printf 'refusing to compare: SPIRE returned no JWT-SVID keys\n' >&2
     return 1

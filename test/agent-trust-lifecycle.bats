@@ -18,7 +18,6 @@ if [[ "$*" == *'get daemonset -o json'* ]]; then
 fi
 if [[ "$*" == *'api-resources --api-group=networking.k8s.io -o name'* ]]; then printf 'networkpolicies\n'; fi
 if [[ "$*" == *'get pods -l app.kubernetes.io/name=agent-trust-triage'* ]]; then printf 'triage-0|true,\n'; fi
-if [[ "$*" == *'get deployment openbao -o json'* ]]; then printf '%s\n' '{"spec":{"template":{"spec":{"containers":[{"name":"openbao","env":[{"name":"BAO_DEV_ROOT_TOKEN_ID","value":"fixture-admin-token"}]}]}}}}'; fi
 # Carries bound_subject/bound_audiences/token_policies as well as the lifetime.
 # The old fixture returned lifetime only, so verify's identity-binding assertions
 # had nothing to bind against — dropping bound_subject from role creation left
@@ -66,7 +65,8 @@ if [[ "$*" == *'spire-server bundle show -format spiffe'* ]]; then
   fi
   printf '{"keys":[%s]}\n' "$at_jwks"
 fi
-if [[ "$*" == *'bao read -format=json auth/jwt/config'* ]]; then
+# `bao-admin read` since SA-TODO-003 (the lib execs into deploy/openbao-admin).
+if [[ "$*" == *'read -format=json auth/jwt/config'* ]]; then
   printf '%s\n' '{"data":{"jwt_validation_pubkeys":["-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEUpawTyaemo3XLu2reqdiHkJq8LBH\nhNJvd1TXaHkp42iByFgC0eHVUyv4hBkUufFUbNamihMAaLpGuNNxlT/VUQ==\n-----END PUBLIC KEY-----"]}}'
 fi
 # Must echo the SELECTORS, not just an Entry ID. verify asserts k8s:ns/k8s:sa

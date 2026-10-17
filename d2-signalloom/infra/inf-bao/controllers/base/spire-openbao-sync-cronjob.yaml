@@ -58,7 +58,8 @@ data:
     set -euo pipefail
 
     NAMESPACE="${NAMESPACE:-inf-bao}"
-    BAO_ROOT_TOKEN="${BAO_ROOT_TOKEN:-signalloom-demo-root-token}"
+    # No token here (SA-TODO-003): sync_openbao_jwt_validation execs into
+    # deploy/openbao-admin, which holds a short-lived inf-bao-admin token.
 
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     # shellcheck source=scripts/lib/spire-trust-anchor.sh
@@ -69,7 +70,7 @@ data:
     printf '[%s] spire-openbao-sync: starting key sync in namespace %s\n' \
       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$NAMESPACE"
 
-    if sync_openbao_jwt_validation "$NAMESPACE" "$BAO_ROOT_TOKEN"; then
+    if sync_openbao_jwt_validation "$NAMESPACE"; then
       printf '[%s] spire-openbao-sync: SUCCESS\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     else
       printf '[%s] spire-openbao-sync: FAILED — see errors above\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >&2
@@ -119,8 +120,6 @@ spec:
                   valueFrom:
                     fieldRef:
                       fieldPath: metadata.namespace
-                - name: BAO_ROOT_TOKEN
-                  value: signalloom-demo-root-token
               volumeMounts:
                 - name: sync-script
                   mountPath: /scripts/sync.sh

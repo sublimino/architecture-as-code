@@ -19,14 +19,58 @@ spec:
   template:
     spec:
       restartPolicy: OnFailure
+      # Administer OpenBao as inf-bao-admin (SA-TODO-003): no static token.
+      # The pod runs as openbao-admin, so SPIRE issues it
+      # spiffe://signalloom.demo/ns/inf-bao/sa/openbao-admin; admin-login
+      # trades that JWT-SVID for a 15m token in /work/home/.vault-token, which
+      # the bao CLI reads. Retries cover openbao-init and the SPIRE entry
+      # landing after this Job on a cold start.
+      serviceAccountName: openbao-admin
+      initContainers:
+        - name: admin-login
+          image: signalloom-spire-helper:local
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              mkdir -p /work/home
+              i=0
+              until /usr/local/bin/signalloom-spire-proof write --audience openbao \
+                      --socket /run/spire/sockets/agent.sock --output /work/jwt \
+                    && /usr/local/bin/signalloom-spire-proof exchange \
+                      --address http://openbao.inf-bao.svc.cluster.local:8200 \
+                      --role inf-bao-admin --jwt /work/jwt \
+                      --output /work/home/.vault-token; do
+                i=$((i + 1))
+                [ "$i" -le 60 ] || { echo "admin-login: no inf-bao-admin token after 300s" >&2; exit 1; }
+                sleep 5
+              done
+              rm -f /work/jwt
+              # The configure container runs as a different uid; the file lives
+              # in this pod's memory-backed emptyDir only.
+              chmod 0444 /work/home/.vault-token
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - name: work
+              mountPath: /work
+            - name: spire-socket
+              mountPath: /run/spire/sockets
+              readOnly: true
       containers:
         - name: configure
           image: quay.io/openbao/openbao:2.7.1
           env:
             - name: BAO_ADDR
               value: http://openbao.inf-bao.svc.cluster.local:8200
-            - name: BAO_TOKEN
-              value: signalloom-demo-root-token
+            - name: HOME
+              value: /work/home
+          volumeMounts:
+            - name: work
+              mountPath: /work
+              readOnly: true
           command:
             - sh
             - -ec
@@ -129,3 +173,12 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
+      volumes:
+        - name: work
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: spire-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: Directory

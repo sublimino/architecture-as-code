@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
 import { login, config } from "./helpers";
 import { newAuthedContext, supercred, watchForNavigation } from "./supercred-helpers";
@@ -19,6 +20,21 @@ function isReachable(urlStr: string): boolean {
 
 const deployed = supercred.agentDeployed();
 const reachable = isReachable(config.base);
+
+/**
+ * The fleet's ALE is refused, not priced, before the stun, during the cascade
+ * and after recovery. Since da688c45c the fleet-manager answers aggregateRisk
+ * with pricing.status AUTHORED_NOT_COMPUTED: fleet.yaml's figures are typed
+ * configuration and no fleet risk model exists, so serving them would present
+ * a manifest value as a measurement. The audience must see that refusal and
+ * its reason, never a number (the old 12,400 / 847,000 figures).
+ */
+async function expectFleetRiskRefused(audience: Page): Promise<void> {
+  await expect(audience.locator('[data-testid="fleet-risk-ale"]')).toHaveText("Unavailable", { timeout: 30_000 });
+  await expect(audience.locator('[data-testid="fleet-risk-unpriced-reason"]')).toContainText(
+    /authored configuration, not a computation/,
+  );
+}
 
 test.describe("Fleet cascade demo: instructor window and audience window", () => {
   test.skip(
@@ -91,9 +107,7 @@ test.describe("Fleet cascade demo: instructor window and audience window", () =>
       await expect(audience.locator("[data-testid=\"fleet-risk-gauge\"]")).toBeVisible({
         timeout: 30_000,
       });
-      await expect(audience.locator("[data-testid=\"fleet-risk-ale\"]")).toContainText(/(12,400|15,696)/, {
-        timeout: 30_000,
-      });
+      await expectFleetRiskRefused(audience);
 
       await expect(audience.locator("[data-testid=\"fleet-node-agent-cardvault\"]")).toHaveAttribute(
         "data-agent-state",
@@ -146,9 +160,7 @@ test.describe("Fleet cascade demo: instructor window and audience window", () =>
         { timeout: 30_000 },
       );
 
-      await expect(audience.locator("[data-testid=\"fleet-risk-ale\"]")).toContainText(/(847,000|1\.1M|1,072,133)/, {
-        timeout: 30_000,
-      });
+      await expectFleetRiskRefused(audience);
 
       await expect(audience.locator("[data-testid=\"fleet-node-agent-monitor\"]")).toHaveAttribute(
         "data-agent-state",
@@ -184,9 +196,7 @@ test.describe("Fleet cascade demo: instructor window and audience window", () =>
         { timeout: 30_000 },
       );
 
-      await expect(audience.locator("[data-testid=\"fleet-risk-ale\"]")).toContainText(/(12,400|15,696)/, {
-        timeout: 30_000,
-      });
+      await expectFleetRiskRefused(audience);
 
       await expect(audience.locator("[data-testid=\"fleet-node-agent-monitor\"]")).toHaveAttribute(
         "data-agent-state",

@@ -106,6 +106,16 @@ describe("Fetcher cache", () => {
     expect(two.calls.length).toBe(1);
   });
 
+  test("an unwritable cache dir degrades to no disk cache instead of crashing", async () => {
+    const url = "https://pypi.org/pypi/x/json";
+    const { http, calls } = fakeHttp({ [url]: { json: {} } });
+    const f = new Fetcher({ http, cacheDir: "/proc/nope/sl-upgrade-scan", now: () => NOW });
+    expect(f.cacheWarning).toContain("/proc/nope/sl-upgrade-scan");
+    const r = await f.get(url);
+    expect(r.status).toBe(200);
+    expect(calls.length).toBe(1);
+  });
+
   test("the GitHub token is sent to api.github.com only", async () => {
     const { http, calls } = fakeHttp({ [GH_BAO]: baoRoutes[GH_BAO], "https://pypi.org/pypi/x/json": { json: {} } });
     const f = new Fetcher({ http, cacheDir: null, now: () => NOW, githubToken: "t0k" });

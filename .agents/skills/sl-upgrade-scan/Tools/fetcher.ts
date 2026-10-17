@@ -68,8 +68,18 @@ export class Fetcher {
     this.ttlMs = o.ttlMs ?? 6 * 3600_000;
     this.now = o.now ?? (() => new Date());
     this.token = o.githubToken ?? null;
-    if (this.cacheDir) mkdirSync(this.cacheDir, { recursive: true });
+    if (this.cacheDir) {
+      try {
+        mkdirSync(this.cacheDir, { recursive: true });
+      } catch (e) {
+        // A sandbox or read-only home must not stop the scan; it only costs repeat fetches.
+        this.cacheWarning = `disk cache disabled: cannot create ${this.cacheDir} (${(e as Error).message})`;
+        this.cacheDir = null;
+      }
+    }
   }
+
+  cacheWarning: string | null = null;
 
   /** Fetch with caching. `noCache` is for short-lived responses such as registry tokens. */
   get(url: string, req: Omit<HttpRequest, "url"> & { noCache?: boolean } = {}): Promise<FetchResult> {

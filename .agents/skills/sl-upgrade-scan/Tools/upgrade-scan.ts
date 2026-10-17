@@ -246,6 +246,7 @@ export async function main(argv: string[]): Promise<number> {
     githubToken: githubToken(!!fixtures),
   });
   const run: Runner = execRunner;
+  if (f.cacheWarning) console.error(`upgrade-scan: ${f.cacheWarning}`);
   console.error(`upgrade-scan: ${items.length} items; resolving latest versions...`);
   const resolutions = await pool(items, o.concurrency, (it) => resolveLatest(it, f, { includePrereleases: o.includePre }));
   const eols = await pool(items, o.concurrency, (it) => eolFor(it, f));
@@ -276,6 +277,7 @@ export async function main(argv: string[]): Promise<number> {
 
   const ranked = rank(findings);
   const notes: string[] = [];
+  if (f.cacheWarning) notes.push(f.cacheWarning);
   if (f.githubLimited) notes.push(`GitHub API rate limit exhausted (resets ${f.githubLimited.resetAt}); affected items are listed as rate-limited, not guessed.`);
   if (o.imageScanner === "none") notes.push("Image CVEs were not scanned (use --image-scanner grype). Package CVEs come from OSV.");
   const sbomInfo = o.sbomOut ? await sbom(root, o.sbomOut, run) : null;

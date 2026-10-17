@@ -36,7 +36,7 @@ test.describe("RBAC analysis importer", () => {
     // With one known cluster the panel renders it as static text, not a
     // <select> (RbacImporterPanel, since f4b74cebd); which one appears depends
     // on how many clusters AFM has imported, so assert "local" either way.
-    if ((await clusterSelect.evaluate(el => el.tagName)) === "SELECT") {
+    if ((await importer.locator('select[data-testid="importer-cluster-select"]').count()) === 1) {
       await clusterSelect.selectOption("local");
     } else {
       await expect(clusterSelect).toHaveText(/\(local\)$/);

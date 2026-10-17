@@ -61,14 +61,10 @@ test.describe("Policy save sends engine rules only", () => {
     const chips = page.locator('[data-testid^="rule-tab-"]');
     await expect.poll(async () => chips.count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(engineIds.size);
     for (const id of engineIds) await expect(page.getByTestId(`rule-tab-${id}`)).toHaveCount(1);
-    const chipIds = (await chips.evaluateAll((els) => els.map((e) => e.getAttribute("data-testid") ?? ""))).map((t) =>
-      t.replace(/^rule-tab-/, ""),
-    );
-    const catalogueOnlyIds = (
-      await page
-        .locator('[data-testid^="rule-catalogue-only-"]')
-        .evaluateAll((els) => els.map((e) => e.getAttribute("data-testid") ?? ""))
-    ).map((t) => t.replace(/^rule-catalogue-only-/, ""));
+    const testIds = async (selector: string, prefix: string) =>
+      Promise.all((await page.locator(selector).all()).map(async (l) => ((await l.getAttribute("data-testid")) ?? "").replace(prefix, "")));
+    const chipIds = await testIds('[data-testid^="rule-tab-"]', "rule-tab-");
+    const catalogueOnlyIds = await testIds('[data-testid^="rule-catalogue-only-"]', "rule-catalogue-only-");
     expect([...chipIds].sort()).toEqual([...new Set([...engineIds, ...catalogueOnlyIds])].sort());
     expect(catalogueOnlyIds.filter((id) => engineIds.has(id))).toEqual([]);
 

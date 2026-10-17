@@ -175,6 +175,11 @@ test.describe("SuperCred demo page", () => {
     const stun = page.getByRole("button", { name: /stun agent/i }).first();
     await expect(stun).toBeVisible();
     await stun.click();
+    // A stun needs a recorded reason and a confirm step since 73d154aa0.
+    const reason = page.getByRole("textbox", { name: /reason for stunning/i });
+    await expect(reason).toBeVisible();
+    await reason.fill("Compliance failure: securityContext not set (acceptance: supercred-page.spec.ts)");
+    await page.getByRole("button", { name: "Confirm stun", exact: true }).click();
 
     const result = page.getByTestId("supercred-stun-result");
     await expect(result).toBeVisible({ timeout: 30_000 });

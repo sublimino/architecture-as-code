@@ -210,9 +210,13 @@ test.describe("SuperCred demo page", () => {
     });
 
     await expect(page.getByTestId("supercred-lifecycle")).toBeVisible();
-    await expect(page.getByTestId("supercred-lifecycle-steps").locator("> div")).toHaveCount(6);
-    // Step 6 is the platform's response — it must show failure once stunned.
-    await expect(page.getByTestId("lifecycle-status-6")).toHaveText(/failed/i);
+    // 6f6bc2140 replaced the six hard-coded lifecycle steps with the observed
+    // evidence chain (CredentialEvidencePanel, scripts/supercred-evidence.sh).
+    const steps = page.getByTestId("supercred-lifecycle").locator('[data-testid^="evidence-step-"]');
+    await expect(steps).toHaveCount(6, { timeout: 30_000 });
+    // Step 6 is the platform's response: once stunned, the secret and JWT role
+    // are observed gone ("observed"), not merely labelled.
+    await expect(page.getByTestId("evidence-state-6")).toHaveText("observed");
 
     const credentials = page.getByTestId("supercred-credentials");
     await expect(credentials).toBeVisible();

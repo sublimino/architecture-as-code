@@ -841,7 +841,7 @@ run_stage \
      test/k8s-afm-preflight.bats test/keys-dir-path-safety.bats \
      test/connector-credential-key.bats \
      test/postgres-superuser-secret.bats test/openbao-secrets.bats \
-     test/bao-admin-lib.bats \
+     test/bao-admin-lib.bats test/openbao-migrate.bats \
      test/openbao-no-static-root-token.bats \
      test/kind-config-heredoc.bats test/kind-load-verified.bats \
      test/node-doctor.bats test/prelive-node-ready.bats \

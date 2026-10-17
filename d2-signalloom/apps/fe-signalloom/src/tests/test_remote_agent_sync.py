@@ -15,7 +15,8 @@ import httpx
 import pytest
 import respx
 
-import connector_credentials
+import connector_secret_store
+from tests.connector_secret_store_fake import FakeKvStore
 import remote_agent_sync as ras
 from tests.remote_agent_store_fake import FakeRemoteAgentPool
 
@@ -36,16 +37,19 @@ class Clock:
 
 
 @pytest.fixture
-def key_env(monkeypatch, tmp_path: Path):
-    path = tmp_path / "k"
-    path.write_text(secrets.token_hex(32) + "\n")
-    monkeypatch.setenv(connector_credentials.KEY_FILE_ENV, str(path))
+def key_env():
+    """The credential store: OpenBao KV v2 (SA-TODO-003), here its in-memory fake."""
+    kv = FakeKvStore()
+    connector_secret_store.set_store_for_testing(kv)
+    yield kv
+    connector_secret_store.set_store_for_testing(None)
 
 
 def _pool_with(*connectors: tuple[str, str, str, dict[str, str]]) -> FakeRemoteAgentPool:
     pool = FakeRemoteAgentPool()
     for tenant, cid, provider, creds in connectors:
-        pool.seed_connector(tenant, cid, provider, connector_credentials.seal_credentials(tenant, cid, creds))
+        ref, version = connector_secret_store.get_store().put(tenant, cid, creds)
+        pool.seed_connector(tenant, cid, provider, ref, version)
     return pool
 
 

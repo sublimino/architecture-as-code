@@ -84,9 +84,8 @@ kubectl -n inf-bao exec deployment/spire-server -c oidc-provider -- \
 
 # 3. Switch OpenBao from static keys to live JWKS
 # WARNING: this clears jwt_validation_pubkeys — the switch is atomic
-kubectl -n inf-bao exec deployment/openbao -- env \
-  BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$BAO_ROOT_TOKEN" \
-  bao write auth/jwt/config \
+kubectl -n inf-bao exec deployment/openbao-admin -c bao -- \
+  bao-admin write auth/jwt/config \
     jwks_url="http://spire-oidc.inf-bao.svc.cluster.local:8008/keys"
 
 # 4. Verify a SPIFFE login still works
@@ -109,7 +108,7 @@ If the OIDC provider fails, revert to static keys:
 ```bash
 # Re-sync static keys from SPIRE → OpenBao
 source scripts/lib/spire-trust-anchor.sh
-sync_openbao_jwt_validation inf-bao signalloom-demo-root-token
+sync_openbao_jwt_validation inf-bao
 ```
 
 This writes `jwt_validation_pubkeys`, which clears `jwks_url` atomically.

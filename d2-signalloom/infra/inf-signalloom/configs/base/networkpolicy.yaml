@@ -118,3 +118,28 @@ spec:
     - group: ""
       kind: Service
       name: dex
+---
+# OpenBao (inf-bao) keeps its storage in this Postgres, database `openbao`.
+# Only the OpenBao pod, only 5432. Pair of allow-openbao-storage-egress in
+# inf-bao.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-openbao-storage-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inf-bao
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openbao
+      ports:
+        - protocol: TCP
+          port: 5432

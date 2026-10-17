@@ -127,6 +127,8 @@ class FakeConnectorPool:
     def _public(row: dict[str, Any], *, full: bool = False) -> dict[str, Any]:
         out = {c: row.get(c) for c in _COLUMNS}
         if full:
+            out["credentials_ref"] = row.get("credentials_ref")
+            out["credentials_version"] = row.get("credentials_version")
             out["credentials_ciphertext"] = row.get("credentials_ciphertext")
             out["last_scan_result"] = row.get("last_scan_result")
         return out
@@ -157,7 +159,7 @@ class FakeConnectorPool:
             return [self._public(hit, full=True)] if hit else []
 
         if op == "insert":
-            _, connector_id, provider_id, display_name, expires, metadata, ciphertext, created_at = args
+            _, connector_id, provider_id, display_name, expires, metadata, ref, version, created_at = args
             if (tenant, connector_id) in self.connectors or any(
                     r["provider_id"] == provider_id for r in self._tenant_rows(tenant)):
                 raise AssertionError("unique violation on tenant_connectors")
@@ -166,7 +168,8 @@ class FakeConnectorPool:
                 "display_name": display_name, "status": "connected", "credential_expires_at": expires,
                 "last_tested_at": None, "last_scan_at": None, "last_scan_status": None,
                 "last_scan_error": None, "metadata": metadata, "created_at": created_at,
-                "credentials_ciphertext": ciphertext, "last_scan_result": None,
+                "credentials_ref": ref, "credentials_version": version,
+                "credentials_ciphertext": None, "last_scan_result": None,
             }
             return None
 
@@ -175,16 +178,19 @@ class FakeConnectorPool:
             return []
 
         if op == "reconnect":
-            _, _, display_name, metadata, expires, ciphertext = args
+            _, _, display_name, metadata, expires, ref, version = args
             row.update(status="connected", display_name=display_name, metadata=metadata,
                        credential_expires_at=expires)
-            if ciphertext is not None:
-                row["credentials_ciphertext"] = ciphertext
+            if ref is not None:
+                # New credentials replace the reference and drop any old ciphertext,
+                # as the CHECK in migration 078 requires.
+                row.update(credentials_ref=ref, credentials_version=version, credentials_ciphertext=None)
         elif op == "set_status":
             row["status"] = args[2]
             return [self._public(row)]
         elif op == "disconnect":
-            row.update(status="disconnected", credentials_ciphertext=None, last_scan_result=None)
+            row.update(status="disconnected", credentials_ref=None, credentials_version=None,
+                       credentials_ciphertext=None, last_scan_result=None)
         elif op == "stamp_tested":
             row["last_tested_at"] = args[2]
         elif op == "record_scan":

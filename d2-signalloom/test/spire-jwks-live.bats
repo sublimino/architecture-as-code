@@ -31,8 +31,8 @@ setup() {
 
 @test "OpenBao auth/jwt/config is configured with live jwks_url" {
   local jwks_url
-  jwks_url=$(kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token \
+  jwks_url=$(kubectl -n "$NAMESPACE_BAO" exec deployment/openbao-admin -c bao -- \
+    with-bao-admin \
     bao read -format=json auth/jwt/config | jq -r '.data.jwks_url // empty')
   [ -n "$jwks_url" ]
   [[ "$jwks_url" == *"spire-oidc"*":8008/keys" ]]
@@ -59,7 +59,7 @@ setup() {
   local repo_root
   repo_root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   source "${repo_root}/scripts/lib/spire-trust-anchor.sh"
-  run assert_openbao_accepts_spire_jwt_keys "$NAMESPACE_BAO" signalloom-demo-root-token
+  run assert_openbao_accepts_spire_jwt_keys "$NAMESPACE_BAO"
   [ "$status" -eq 0 ]
   [[ "$output" == *"live jwks_url"* ]]
 }

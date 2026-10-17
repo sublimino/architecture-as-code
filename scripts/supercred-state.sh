@@ -50,7 +50,6 @@ NAMESPACE_INFRA="${NAMESPACE_INFRA:-inf-signalloom}"
 NAMESPACE_BAO="${NAMESPACE_BAO:-inf-bao}"
 NAMESPACE_AGENTS="${NAMESPACE_AGENTS:-fe-signalloom-agents}"
 SPIFFE_ID="${SPIFFE_ID:-spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent}"
-BAO_TOKEN="${BAO_TOKEN:-signalloom-demo-root-token}"
 
 # agents-cardvault.yaml says `namespace: fe-signalloom-agents`, but the Flux
 # Kustomization's targetNamespace can relocate the pod to fe-signalloom. Probe
@@ -77,8 +76,8 @@ exists() {
 
 # Runs a `bao` command inside the OpenBao pod. Returns its exit status.
 bao_exec() {
-  k -n "$NAMESPACE_BAO" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$BAO_TOKEN" "$@" >/dev/null 2>&1
+  k -n "$NAMESPACE_BAO" exec deployment/openbao-admin -c bao -- \
+    with-bao-admin "$@" >/dev/null 2>&1
 }
 
 spire_pod() {

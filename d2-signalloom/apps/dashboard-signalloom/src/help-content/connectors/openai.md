@@ -48,7 +48,8 @@ dashboard:
   reference. OpenAI's Admin API has no endpoint to look up or verify an org
   ID, so this is stored but not checked against anything.
 
-Signal Loom stores the key encrypted; it is never displayed again after
+Signal Loom stores the key in its OpenBao secrets store, under your tenant;
+it is never displayed again after
 initial entry.
 
 ## What gets scanned

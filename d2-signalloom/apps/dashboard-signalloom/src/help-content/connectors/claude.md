@@ -67,7 +67,8 @@ On the connector setup screen in your Signal Loom dashboard:
   Workspace ID (Console → Settings → Workspaces) and test again."
 - **Admin API Key** (optional): stored, not used.
 
-Signal Loom stores the key encrypted. It is never displayed again after
+Signal Loom stores the key in its OpenBao secrets store, under your tenant.
+It is never displayed again after
 initial entry.
 
 ## What you see after a scan

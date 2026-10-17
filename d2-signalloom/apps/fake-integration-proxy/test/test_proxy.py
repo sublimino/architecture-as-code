@@ -1039,7 +1039,7 @@ class NetworkTestsTestCase(ProxyServerTestCase):
         self.assertIn("agents-to-postgresql-denied", names)
 
     def test_catalogue_contains_the_latest_canonical_suite_metadata(self):
-        self.assertEqual(26, len(server.NETWORK_TEST_DEFINITIONS))
+        self.assertEqual(28, len(server.NETWORK_TEST_DEFINITIONS))
         by_name = {test["id"]: test for test in server.NETWORK_TEST_CATALOGUE}
         self.assertEqual(
             {
@@ -1066,7 +1066,7 @@ class NetworkTestsTestCase(ProxyServerTestCase):
         self.assertEqual("pass", parsed.results["dashboard-to-api-allowed"])
         self.assertEqual("fail", parsed.results["dashboard-to-postgresql-denied"])
 
-    def test_tap_parser_accepts_wrapped_yaml_diagnostics_in_twenty_six_results(self):
+    def test_tap_parser_accepts_wrapped_yaml_diagnostics_in_twenty_eight_results(self):
         rows = []
         failures = {20, 21}
         for number, definition in enumerate(server.NETWORK_TEST_DEFINITIONS, start=1):
@@ -1075,7 +1075,7 @@ class NetworkTestsTestCase(ProxyServerTestCase):
             if number in failures:
                 rows.extend(("  ---", f"  message: connection denied for result {number}", "  ..."))
         parsed = server._parse_tap_results(
-            f"{server.NETASSERT_TAP_MARKER}\nTAP version 13\n1..26\n"
+            f"{server.NETASSERT_TAP_MARKER}\nTAP version 13\n1..28\n"
             + "\n".join(rows)
             + "\n"
         )

@@ -412,3 +412,29 @@
     k8sResource: {kind: deployment, name: supercred-demo-runner, namespace: fe-signalloom}
   dst:
     k8sResource: {kind: deployment, name: coredns, namespace: kube-system}
+
+# OpenBao keeps its storage in the inf-signalloom Postgres (SA-TODO-003).
+- name: openbao-to-postgresql-allowed
+  type: k8s
+  protocol: tcp
+  targetPort: 5432
+  timeoutSeconds: 15
+  attempts: 2
+  exitCode: 0
+  src:
+    k8sResource: {kind: deployment, name: openbao, namespace: inf-bao}
+  dst:
+    k8sResource: {kind: deployment, name: postgresql, namespace: inf-signalloom}
+
+# Only the OpenBao pod: its neighbour SPIRE must not reach Postgres.
+- name: spire-server-to-postgresql-denied
+  type: k8s
+  protocol: tcp
+  targetPort: 5432
+  timeoutSeconds: 15
+  attempts: 2
+  exitCode: 1
+  src:
+    k8sResource: {kind: deployment, name: spire-server, namespace: inf-bao}
+  dst:
+    k8sResource: {kind: deployment, name: postgresql, namespace: inf-signalloom}

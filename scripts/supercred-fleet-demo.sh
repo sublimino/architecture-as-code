@@ -25,7 +25,6 @@ NAMESPACE_INFRA="inf-signalloom"
 NAMESPACE_BAO="inf-bao"
 NAMESPACE_AGENTS="fe-signalloom-agents"
 PARENT_ID="spiffe://signalloom.demo/agent/kind"
-BAO_ROOT_TOKEN="signalloom-demo-root-token"
 
 # The fleet: name|type|team|sa_name
 # cardvault is the existing single-agent demo agent and uses its own SA name.
@@ -182,8 +181,8 @@ deploy_fleet() {
   sp=$(spire_pod)
 
   # cardvault uses the existing single-agent pattern (jwt/ mount)
-  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$BAO_ROOT_TOKEN" sh -ec '
+  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao-admin -c bao -- \
+    with-bao-admin sh -ec '
     cat >/tmp/policy.hcl <<POLICY
 path "kv/data/signalloom/cardvault-agent" { capabilities = ["read"] }
 POLICY
@@ -198,8 +197,8 @@ POLICY
   '
 
   # Fleet agents use per-team JWT mounts
-  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$BAO_ROOT_TOKEN" sh -ec '
+  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao-admin -c bao -- \
+    with-bao-admin sh -ec '
     # Enable per-team JWT auth mounts (idempotent)
     for mount in jwt-payments jwt-ml-ops jwt-platform jwt-sre; do
       if ! bao auth list 2>/dev/null | grep -q "${mount}/"; then
@@ -330,8 +329,8 @@ stun_agent() {
   local auth_mount="${BAO_AUTH_MOUNTS[$agent_id]}"
   local role="${BAO_ROLES[$agent_id]}"
   log "  revoking OpenBao role: $role on mount $auth_mount"
-  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$BAO_ROOT_TOKEN" \
+  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao-admin -c bao -- \
+    with-bao-admin \
     bao delete "auth/${auth_mount}/role/${role}" 2>/dev/null || true
 
   # Label as stunned
@@ -389,8 +388,8 @@ recover_agent() {
 
   # Re-create OpenBao role
   log "  re-creating OpenBao role: $role"
-  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$BAO_ROOT_TOKEN" sh -ec "
+  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao-admin -c bao -- \
+    with-bao-admin sh -ec "
     bao write auth/${auth_mount}/role/${role} \
       role_type=jwt bound_audiences=openbao \
       bound_subject='${spiffe_id}' \
@@ -437,8 +436,8 @@ reset_fleet() {
 
   # Delete OpenBao fleet resources
   log "cleaning OpenBao fleet roles and policies"
-  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$BAO_ROOT_TOKEN" sh -ec '
+  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao-admin -c bao -- \
+    with-bao-admin sh -ec '
     # Fleet roles
     bao delete auth/jwt-payments/role/fleet-txn-pipeline 2>/dev/null || true
     bao delete auth/jwt-ml-ops/role/fleet-llm-classifier 2>/dev/null || true

@@ -49,8 +49,12 @@ const (
 var bootstrapSecrets = map[string]map[string]string{
 	// inf-signalloom / bootstrap SQL; unchanged by this work.
 	"discovery-portal-database": {
-		"DATABASE_URL":            "postgres://signal@postgres.inf-signalloom:5432/signal",
 		"IDENTITY_ENCRYPTION_KEY": strings.Repeat("ab", 32),
+	},
+	// Written by scripts/postgres-superuser-secret.sh (make postgres-superuser-secret,
+	// run by demo-signalloom-up) from the minted superuser password.
+	"discovery-portal-database-credentials": {
+		"DATABASE_URL": "postgres://signal@postgres.inf-signalloom:5432/signal",
 	},
 	// Minted by scripts/signal-segment-key.sh (make signal-segment-key, run by
 	// demo-signalloom-up): the FrostDB store's pseudonymisation root key and epoch.

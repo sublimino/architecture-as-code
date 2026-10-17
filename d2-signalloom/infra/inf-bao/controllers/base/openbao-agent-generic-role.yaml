@@ -26,7 +26,8 @@ data:
     set -eo pipefail
 
     BAO_ADDR="${BAO_ADDR:-http://openbao.inf-bao.svc.cluster.local:8200}"
-    BAO_TOKEN="${BAO_TOKEN:-signalloom-demo-root-token}"
+    # inf-bao-admin token from the admin-login init container (SA-TODO-003).
+    BAO_TOKEN="${BAO_TOKEN:-$(cat "${HOME}/.vault-token")}"
     export BAO_ADDR BAO_TOKEN
 
     # The swarm agents that read secrets through this role, by service
@@ -181,9 +182,16 @@ spec:
         # Job itself) is forced to recreate alongside the ConfigMap. Current
         # value is sha256 of the script as `yq '.data["agent-generic-role.sh"]'`
         # prints it, first 12 hex (pinned by openbao-agent-secret-authz.bats).
-        signalloom.io/config-hash: "b71ff7b82005"
+        signalloom.io/config-hash: "06b59ece60c3"
     spec:
       restartPolicy: OnFailure
+      # Administer OpenBao as inf-bao-admin (SA-TODO-003): no static token.
+      # The pod runs as openbao-admin, so SPIRE issues it
+      # spiffe://signalloom.demo/ns/inf-bao/sa/openbao-admin; admin-login
+      # trades that JWT-SVID for a 15m token in /work/home/.vault-token, which
+      # the bao CLI reads. Retries cover openbao-init and the SPIRE entry
+      # landing after this Job on a cold start.
+      serviceAccountName: openbao-admin
       initContainers:
         - name: wait-for-openbao
           image: busybox:1.36
@@ -195,9 +203,41 @@ spec:
                 sleep 2
               done
               echo "OpenBao is ready."
+        - name: admin-login
+          image: signalloom-spire-helper:local
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              mkdir -p /work/home
+              i=0
+              until /usr/local/bin/signalloom-spire-proof write --audience openbao \
+                      --socket /run/spire/sockets/agent.sock --output /work/jwt \
+                    && /usr/local/bin/signalloom-spire-proof exchange \
+                      --address http://openbao.inf-bao.svc.cluster.local:8200 \
+                      --role inf-bao-admin --jwt /work/jwt \
+                      --output /work/home/.vault-token; do
+                i=$((i + 1))
+                [ "$i" -le 60 ] || { echo "admin-login: no inf-bao-admin token after 300s" >&2; exit 1; }
+                sleep 5
+              done
+              rm -f /work/jwt
+              # The configure container runs as a different uid; the file lives
+              # in this pod's memory-backed emptyDir only.
+              chmod 0444 /work/home/.vault-token
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - name: work
+              mountPath: /work
+            - name: spire-socket
+              mountPath: /run/spire/sockets
+              readOnly: true
       containers:
         - name: configure
-          image: quay.io/openbao/openbao:2.1.1
+          image: quay.io/openbao/openbao:2.7.1
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -205,11 +245,14 @@ spec:
           env:
             - name: BAO_ADDR
               value: "http://openbao.inf-bao.svc.cluster.local:8200"
-            - name: BAO_TOKEN
-              value: "signalloom-demo-root-token"
+            - name: HOME
+              value: /work/home
           volumeMounts:
             - name: config
               mountPath: /config
+              readOnly: true
+            - name: work
+              mountPath: /work
               readOnly: true
           securityContext:
             runAsNonRoot: true
@@ -221,3 +264,11 @@ spec:
         - name: config
           configMap:
             name: openbao-agent-generic-role-config
+        - name: work
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: spire-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: Directory

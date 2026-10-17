@@ -20,7 +20,6 @@ import httpx
 import pytest
 import respx
 
-import connector_credentials
 from db.migrate import apply_migrations
 from tests.test_connectors_live_honesty import ANTHROPIC, _token
 from tests.test_connectors_persistence import SECRET, _client, _create, _key_file, _listed
@@ -128,8 +127,9 @@ def test_postgres_fresh_tenant_is_empty_and_a_connector_survives_a_restart(monke
             assert [c.request.headers["x-api-key"] for c in probe.calls[before:]] == [SECRET]
 
 
-def test_postgres_tenants_are_isolated_and_credentials_are_sealed(monkeypatch, tmp_path, pg):
-    with _client(monkeypatch, pg, _key_file(tmp_path)) as client:
+def test_postgres_tenants_are_isolated_and_credentials_live_in_openbao(monkeypatch, tmp_path, pg):
+    kv = _key_file(tmp_path)
+    with _client(monkeypatch, pg, kv) as client:
         conn_id = _create(client, "alice", "claude", {"api_key": SECRET})
         assert _listed(client, "bob") == []
         assert client.post(f"/api/v1/connectors/{conn_id}/toggle", headers=_token("bob"), json={"enabled": False}).status_code == 404
@@ -139,17 +139,24 @@ def test_postgres_tenants_are_isolated_and_credentials_are_sealed(monkeypatch, t
         rows = {r["tenant_id"]: r for r in _rows(pg, "SELECT * FROM public.tenant_connectors")}
         assert set(rows) == {"tenant-a", "tenant-b"}
         assert rows["tenant-a"]["status"] == "connected"
-        sealed = rows["tenant-a"]["credentials_ciphertext"]
-        assert sealed.startswith("vault:v1:") and SECRET not in sealed
-        assert connector_credentials.open_credentials("tenant-a", conn_id, sealed) == {"api_key": SECRET}
-        with pytest.raises(connector_credentials.CredentialDecryptError):
-            connector_credentials.open_credentials("tenant-b", bob_id, sealed)
+        # Postgres holds the reference only; the value is in OpenBao (SA-TODO-003).
+        path = f"signalloom/tenants/tenant-a/connectors/{conn_id}"
+        assert (rows["tenant-a"]["credentials_ref"], rows["tenant-a"]["credentials_version"]) == (path, 1)
+        assert rows["tenant-a"]["credentials_ciphertext"] is None
+        assert SECRET not in repr(rows)
+        assert kv.secrets[path] == [{"api_key": SECRET}]
+        assert rows["tenant-b"]["credentials_ref"] == f"signalloom/tenants/tenant-b/connectors/{bob_id}"
+        # Migration 078: a reference and a ciphertext can never share a row.
+        with pytest.raises(Exception, match="credentials_one_store"):
+            _rows(pg, "UPDATE public.tenant_connectors SET credentials_ciphertext = 'vault:v1:AAAA' "
+                      "WHERE tenant_id = 'tenant-a'")
 
         # Disconnect deletes the credential and the scan result.
         assert client.delete(f"/api/v1/connectors/{conn_id}", headers=_token("alice")).status_code == 200
-        (row,) = _rows(pg, "SELECT status, credentials_ciphertext, last_scan_result FROM public.tenant_connectors "
-                           "WHERE tenant_id = 'tenant-a'")
-        assert tuple(row) == ("disconnected", None, None)
+        (row,) = _rows(pg, "SELECT status, credentials_ref, credentials_ciphertext, last_scan_result "
+                           "FROM public.tenant_connectors WHERE tenant_id = 'tenant-a'")
+        assert tuple(row) == ("disconnected", None, None, None)
+        assert path not in kv.secrets
 
 
 def test_postgres_reconnect_keeps_the_id_and_merges_metadata(monkeypatch, tmp_path, pg):

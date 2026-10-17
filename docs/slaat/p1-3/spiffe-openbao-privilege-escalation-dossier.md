@@ -65,7 +65,7 @@ This is the *inverse* of a privilege-escalation risk (under-provisioning), but i
 
 **Severity:** INFO. **Remediation:** migrate `agent-cardvault`'s Workload API mount to the `spiffe-csi-driver` ephemeral CSI volume for consistency. **Phase:** `SLAAT-P2-3`.
 
-### F6 — Static root token (`signalloom-demo-root-token`) hardcoded across multiple live ConfigMaps/Jobs (INFO, pre-existing accepted convention)
+### F6 — Static root token (`<retired static root token>`) hardcoded across multiple live ConfigMaps/Jobs (INFO, pre-existing accepted convention)
 
 The literal string is used as `BAO_TOKEN` in at least four bootstrap Jobs. This is a known, pre-existing, cluster-wide-blast-radius credential with no rotation or lease, explicitly named as a demo convention. Recorded per the Objective's request to document all policy risks; should be the first thing closed before any path toward a shared or production environment.
 

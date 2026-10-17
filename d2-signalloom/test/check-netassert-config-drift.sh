@@ -74,10 +74,14 @@ assert_case supercred-runner-to-policy-engine-denied deployment supercred-demo-r
 assert_case supercred-runner-to-dns-udp-allowed deployment supercred-demo-runner fe-signalloom deployment coredns kube-system 53 0 udp
 assert_case supercred-runner-to-dns-tcp-allowed deployment supercred-demo-runner fe-signalloom deployment coredns kube-system 53 0
 
+assert_case openbao-to-postgresql-allowed deployment openbao inf-bao deployment postgresql inf-signalloom 5432 0
+assert_case spire-server-to-postgresql-denied deployment spire-server inf-bao deployment postgresql inf-signalloom 5432 1
+
 assert_same_destination agents-to-api-denied dashboard-to-api-allowed
 assert_same_destination agents-to-dashboard-denied envoy-gateway-to-dashboard-allowed
 assert_same_destination agents-to-postgresql-denied api-to-postgresql-allowed
 assert_same_destination dashboard-to-postgresql-denied api-to-postgresql-allowed
+assert_same_destination spire-server-to-postgresql-denied openbao-to-postgresql-allowed
 assert_same_destination dashboard-to-redis-denied api-to-redis-allowed
 assert_same_destination generic-agent-to-spire-server-denied openbao-to-spire-server-allowed
 assert_same_destination dashboard-to-spire-server-denied openbao-to-spire-server-allowed

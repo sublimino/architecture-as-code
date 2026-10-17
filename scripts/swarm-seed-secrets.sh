@@ -27,7 +27,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/wait.sh" 2>/dev/null || true
 
 BAO_ADDR="${BAO_ADDR:-http://openbao.inf-bao.svc.cluster.local:8200}"
-BAO_TOKEN="${BAO_TOKEN:-signalloom-demo-root-token}"
+# No static root token (SA-TODO-003). A lab that owns its own server passes
+# BAO_TOKEN; otherwise take the current 15-minute inf-bao-admin token from
+# deploy/openbao-admin (scripts/lib/bao-admin.sh).
+if [ -z "${BAO_TOKEN:-}" ]; then
+  # shellcheck source=scripts/lib/bao-admin.sh
+  source "${SCRIPT_DIR}/lib/bao-admin.sh"
+  BAO_TOKEN="$(bao_admin_token)" || { printf 'swarm-seed: cannot get an inf-bao-admin token\n' >&2; exit 1; }
+fi
 export BAO_ADDR BAO_TOKEN
 
 TRUST_DOMAIN="signalloom.demo"

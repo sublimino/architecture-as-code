@@ -17,22 +17,74 @@ spec:
   template:
     spec:
       restartPolicy: OnFailure
+      # Administer OpenBao as inf-bao-admin (SA-TODO-003): no static token.
+      # The pod runs as openbao-admin, so SPIRE issues it
+      # spiffe://signalloom.demo/ns/inf-bao/sa/openbao-admin; admin-login
+      # trades that JWT-SVID for a 15m token in /work/home/.vault-token, which
+      # the bao CLI reads. Retries cover openbao-init and the SPIRE entry
+      # landing after this Job on a cold start.
+      serviceAccountName: openbao-admin
+      initContainers:
+        - name: admin-login
+          image: signalloom-spire-helper:local
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              mkdir -p /work/home
+              i=0
+              until /usr/local/bin/signalloom-spire-proof write --audience openbao \
+                      --socket /run/spire/sockets/agent.sock --output /work/jwt \
+                    && /usr/local/bin/signalloom-spire-proof exchange \
+                      --address http://openbao.inf-bao.svc.cluster.local:8200 \
+                      --role inf-bao-admin --jwt /work/jwt \
+                      --output /work/home/.vault-token; do
+                i=$((i + 1))
+                [ "$i" -le 60 ] || { echo "admin-login: no inf-bao-admin token after 300s" >&2; exit 1; }
+                sleep 5
+              done
+              rm -f /work/jwt
+              # The configure container runs as a different uid; the file lives
+              # in this pod's memory-backed emptyDir only.
+              chmod 0444 /work/home/.vault-token
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - name: work
+              mountPath: /work
+            - name: spire-socket
+              mountPath: /run/spire/sockets
+              readOnly: true
       containers:
         - name: configure
-          image: quay.io/openbao/openbao:2.1.1
+          image: quay.io/openbao/openbao:2.7.1
           env:
             - name: BAO_ADDR
               value: http://openbao.inf-bao.svc.cluster.local:8200
-            - name: BAO_TOKEN
-              value: signalloom-demo-root-token
+            - name: HOME
+              value: /work/home
+          volumeMounts:
+            - name: work
+              mountPath: /work
+              readOnly: true
           command:
             - sh
             - -ec
             - |
               until bao status >/dev/null 2>&1; do sleep 2; done
               bao secrets enable -path=kv kv-v2 || true
+              # SA-TODO-003: connector credentials, one KV v2 secret per tenant
+              # connector. The portal is one identity for every tenant, so the
+              # tenant boundary is the portal's (src/connector_secret_store.py
+              # builds each path from the authenticated tenant); `+` stops
+              # either segment from spanning a slash. Disconnect deletes the
+              # metadata, which removes every version. No list.
               cat >/tmp/policy.hcl <<'POLICY'
               path "kv/data/signalloom/fe-signalloom" { capabilities = ["read"] }
+              path "kv/data/signalloom/tenants/+/connectors/+" { capabilities = ["create", "read", "update"] }
+              path "kv/metadata/signalloom/tenants/+/connectors/+" { capabilities = ["delete"] }
               POLICY
               bao policy write signalloom-fe-signalloom /tmp/policy.hcl
               bao auth enable jwt || true
@@ -43,9 +95,27 @@ spec:
               # captured token stayed valid for 32 days against the
               # mission's 5-minute hard cap. token_type=batch matches the
               # non-renewable pattern used by agent-trust-planner/triage.
-              bao write auth/jwt/role/signalloom-fe-signalloom \
-                role_type=jwt bound_audiences=openbao \
-                bound_subject=spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom \
-                user_claim=sub policies=signalloom-fe-signalloom \
-                token_ttl=5m token_max_ttl=5m token_type=batch
+              # JSON on stdin, the estate convention
+              # (openbao-agent-jwt-source.bats reads bound_audiences from it).
+              bao write auth/jwt/role/signalloom-fe-signalloom - <<'ROLE'
+              {
+                "role_type": "jwt",
+                "bound_audiences": "openbao",
+                "bound_subject": "spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom",
+                "user_claim": "sub",
+                "token_policies": "signalloom-fe-signalloom",
+                "token_ttl": "5m",
+                "token_max_ttl": "5m",
+                "token_type": "batch"
+              }
+              ROLE
               bao kv put kv/signalloom/fe-signalloom value=non-production-demo-secret
+      volumes:
+        - name: work
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: spire-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: Directory

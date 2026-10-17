@@ -114,13 +114,13 @@ HA Enabled      false
 
 ### 4.2. JWT Auth Method and Role Configuration
 ```console
-$ kubectl -n inf-bao exec deployment/openbao -c openbao -- sh -c "export BAO_ADDR=http://127.0.0.1:8200 && export BAO_TOKEN=signalloom-demo-root-token && bao auth list"
+$ kubectl -n inf-bao exec deployment/openbao -c openbao -- sh -c "export BAO_ADDR=http://127.0.0.1:8200 && export BAO_TOKEN=<retired static root token> && bao auth list"
 Path      Type     Accessor               Description                Version
 ----      ----     --------               -----------                -------
 jwt/      jwt      auth_jwt_5c61e8df      n/a                        n/a
 token/    token    auth_token_c80e81f0    token based credentials    n/a
 
-$ kubectl -n inf-bao exec deployment/openbao -c openbao -- sh -c "export BAO_ADDR=http://127.0.0.1:8200 && export BAO_TOKEN=signalloom-demo-root-token && bao list auth/jwt/role"
+$ kubectl -n inf-bao exec deployment/openbao -c openbao -- sh -c "export BAO_ADDR=http://127.0.0.1:8200 && export BAO_TOKEN=<retired static root token> && bao list auth/jwt/role"
 Keys
 ----
 agent-trust-planner

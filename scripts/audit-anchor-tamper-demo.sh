@@ -39,7 +39,13 @@ esac
 TENANT="${TENANT:-tenant-anchor-tamper-demo}"
 PGHOST="${PGHOST:-127.0.0.1}"
 PGPORT="${PGPORT:-15432}"
-DSN="${DATABASE_URL:-postgresql://signalloom:signalloom@${PGHOST}:${PGPORT}/signalloom}"
+# The superuser password is minted per cluster (scripts/postgres-superuser-secret.sh).
+if [ -z "${DATABASE_URL:-}" ]; then
+  PGPASS_MINTED="$(kubectl -n inf-signalloom get secret postgresql-superuser -o 'jsonpath={.data.password}' | base64 -d)" \
+    || { echo "cannot read inf-signalloom/postgresql-superuser; set DATABASE_URL" >&2; exit 1; }
+  DATABASE_URL="postgresql://signalloom:${PGPASS_MINTED}@${PGHOST}:${PGPORT}/signalloom"
+fi
+DSN="${DATABASE_URL}"
 PYTHON="${PYTHON:-python3}"
 SRC="d2-signalloom/apps/fe-signalloom/src"
 ANCHOR_DIR="${AUDIT_ANCHOR_DIR:-$(mktemp -d)/audit-anchors}"

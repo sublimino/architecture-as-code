@@ -346,21 +346,18 @@ with open('${WORKDIR}/algnone.jwt', 'w') as f:
     fi
 
     echo "[probe-spiffe] === step 5: role TTL audit (static, every live JWT role) ===" >&2
-    roles="$(KC -n "${SLAAT_BAO_NAMESPACE}" exec deploy/openbao -- sh -c '
-      export BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token
+    roles="$(KC -n "${SLAAT_BAO_NAMESPACE}" exec deploy/openbao-admin -c bao -- with-bao-admin sh -c '
       bao list -format=json auth/jwt/role 2>/dev/null
     ' 2>/dev/null | tr -d '\r')"
     role_names="$(echo "${roles}" | python3 -c "import json,sys; d=json.load(sys.stdin); print('\n'.join(d))" 2>/dev/null)"
     # -format=json reports token_ttl/default_lease_ttl as plain integer
     # SECONDS (not a "5m"/"768h" duration string) -- compare numerically.
-    mount_default_secs="$(KC -n "${SLAAT_BAO_NAMESPACE}" exec deploy/openbao -- sh -c '
-      export BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token
+    mount_default_secs="$(KC -n "${SLAAT_BAO_NAMESPACE}" exec deploy/openbao-admin -c bao -- with-bao-admin sh -c '
       bao read -format=json sys/auth/jwt/tune 2>/dev/null
     ' 2>/dev/null | tr -d '\r' | python3 -c "import json,sys; print(json.load(sys.stdin).get('data',{}).get('default_lease_ttl',0))" 2>/dev/null)"
     mount_default_secs="${mount_default_secs:-0}"
     for role in ${role_names}; do
-      role_json="$(KC -n "${SLAAT_BAO_NAMESPACE}" exec deploy/openbao -- sh -c "
-        export BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token
+      role_json="$(KC -n "${SLAAT_BAO_NAMESPACE}" exec deploy/openbao-admin -c bao -- with-bao-admin sh -c "
         bao read -format=json auth/jwt/role/${role} 2>/dev/null
       " 2>/dev/null | tr -d '\r')"
       ttl_secs="$(echo "${role_json}" | python3 -c "import json,sys; print(int(json.load(sys.stdin).get('data',{}).get('token_ttl',0)))" 2>/dev/null)"

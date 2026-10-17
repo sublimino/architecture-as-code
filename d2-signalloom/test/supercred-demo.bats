@@ -102,8 +102,8 @@ setup_file() {
   # using.) openbao's image ships a shell + the `bao` CLI (it is NOT
   # distroless), so `kubectl exec` is the correct probe here — unlike
   # cardvault/policy-engine above, which are.
-  run kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token \
+  run kubectl -n "$NAMESPACE_BAO" exec deployment/openbao-admin -c bao -- \
+    with-bao-admin \
     bao kv get -format=json kv/signalloom/cardvault-agent
   [ "$status" -eq 0 ]
   # `bao -format=json` pretty-prints (colon-space), unlike the compact JSON

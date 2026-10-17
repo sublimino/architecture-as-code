@@ -17,7 +17,11 @@ spec:
           env:
             - {name: POSTGRES_DB, value: signalloom}
             - {name: POSTGRES_USER, value: signalloom}
-            - {name: POSTGRES_PASSWORD, value: signalloom}
+            # Minted by scripts/postgres-superuser-secret.sh (make
+            # postgres-superuser-secret). Never in a manifest.
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: postgresql-superuser, key: password}
             - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
           ports: [{name: postgresql, containerPort: 5432}]
           volumeMounts:

@@ -295,7 +295,7 @@
       "card": "SLAAT-P1-3",
       "severity": "INFO",
       "title": "A static root token is hardcoded across multiple live ConfigMaps and Jobs",
-      "detail": "Accepted pre-existing demo convention (signalloom-demo-root-token).",
+      "detail": "Accepted pre-existing demo convention (<retired static root token>).",
       "evidence": [
         "SLAAT-P1-3-F6"
       ],

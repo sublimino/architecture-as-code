@@ -53,10 +53,8 @@ PF_UNIT="${ND_PF_UNIT:-signalloom-dashboard-pf.service}"
 # SPIRE and OpenBao both live here on this estate (measured on sl-demo-1-vm
 # 2026-08-24: deployments spire-server and openbao, namespace inf-bao).
 BAO_NS="${ND_BAO_NS:-inf-bao}"
-# The demo estate's well-known root token. It is a fixture value, not a secret —
-# scripts/supercred-demo.sh, scripts/supercred-state.sh and demo-lifecycle.sh all
-# carry the same literal. Overridable for a lane that ever stops using it.
-BAO_TOKEN="${ND_BAO_TOKEN:-signalloom-demo-root-token}"
+# OpenBao is read as inf-bao-admin inside deploy/openbao-admin (SA-TODO-003);
+# there is no static root token.
 # 0 disables the write probe. On by default because a 200 on /v2/ is the exact
 # reading the known blob-store defect leaves intact — see the block above
 # probe_zot_push.
@@ -487,8 +485,8 @@ probe_jwt_trust() {
   done < <(printf '%s' "$bundle" | jq -r "${JWT_SVID_SELECT}|[.x,.y]|@tsv" 2>/dev/null)
   emit spire.jwt_keys "${spire_keys%,}"
 
-  cfg="$(kubectl -n "$BAO_NS" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$BAO_TOKEN" \
+  cfg="$(kubectl -n "$BAO_NS" exec deployment/openbao-admin -c bao -- \
+    with-bao-admin \
     bao read -format=json auth/jwt/config 2>/dev/null)"
   # Emitted so lib.sh can tell "OpenBao holds no keys" from "OpenBao could not be
   # read". Both produce an empty key list and they are opposite findings.

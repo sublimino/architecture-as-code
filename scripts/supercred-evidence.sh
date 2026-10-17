@@ -121,8 +121,8 @@ record_proven() { record "$1" "$2" "$3" "${PROOF_CMDS[0]}" "${PROOF_DETAILS[0]}"
 # expected marker is `absent`; anything that could not run at all is
 # `unavailable`. The command string is what gets shown in the UI console.
 bao_exec() {
-  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$(bao_token)" "$@" 2>&1
+  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao-admin -c bao -- \
+    with-bao-admin "$@" 2>&1
 }
 
 # Did that `bao kv get -field=…` return a LIVE value?
@@ -148,11 +148,6 @@ bao_value_is_live() {
     *"No value found"*|*"No data found"*|*"command terminated"*|*deletion_time*|*Error*|*error*) return 1 ;;
   esac
   return 0
-}
-
-bao_token() {
-  kubectl -n "$NAMESPACE_BAO" get deployment openbao -o jsonpath='{range .spec.template.spec.containers[*]}{range .env[*]}{.name}={.value}{"\n"}{end}{end}' 2>/dev/null \
-    | awk -F= '!f && /^BAO_DEV_ROOT_TOKEN_ID=/ {print $2; f = 1}'
 }
 
 spire_pod() {

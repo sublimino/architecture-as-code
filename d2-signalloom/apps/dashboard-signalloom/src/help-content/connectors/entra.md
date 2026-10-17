@@ -70,7 +70,8 @@ dashboard:
 - **Client ID**: from Step 1 (the Application/client ID)
 - **Client secret**: from Step 3
 
-Signal Loom stores the client secret encrypted; it is never displayed again
+Signal Loom stores the client secret in its OpenBao secrets store, under your
+tenant; it is never displayed again
 after initial entry, and never leaves your tenant's scan pipeline.
 
 ## Rotation

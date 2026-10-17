@@ -107,7 +107,7 @@ instance.
 | SPIFFE-F3 | LOW | Two of four live SPIRE-registered agent-trust tenant identities have no corresponding OpenBao JWT role. A delegation gap, not a privilege-escalation path. |
 | SPIFFE-F4 | LOW | The SPIRE agent runs with `insecure_bootstrap=true` and `skip_kubelet_verification=true`. Demo-appropriate today; flag before any path toward production. |
 | SPIFFE-F5 | INFO | `agent-cardvault`'s Workload API socket is mounted via raw `hostPath` rather than the documented `spiffe-csi-driver` ephemeral volume. |
-| SPIFFE-F6 | INFO | A static root token (`signalloom-demo-root-token`) is hardcoded across multiple live ConfigMaps and Jobs. Accepted pre-existing demo convention. |
+| SPIFFE-F6 | INFO | A static root token (`<retired static root token>`) is hardcoded across multiple live ConfigMaps and Jobs. Accepted pre-existing demo convention. |
 
 Confirmed-clean controls: unregistered ServiceAccounts are denied an SVID.
 Wrong-identity and wrong-audience SVIDs are rejected by OpenBao role

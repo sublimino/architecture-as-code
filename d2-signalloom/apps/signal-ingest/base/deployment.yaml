@@ -161,7 +161,7 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: discovery-portal-database
+                  name: discovery-portal-database-credentials
                   key: DATABASE_URL
             # The shared discovery-portal-database DSN carries no sslmode, and
             # the in-cluster Postgres serves plaintext -- fe-signalloom's

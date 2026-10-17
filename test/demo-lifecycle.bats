@@ -252,7 +252,9 @@ SCRIPT
   grep -Fq -- '-parentID spiffe://signalloom.demo/agent/kind -selector k8s:ns:fe-signalloom -selector k8s:sa:fe-signalloom' "$log"
 	 grep -Fq 'delete job openbao-spire-bootstrap --ignore-not-found --wait=true' "$log"
 	 grep -Fq 'get job openbao-spire-bootstrap' "$log"
-	 grep -Fq 'exec deployment/openbao -- env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token bao write auth/jwt/config jwks_url=http://spire-oidc.inf-bao.svc.cluster.local:8008/keys' "$log"
+	 grep -Fq 'exec deployment/openbao-admin -c bao -- bao-admin write auth/jwt/config jwks_url=http://spire-oidc.inf-bao.svc.cluster.local:8008/keys' "$log"
+	 run grep -F 'BAO_TOKEN=' "$log"
+	 [ "$status" -ne 0 ]
 	 run grep -F 'jwt_validation_pubkeys=' "$log"
 	 [ "$status" -ne 0 ]
 }
@@ -268,7 +270,7 @@ SCRIPT
   run env PATH="$bin:$PATH" KUBECTL_LOG="$log" KUBECTL_STATE=empty KUBECTL_JWT_KEYS=two \
     "$root/scripts/demo-lifecycle.sh" bao-up
   [ "$status" -eq 0 ]
-  [ "$(grep -Fc 'bao write auth/jwt/config jwks_url=http://spire-oidc.inf-bao.svc.cluster.local:8008/keys' "$log")" -eq 1 ]
+  [ "$(grep -Fc 'bao-admin write auth/jwt/config jwks_url=http://spire-oidc.inf-bao.svc.cluster.local:8008/keys' "$log")" -eq 1 ]
   run grep -F 'bundle show -format spiffe' "$log"
   [ "$status" -ne 0 ]
   run grep -F 'jwt_validation_pubkeys=' "$log"

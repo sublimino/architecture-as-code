@@ -177,3 +177,30 @@ spec:
       ports:
         - protocol: TCP
           port: 8081
+---
+# OpenBao's storage backend is the inf-signalloom Postgres (database and role
+# `openbao`, created by scripts/openbao-secrets.sh). Only the OpenBao pod may
+# leave the namespace for it, and only on 5432. Pair of
+# allow-openbao-storage-ingress in inf-signalloom; NetAssert cases
+# openbao-to-postgresql-allowed and spire-server-to-postgresql-denied.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-openbao-storage-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: openbao
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inf-signalloom
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+      ports:
+        - protocol: TCP
+          port: 5432

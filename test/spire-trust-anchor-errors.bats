@@ -73,10 +73,12 @@ KUBECTL
 
 	run env PATH="$stub:$PATH" KUBECTL_LOG="$BATS_TEST_TMPDIR/kubectl.log" bash -c "
 		source '$root/scripts/lib/spire-trust-anchor.sh'
-		sync_openbao_jwt_validation inf-bao signalloom-demo-root-token
+		sync_openbao_jwt_validation inf-bao
 	"
 	[ "$status" -eq 0 ]
-	grep -Fq 'bao write auth/jwt/config jwks_url=http://spire-oidc.inf-bao.svc.cluster.local:8008/keys' "$BATS_TEST_TMPDIR/kubectl.log"
+	grep -Fq -- '-n inf-bao exec deployment/openbao-admin -c bao -- bao-admin write auth/jwt/config jwks_url=http://spire-oidc.inf-bao.svc.cluster.local:8008/keys' "$BATS_TEST_TMPDIR/kubectl.log"
+	run grep -F 'BAO_TOKEN' "$BATS_TEST_TMPDIR/kubectl.log"
+	[ "$status" -ne 0 ]
 }
 
 @test "sync_openbao_jwt_validation does not read SPIRE static key material" {
@@ -89,7 +91,7 @@ KUBECTL
 
   run env PATH="$stub:$PATH" bash -c "
     source '$root/scripts/lib/spire-trust-anchor.sh'
-    sync_openbao_jwt_validation inf-bao signalloom-demo-root-token
+    sync_openbao_jwt_validation inf-bao
   "
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"live jwks_url="* ]]
@@ -108,7 +110,7 @@ KUBECTL
 
   run env PATH="$stub:$PATH" bash -c "
     source '$root/scripts/lib/spire-trust-anchor.sh'
-    sync_openbao_jwt_validation inf-bao signalloom-demo-root-token
+    sync_openbao_jwt_validation inf-bao
   "
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"configured OpenBao"* ]]
@@ -128,7 +130,7 @@ KUBECTL
 
   run env PATH="$stub:$PATH" bash -c "
     source '$root/scripts/lib/spire-trust-anchor.sh'
-    sync_openbao_jwt_validation inf-bao signalloom-demo-root-token
+    sync_openbao_jwt_validation inf-bao
   "
   [ "$status" -ne 0 ]
 	[[ "$output" == *"OpenBao refused jwks_url write"* ]]

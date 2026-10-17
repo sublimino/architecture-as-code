@@ -215,11 +215,10 @@ spire_server_pod() {
     -o jsonpath='{.items[0].metadata.name}'
 }
 
-bao_admin_token() {
-  kubectl -n "$bao_namespace" get deployment openbao -o json | jq -er '
-    .spec.template.spec.containers[] | select(.name == "openbao") |
-    .env[] | select(.name == "BAO_DEV_ROOT_TOKEN_ID") | .value
-  '
+# OpenBao administration runs as inf-bao-admin inside deploy/openbao-admin
+# (SA-TODO-003); there is no root token to read any more.
+bao_admin_available() {
+  kubectl -n "$bao_namespace" get deployment openbao-admin >/dev/null 2>&1
 }
 
 # The one table both creation and verification read: `spiffeID|namespace|serviceAccount`.
@@ -238,8 +237,8 @@ EOF
 }
 
 configure_identity_plane() {
-  local pod spiffe_id namespace service_account existing bao_token
-  bao_token="$(bao_admin_token)"
+  local pod spiffe_id namespace service_account existing
+  bao_admin_available || { printf 'deploy/openbao-admin is missing in %s\n' "$bao_namespace" >&2; return 1; }
   pod="$(spire_server_pod)"
   [[ -n "$pod" ]] || { printf 'SPIRE server pod unavailable\n' >&2; return 1; }
   while IFS='|' read -r spiffe_id namespace service_account; do
@@ -252,8 +251,8 @@ configure_identity_plane() {
   done < <(agent_trust_identity_table)
   # ${agent} intentionally expands inside the remote OpenBao shell.
   # shellcheck disable=SC2016
-  kubectl -n "$bao_namespace" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" sh -ec '
+  kubectl -n "$bao_namespace" exec deployment/openbao-admin -c bao -- \
+    with-bao-admin sh -ec '
       cat >/tmp/agent-trust-acme-payments.hcl <<POLICY
 path "kv/data/signalloom/agent-trust/acme/payments/*" { capabilities = ["read"] }
 POLICY
@@ -270,13 +269,12 @@ POLICY
   # on the CA schedule, so the validation keys are part of the identity plane and
   # are re-derived here on every up — not copied once at cluster bootstrap.
   require_command openssl
-  sync_openbao_jwt_validation "$bao_namespace" "$bao_token"
+  sync_openbao_jwt_validation "$bao_namespace"
   identity_configured=true
 }
 
 cleanup_identity_plane() {
-  local pod spiffe_id entry_id bao_token
-  bao_token="$(bao_admin_token 2>/dev/null || true)"
+  local pod spiffe_id entry_id
   pod="$(spire_server_pod 2>/dev/null || true)"
   if [[ -n "$pod" ]]; then
     for spiffe_id in \
@@ -290,25 +288,25 @@ cleanup_identity_plane() {
       fi
     done
   fi
-  if [[ -n "$bao_token" ]]; then
-    kubectl -n "$bao_namespace" exec deployment/openbao -- \
-      env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \
+  if bao_admin_available; then
+    kubectl -n "$bao_namespace" exec deployment/openbao-admin -c bao -- \
+      with-bao-admin \
       bao delete auth/jwt/role/agent-trust-planner >/dev/null 2>&1 || true
-    kubectl -n "$bao_namespace" exec deployment/openbao -- \
-      env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \
+    kubectl -n "$bao_namespace" exec deployment/openbao-admin -c bao -- \
+      with-bao-admin \
       bao delete auth/jwt/role/agent-trust-triage >/dev/null 2>&1 || true
-    kubectl -n "$bao_namespace" exec deployment/openbao -- \
-      env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \
+    kubectl -n "$bao_namespace" exec deployment/openbao-admin -c bao -- \
+      with-bao-admin \
       bao policy delete agent-trust-acme-payments >/dev/null 2>&1 || true
   fi
   identity_configured=false
 }
 
 verify_identity_plane() {
-  local pod spiffe_id bao_token agent role_json entry_show entry_ns entry_sa
+  local pod spiffe_id agent role_json entry_show entry_ns entry_sa
   require_command jq
   pod="$(spire_server_pod)"
-  bao_token="$(bao_admin_token)"
+  bao_admin_available || { printf 'deploy/openbao-admin is missing in %s\n' "$bao_namespace" >&2; return 1; }
   while IFS='|' read -r spiffe_id entry_ns entry_sa; do
     # The SELECTORS are the workload-attestation property, not the entry's
     # existence. `grep -Fq 'Entry ID'` passed for any entry at this SPIFFE ID,
@@ -325,8 +323,8 @@ verify_identity_plane() {
       printf 'SPIRE entry for %s is missing selector k8s:sa:%s — any pod in the namespace could assume this identity\n' "$spiffe_id" "$entry_sa" >&2; return 1; }
   done < <(agent_trust_identity_table)
   for agent in planner triage; do
-    role_json="$(kubectl -n "$bao_namespace" exec deployment/openbao -- \
-      env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \
+    role_json="$(kubectl -n "$bao_namespace" exec deployment/openbao-admin -c bao -- \
+      with-bao-admin \
       bao read -format=json "auth/jwt/role/agent-trust-${agent}")"
     # Lifetime alone said the token was short-lived, never that it was THIS
     # agent's. bound_subject/bound_audiences/policies are what bind the role to
@@ -343,8 +341,8 @@ verify_identity_plane() {
       printf 'OpenBao role agent-trust-%s is not bound to its SPIFFE subject, audience and policy\n' "$agent" >&2
       return 1; }
   done
-  kubectl -n "$bao_namespace" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \
+  kubectl -n "$bao_namespace" exec deployment/openbao-admin -c bao -- \
+    with-bao-admin \
     bao policy read agent-trust-acme-payments >/dev/null
   # Everything above proves WHOSE identity the role admits. None of it proves
   # OpenBao can still check the signature, and on 2026-08-14 that is exactly what
@@ -354,7 +352,7 @@ verify_identity_plane() {
   # Asserted, never repaired — a gate that silently fixes what it measures
   # reports success for a demo that was broken until the gate ran.
   require_command openssl
-  assert_openbao_accepts_spire_jwt_keys "$bao_namespace" "$bao_token"
+  assert_openbao_accepts_spire_jwt_keys "$bao_namespace"
 }
 
 verify() {

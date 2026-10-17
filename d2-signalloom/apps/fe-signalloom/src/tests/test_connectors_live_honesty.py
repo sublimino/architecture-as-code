@@ -24,7 +24,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
 import api_compat
-import connector_credentials
+import connector_secret_store
+from tests.connector_secret_store_fake import FakeKvStore
 from api_compat import ComplianceSummaryInline, settings
 from db.connection import set_pool_for_testing
 from routers.connectors import SyncResult, reset_connectors_for_testing
@@ -73,10 +74,8 @@ def _client(monkeypatch: pytest.MonkeyPatch, *, live: bool = True):
     monkeypatch.setattr(api_compat, "_jwk_client", lambda _url: _JWKClient())
     monkeypatch.setenv("ANTHROPIC_API_KEY", OPERATOR_KEY)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-admin-OPERATOR")
-    key_dir = tempfile.TemporaryDirectory()
-    key_file = Path(key_dir.name) / "connector-credential-key"
-    key_file.write_text(secrets.token_hex(32))
-    monkeypatch.setenv(connector_credentials.KEY_FILE_ENV, str(key_file))
+    # Connector credentials live in OpenBao KV v2 (SA-TODO-003): the fake store.
+    connector_secret_store.set_store_for_testing(FakeKvStore())
 
     pool = _LivePool() if live else None
 
@@ -100,7 +99,7 @@ def _client(monkeypatch: pytest.MonkeyPatch, *, live: bool = True):
         for tenant in ("tenant-a", "tenant-b"):
             api_compat.reset_tenant_state(tenant)
         reset_connectors_for_testing()
-        key_dir.cleanup()
+        connector_secret_store.set_store_for_testing(None)
 
 
 def _create(client: TestClient, headers: dict[str, str], provider: str, credentials: dict[str, str] | None = None) -> str:
@@ -563,7 +562,7 @@ def test_disconnect_then_reenable_does_not_reuse_the_old_key(monkeypatch):
         scan = client.post("/api/v1/connectors/claude/scan", headers=_token("alice")).json()
         assert scan["status"] == "error"
         assert len(mock.calls) == calls_before
-        assert client.pool.row("tenant-a", conn_id)["credentials_ciphertext"] is None
+        assert client.pool.row("tenant-a", conn_id)["credentials_ref"] is None
 
 
 def test_disconnect_drops_the_stored_scan_result(monkeypatch):

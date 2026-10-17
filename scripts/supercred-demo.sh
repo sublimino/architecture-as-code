@@ -325,8 +325,8 @@ $(rollout_failure_detail policy-engine "$NAMESPACE_INFRA")"
 
 seed_openbao_secrets() {
   log "seeding OpenBao supercred secrets"
-  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -c openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token sh -ec '
+  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao-admin -c bao -- \
+    with-bao-admin sh -ec '
     bao secrets enable -path=kv kv-v2 2>/dev/null || true
     bao auth enable jwt 2>/dev/null || true
     bao write auth/jwt/config jwks_url="http://spire-oidc.'"$NAMESPACE_BAO"'.svc.cluster.local:8008/keys" 2>/dev/null || true
@@ -446,8 +446,8 @@ BAO_ROLE_PATH="auth/jwt/role/signalloom-cardvault-agent"
 # token or an unreachable pod all produced silence followed by "✓ step 4
 # complete — agent stunned, credentials revoked".
 bao_run() {
-  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -c openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token \
+  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao-admin -c bao -- \
+    with-bao-admin \
     "$@" 2>&1
 }
 
@@ -783,8 +783,8 @@ demo_5() {
   # The policy was never deleted by anything at all, at any point.
   log "removing OpenBao credential material"
   bao_exec() {
-    kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -c openbao -- \
-      env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token "$@" \
+    kubectl -n "$NAMESPACE_BAO" exec deployment/openbao-admin -c bao -- \
+      with-bao-admin "$@" \
       >/dev/null 2>&1
   }
   bao_exec bao kv metadata delete kv/signalloom/cardvault-agent || true

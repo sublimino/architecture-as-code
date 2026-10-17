@@ -107,7 +107,7 @@ def test_repository_migration_versions_are_unique() -> None:
     migrations = discover_migrations()
 
     assert len({migration.version for migration in migrations}) == len(migrations)
-    assert [migration.filename for migration in migrations[-7:]] == [
+    assert [migration.filename for migration in migrations[-8:]] == [
         "071_remote_agents.sql",
         "072_remote_agent_claims.sql",
         "073_remote_agent_snapshots.sql",
@@ -115,6 +115,7 @@ def test_repository_migration_versions_are_unique() -> None:
         "075_retire_minimal_governance_account_type.sql",
         "076_custom_account_types.sql",
         "077_tenant_feature_flag_versions.sql",
+        "078_connector_credentials_in_openbao.sql",
     ]
 
 

@@ -95,8 +95,12 @@ data:
     # they are not swarm agents, so the stun sentinel must never discover them.
     # fleet-manager -> OpenBao role fleet-manager
     # (configs/base/openbao-fleet-manager-bootstrap.yaml).
+    # openbao-admin -> OpenBao role inf-bao-admin (openbao-init.yaml), the
+    # identity every configuration Job and host script administers OpenBao
+    # with since the static root token was removed (SA-TODO-003).
     CONTROL_PLANE=(
       fe-signalloom:fleet-manager
+      inf-bao:openbao-admin
     )
 
     # One derivation of the server call, so nothing below can disagree about
@@ -184,12 +188,22 @@ metadata:
   labels:
     app.kubernetes.io/name: spire-agent-swarm-entries
     app.kubernetes.io/part-of: signalloom-bao-proof
+  annotations:
+    # A Job's pod template is immutable and a Completed Job never re-runs, so
+    # an edit to register-entries.sh alone would never register a new entry on
+    # a live cluster. force + the config-hash below recreate the Job whenever
+    # the script changes (same pair as openbao-agent-generic-role-setup).
+    kustomize.toolkit.fluxcd.io/force: Enabled
 spec:
   backoffLimit: 3
   template:
     metadata:
       labels:
         app.kubernetes.io/name: spire-agent-swarm-entries
+      annotations:
+        # sha256 of register-entries.sh as yq prints it, first 12 hex
+        # (pinned by d2-signalloom/test/openbao-persistent-server.bats).
+        signalloom.io/config-hash: "9c89dcf32916"
     spec:
       # Declared by the signalloom-spire-rbac ResourceSet, not by this slice.
       serviceAccountName: spire-agent-swarm-entries

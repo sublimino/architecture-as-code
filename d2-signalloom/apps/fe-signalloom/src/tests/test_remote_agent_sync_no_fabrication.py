@@ -8,6 +8,8 @@ request/response plumbing around them.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import remote_agent_sync as ras
 
 # These exact strings were hardcoded into live output by 163b1b60c. None of
@@ -87,3 +89,37 @@ def test_anthropic_environment_reads_network_from_config_networking():
     assert item.environment_config["allow_mcp_servers"] is False
     assert item.environment_config["allow_package_managers"] is True
     assert item.environment_config["packages"] == {"apt": ["gcc"], "pip": ["requests"]}
+
+
+# --- Regression guard: these literals must never return to production source ---
+#
+# Scope is deliberately narrower than "every file in the repo": it is the
+# backend's own production modules (``src/*.py`` and the packages under it),
+# excluding ``tests/`` -- fixture/test files are free to use arbitrary example
+# values (including, in a couple of pre-existing unrelated tests, these exact
+# strings as mock input data) and that is not the defect this guards against.
+# Demo/fixture mode (``_get_pool() is None``) is a backend-wide behavioural
+# gate, not a separate source tree, so it cannot be excluded by path; the
+# mapper-level tests above are what prove live mode itself never fabricates.
+_SRC_ROOT = Path(__file__).resolve().parent.parent
+_EXCLUDED_DIRS = {"tests", "__pycache__", ".pytest_cache"}
+
+
+def _production_python_files() -> list[Path]:
+    out = []
+    for path in _SRC_ROOT.rglob("*.py"):
+        rel = path.relative_to(_SRC_ROOT)
+        if _EXCLUDED_DIRS & set(rel.parts[:-1]):
+            continue
+        out.append(path)
+    return out
+
+
+def test_fabricated_literals_never_return_to_backend_source():
+    offenders: list[str] = []
+    for path in _production_python_files():
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for literal in (*FORBIDDEN_LITERALS, "osramp.acme.local"):
+            if literal in text:
+                offenders.append(f"{path.relative_to(_SRC_ROOT)}: {literal!r}")
+    assert not offenders, "fabricated literal(s) found in backend source:\n  " + "\n  ".join(offenders)

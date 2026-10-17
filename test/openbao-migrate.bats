@@ -177,3 +177,39 @@ PY
   run "$SCRIPT" verify --file "$EXPORT"
   [ "$status" -eq 0 ]
 }
+
+@test "verify: a role list the old server reports as null and 2.7 reports as [] matches" {
+  # 2.1.1 exported oidc_scopes/allowed_redirect_uris/oauth2_metadata as null;
+  # 2.7.1 returns []. Same role, so verify must not call it drift.
+  python3 - "$W/src.json" <<'PY'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p))
+s["paths"]["auth/jwt/role/signalloom-fe-signalloom"]["oidc_scopes"] = None
+json.dump(s, open(p, "w"))
+PY
+  "$SCRIPT" export --file "$EXPORT" >/dev/null
+  "$SCRIPT" import --file "$EXPORT" >/dev/null
+  python3 - "$W/dst.json" <<'PY'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p))
+s["paths"]["auth/jwt/role/signalloom-fe-signalloom"]["oidc_scopes"] = []
+json.dump(s, open(p, "w"))
+PY
+  run "$SCRIPT" verify --file "$EXPORT"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"mismatched=0"* ]]
+}
+
+@test "verify: a real role change still counts after null and [] are treated alike" {
+  "$SCRIPT" export --file "$EXPORT" >/dev/null
+  "$SCRIPT" import --file "$EXPORT" >/dev/null
+  python3 - "$W/dst.json" <<'PY'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p))
+s["paths"]["auth/jwt/role/signalloom-fe-signalloom"]["bound_subject"] = "spiffe://x/attacker"
+json.dump(s, open(p, "w"))
+PY
+  run "$SCRIPT" verify --file "$EXPORT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"MISMATCH role jwt/signalloom-fe-signalloom"* ]]
+}

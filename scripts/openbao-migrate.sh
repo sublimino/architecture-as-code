@@ -190,11 +190,24 @@ label() { # KIND ITEM_JSON
   esac
 }
 
+# Roles and auth configs: a list the 2.1.1 server reported as null comes back
+# from 2.7.1 as [] (oidc_scopes, allowed_redirect_uris, oauth2_metadata). The
+# same role, so both sides map null to [] before hashing.
+null_as_empty() { jq -c 'with_entries(.value |= (if . == null then [] else . end))'; }
+
 # compare KIND WANT GOT -> hash of GOT as compared (roles/config: exported fields only)
 compared_got() {
   case "$1" in
-    role|config) jq -c --argjson want "$2" 'with_entries(select(.key as $k | $want | has($k)))' <<<"$3" ;;
+    role|config) jq -c --argjson want "$2" 'with_entries(select(.key as $k | $want | has($k)))' <<<"$3" | null_as_empty ;;
     *) printf '%s' "$3" ;;
+  esac
+}
+
+# compare KIND WANT -> WANT as compared
+compared_want() {
+  case "$1" in
+    role|config) null_as_empty <<<"$2" ;;
+    *) printf '%s' "$2" ;;
   esac
 }
 
@@ -258,7 +271,7 @@ do_verify() {
     if [ -z "${got}" ] || [ "${got}" = "null" ]; then
       printf 'MISSING %s\n' "$(label "${kind}" "${item}")"; missing=$((missing + 1)); continue
     fi
-    wh="$(h <<<"${want}")"
+    wh="$(h <<<"$(compared_want "${kind}" "${want}")")"
     gh="$(h <<<"$(compared_got "${kind}" "${want}" "${got}")")"
     if [ "${wh}" = "${gh}" ]; then
       matched=$((matched + 1))

@@ -53,9 +53,20 @@ test.describe("Policy save sends engine rules only", () => {
 
     await expect(page.getByTestId("cel-editor-workspace")).toBeVisible({ timeout: 15_000 });
 
-    // The merge is visible: the editor shows more controls than the engine holds.
+    // Every engine rule is in the editor. Whatever else is there is labelled
+    // catalogue reference. Since fcf03c38e the CIS catalogue uses the engine's
+    // own rule ids, so on a cluster running that bundle there may be no
+    // catalogue-only extras at all; the spec no longer requires them, but it
+    // still requires that any it finds are labelled and never saved.
     const chips = page.locator('[data-testid^="rule-tab-"]');
-    await expect.poll(async () => chips.count(), { timeout: 15_000 }).toBeGreaterThan(engineIds.size);
+    await expect.poll(async () => chips.count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(engineIds.size);
+    for (const id of engineIds) await expect(page.getByTestId(`rule-tab-${id}`)).toHaveCount(1);
+    const testIds = async (selector: string, prefix: string) =>
+      Promise.all((await page.locator(selector).all()).map(async (l) => ((await l.getAttribute("data-testid")) ?? "").replace(prefix, "")));
+    const chipIds = await testIds('[data-testid^="rule-tab-"]', "rule-tab-");
+    const catalogueOnlyIds = await testIds('[data-testid^="rule-catalogue-only-"]', "rule-catalogue-only-");
+    expect([...chipIds].sort()).toEqual([...new Set([...engineIds, ...catalogueOnlyIds])].sort());
+    expect(catalogueOnlyIds.filter((id) => engineIds.has(id))).toEqual([]);
 
     // Edit an engine rule's CEL so Save has something to publish.
     const firstEngineId = [...engineIds][0];
@@ -73,7 +84,7 @@ test.describe("Policy save sends engine rules only", () => {
     expect(body.rules.map((r) => r.id).sort()).toEqual([...engineIds].sort());
     expect(body.rules.filter((r) => r.catalogue_only)).toEqual([]);
     expect(body.rules.find((r) => r.id === firstEngineId)?.cel_expression).toBe(edited);
-    // The extra controls are labelled as catalogue reference, not engine-evaluated.
-    await expect(page.locator('[data-testid^="rule-catalogue-only-"]').first()).toBeAttached();
+    // No catalogue-reference control shown in the editor was published.
+    expect(body.rules.filter((r) => catalogueOnlyIds.includes(r.id))).toEqual([]);
   });
 });

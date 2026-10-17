@@ -95,7 +95,9 @@ test.describe("SuperCred demo page", () => {
       page.getByTestId("supercred-empty-state"),
       "the agent is deployed, so the page must not report an empty discovery",
     ).toHaveCount(0);
-    await expect(page.getByTestId("discovery-supercred")).not.toHaveText("0");
+    // StatCard text is label + value + caption (96d077d5e), so a bare "0" never
+    // matched and this was vacuous; pin the value inside the card.
+    await expect(page.getByTestId("discovery-supercred")).toHaveText(/^SuperCred\s*[1-9]\d*\s*carry the supercred label$/);
     await expect(page.getByTestId("supercred-error")).toHaveCount(0);
   });
 
@@ -122,7 +124,8 @@ test.describe("SuperCred demo page", () => {
     await expect(page.getByTestId("supercred-discovery-summary")).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.getByTestId("discovery-blocked")).toHaveText("0");
+    // The tile is a StatCard since 96d077d5e: label, value, caption.
+    await expect(page.getByTestId("discovery-blocked")).toHaveText(/^Blocked\s*0\s*cannot run$/);
     await expect(page.getByTestId("supercred-phase-warning")).toHaveCount(0);
   });
 
@@ -137,7 +140,10 @@ test.describe("SuperCred demo page", () => {
       timeout: 30_000,
     });
 
-    await page.getByRole("button", { name: /compliance scan/i }).first().click();
+    // The agent row's own button, by exact name: the Instructor Controls added
+    // "3 · Compliance scan" (8fc47aa63) above it, which /compliance scan/i
+    // .first() picked, running demo phase 3 instead of scanning the agent.
+    await page.getByRole("button", { name: "Compliance Scan", exact: true }).first().click();
 
     const results = page.getByTestId("supercred-compliance");
     await expect(results).toBeVisible({ timeout: 30_000 });
@@ -169,6 +175,11 @@ test.describe("SuperCred demo page", () => {
     const stun = page.getByRole("button", { name: /stun agent/i }).first();
     await expect(stun).toBeVisible();
     await stun.click();
+    // A stun needs a recorded reason and a confirm step since 73d154aa0.
+    const reason = page.getByRole("textbox", { name: /reason for stunning/i });
+    await expect(reason).toBeVisible();
+    await reason.fill("Compliance failure: securityContext not set (acceptance: supercred-page.spec.ts)");
+    await page.getByRole("button", { name: "Confirm stun", exact: true }).click();
 
     const result = page.getByTestId("supercred-stun-result");
     await expect(result).toBeVisible({ timeout: 30_000 });
@@ -199,9 +210,13 @@ test.describe("SuperCred demo page", () => {
     });
 
     await expect(page.getByTestId("supercred-lifecycle")).toBeVisible();
-    await expect(page.getByTestId("supercred-lifecycle-steps").locator("> div")).toHaveCount(6);
-    // Step 6 is the platform's response — it must show failure once stunned.
-    await expect(page.getByTestId("lifecycle-status-6")).toHaveText(/failed/i);
+    // 6f6bc2140 replaced the six hard-coded lifecycle steps with the observed
+    // evidence chain (CredentialEvidencePanel, scripts/supercred-evidence.sh).
+    const steps = page.getByTestId("supercred-lifecycle").locator('[data-testid^="evidence-step-"]');
+    await expect(steps).toHaveCount(6, { timeout: 30_000 });
+    // Step 6 is the platform's response: once stunned, the secret and JWT role
+    // are observed gone ("observed"), not merely labelled.
+    await expect(page.getByTestId("evidence-state-6")).toHaveText("observed");
 
     const credentials = page.getByTestId("supercred-credentials");
     await expect(credentials).toBeVisible();

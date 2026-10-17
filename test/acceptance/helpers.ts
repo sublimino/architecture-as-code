@@ -8,10 +8,10 @@
  * Usage:
  *   import { login, config, afm, polling } from "./helpers";
  */
-import { expect, type Page, type APIRequestContext } from "@playwright/test";
+import { expect, test, type Page, type APIRequestContext } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 // ── Deployment guards ───────────────────────────────────────────────────────
 
@@ -351,6 +351,30 @@ export async function getAuthToken(page: Page): Promise<string | null> {
 }
 
 /**
+ * The live agent id of the pod a Deployment currently runs.
+ *
+ * A discovered workload's agent id is its pod name, which changes on every
+ * reschedule (`<deployment>-<replicaset hash>-<suffix>`). GET /agents/{id}
+ * resolves an exact id or name only since 680742075, so a spec can neither
+ * pin a pod name nor pass the bare Deployment name: it asks the live list for
+ * the one pod of that Deployment. Exactly one must exist; anything else is an
+ * environment problem and fails here, naming the Deployment.
+ */
+export async function liveWorkloadAgentId(page: Page, deployment: string): Promise<string> {
+  const token = await getAuthToken(page);
+  expect(token, "no OIDC token in page storage").toBeTruthy();
+  const res = await page.request.get(`${config.base}/api/v1/agents`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(res.ok(), `GET /api/v1/agents returned ${res.status()}`).toBeTruthy();
+  const body = (await res.json()) as { agents?: { id?: string }[] };
+  const pod = new RegExp(`^${deployment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-[a-z0-9]{5,10}-[a-z0-9]{5}$`);
+  const ids = (body.agents ?? []).map((a) => a.id ?? "").filter((id) => pod.test(id));
+  expect(ids, `exactly one live pod of Deployment ${deployment} in /api/v1/agents`).toHaveLength(1);
+  return ids[0]!;
+}
+
+/**
  * Login variant that always expects the Dex form (for login-specific tests
  * that need to verify the login flow itself, not skip it).
  */
@@ -609,7 +633,11 @@ export interface AccountTypeContract {
 }
 
 export function accountTypeContract(): AccountTypeContract {
-  const file = fileURLToPath(new URL("../../d2-signalloom/contracts/feature-account-types.json", import.meta.url));
+  // Resolved from the runner config's rootDir (this directory), not
+  // import.meta.url: the runner transpiles this suite to CommonJS (no
+  // "type": "module" here), where `import.meta` is a SyntaxError at COLLECTION
+  // and every spec importing helpers.ts fails with "No tests found".
+  const file = join(test.info().config.rootDir, "..", "..", "d2-signalloom", "contracts", "feature-account-types.json");
   return JSON.parse(readFileSync(file, "utf8")) as AccountTypeContract;
 }
 

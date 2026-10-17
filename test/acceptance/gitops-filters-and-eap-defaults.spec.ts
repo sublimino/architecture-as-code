@@ -3,10 +3,9 @@
  * disclosure typography spacing, and EAP preset defaults in the live dashboard.
  */
 import { test, expect } from "./fixtures";
-import { login, config } from "./helpers";
+import { login, config, liveWorkloadAgentId } from "./helpers";
 
 const BASE = config.base;
-const KUSARI_AGENT_ID = "agent-kusari-847cc7d984-mwg8c";
 
 test.describe("GitOps Detection, Workload Quick Filters & EAP Preset Defaults", () => {
   test.beforeEach(async ({ page }) => {
@@ -46,7 +45,9 @@ test.describe("GitOps Detection, Workload Quick Filters & EAP Preset Defaults", 
   });
 
   test("Agent Onboarding displays GitOps reconciliation notice and copyable remediation patch", async ({ page }) => {
-    await page.goto(`${BASE}/agents/${KUSARI_AGENT_ID}?tab=onboarding`, { waitUntil: "domcontentloaded" });
+    // The Kusari agent's id is its current pod name, not a pinned one.
+    const kusariAgentId = await liveWorkloadAgentId(page, "agent-kusari");
+    await page.goto(`${BASE}/agents/${kusariAgentId}?tab=onboarding`, { waitUntil: "domcontentloaded" });
 
     // Verify Onboarding Tab loads
     const onboardingTab = page.getByTestId("agent-onboarding-tab");
@@ -66,12 +67,19 @@ test.describe("GitOps Detection, Workload Quick Filters & EAP Preset Defaults", 
     // Check header
     await expect(page.locator("h1")).toContainText(/feature/i, { timeout: 15_000 });
 
-    // Verify Preset Bundles section
-    const eapPilotBtn = page.getByRole("button", { name: /apply eap pilot/i });
-    await expect(eapPilotBtn).toBeVisible({ timeout: 15_000 });
-
-    // Verify preset description or page content mentions core governance and suppressed services
-    const pageContent = await page.innerText("body");
-    expect(pageContent).toMatch(/eap pilot/i);
+    // The "Apply EAP Pilot" preset button became the EAP Full account type in
+    // 84cde543b (eap_pilot is its alias; d2-signalloom/contracts/feature-account-types.json).
+    // It must still suppress federated services and topology.
+    const eapFull = page.getByTestId("account-type-option-eap_full");
+    await expect(eapFull).toBeVisible({ timeout: 15_000 });
+    await expect(eapFull).toContainText("EAP Full");
+    const pages = page.getByTestId("account-type-pages-eap_full");
+    await expect(pages).toBeVisible();
+    await expect(pages).not.toContainText("Federated Services");
+    await expect(pages).not.toContainText("Agent Topology");
+    // ...while the Full type, from the same catalogue, does list them: the
+    // absence above is the preset's, not a rendering gap.
+    await expect(page.getByTestId("account-type-pages-full")).toContainText("Federated Services");
+    await expect(page.getByTestId("account-type-pages-full")).toContainText("Agent Topology");
   });
 });

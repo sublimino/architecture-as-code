@@ -47,7 +47,14 @@ test.describe.configure({ mode: "serial", timeout: 15 * 60_000 });
 
 const deployed = supercred.agentDeployed();
 
-/** The stun evidence, as the audience sees it (components/CredentialStateNotice.tsx). */
+/**
+ * The stun evidence, as the audience sees it. Since 7b09dfb5b the /agents row
+ * shows a compact "Credentials revoked" badge (StatusBadge, testid
+ * compact-credential-state-<agent id>) and keeps the full notice
+ * (components/CredentialStateNotice.tsx) in a hover disclosure, so the notice
+ * is in the DOM but hidden until the row is hovered.
+ */
+const REVOKED_BADGE = '[data-testid="compact-credential-state-agent-cardvault"]';
 const REVOKED = '[data-testid="credential-state-revoked"]';
 /** Phase 4's button on the instructor panel (components/SuperCredInstructorPanel.tsx). */
 const RUN_PHASE_4 = '[data-testid="supercred-run-step-4"]';
@@ -120,7 +127,9 @@ test.describe("SuperCredential demo — instructor window and audience window", 
       await expect(instructor.locator(RUN_STATUS)).toContainText(/succeeded/, {
         timeout: 10 * 60_000,
       });
-      await expect(audience.locator(REVOKED)).toHaveCount(0, { timeout: 60_000 });
+      await expect(audience.locator(REVOKED_BADGE).filter({ hasText: /credentials revoked/i })).toHaveCount(0, {
+        timeout: 60_000,
+      });
 
       // ── Phase 3 is deliberately NOT driven here ──────────────────────────
       // The compliance scan is a demo step, not a precondition for the stun.
@@ -159,14 +168,18 @@ test.describe("SuperCredential demo — instructor window and audience window", 
       });
 
       // ── The payoff: the untouched window changes on its own ────────────
-      const revoked = audience.locator(REVOKED).first();
+      const badge = audience.locator(REVOKED_BADGE).filter({ hasText: /credentials revoked/i });
       await expect(
-        revoked,
+        badge,
         "the audience window must show the stun without anyone touching it",
       ).toBeVisible({ timeout: 120_000 });
 
       // Names WHY, not just a status word — an audience reading "suspended"
-      // has not been told anything (ISC-53).
+      // has not been told anything (ISC-53). The full notice is the badge's
+      // disclosure; hovering it is not a navigation, which is checked below.
+      await badge.hover();
+      const revoked = audience.locator(REVOKED).filter({ visible: true }).first();
+      await expect(revoked).toBeVisible({ timeout: 10_000 });
       await expect(revoked).toContainText(/credentials revoked/i);
 
       // ── And it got there without a reload ──────────────────────────────

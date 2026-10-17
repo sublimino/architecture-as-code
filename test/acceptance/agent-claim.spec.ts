@@ -9,7 +9,7 @@
  *   vs live stun-sentinel eBPF kernel flow events.
  */
 import { test, expect } from "./fixtures";
-import { login, config } from "./helpers";
+import { login, config, liveWorkloadAgentId } from "./helpers";
 
 const BASE = config.base;
 
@@ -41,8 +41,10 @@ test.describe("Operator Dual-Agent Claim & Comparative Telemetry (SLON-P2-3)", (
   });
 
   test("inspects comparative telemetry for Nono Sandboxed agent", async ({ page }) => {
-    // Navigate to agent-nono-evidenced activity timeline
-    await page.goto(`${BASE}/agents/agent-nono-evidenced?tab=activity`);
+    // Navigate to agent-nono-evidenced activity timeline. Its agent id is the
+    // current pod name: the bare Deployment name 404s since 680742075.
+    const id = await liveWorkloadAgentId(page, "agent-nono-evidenced");
+    await page.goto(`${BASE}/agents/${id}?tab=activity`);
     await expect(page.locator('[data-testid="dossier-panel-activity"], [role="tabpanel"]').first()).toBeVisible({ timeout: 10_000 });
 
     // The comparative telemetry banner (AgentActivityTab.tsx) is rendered
@@ -55,8 +57,9 @@ test.describe("Operator Dual-Agent Claim & Comparative Telemetry (SLON-P2-3)", (
   });
 
   test("inspects comparative telemetry for Standard Container baseline agent", async ({ page }) => {
-    // Navigate to agent-standard-baseline activity timeline
-    await page.goto(`${BASE}/agents/agent-standard-baseline?tab=activity`);
+    // Navigate to agent-standard-baseline activity timeline (current pod, as above).
+    const id = await liveWorkloadAgentId(page, "agent-standard-baseline");
+    await page.goto(`${BASE}/agents/${id}?tab=activity`);
     await expect(page.locator('[data-testid="dossier-panel-activity"], [role="tabpanel"]').first()).toBeVisible({ timeout: 10_000 });
 
     // Same unconditional-render reasoning as the Nono case above.

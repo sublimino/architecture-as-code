@@ -29,14 +29,28 @@ test.describe("/signals: a human can review a decision and the verdict persists"
     await expect(page.getByTestId("signals-unreachable")).toHaveCount(0);
 
     await page.getByTestId("signals-tab-decisions").click();
+    // Decide skip-or-run from the 90m answer itself. The old 15 s waitFor on a
+    // form that a quiet store never renders ran the 30 s test budget out before
+    // its catch could skip, so "nothing to review" reported as a timeout; and a
+    // DOM check alone can read the stale 10m list while the 90m fetch is in flight.
+    const decisions90m = page.waitForResponse(
+      (r) =>
+        r.request().method() === "GET" &&
+        r.url().includes("/signals/policy/decisions") &&
+        new URL(r.url()).searchParams.get("window") === "90m",
+      { timeout: 20_000 },
+    );
     await page.getByTestId("window-btn-90m").click();
+    const answer = await decisions90m;
+    expect(answer.ok(), `GET ${answer.url()} returned ${answer.status()}`).toBeTruthy();
+    const listed = ((await answer.json()) ?? []) as { review?: unknown }[];
+    test.skip(
+      !listed.some((d) => d.review === null),
+      "no unreviewed decision in the 90m window; seed the store first (make kusari-synth-seed)",
+    );
 
     const forms = page.getByTestId("decision-review-form");
-    try {
-      await forms.first().waitFor({ state: "visible", timeout: 15_000 });
-    } catch {
-      test.skip(true, "no unreviewed decision in the 90m window; seed the store first");
-    }
+    await expect(forms.first()).toBeVisible({ timeout: 15_000 });
     const form = forms.first();
     const card = page.locator('[data-testid^="decision-card-"]').filter({ has: form }).first();
     const cardId = await card.getAttribute("data-testid");

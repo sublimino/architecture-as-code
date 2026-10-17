@@ -370,9 +370,11 @@ test.describe("First User Onboarding Wizard Flow (SLON-P1-3)", () => {
     await expect(page.locator('[data-testid="env-credit-balance"]')).toContainText("US$23.57");
 
     // Verify Network Egress & CEL Governance section
-    await expect(page.locator('[data-testid="network-egress-section"]')).toBeVisible();
-    await expect(page.locator('[data-testid="package-managers-badge"]')).toContainText("ENABLED");
-    await expect(page.locator('[data-testid="mcp-servers-badge"]')).toContainText("ENABLED");
+    // fc545b0b5 rebuilt this page from the fixture: the package-manager and
+    // MCP-server toggle rows were dropped, the outbound policy is one tile.
+    const egress = page.locator('[data-testid="network-egress-section"]');
+    await expect(egress).toBeVisible();
+    await expect(egress).toContainText("Outbound traffic is blocked except for what's allowed below.");
     await expect(page.locator('[data-testid="allowed-hosts-list"]')).toContainText("0/16");
     await expect(page.locator('[data-testid="cel-policy-card"]')).toBeVisible();
 

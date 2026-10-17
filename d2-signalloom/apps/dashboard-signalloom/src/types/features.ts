@@ -26,6 +26,12 @@ export interface FeaturesResponse {
   details?: Record<string, FeatureFlagDetail>
   /** Present on the admin endpoint only. */
   account_type?: AccountTypeState
+  /**
+   * Admin endpoint only: the tenant's flag version this state is at, strictly
+   * increasing in commit order. Replies to concurrent requests arrive in any
+   * order; one with a lower version than the state already shown is older.
+   */
+  version?: number
 }
 
 export interface FeaturePreset {

@@ -95,7 +95,9 @@ test.describe("SuperCred demo page", () => {
       page.getByTestId("supercred-empty-state"),
       "the agent is deployed, so the page must not report an empty discovery",
     ).toHaveCount(0);
-    await expect(page.getByTestId("discovery-supercred")).not.toHaveText("0");
+    // StatCard text is label + value + caption (96d077d5e), so a bare "0" never
+    // matched and this was vacuous; pin the value inside the card.
+    await expect(page.getByTestId("discovery-supercred")).toHaveText(/^SuperCred\s*[1-9]\d*\s*carry the supercred label$/);
     await expect(page.getByTestId("supercred-error")).toHaveCount(0);
   });
 
@@ -122,7 +124,8 @@ test.describe("SuperCred demo page", () => {
     await expect(page.getByTestId("supercred-discovery-summary")).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.getByTestId("discovery-blocked")).toHaveText("0");
+    // The tile is a StatCard since 96d077d5e: label, value, caption.
+    await expect(page.getByTestId("discovery-blocked")).toHaveText(/^Blocked\s*0\s*cannot run$/);
     await expect(page.getByTestId("supercred-phase-warning")).toHaveCount(0);
   });
 

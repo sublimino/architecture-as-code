@@ -10231,13 +10231,19 @@ async def patch_cookie_preferences(
 # Discovery Super Datatable Endpoints (SLMS-P1-2)
 # ---------------------------------------------------------------------------
 
+PillarVerdict = Literal["pass", "recommended", "warning", "not_applicable", "not_assessed"]
+
+
 class ControlRecommendationsModel(BaseModel):
+    """Four-pillar verdicts. ``not_assessed`` is the default because no
+    evaluator runs on the discovery path: a verdict is set only from evidence
+    the row carries (a stored scan finding), never from a guess."""
     model_config = ConfigDict(extra="allow")
 
-    config: Literal["pass", "recommended", "warning", "not_applicable"] = "recommended"
-    content: Literal["pass", "recommended", "warning", "not_applicable"] = "recommended"
-    supply_chain: Literal["pass", "recommended", "warning", "not_applicable"] = "recommended"
-    eu_ai_act: Literal["pass", "recommended", "warning", "not_applicable"] = "recommended"
+    config: PillarVerdict = "not_assessed"
+    content: PillarVerdict = "not_assessed"
+    supply_chain: PillarVerdict = "not_assessed"
+    eu_ai_act: PillarVerdict = "not_assessed"
 
 
 class DiscoveryWorkloadModel(BaseModel):
@@ -10362,8 +10368,13 @@ async def list_discovery_workloads(
                 source_label = "Entra ID" if "entra" in dir_source.lower() else ("Okta" if "okta" in dir_source.lower() else dir_source)
                 privilege = r["privilege_level"] or "standard"
 
-                config_rec: Literal["pass", "recommended", "warning", "not_applicable"] = "warning" if "stale_credential" in findings or privilege in ("high", "elevated", "domain_admin") else "pass"
-                supply_rec: Literal["pass", "recommended", "warning", "not_applicable"] = "recommended" if "unrotated_secret" in findings else "pass"
+                # A stored finding or the directory's privilege level is evidence;
+                # the absence of one is not a pass.
+                nhi_recs = ControlRecommendationsModel(
+                    config="warning" if "stale_credential" in findings or privilege in ("high", "elevated", "domain_admin") else "not_assessed",
+                    content="not_applicable",
+                    supply_chain="recommended" if "unrotated_secret" in findings else "not_assessed",
+                )
 
                 workloads.append(
                     DiscoveryWorkloadModel(
@@ -10378,12 +10389,8 @@ async def list_discovery_workloads(
                         spiffe_id=None,
                         model=None,
                         last_seen_at=_ts(r["last_seen_at"]) or _ts(r["first_discovered_at"]),
-                        recommendations=ControlRecommendationsModel(
-                            config=config_rec,
-                            content="not_applicable",
-                            supply_chain=supply_rec,
-                            eu_ai_act="pass",
-                        ),
+                        recommendations=nhi_recs,
+                        control_recommendations=nhi_recs,
                         metadata={
                             "privilege_level": privilege,
                             "findings": findings,
@@ -10430,12 +10437,8 @@ async def list_discovery_workloads(
                         spiffe_id=spiffe,
                         model=r["model_name"],
                         last_seen_at=_ts(r["created_at"]),
-                        recommendations=ControlRecommendationsModel(
-                            config="pass" if st == "governed" else "recommended",
-                            content="recommended",
-                            supply_chain="pass" if st == "governed" else "warning",
-                            eu_ai_act="pass" if st == "governed" else "recommended",
-                        ),
+                        # Pillars keep the not_assessed default: nothing on this
+                        # path evaluated the workload, and a claim is not a pass.
                         metadata={
                             "service_account": sa,
                             "namespace": ns,
@@ -10486,12 +10489,7 @@ async def list_discovery_workloads(
                         spiffe_id=f"spiffe://signalloom.demo/ext/{agent_name}" if enrolled else None,
                         model=meta.get("model"),
                         last_seen_at=_ts(r["enrolled_at"]) or _ts(r["created_at"]),
-                        recommendations=ControlRecommendationsModel(
-                            config="recommended",
-                            content="recommended",
-                            supply_chain="pass",
-                            eu_ai_act="recommended",
-                        ),
+                        # Pillars keep the not_assessed default (nothing evaluated).
                         metadata={
                             "host_id": r["host_id"],
                             "host_os": r["host_os"],
@@ -10511,7 +10509,7 @@ async def list_discovery_workloads(
         # 5. Remote managed agent platforms (Anthropic, OpenAI): exactly what
         # remote_agent_sync last observed with the tenant's own key, items the
         # provider no longer lists excluded. Only provider-reported fields; the
-        # control recommendations are the model's defaults, not an assessment.
+        # pillars keep the model's not_assessed default.
         if enabled_connectors.get("external_services", True):
             import remote_agent_sync
 

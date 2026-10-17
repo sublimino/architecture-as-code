@@ -186,19 +186,61 @@ export async function deleteAccountType(id: string, token?: string | null): Prom
 
 // ─── React Query Hooks ─────────────────────────────────────────────────────────
 
+const adminFeaturesKey = (tenantId?: string | null, token?: string | null) =>
+  [...ADMIN_FEATURES_QUERY_KEY(tenantId), token ?? 'no-token'] as const
+
+/**
+ * The newer of two admin feature states for one tenant, by server version.
+ * Replies to concurrent requests (toggles, refetches) arrive in any order; a
+ * reply with a lower version than the state already held is older and is
+ * dropped, so the page never steps back to it. A state without a version (a
+ * server that predates migration 077) is taken as is.
+ */
+export function newerFeatures(
+  held: FeaturesResponse | undefined,
+  incoming: FeaturesResponse,
+): FeaturesResponse {
+  if (held?.version !== undefined && incoming.version !== undefined && held.version > incoming.version) {
+    return held
+  }
+  return incoming
+}
+
 export function useAdminFeatures(
   tenantId?: string | null,
   token?: string | null,
   options?: { enabled?: boolean },
 ) {
+  const queryClient = useQueryClient()
   const isEnabled = options?.enabled !== undefined ? options.enabled : Boolean(token)
+  const queryKey = adminFeaturesKey(tenantId, token)
 
   return useQuery<FeaturesResponse, Error>({
-    queryKey: [...ADMIN_FEATURES_QUERY_KEY(tenantId), token ?? 'no-token'],
-    queryFn: ({ signal }) => fetchAdminFeatures(token, tenantId, signal),
+    queryKey,
+    queryFn: async ({ signal }) =>
+      newerFeatures(
+        queryClient.getQueryData<FeaturesResponse>(queryKey),
+        await fetchAdminFeatures(token, tenantId, signal),
+      ),
     enabled: isEnabled,
     staleTime: 30_000,
   })
+}
+
+/** Offer a mutation's reply to the admin features cache; it wins only if newer. */
+function offerAdminFeatures(
+  queryClient: ReturnType<typeof useQueryClient>,
+  tenantId: string,
+  token: string | null | undefined,
+  data: FeaturesResponse,
+): void {
+  if (data?.version === undefined) {
+    queryClient.invalidateQueries({ queryKey: ['adminFeatures'] })
+    return
+  }
+  queryClient.setQueryData<FeaturesResponse>(adminFeaturesKey(tenantId, token), (held) =>
+    newerFeatures(held, data),
+  )
 }
 
 export function useFeaturePresets(
@@ -224,8 +266,8 @@ export function useUpdateTenantFeatures(options?: {
 
   return useMutation<FeaturesResponse, Error, UpdateTenantFeaturesPayload>({
     mutationFn: (payload) => updateTenantFeatures(payload, options?.token),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['adminFeatures'] })
+    onSuccess: (data, payload) => {
+      offerAdminFeatures(queryClient, payload.tenant_id, options?.token, data)
       queryClient.invalidateQueries({ queryKey: ['featureFlags'] })
       options?.onSuccess?.(data)
     },
@@ -249,8 +291,10 @@ export function useUpdateSingleFeature(options?: {
   >({
     mutationFn: ({ tenantId, flagKey, payload }) =>
       updateSingleFeature(tenantId, flagKey, payload, options?.token),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['adminFeatures'] })
+    onSuccess: (data, { tenantId }) => {
+      // The reply is the state this toggle committed, at its version: no
+      // refetch, which could land before or after another toggle's reply.
+      offerAdminFeatures(queryClient, tenantId, options?.token, data)
       queryClient.invalidateQueries({ queryKey: ['featureFlags'] })
       options?.onSuccess?.(data)
     },

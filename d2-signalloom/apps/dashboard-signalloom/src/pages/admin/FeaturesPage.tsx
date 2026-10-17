@@ -126,7 +126,12 @@ export default function FeaturesPage({
   const [actionError, setActionError] = useState<string | null>(null)
   const [successToast, setSuccessToast] = useState<string | null>(null)
   const [applyingPreset, setApplyingPreset] = useState<string | null>(null)
-  const [togglingFlag, setTogglingFlag] = useState<string | null>(null)
+  // Toggles not yet confirmed by the server, keyed `${tenant}/${flag}`: the
+  // value each was last clicked to. Shown over the server state so a click
+  // shows at once and never flicks back while replies are outstanding.
+  const [pendingToggles, setPendingToggles] = useState<Record<string, boolean>>({})
+  const desiredRef = useRef<Record<string, boolean>>({})
+  const inFlightRef = useRef<Set<string>>(new Set())
   const hasInitializedTenantRef = useRef(false)
 
   // Fetch token and initialize default tenant once from settings/token
@@ -190,13 +195,20 @@ export default function FeaturesPage({
 
   const { data: presetsData, isLoading: isPresetsLoading } = useFeaturePresets(token)
 
-  // Current flags map (combining default system flags with tenant response)
+  // Current flags map: default system flags, the tenant's server state, then
+  // this tenant's toggles still awaiting the server.
   const activeFlags = useMemo<Record<string, boolean>>(() => {
+    const pending: Record<string, boolean> = {}
+    const prefix = `${selectedTenant}/`
+    for (const [key, value] of Object.entries(pendingToggles)) {
+      if (key.startsWith(prefix)) pending[key.slice(prefix.length)] = value
+    }
     return {
       ...DEFAULT_SYSTEM_FLAGS,
       ...(featuresData?.flags ?? {}),
+      ...pending,
     }
-  }, [featuresData?.flags])
+  }, [featuresData?.flags, pendingToggles, selectedTenant])
 
   // Mutations
   const updateTenantMutation = useUpdateTenantFeatures({
@@ -209,11 +221,10 @@ export default function FeaturesPage({
     },
   })
 
+  // Each reply is the state its toggle committed and is offered to the cache by
+  // version (featuresApi), so there is no refetch here to race other toggles.
   const updateSingleFeatureMutation = useUpdateSingleFeature({
     token,
-    onSuccess: () => {
-      refetchFeatures()
-    },
     onError: (err) => {
       setActionError(err.message || 'Failed to update feature flag')
     },
@@ -306,25 +317,52 @@ export default function FeaturesPage({
     }
   }, [pendingPreset, selectedTenant, updateTenantMutation])
 
-  // Single toggle handler
-  const handleToggleFlag = useCallback(
-    async (flagKey: string, currentVal: boolean) => {
-      setActionError(null)
-      setTogglingFlag(flagKey)
+  // Single toggle handler. A click records the flag's desired value (the
+  // opposite of what is shown, which already includes earlier unconfirmed
+  // clicks) and sends that one flag's value -- never a snapshot of the set.
+  // Requests for one flag go one at a time, so they cannot reach the server
+  // out of order; a click made while one is in flight is sent when it returns.
+  const sendToggle = useCallback(
+    async (tenantId: string, flagKey: string) => {
+      const pendingKey = `${tenantId}/${flagKey}`
+      inFlightRef.current.add(pendingKey)
       try {
-        await updateSingleFeatureMutation.mutateAsync({
-          tenantId: selectedTenant,
-          flagKey,
-          payload: { enabled: !currentVal },
-        })
-        setSuccessToast(`Flag "${flagKey}" set to ${!currentVal ? 'ENABLED' : 'DISABLED'}.`)
+        for (;;) {
+          const enabled = desiredRef.current[pendingKey]
+          await updateSingleFeatureMutation.mutateAsync({ tenantId, flagKey, payload: { enabled } })
+          if (desiredRef.current[pendingKey] === enabled) {
+            setSuccessToast(`Flag "${flagKey}" set to ${enabled ? 'ENABLED' : 'DISABLED'}.`)
+            return
+          }
+        }
       } catch (err: any) {
         setActionError(err?.message || 'Failed to update feature flag')
+        refetchFeatures()
       } finally {
-        setTogglingFlag(null)
+        // The cache now holds this flag's committed value (or the error path
+        // refetched it), so the unconfirmed overlay can go.
+        inFlightRef.current.delete(pendingKey)
+        delete desiredRef.current[pendingKey]
+        setPendingToggles((prev) => {
+          const { [pendingKey]: _settled, ...rest } = prev
+          return rest
+        })
       }
     },
-    [selectedTenant, updateSingleFeatureMutation],
+    [updateSingleFeatureMutation, refetchFeatures],
+  )
+
+  const handleToggleFlag = useCallback(
+    (flagKey: string, shownVal: boolean) => {
+      setActionError(null)
+      const pendingKey = `${selectedTenant}/${flagKey}`
+      desiredRef.current[pendingKey] = !shownVal
+      setPendingToggles((prev) => ({ ...prev, [pendingKey]: !shownVal }))
+      if (!inFlightRef.current.has(pendingKey)) {
+        void sendToggle(selectedTenant, flagKey)
+      }
+    },
+    [selectedTenant, sendToggle],
   )
 
   // Summary Metrics
@@ -1058,7 +1096,7 @@ export default function FeaturesPage({
           >
             {category.flags.map((flag) => {
               const isEnabled = Boolean(activeFlags[flag.key])
-              const isToggling = togglingFlag === flag.key
+              const isToggling = `${selectedTenant}/${flag.key}` in pendingToggles
 
               return (
                 <div
@@ -1145,9 +1183,10 @@ export default function FeaturesPage({
                       {isToggling ? 'Updating...' : isEnabled ? 'Route Accessible' : 'Route Restricted (404)'}
                     </span>
 
+                    {/* Not disabled while updating: a further click is a new
+                        desired value, sent once the in-flight one returns. */}
                     <FlagToggle
                       active={isEnabled}
-                      disabled={isToggling}
                       onToggle={() => handleToggleFlag(flag.key, isEnabled)}
                       testId={`flag-toggle-${flag.key}`}
                       label={`Toggle ${flag.label}`}

@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# @id     sl-upgrade-scan
+# @doc    .agents/skills/sl-upgrade-scan/SKILL.md
+# @tests  test/sl-upgrade-scan.bats test/unit/sl-upgrade-scan/
+#
+# Entry point for the sl-upgrade-scan CLI. The work is in upgrade-scan.ts;
+# run with --help for options.
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if ! command -v bun >/dev/null 2>&1; then
+  echo "upgrade-scan: bun is required (https://bun.sh)" >&2
+  exit 3
+fi
+exec bun "${here}/upgrade-scan.ts" "$@"

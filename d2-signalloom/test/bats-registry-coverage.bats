@@ -759,6 +759,7 @@ sl-drift-sweep.bats
 sl-cluster-diagnostics.bats
 sl-chaos-walk.bats
 sl-memory-hunt.bats
+sl-upgrade-scan.bats
 sl-skills-layout.bats
 clean-test-artifacts.bats
 local-witness-evidence.bats

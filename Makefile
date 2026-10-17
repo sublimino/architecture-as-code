@@ -830,7 +830,7 @@ test-kpai: ## Run KPAI runtime harness probe tests and contract validation.
 		systemd-run --user --wait --collect --pipe -p NoNewPrivileges=yes --setenv=NONO_CAP_FILE="/tmp/.nono-test.json" bash -c 'export PATH=/home/linuxbrew/.linuxbrew/bin:$$PATH && touch /tmp/.nono-test.json && cd "$(CURDIR)" && bun test test/unit/kpai-harness-contract.test.ts test/unit/kpai-harness-execution.test.ts'; \
 	fi
 
-.PHONY: test-scheduled-skills-parallel test-scheduled-skills-contracts architecture-audit security-audit architecture-audit-test security-audit-test clean-test-artifacts clean
+.PHONY: test-scheduled-skills-parallel test-scheduled-skills-contracts architecture-audit security-audit architecture-audit-test security-audit-test upgrade-scan-test clean-test-artifacts clean
 AUDIT_ARGS ?=
 test-scheduled-skills-parallel: ## Collect bounded offline audits with GNU Parallel, then send safe evidence to an agent.
 	./scripts/test-scheduled-skills-parallel.sh $(AUDIT_ARGS)
@@ -847,8 +847,11 @@ architecture-audit-test: ## Run offline architecture collector fixture contracts
 security-audit-test: ## Run offline security collector fixture contracts.
 	bats test/sl-security-audit.bats
 
-test-scheduled-skills-contracts: ## Run bounded audit runner, collector, honest-status, skills-layout, and memory-hunt contracts without model calls.
-	bats test/scheduled-skills-parallel.bats test/sl-architecture-audit.bats test/sl-security-audit.bats test/sl-drift-sweep.bats test/sl-skills-layout.bats test/sl-memory-hunt.bats
+upgrade-scan-test: ## Run the offline sl-upgrade-scan contracts (fixtures and fake scanners, no network).
+	bats test/sl-upgrade-scan.bats
+
+test-scheduled-skills-contracts: ## Run bounded audit runner, collector, honest-status, skills-layout, memory-hunt, and upgrade-scan contracts without model calls.
+	bats test/scheduled-skills-parallel.bats test/sl-architecture-audit.bats test/sl-security-audit.bats test/sl-drift-sweep.bats test/sl-skills-layout.bats test/sl-memory-hunt.bats test/sl-upgrade-scan.bats
 
 clean-test-artifacts: ## Clean leaked test artifacts from the cluster and /tmp without tearing down the foundation.
 	./scripts/clean-test-artifacts.sh

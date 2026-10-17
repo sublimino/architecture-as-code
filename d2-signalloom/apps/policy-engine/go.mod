@@ -1,6 +1,6 @@
 module github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine
 
-go 1.26.0
+go 1.27.2
 
 require (
 	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/pkg/obscel v0.0.0-00010101000000-000000000000

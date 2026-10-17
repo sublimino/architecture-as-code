@@ -4,7 +4,7 @@
 // and moves google.golang.org/protobuf onto an unreleased pseudo-version).
 module github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/oracle
 
-go 1.26.0
+go 1.27.2
 
 require (
 	github.com/google/cel-go v0.30.0

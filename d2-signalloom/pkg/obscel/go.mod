@@ -1,6 +1,6 @@
 module github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/pkg/obscel
 
-go 1.26.0
+go 1.27.2
 
 require (
 	github.com/google/cel-go v0.30.0

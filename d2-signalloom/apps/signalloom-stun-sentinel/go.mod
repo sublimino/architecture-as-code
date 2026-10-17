@@ -1,6 +1,6 @@
 module github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signalloom-stun-sentinel
 
-go 1.26.0
+go 1.27.2
 
 require (
 	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel v0.0.0-unpublished

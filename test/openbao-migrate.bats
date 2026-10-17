@@ -150,6 +150,21 @@ PY
   [[ "$output" == *"MISSING kv kv/signalloom/fe-signalloom"* ]]
 }
 
+@test "rollback: --to dev targets the dev server through its own pod, never openbao-admin" {
+  run "$SCRIPT" verify --file "$EXPORT" --to nowhere
+  [ "$status" -eq 2 ]
+  "$SCRIPT" export --file "$EXPORT" >/dev/null
+  unset OPENBAO_MIGRATE_DST_BAO
+  mkdir -p "$W/kbin"
+  printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s/kubectl.log"\nexit 1\n' "$W" >"$W/kbin/kubectl"
+  chmod +x "$W/kbin/kubectl"
+  PATH="$W/kbin:$PATH" run "$SCRIPT" verify --file "$EXPORT" --to dev
+  [ "$status" -ne 0 ]
+  rg -q 'exec -i deployment/openbao -c openbao' "$W/kubectl.log"
+  run rg -q 'openbao-admin' "$W/kubectl.log"
+  [ "$status" -ne 0 ]
+}
+
 @test "verify: a role field newer servers add does not count as a mismatch" {
   "$SCRIPT" export --file "$EXPORT" >/dev/null
   "$SCRIPT" import --file "$EXPORT" >/dev/null

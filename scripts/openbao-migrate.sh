@@ -9,8 +9,8 @@
 #
 # Usage:
 #   scripts/openbao-migrate.sh export --file FILE [--context CONTEXT] [--from dev|admin]
-#   scripts/openbao-migrate.sh import --file FILE [--context CONTEXT]
-#   scripts/openbao-migrate.sh verify --file FILE [--context CONTEXT]
+#   scripts/openbao-migrate.sh import --file FILE [--context CONTEXT] [--to admin|dev]
+#   scripts/openbao-migrate.sh verify --file FILE [--context CONTEXT] [--to admin|dev]
 #
 # What moves: every KV v2 value on every kv-v2 mount, every ACL policy except
 # root and inf-bao-admin, and every JWT/OIDC auth mount with its config and
@@ -25,7 +25,8 @@
 # its dev root token, read INSIDE that pod from its own environment; it is the
 # one-shot path off the retiring server and stops working once it is gone.
 # --from admin reads through deploy/openbao-admin, for a restart-survival
-# check. import and verify always write/read as inf-bao-admin.
+# check. import and verify write/read as inf-bao-admin; --to dev targets a
+# dev server instead, the rollback path after a revert.
 #
 # The export FILE holds secret values in clear: it is created 0600 and the
 # runbook keeps it on tmpfs and shreds it after verify. Logs carry only
@@ -42,6 +43,7 @@ set -o pipefail
 
 CONTEXT=""
 FROM="dev"
+TO="admin"
 NS="${OPENBAO_MIGRATE_NAMESPACE:-inf-bao}"
 
 usage() { sed -n '3,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
@@ -51,20 +53,24 @@ _kubectl() {
   if [ -n "${CONTEXT}" ]; then kubectl --context "${CONTEXT}" -n "${NS}" "$@"; else kubectl -n "${NS}" "$@"; fi
 }
 
+dev_bao() {
+  # shellcheck disable=SC2016 # expands inside the dev pod only
+  _kubectl exec -i deployment/openbao -c openbao -- \
+    sh -c 'BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$BAO_DEV_ROOT_TOKEN_ID" exec bao "$@"' bao "$@"
+}
+
+admin_bao() {
+  _kubectl exec -i deployment/openbao-admin -c bao -- bao-admin "$@"
+}
+
 src() {
   if [ -n "${OPENBAO_MIGRATE_SRC_BAO:-}" ]; then "${OPENBAO_MIGRATE_SRC_BAO}" "$@"; return; fi
-  if [ "${FROM}" = "admin" ]; then
-    _kubectl exec -i deployment/openbao-admin -c bao -- bao-admin "$@"
-  else
-    # shellcheck disable=SC2016 # expands inside the retiring dev pod only
-    _kubectl exec -i deployment/openbao -c openbao -- \
-      sh -c 'BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$BAO_DEV_ROOT_TOKEN_ID" exec bao "$@"' bao "$@"
-  fi
+  if [ "${FROM}" = "admin" ]; then admin_bao "$@"; else dev_bao "$@"; fi
 }
 
 dst() {
   if [ -n "${OPENBAO_MIGRATE_DST_BAO:-}" ]; then "${OPENBAO_MIGRATE_DST_BAO}" "$@"; return; fi
-  _kubectl exec -i deployment/openbao-admin -c bao -- bao-admin "$@"
+  if [ "${TO}" = "dev" ]; then dev_bao "$@"; else admin_bao "$@"; fi
 }
 
 h() { jq -S -c . | sha256sum | cut -c1-16; }
@@ -274,11 +280,13 @@ main() {
       --file) file="${2:-}"; shift 2 || die "--file needs a value" 2 ;;
       --context) CONTEXT="${2:-}"; shift 2 || die "--context needs a value" 2 ;;
       --from) FROM="${2:-}"; shift 2 || die "--from needs a value" 2 ;;
+      --to) TO="${2:-}"; shift 2 || die "--to needs a value" 2 ;;
       *) die "unknown option: $1" 2 ;;
     esac
   done
   [ -n "${file}" ] || die "--file is required" 2
   case "${FROM}" in dev|admin) ;; *) die "--from must be dev or admin" 2 ;; esac
+  case "${TO}" in dev|admin) ;; *) die "--to must be admin or dev" 2 ;; esac
   command -v jq >/dev/null || die "jq is required" 1
   case "${cmd}" in
     export) do_export "${file}" ;;

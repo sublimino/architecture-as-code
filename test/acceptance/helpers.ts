@@ -10,6 +10,8 @@
  */
 import { expect, type Page, type APIRequestContext } from "@playwright/test";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 // ── Deployment guards ───────────────────────────────────────────────────────
 
@@ -591,3 +593,65 @@ export async function waitForAuthLanding(
   const landing: AuthLanding = (await loginInput.isVisible()) ? "dex-login" : "dashboard";
   return { landing, elapsedMs: Date.now() - started };
 }
+
+// ── Account types (feature-flag configurations) ─────────────────────────────
+
+/**
+ * Account types and the tenant nav they gate, read from the cross-language
+ * contract the server and the dashboard are both tested against
+ * (d2-signalloom/contracts/feature-account-types.json). Design:
+ * docs/signalloom/feature-flag-account-types.md.
+ */
+export interface AccountTypeContract {
+  flag_keys: string[];
+  account_types: { id: string; name: string; status: string; aliases: string[]; flags: Record<string, boolean> }[];
+  tenant_nav: { label: string; route: string; flag: string }[];
+}
+
+export function accountTypeContract(): AccountTypeContract {
+  const file = fileURLToPath(new URL("../../d2-signalloom/contracts/feature-account-types.json", import.meta.url));
+  return JSON.parse(readFileSync(file, "utf8")) as AccountTypeContract;
+}
+
+export const accountTypes = {
+  /** The exact flag set of an account type; throws on an unknown id. */
+  flags(id: string): Record<string, boolean> {
+    const found = accountTypeContract().account_types.find((t) => t.id === id);
+    if (!found) throw new Error(`unknown account type ${id}`);
+    return found.flags;
+  },
+
+  /**
+   * Serve `flags` as the answer to GET /api/v1/features for this page only.
+   *
+   * This is how a spec runs under an account type: by interception, never by
+   * PUT /api/v1/admin/features against a shared tenant, which would change what
+   * every other spec and every human on that tenant sees, and leave it changed
+   * if the spec dies before restoring it.
+   */
+  async serve(page: Page, flags: Record<string, boolean>): Promise<void> {
+    await page.route(
+      (url) => url.pathname.endsWith("/api/v1/features"),
+      async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ tenant_id: "account-type-under-test", flags, details: {} }),
+        });
+      },
+    );
+  },
+
+  /** Assert the sidebar shows exactly the tenant nav items `flags` enables. */
+  async expectSidebar(page: Page, flags: Record<string, boolean>): Promise<void> {
+    const nav = page.getByRole("navigation", { name: "Primary navigation" });
+    for (const item of accountTypeContract().tenant_nav) {
+      const link = nav.getByRole("link", { name: item.label, exact: true });
+      if (flags[item.flag]) {
+        await expect(link, `${item.label} (${item.flag} on) should be in the sidebar`).toBeVisible();
+      } else {
+        await expect(link, `${item.label} (${item.flag} off) should not be in the sidebar`).toHaveCount(0);
+      }
+    }
+  },
+};

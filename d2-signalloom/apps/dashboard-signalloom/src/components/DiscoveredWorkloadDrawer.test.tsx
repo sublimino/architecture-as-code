@@ -272,9 +272,9 @@ describe('DiscoveredWorkloadDrawer', () => {
       expect(screen.getByTestId('drawer-claude-workspace-id')).toHaveTextContent('wrkspc_test_bUVWA2wWnyvm')
       expect(screen.getByTestId('drawer-claude-exec-identity')).toHaveTextContent('service_account')
 
-      // Content-Addressed Versioning & Deduplication Banner
-      expect(screen.getByTestId('drawer-claude-snapshot-hash')).toHaveTextContent('SHA-256: 9a8f7e6d5c4b...')
-      expect(screen.getByTestId('drawer-claude-dedup-badge')).toHaveTextContent('✓ Storage Deduplicated · Versioned Snapshot')
+      // The hash of the current record, labelled as such; no unverified dedup claim (W22).
+      expect(screen.getByTestId('drawer-claude-snapshot-hash')).toHaveTextContent('Current record SHA-256: 9a8f7e6d5c4b...')
+      expect(screen.queryByTestId('drawer-claude-dedup-badge')).not.toBeInTheDocument()
 
       // Environment & Network Containment Section
       expect(screen.getByTestId('drawer-claude-environment')).toHaveTextContent('cloud-dev (env_01CyCigBbDRSLTzSCyyHQ7eT)')
@@ -322,8 +322,8 @@ describe('DiscoveredWorkloadDrawer', () => {
       expect(screen.getByTestId('drawer-claude-package-registries')).toHaveTextContent('Not reported')
       expect(screen.getByTestId('drawer-claude-tokens-metric')).toHaveTextContent('Not reported')
       expect(screen.getByTestId('drawer-claude-cost-metric')).toHaveTextContent('Not reported')
-      expect(screen.getByTestId('drawer-claude-snapshot-hash')).toHaveTextContent('SHA-256: Not reported')
-      expect(screen.getByTestId('drawer-claude-dedup-badge')).toHaveTextContent('✓ Storage Deduplicated · Versioned Snapshot')
+      expect(screen.getByTestId('drawer-claude-snapshot-hash')).toHaveTextContent('Current record SHA-256: Not reported')
+      expect(screen.queryByTestId('drawer-claude-dedup-badge')).not.toBeInTheDocument()
 
       // None of the previously-hardcoded fabrications may ever render again.
       expect(screen.queryByText(/Andrew Martin \(User\)/)).not.toBeInTheDocument()

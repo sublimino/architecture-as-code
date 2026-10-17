@@ -13,6 +13,7 @@ import type {
   ControlRecommendations,
   NHIScan,
   AgentResponse,
+  PillarVerdict,
 } from '../types/api'
 import { colors } from '../styles/tokens'
 import StatusBadge, { KernelStateBadge, hasKernelSplitBrain } from '../components/StatusBadge'
@@ -69,11 +70,12 @@ function fmtRelative(iso: string | null | undefined): string {
 interface ControlBadgeProps {
   category: 'config' | 'content' | 'supply_chain' | 'eu_ai_act'
   label: string
-  status?: 'pass' | 'recommended' | 'warning' | 'not_applicable'
+  status?: PillarVerdict
   ruleRequirement: string
 }
 
-function ControlBadge({ category, label, status = 'recommended', ruleRequirement }: ControlBadgeProps) {
+// An absent verdict renders as Not assessed, never as Pass or Review.
+function ControlBadge({ category, label, status = 'not_assessed', ruleRequirement }: ControlBadgeProps) {
   const [showTooltip, setShowTooltip] = useState(false)
 
   const statusStyles: Record<string, { bg: string; border: string; color: string; text: string }> = {
@@ -101,10 +103,15 @@ function ControlBadge({ category, label, status = 'recommended', ruleRequirement
       color: 'var(--muted)',
       text: 'N/A',
     },
+    not_assessed: {
+      bg: 'var(--surface2)',
+      border: 'var(--border-subtle)',
+      color: 'var(--muted)',
+      text: 'Not assessed',
+    },
   }
 
-
-  const s = statusStyles[status] || statusStyles.recommended
+  const s = statusStyles[status] || statusStyles.not_assessed
 
   return (
     <div

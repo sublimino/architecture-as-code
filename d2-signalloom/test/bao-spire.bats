@@ -58,7 +58,7 @@ setup() { root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"; }
   run kubectl kustomize "$root/d2-signalloom/infra/inf-bao/controllers/local"
   [ "$status" -eq 0 ]
   [[ "$output" == *"command:"* ]]
-  [[ "$output" == *"- /bin/bao"* ]]
+  [[ "$output" == *"- /usr/bin/bao"* ]]
   [[ "$output" == *"runAsNonRoot: true"* ]]
   [[ "$output" == *"runAsUser: 100"* ]]
   [[ "$output" == *"runAsGroup: 1000"* ]]

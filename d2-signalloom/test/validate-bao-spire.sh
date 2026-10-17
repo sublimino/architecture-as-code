@@ -14,7 +14,7 @@ for file in "$controllers" "$controller_configs" "$agent" "$configs/openbao-boot
 # invokes setgroups(2).  The demo deliberately runs the packaged binary
 # directly as the image's unprivileged account so it remains compatible with
 # the dropped-capability/no-new-privileges security context.
-grep -Fq 'command: ["/bin/bao"]' "$controllers"
+grep -Fq 'command: ["/usr/bin/bao"]' "$controllers"
 grep -Fq 'runAsNonRoot: true' "$controllers"
 grep -Fq 'runAsUser: 100' "$controllers"
 grep -Fq 'runAsGroup: 1000' "$controllers"
@@ -54,7 +54,7 @@ if grep -Eq 'command: \[("/bin/)?(ba)?sh"' "$proof"; then
 fi
 [[ $(grep -Fc 'command: ["/usr/local/bin/signalloom-spire-proof"]' "$proof") -eq 3 ]]
 grep -Fq 'name: bao-login' "$proof"
-grep -Fq 'command: ["/bin/bao"]' "$proof"
+grep -Fq 'command: ["/usr/bin/bao"]' "$proof"
 grep -Fq 'args: ["exchange", "--address", "http://openbao.inf-bao.svc.cluster.local:8200", "--role", "signalloom-fe-signalloom", "--jwt", "/work/jwt", "--output", "/work/home/.vault-token"]' "$proof"
 if grep -Fq 'registry.k8s.io/pause' "$proof"; then
   printf 'negative Bao/SPIRE proof cannot complete while using pause\n' >&2

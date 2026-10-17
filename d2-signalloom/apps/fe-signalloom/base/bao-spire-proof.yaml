@@ -43,7 +43,7 @@ spec:
               value: http://openbao.inf-bao.svc.cluster.local:8200
             - name: HOME
               value: /work/home
-          command: ["/bin/bao"]
+          command: ["/usr/bin/bao"]
           args: ["read", "kv/data/signalloom/fe-signalloom"]
           volumeMounts:
             - name: work

@@ -108,7 +108,7 @@ cmd_live_seed() {
   local bao_pod
   bao_pod="$(kubectl --kubeconfig "${kubeconfig}" -n "${namespace}" get pods -l app.kubernetes.io/name=openbao -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
   if [[ -n "$bao_pod" ]]; then
-    kubectl --kubeconfig "${kubeconfig}" -n "${namespace}" exec "${bao_pod}" -- /bin/bao kv put "${secret_path}" "${key}=${val}" >/dev/null 2>&1 || true
+    kubectl --kubeconfig "${kubeconfig}" -n "${namespace}" exec "${bao_pod}" -- /usr/bin/bao kv put "${secret_path}" "${key}=${val}" >/dev/null 2>&1 || true
     echo "✓ Seeded live OpenBao pod ${bao_pod}"
   fi
   return 0
@@ -130,7 +130,7 @@ cmd_live_verify() {
   bao_pod="$(kubectl --kubeconfig "${kubeconfig}" -n "${namespace}" get pods -l app.kubernetes.io/name=openbao -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
   if [[ -n "$bao_pod" ]]; then
     local res
-    res="$(kubectl --kubeconfig "${kubeconfig}" -n "${namespace}" exec "${bao_pod}" -- /bin/bao kv get -field="${exp_key}" "${secret_path}" 2>/dev/null || true)"
+    res="$(kubectl --kubeconfig "${kubeconfig}" -n "${namespace}" exec "${bao_pod}" -- /usr/bin/bao kv get -field="${exp_key}" "${secret_path}" 2>/dev/null || true)"
     if [[ "$res" == "$exp_val" ]]; then
       echo "✓ Verified live OpenBao pod ${bao_pod} contains secret for '${exp_key}'"
     fi

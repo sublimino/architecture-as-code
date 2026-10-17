@@ -72,7 +72,7 @@ spec:
           # transitioning from root.  Start the Bao binary directly as its
           # packaged unprivileged account instead, retaining the restricted
           # capability and no-privilege-escalation posture.
-          command: ["/bin/bao"]
+          command: ["/usr/bin/bao"]
           args: ["server", "-config=/openbao/config/config.hcl"]
           env:
             - name: BAO_PG_CONNECTION_URL

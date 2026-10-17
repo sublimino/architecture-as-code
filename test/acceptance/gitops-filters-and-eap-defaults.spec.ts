@@ -66,12 +66,19 @@ test.describe("GitOps Detection, Workload Quick Filters & EAP Preset Defaults", 
     // Check header
     await expect(page.locator("h1")).toContainText(/feature/i, { timeout: 15_000 });
 
-    // Verify Preset Bundles section
-    const eapPilotBtn = page.getByRole("button", { name: /apply eap pilot/i });
-    await expect(eapPilotBtn).toBeVisible({ timeout: 15_000 });
-
-    // Verify preset description or page content mentions core governance and suppressed services
-    const pageContent = await page.innerText("body");
-    expect(pageContent).toMatch(/eap pilot/i);
+    // The "Apply EAP Pilot" preset button became the EAP Full account type in
+    // 84cde543b (eap_pilot is its alias; d2-signalloom/contracts/feature-account-types.json).
+    // It must still suppress federated services and topology.
+    const eapFull = page.getByTestId("account-type-option-eap_full");
+    await expect(eapFull).toBeVisible({ timeout: 15_000 });
+    await expect(eapFull).toContainText("EAP Full");
+    const pages = page.getByTestId("account-type-pages-eap_full");
+    await expect(pages).toBeVisible();
+    await expect(pages).not.toContainText("Federated Services");
+    await expect(pages).not.toContainText("Agent Topology");
+    // ...while the Full type, from the same catalogue, does list them: the
+    // absence above is the preset's, not a rendering gap.
+    await expect(page.getByTestId("account-type-pages-full")).toContainText("Federated Services");
+    await expect(page.getByTestId("account-type-pages-full")).toContainText("Agent Topology");
   });
 });

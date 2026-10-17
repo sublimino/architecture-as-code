@@ -302,7 +302,7 @@ written after the export.
   writes each credential to
   `kv/data/signalloom/tenants/<tenant_id>/connectors/<connector_id>`.
   Postgres keeps only `credentials_ref` and `credentials_version` (migration
-  074). A CHECK stops a row from holding a reference and a ciphertext
+  078). A CHECK stops a row from holding a reference and a ciphertext
   together.
 - The portal logs in as `signalloom-fe-signalloom` through a `jwt-svid`
   sidecar and an `openbao-agent` sidecar, the `fleet-manager` pattern. It
@@ -333,7 +333,7 @@ rolls out the new portal image and manifests. Keep the export from phase 1
 until step 10.
 
 ```bash
-# 7. The portal has a token, and migration 074 ran at start-up.
+# 7. The portal has a token, and migration 078 ran at start-up.
 kubectl --context $CTX -n fe-signalloom rollout status deploy/fe-signalloom --timeout=5m
 kubectl --context $CTX -n fe-signalloom exec deploy/fe-signalloom -c discovery-portal -- \
   test -s /var/run/secrets/openbao/token && echo token-present

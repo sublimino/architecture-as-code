@@ -8,10 +8,10 @@
  * Usage:
  *   import { login, config, afm, polling } from "./helpers";
  */
-import { expect, type Page, type APIRequestContext } from "@playwright/test";
+import { expect, test, type Page, type APIRequestContext } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 // ── Deployment guards ───────────────────────────────────────────────────────
 
@@ -609,7 +609,11 @@ export interface AccountTypeContract {
 }
 
 export function accountTypeContract(): AccountTypeContract {
-  const file = fileURLToPath(new URL("../../d2-signalloom/contracts/feature-account-types.json", import.meta.url));
+  // Resolved from the runner config's rootDir (this directory), not
+  // import.meta.url: the runner transpiles this suite to CommonJS (no
+  // "type": "module" here), where `import.meta` is a SyntaxError at COLLECTION
+  // and every spec importing helpers.ts fails with "No tests found".
+  const file = join(test.info().config.rootDir, "..", "..", "d2-signalloom", "contracts", "feature-account-types.json");
   return JSON.parse(readFileSync(file, "utf8")) as AccountTypeContract;
 }
 

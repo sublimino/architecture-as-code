@@ -40,5 +40,7 @@ metadata:
 data:
   signalloom-fe-signalloom.hcl: |
     path "kv/data/signalloom/fe-signalloom" { capabilities = ["read"] }
+    path "kv/data/signalloom/tenants/+/connectors/+" { capabilities = ["create", "read", "update"] }
+    path "kv/metadata/signalloom/tenants/+/connectors/+" { capabilities = ["delete"] }
   identity.json: |
     {"namespace":"fe-signalloom","serviceAccount":"fe-signalloom","selector":["k8s:ns:fe-signalloom","k8s:sa:fe-signalloom"],"spiffeID":"spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom","audience":"openbao","role":"signalloom-fe-signalloom","policy":"kv/data/signalloom/fe-signalloom","negativeServiceAccount":"fe-signalloom-negative"}

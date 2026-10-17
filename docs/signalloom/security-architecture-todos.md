@@ -50,8 +50,9 @@ warning.
   `app.kubernetes.io/name: fe-signalloom` and `bao.controlplane.io/consumer:
   fe-signalloom`. The bao-spire proof Jobs carry only the second label, so
   they do not get the grant.
-- Both containers in that pod get the grant, because NetworkPolicy applies to
-  the pod. These are `discovery-portal` and the `kubectl-proxy` sidecar.
+- Every container in that pod gets the grant, because NetworkPolicy applies
+  to the pod. These are `discovery-portal`, the `kubectl-proxy` sidecar, and
+  since SA-TODO-003 the `jwt-svid` and `openbao-agent` sidecars.
 - Any public IPv4 host on TCP 443, not only the AI providers. A compromised
   portal process can send data to any HTTPS endpoint on the internet. This is
   the residual risk that the principal accepted.

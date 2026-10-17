@@ -1,0 +1,44 @@
+# openbao-agent config for the fe-signalloom portal sidecar (deployment.yaml).
+#
+# SA-TODO-003: connector credentials live in OpenBao KV v2 at
+# kv/data/signalloom/tenants/<tenant>/connectors/<connector>
+# (src/connector_secret_store.py). The portal reads and writes them as OpenBao
+# role signalloom-fe-signalloom, bound to
+# spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom (audience openbao,
+# infra/inf-bao/configs/base/openbao-bootstrap.yaml).
+#
+# Same shape as fleet-manager's sidecar (../../fleet-manager/base/
+# openbao-agent-config.yaml): the jwt-svid sidecar writes the JWT-SVID to a
+# memory file, this agent logs in with it and sinks the token to
+# /var/run/secrets/openbao/token, which the portal re-reads per request
+# (BAO_TOKEN_FILE). No token is ever in a manifest or an env var.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fe-signalloom-openbao-config
+  labels:
+    app.kubernetes.io/name: fe-signalloom
+    signalloom.ai/component: credential-sidecar
+data:
+  agent.hcl: |
+    vault {
+      address = "http://openbao.inf-bao.svc.cluster.local:8200"
+    }
+
+    auto_auth {
+      method "jwt" {
+        mount_path = "auth/jwt"
+        config = {
+          path                     = "/var/run/secrets/spiffe/jwt"
+          role                     = "signalloom-fe-signalloom"
+          remove_jwt_after_reading = false
+        }
+      }
+
+      sink "file" {
+        config = {
+          path = "/var/run/secrets/openbao/token"
+          mode = 0440
+        }
+      }
+    }

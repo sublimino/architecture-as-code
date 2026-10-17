@@ -11,6 +11,8 @@ resources:
   - bao-spire-proof.yaml
   - secrets.yaml
   - deployment.yaml
+  # bao agent config for the portal sidecar: connector credentials in OpenBao (SA-TODO-003).
+  - openbao-agent-config.yaml
   - service.yaml
   - api-service.yaml
   - dashboard-deployment.yaml

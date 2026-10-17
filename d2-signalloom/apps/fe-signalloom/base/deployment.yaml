@@ -216,10 +216,19 @@ spec:
             # call, so a rotation needs no restart. A path, never the value.
             - name: SIGNAL_INGEST_KEY_FILE
               value: /etc/fe-signalloom/ingest-key/token
-            # AES-256-GCM key sealing tenant connector credentials in Postgres
-            # (src/connector_credentials.py, table tenant_connectors). A path,
-            # never the value. Minted by `make connector-credential-key`;
-            # absent, credential writes answer 503 credential_store_unavailable.
+            # Connector credentials live in OpenBao KV v2 (SA-TODO-003,
+            # src/connector_secret_store.py). The token is the openbao-agent
+            # sidecar's sink file, re-read per request. A path, never a value.
+            # OpenBao unreachable: credential reads and writes answer 503
+            # credential_store_unavailable, with no fallback.
+            - name: BAO_ADDR
+              value: http://openbao.inf-bao.svc.cluster.local:8200
+            - name: BAO_TOKEN_FILE
+              value: /var/run/secrets/openbao/token
+            # The OLD sealing key, read only by the one-shot
+            # `python -m migrate_connector_credentials` (SA-TODO-003 runbook).
+            # The portal no longer seals or opens with it. Remove this, the
+            # mount and the Secret once the migration is verified on the cluster.
             - name: CONNECTOR_CREDENTIAL_KEY_FILE
               value: /etc/fe-signalloom/connector-credential-key/key
             # AFM import gateway key configuration: JSON array of authorized
@@ -260,6 +269,9 @@ spec:
               readOnly: true
             - name: connector-credential-key
               mountPath: /etc/fe-signalloom/connector-credential-key
+              readOnly: true
+            - name: openbao-token
+              mountPath: /var/run/secrets/openbao
               readOnly: true
             # Same ConfigMap fleet-manager mounts at /etc/fleet
             # (../fleet-manager/base/configmap.yaml) -- the single source of
@@ -316,6 +328,81 @@ spec:
               memory: 32Mi
             limits:
               memory: 64Mi
+        # SA-TODO-003: connector credentials live in OpenBao KV v2. These two
+        # sidecars are fleet-manager's pattern: jwt-svid writes the pod's
+        # JWT-SVID (spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom,
+        # audience openbao) to a memory file; openbao-agent logs in as role
+        # signalloom-fe-signalloom and keeps a short-lived token at
+        # /var/run/secrets/openbao/token (BAO_TOKEN_FILE above). Both run as the
+        # portal's uid so the 0440 token file is readable by the portal alone.
+        - name: jwt-svid
+          image: signalloom-spire-helper:local
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              while true; do
+                if /usr/local/bin/signalloom-spire-proof write --audience openbao \
+                     --socket /run/spire/sockets/agent.sock \
+                     --output /var/run/secrets/spiffe/jwt.tmp; then
+                  mv -f /var/run/secrets/spiffe/jwt.tmp /var/run/secrets/spiffe/jwt
+                else
+                  echo "jwt-svid: fetch failed; keeping previous SVID" >&2
+                fi
+                sleep 60
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 999
+            runAsGroup: 999
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              memory: 32Mi
+          volumeMounts:
+            - name: spire-sockets
+              mountPath: /run/spire/sockets
+              readOnly: true
+            - name: spiffe-jwt
+              mountPath: /var/run/secrets/spiffe
+        - name: openbao-agent
+          image: quay.io/openbao/openbao:2.7.1
+          imagePullPolicy: IfNotPresent
+          # bao directly, not the image entrypoint (see
+          # d2-signalloom/test/openbao-sidecar-entrypoint.bats).
+          command: ["bao", "agent", "-config=/etc/openbao/agent.hcl"]
+          env:
+            - name: HOME
+              value: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 999
+            runAsGroup: 999
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: openbao-agent-config
+              mountPath: /etc/openbao
+              readOnly: true
+            - name: spiffe-jwt
+              mountPath: /var/run/secrets/spiffe
+              readOnly: true
+            - name: openbao-token
+              mountPath: /var/run/secrets/openbao
+            - name: openbao-agent-tmp
+              mountPath: /tmp
       volumes:
         - name: kubectl-proxy-token
           projected:
@@ -347,8 +434,8 @@ spec:
             secretName: fe-signalloom-afm-importer-key
             optional: true
             defaultMode: 0440
-        # optional: an unminted key leaves the portal up and connector
-        # credential writes answering 503, never stored in plaintext.
+        # The old sealing key, for the one-shot migration only (SA-TODO-003).
+        # optional: absent, the migration reports every sealed row as failed.
         - name: connector-credential-key
           secret:
             secretName: fe-signalloom-connector-credential-key
@@ -367,3 +454,22 @@ spec:
             name: fleet-config
             optional: true
             defaultMode: 0444
+        - name: openbao-agent-config
+          configMap:
+            name: fe-signalloom-openbao-config
+        - name: spire-sockets
+          hostPath:
+            path: /run/spire/sockets
+            type: Directory
+        - name: spiffe-jwt
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: openbao-token
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: openbao-agent-tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Mi

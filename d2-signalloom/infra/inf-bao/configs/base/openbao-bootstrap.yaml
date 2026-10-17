@@ -75,8 +75,16 @@ spec:
             - |
               until bao status >/dev/null 2>&1; do sleep 2; done
               bao secrets enable -path=kv kv-v2 || true
+              # SA-TODO-003: connector credentials, one KV v2 secret per tenant
+              # connector. The portal is one identity for every tenant, so the
+              # tenant boundary is the portal's (src/connector_secret_store.py
+              # builds each path from the authenticated tenant); `+` stops
+              # either segment from spanning a slash. Disconnect deletes the
+              # metadata, which removes every version. No list.
               cat >/tmp/policy.hcl <<'POLICY'
               path "kv/data/signalloom/fe-signalloom" { capabilities = ["read"] }
+              path "kv/data/signalloom/tenants/+/connectors/+" { capabilities = ["create", "read", "update"] }
+              path "kv/metadata/signalloom/tenants/+/connectors/+" { capabilities = ["delete"] }
               POLICY
               bao policy write signalloom-fe-signalloom /tmp/policy.hcl
               bao auth enable jwt || true
@@ -87,11 +95,20 @@ spec:
               # captured token stayed valid for 32 days against the
               # mission's 5-minute hard cap. token_type=batch matches the
               # non-renewable pattern used by agent-trust-planner/triage.
-              bao write auth/jwt/role/signalloom-fe-signalloom \
-                role_type=jwt bound_audiences=openbao \
-                bound_subject=spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom \
-                user_claim=sub policies=signalloom-fe-signalloom \
-                token_ttl=5m token_max_ttl=5m token_type=batch
+              # JSON on stdin, the estate convention
+              # (openbao-agent-jwt-source.bats reads bound_audiences from it).
+              bao write auth/jwt/role/signalloom-fe-signalloom - <<'ROLE'
+              {
+                "role_type": "jwt",
+                "bound_audiences": "openbao",
+                "bound_subject": "spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom",
+                "user_claim": "sub",
+                "token_policies": "signalloom-fe-signalloom",
+                "token_ttl": "5m",
+                "token_max_ttl": "5m",
+                "token_type": "batch"
+              }
+              ROLE
               bao kv put kv/signalloom/fe-signalloom value=non-production-demo-secret
       volumes:
         - name: work

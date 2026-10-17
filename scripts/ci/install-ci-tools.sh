@@ -211,8 +211,8 @@ if ! docker version --format '{{.Server.Version}}' >/dev/null 2>&1; then
   exit 1
 fi
 
-# ── Go 1.24.5 ────────────────────────────────────────────────────────
-GO_VERSION="1.24.5"
+# ── Go 1.27.2 ────────────────────────────────────────────────────────
+GO_VERSION="1.27.2"
 if ! grep -q "go${GO_VERSION}" <<<"$(go version 2>/dev/null)"; then
   log "installing Go ${GO_VERSION}"
   # Untarring over an existing /usr/local/go leaves the previous toolchain's

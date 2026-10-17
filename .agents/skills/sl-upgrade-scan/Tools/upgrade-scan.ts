@@ -259,7 +259,7 @@ export async function main(argv: string[]): Promise<number> {
 
   if (o.vulns) {
     console.error("upgrade-scan: querying OSV...");
-    const eligible = findings.filter((x) => osvPackage(x.item));
+    const eligible = findings.filter((x) => !x.item.firstParty && osvPackage(x.item));
     const risk = await osvRisk(eligible.map((x) => ({ item: x.item, recommended: x.recommended })), f);
     for (const x of eligible) x.risk = risk.get(x.item) ?? null;
   }

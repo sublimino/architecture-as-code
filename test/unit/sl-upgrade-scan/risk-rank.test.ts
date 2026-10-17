@@ -72,6 +72,30 @@ describe("osvRisk", () => {
     expect(r?.notFixed.map((v) => [v.id, v.severity, v.fixedIn])).toEqual([["GO-open", "CRITICAL", "5.9.0"]]);
   });
 
+  test("records that alias each other (GHSA and PYSEC for one CVE) count once", async () => {
+    const rec = (id: string, aliases: string[]) => ({
+      id,
+      aliases,
+      database_specific: { severity: "HIGH" },
+      affected: [{ package: { name: "pyjwt", ecosystem: "PyPI" }, ranges: [{ type: "ECOSYSTEM", events: [{ introduced: "0" }, { fixed: "2.14.0" }] }] }],
+    });
+    const f = new Fetcher({
+      http: async (req) => {
+        if (req.method === "POST") return { status: 200, headers: {}, body: JSON.stringify({ results: [{ vulns: [{ id: "GHSA-a" }, { id: "PYSEC-a" }, { id: "GHSA-b" }] }] }) };
+        const id = req.url.split("/").pop() as string;
+        const body = id === "GHSA-a" ? rec(id, ["CVE-1", "PYSEC-a"]) : id === "PYSEC-a" ? rec(id, ["CVE-1", "GHSA-a"]) : rec(id, ["CVE-2"]);
+        return { status: 200, headers: {}, body: JSON.stringify(body) };
+      },
+      cacheDir: null,
+      now: () => NOW,
+    });
+    const it = item("pypi", "pyjwt", "2.10.1");
+    const r = (await osvRisk([{ item: it, recommended: "2.15.1" }], f)).get(it);
+    expect(r?.currentCount).toBe(2);
+    expect(r?.fixedByUpgrade.map((v) => v.id)).toEqual(["GHSA-a", "GHSA-b"]);
+    expect(r?.fixedByUpgrade[0].aliases).toEqual(["CVE-1", "PYSEC-a"]);
+  });
+
   test("Go runtime pins are queried as stdlib", async () => {
     let seen: unknown = null;
     const f = new Fetcher({

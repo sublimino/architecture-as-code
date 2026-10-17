@@ -71,6 +71,10 @@ beforeAll(() => {
       ")",
       "",
       "require github.com/stretchr/testify v1.9.0",
+      "",
+      "require example.com/local/pkg v0.0.0",
+      "",
+      "replace example.com/local/pkg => ../pkg",
     ].join("\n"),
   );
   put("apps/py/requirements.txt", "# deps\nfastapi==0.110.0\nuvicorn[standard]==0.29.0\nrequests>=2.31\n");
@@ -194,7 +198,11 @@ describe("inventory: language ecosystems", () => {
     expect(find("go-module", "github.com/stretchr/testify").locations[0].line).toBe(12);
     expect(items.some((i) => i.name === "golang.org/x/net")).toBe(false);
   });
-  test("indirect requires on request", () => {
+  test("a module replaced by a local path is first-party", () => {
+    expect(find("go-module", "example.com/local/pkg").firstParty).toBe(true);
+    expect(find("go-module", "github.com/spf13/cobra").firstParty).toBeFalsy();
+  });
+    test("indirect requires on request", () => {
     const all = inventory(root, { includeIndirect: true });
     expect(all.some((i) => i.name === "golang.org/x/net")).toBe(true);
   });

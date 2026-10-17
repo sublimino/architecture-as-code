@@ -201,6 +201,15 @@ function dockerfile(lines: string[], emit: Emit) {
 }
 
 function goMod(lines: string[], emit: Emit, includeIndirect: boolean) {
+  // Modules replaced by a local path are built from this repo: nothing upstream to bump.
+  const local = new Set<string>();
+  let inReplace = false;
+  for (const l of lines) {
+    if (/^replace\s*\(\s*$/.test(l)) inReplace = true;
+    else if (inReplace && /^\)\s*$/.test(l)) inReplace = false;
+    const m = (inReplace ? /^\s+(\S+)(?:\s+\S+)?\s+=>\s+(\S+)/ : /^replace\s+(\S+)(?:\s+\S+)?\s+=>\s+(\S+)/).exec(l);
+    if (m && /^(\.{1,2}\/|\/)/.test(m[2])) local.add(m[1]);
+  }
   let block = false;
   lines.forEach((line, i) => {
     const n = i + 1;
@@ -220,7 +229,9 @@ function goMod(lines: string[], emit: Emit, includeIndirect: boolean) {
     if (!m) return;
     const indirect = /\/\/\s*indirect/.test(m[3]);
     if (indirect && !includeIndirect) return;
-    emit({ ecosystem: "go-module", name: m[1], current: m[2], notes: indirect ? ["indirect"] : [] }, n);
+    const fp = local.has(m[1]);
+    const notes = [...(indirect ? ["indirect"] : []), ...(fp ? ["replaced by a local path: first-party"] : [])];
+    emit({ ecosystem: "go-module", name: m[1], current: m[2], notes, firstParty: fp || undefined }, n);
   });
 }
 

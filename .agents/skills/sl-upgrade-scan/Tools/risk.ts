@@ -148,10 +148,13 @@ export async function osvRisk(
     }
     await Promise.all(
       chunk.map(async ({ e, pkg }, j) => {
-        const ids = (results[j]?.vulns ?? []).map((v) => v.id);
+        // GHSA first: it carries a severity, and its PYSEC/GO twins are dropped as aliases.
+        const ids = (results[j]?.vulns ?? []).map((v) => v.id).sort((a, b) => Number(b.startsWith("GHSA-")) - Number(a.startsWith("GHSA-")) || a.localeCompare(b));
         const fixed: Vuln[] = [];
         const open: Vuln[] = [];
+        const seen = new Set<string>();
         for (const id of ids) {
+          if (seen.has(id)) continue;
           const vr = await f.get(`https://api.osv.dev/v1/vulns/${encodeURIComponent(id)}`);
           let v: OsvVuln = { id };
           try {
@@ -159,12 +162,15 @@ export async function osvRisk(
           } catch {
             // keep the bare id
           }
+          if ((v.aliases ?? []).some((a) => seen.has(a))) continue;
+          seen.add(id);
+          for (const a of v.aliases ?? []) seen.add(a);
           const fixedIn = firstFixAbove(v, pkg, pkg.version);
           const vuln: Vuln = { id, aliases: v.aliases ?? [], severity: severityOf(v), fixedIn, url: `https://osv.dev/vulnerability/${id}` };
           if (fixedIn && e.recommended && compareVersions(fixedIn, e.recommended.replace(/^v/, "")) <= 0) fixed.push(vuln);
           else open.push(vuln);
         }
-        out.set(e.item, { source: "osv", currentCount: ids.length, fixedByUpgrade: fixed.sort(bySeverity), notFixed: open.sort(bySeverity) });
+        out.set(e.item, { source: "osv", currentCount: fixed.length + open.length, fixedByUpgrade: fixed.sort(bySeverity), notFixed: open.sort(bySeverity) });
       }),
     );
   }

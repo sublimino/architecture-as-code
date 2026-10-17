@@ -255,7 +255,11 @@ flux --context $CTX -n inf-bao suspend kustomization infra-controllers
 flux --context $CTX -n inf-bao suspend kustomization infra-configs
 scripts/openbao-migrate.sh export --context $CTX --file "$DIR/export.json"
 
-# 3. Deploy the branch, then resume.
+# 3. Deploy the branch, then resume. A Deployment that moves from RollingUpdate
+#    to Recreate keeps its old rollingUpdate block under server-side apply, and
+#    Flux then fails the dry run. Patch the strategy first.
+kubectl --context $CTX -n inf-bao patch deploy openbao --type=json \
+  -p '[{"op":"remove","path":"/spec/strategy/rollingUpdate"},{"op":"replace","path":"/spec/strategy/type","value":"Recreate"}]'
 flux --context $CTX -n inf-bao resume kustomization infra-controllers
 kubectl --context $CTX -n inf-bao wait --for=condition=complete job/openbao-init --timeout=10m
 kubectl --context $CTX -n inf-bao logs job/openbao-init | tail -1   # "... root token revoked"
@@ -270,6 +274,16 @@ kubectl --context $CTX -n fe-signalloom rollout restart deploy/fe-signalloom dep
 # 4. Import and compare. Expect "mismatched=0 missing=0".
 scripts/openbao-migrate.sh import --context $CTX --file "$DIR/export.json"
 scripts/openbao-migrate.sh verify --context $CTX --file "$DIR/export.json"
+# The import writes the dev server's policies back, which overwrites any policy
+# the new setup Jobs changed (the portal's tenant connector grant among them).
+# Re-run the setup Jobs so the manifests own their policies again. Verify then
+# reports those policies as changed; that is expected.
+kubectl --context $CTX -n inf-bao delete job openbao-agent-generic-role-setup \
+  openbao-spire-bootstrap openbao-supercred-bootstrap openbao-fleet-manager-bootstrap
+flux --context $CTX -n inf-bao reconcile kustomization infra-configs
+kubectl --context $CTX -n inf-bao wait --for=condition=complete --timeout=10m \
+  job/openbao-agent-generic-role-setup job/openbao-spire-bootstrap \
+  job/openbao-supercred-bootstrap job/openbao-fleet-manager-bootstrap
 kubectl --context $CTX -n fe-signalloom-agents rollout restart deploy
 
 # 5. Restart survival. Expect the same "verified" line as step 4.
@@ -280,6 +294,18 @@ scripts/openbao-migrate.sh verify --context $CTX --file "$DIR/export.json"
 
 # 6. Keep the export: phase 2 step 10 destroys it.
 ```
+
+**Applied on kind-osramp, 2026-10-17.** The lead ran phases 1 and 2. Four
+defects surfaced and were fixed on the way: the server ran `/bin/bao`, which
+2.7.1 ships at `/usr/bin/bao`; `openbao-init` called `bao audit enable`, which
+2.7 refuses (the audit device is now declared in `config.hcl`); the
+`openbao-admin` SVID writer ran as root and its 0600 file was unreadable to the
+uid-100 agent; and `verify` counted 11 roles as drift when 2.7.1 only reported
+null lists as `[]`. The import also overwrote the portal policy, which step 4
+now handles. Result: verify matched 39, mismatched 0, missing 0, before and
+after a server restart. One connector credential moved; `--verify` reports ok,
+sealed 0, before and after a restart. The export was shredded. The exit steps
+below are still open.
 
 **Rollback, phase 1.** Before step 3, resume both Kustomizations and stop.
 Nothing changed except the minted Secrets. After step 3, revert the branch.

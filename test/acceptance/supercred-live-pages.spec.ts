@@ -119,7 +119,9 @@ test.describe("SuperCred effects are visible on the main pages", () => {
     await navigateTo(page, "/agents");
     // State drives a badge; assert the live value the cluster holds appears
     // somewhere on the page rather than pinning a specific component.
-    await expect(page.getByText(new RegExp(state!, "i")).first()).toBeVisible({
+    // Visible matches only: since 7b09dfb5b each row also carries the state in
+    // hover disclosures that stay in the DOM hidden, and those come first.
+    await expect(page.getByText(new RegExp(state!, "i")).filter({ visible: true }).first()).toBeVisible({
       timeout: 30_000,
     });
   });

@@ -926,6 +926,8 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	# Postgres and every DSN consumer read the superuser password from a minted
 	# Secret, so mint it before anything that connects.
 	$(MAKE) postgres-superuser-secret CONTEXT=kind-$(CLUSTER_NAME)
+	# OpenBao's seal key and storage database, before anything needs OpenBao.
+	$(MAKE) openbao-secrets CONTEXT=kind-$(CLUSTER_NAME)
 	$(MAKE) sldc-ingest-keys CONTEXT=kind-$(CLUSTER_NAME)
 	$(MAKE) fleet-manager-keys CONTEXT=kind-$(CLUSTER_NAME)
 	# The operator PUBLIC keys fleet-manager verifies resume tokens against,
@@ -1278,7 +1280,7 @@ demo-signalloom-signalfusion-images: ## Build Signal Fusion images (signal-inges
 test-sltm-probe-apikey: ## SLTM Phase 1: the Kusari-cluster probe authenticates with its API key (offline: real binary; SLTM_LIVE=1: live cluster).
 	bats test/sltm-probe-apikey.bats
 
-.PHONY: sldc-ingest-keys fleet-manager-keys fleet-operator-keys afm-importer-key signal-segment-key connector-credential-key postgres-superuser-secret
+.PHONY: sldc-ingest-keys fleet-manager-keys fleet-operator-keys afm-importer-key signal-segment-key connector-credential-key postgres-superuser-secret openbao-secrets
 sldc-ingest-keys: ## Mint/converge every signal-ingest key and consumer Secret on CONTEXT (idempotent; cluster required).
 	./scripts/sldc-ingest-bearer.sh --context $(CONTEXT)
 fleet-manager-keys: ## Mint/converge fleet-manager caller keys on CONTEXT (idempotent; cluster required).
@@ -1293,6 +1295,8 @@ connector-credential-key: ## Mint the fe-signalloom connector credential sealing
 	./scripts/connector-credential-key.sh --context $(CONTEXT) </dev/null
 postgres-superuser-secret: ## Mint the inf-signalloom Postgres superuser password and the portal DSN Secret on CONTEXT (idempotent; never replaces the password; cluster required). Postgres does not start without it.
 	./scripts/postgres-superuser-secret.sh --context $(CONTEXT) </dev/null
+openbao-secrets: ## Mint OpenBao's static seal key and Postgres storage credential, and create role/database openbao, on CONTEXT (idempotent; never replaces the seal key; needs postgres-superuser-secret first). OpenBao does not start without them.
+	./scripts/openbao-secrets.sh --context $(CONTEXT) </dev/null
 
 .PHONY: demo-signalloom-supercred-runner-image
 demo-signalloom-supercred-runner-image: demo-signalloom-supercred-images ## Build/load the standalone SuperCred demo-runner image via the verified SuperCred image set.

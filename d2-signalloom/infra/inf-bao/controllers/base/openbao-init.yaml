@@ -1,0 +1,158 @@
+# FLUX ENVSUBST: NO — no postBuild on the Flux Kustomization that reconciles
+# this directory. Flux does NOT run envsubst here.
+#
+# openbao-init: the one-shot initialisation of the persistent OpenBao server
+# (SA-TODO-003 phase 1).
+#
+# On a server that is already initialised it does nothing and exits 0, so Flux
+# may re-run it on any reconcile. On a fresh server it:
+#
+#   1. runs `bao operator init` (static seal: one recovery share). The JSON is
+#      held in a shell variable, never printed. The recovery key is discarded
+#      with it -- the principal's decision is that no root-capable credential
+#      persists anywhere (see the SA-TODO-003 break-glass note);
+#   2. exports the root token into this process's environment only (never
+#      argv, never a file, never a log line);
+#   3. enables the audit log (stdout of the server), the kv/ and secret/ KV v2
+#      mounts that dev mode used to create implicitly, and auth/jwt pointed at
+#      the SPIRE OIDC JWKS;
+#   4. writes policy and JWT role inf-bao-admin, bound to exactly one SPIFFE ID
+#      (spiffe://signalloom.demo/ns/inf-bao/sa/openbao-admin), 15m tokens;
+#   5. revokes the root token. An EXIT trap revokes it on any failure too, so
+#      a half-finished run never leaves a live root token behind.
+#
+# Every other configuration Job, the spire-openbao-sync CronJob and the host
+# scripts authenticate as inf-bao-admin. Nothing holds a static token.
+#
+# Pinned by d2-signalloom/test/openbao-persistent-server.bats, which runs
+# init.sh against a fake bao.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openbao-init-config
+  labels:
+    app.kubernetes.io/name: openbao-init
+data:
+  init.sh: |
+    #!/bin/sh
+    set -eu
+    : "${BAO_ADDR:?BAO_ADDR is required}"
+    CONFIG_DIR="${OPENBAO_INIT_CONFIG_DIR:-/config}"
+    ADMIN_SUBJECT="spiffe://signalloom.demo/ns/inf-bao/sa/openbao-admin"
+    JWKS_URL="http://spire-oidc.inf-bao.svc.cluster.local:8008/keys"
+
+    # `bao status` prints JSON even while sealed or uninitialised (exit 2);
+    # an empty answer means the server is not listening yet.
+    i=0
+    while :; do
+      out="$(bao status -format=json 2>/dev/null || true)"
+      [ -n "$out" ] && break
+      i=$((i + 1))
+      [ "$i" -le 150 ] || { echo "openbao-init: server did not answer in 300s" >&2; exit 1; }
+      sleep 2
+    done
+    if printf '%s\n' "$out" | grep -q '"initialized": *true'; then
+      echo "openbao-init: already initialised; nothing to do"
+      exit 0
+    fi
+
+    init="$(bao operator init -format=json -recovery-shares=1 -recovery-threshold=1)"
+    BAO_TOKEN="$(printf '%s\n' "$init" | sed -n 's/^ *"root_token": *"\([^"]*\)".*/\1/p')"
+    init=""
+    [ -n "$BAO_TOKEN" ] || { echo "openbao-init: init returned no root token" >&2; exit 1; }
+    export BAO_TOKEN
+    trap 'bao token revoke -self >/dev/null 2>&1 || true' EXIT
+
+    # Static seal: the server unseals itself once initialised.
+    i=0
+    until bao status >/dev/null 2>&1; do
+      i=$((i + 1))
+      [ "$i" -le 60 ] || { echo "openbao-init: server did not unseal" >&2; exit 1; }
+      sleep 1
+    done
+
+    bao audit enable file file_path=stdout
+    bao secrets enable -path=kv kv-v2
+    bao secrets enable -path=secret kv-v2
+    bao auth enable jwt
+    bao write auth/jwt/config jwks_url="$JWKS_URL"
+    bao policy write inf-bao-admin "$CONFIG_DIR/inf-bao-admin.hcl"
+    bao write auth/jwt/role/inf-bao-admin role_type=jwt bound_audiences=openbao bound_subject="$ADMIN_SUBJECT" user_claim=sub token_policies=inf-bao-admin token_ttl=15m token_max_ttl=15m token_type=service
+
+    trap - EXIT
+    bao token revoke -self
+    echo "openbao-init: initialised; admin role inf-bao-admin ready; root token revoked"
+  inf-bao-admin.hcl: |
+    # inf-bao-admin: what the configuration Jobs, the spire-openbao-sync
+    # CronJob and the host scripts need -- mounts, auth methods, policies,
+    # roles, identity, and the KV data they seed. Bound to one SPIFFE ID,
+    # 15-minute tokens.
+    path "*" { capabilities = ["create", "read", "update", "delete", "list", "sudo"] }
+
+    # Never: raw storage, minting or rotating root material, unsealing
+    # controls, or the audit trail that records this role's own actions.
+    path "sys/raw" { capabilities = ["deny"] }
+    path "sys/raw/*" { capabilities = ["deny"] }
+    path "sys/generate-root*" { capabilities = ["deny"] }
+    path "sys/generate-root-token*" { capabilities = ["deny"] }
+    path "sys/rekey*" { capabilities = ["deny"] }
+    path "sys/rotate*" { capabilities = ["deny"] }
+    path "sys/seal" { capabilities = ["deny"] }
+    path "sys/step-down" { capabilities = ["deny"] }
+    path "sys/audit" { capabilities = ["read", "list"] }
+    path "sys/audit/*" { capabilities = ["deny"] }
+    path "sys/audit-hash/*" { capabilities = ["update"] }
+
+    # It may read, never widen, its own grant.
+    path "auth/jwt/role/inf-bao-admin" { capabilities = ["read"] }
+    path "sys/policies/acl/inf-bao-admin" { capabilities = ["read"] }
+    path "sys/policy/inf-bao-admin" { capabilities = ["read"] }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: openbao-init
+  labels:
+    app.kubernetes.io/name: openbao-init
+    app.kubernetes.io/part-of: signalloom-bao-proof
+  annotations:
+    kustomize.toolkit.fluxcd.io/force: Enabled
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openbao-init
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      containers:
+        - name: init
+          image: quay.io/openbao/openbao:2.7.1
+          command: ["/bin/sh", "/config/init.sh"]
+          env:
+            - name: BAO_ADDR
+              value: http://openbao.inf-bao.svc.cluster.local:8200
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+      volumes:
+        - name: config
+          configMap:
+            name: openbao-init-config
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi

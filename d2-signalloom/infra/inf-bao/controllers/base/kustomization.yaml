@@ -5,6 +5,10 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - openbao-spire.yaml
+  # One-shot initialisation (root token in memory only, revoked at the end)
+  # and the SPIFFE-bound admin identity that replaces the static root token.
+  - openbao-init.yaml
+  - openbao-admin.yaml
   # SPIRE must mount these ConfigMaps before Flux can health-check the
   # controller Deployment.  Bootstrap and policy remain in configs, which
   # intentionally waits for this controller slice.

@@ -1,3 +1,47 @@
+# OpenBao server, persistent since SA-TODO-003 phase 1.
+#
+# Until then this ran `bao server -dev`: inmem storage, one Shamir share and a
+# static root token in this manifest, so every secret vanished on a pod
+# restart. Now it runs openbao/config.hcl below: PostgreSQL storage (database
+# and role `openbao` on the inf-signalloom server), a static seal key that
+# unseals it on start, and no root token anywhere. The openbao-init Job
+# initialises it once and revokes root; administration goes through the
+# SPIFFE-bound inf-bao-admin role (openbao-admin.yaml).
+#
+# Both start-up secrets are minted by scripts/openbao-secrets.sh
+# (make openbao-secrets) and are SA-TODO exceptions: OpenBao cannot hold the
+# key that unseals it or the password of its own storage.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openbao-server-config
+  labels:
+    app.kubernetes.io/name: openbao
+data:
+  config.hcl: |
+    ui            = false
+    disable_mlock = true
+    api_addr      = "http://openbao.inf-bao.svc.cluster.local:8200"
+
+    # HTTP on kind only; TLS on 8200 is an open SA-TODO entry.
+    listener "tcp" {
+      address     = "0.0.0.0:8200"
+      tls_disable = true
+    }
+
+    # Connection URL comes from BAO_PG_CONNECTION_URL (Secret openbao-storage).
+    # OpenBao creates its table (openbao_kv_store) on first start.
+    storage "postgresql" {
+      ha_enabled = "false"
+    }
+
+    # 32-byte AES-256-GCM key from Secret openbao-seal-key. Rotation: add
+    # previous_key / previous_key_id and a new current key.
+    seal "static" {
+      current_key_id = "kind-1"
+      current_key    = "file:///openbao/seal/key"
+    }
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -7,6 +51,10 @@ metadata:
     app.kubernetes.io/part-of: signalloom-bao-proof
 spec:
   replicas: 1
+  # One writer at a time: storage has ha_enabled=false, so a rolling update
+  # would briefly run two active servers against one table.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: openbao
@@ -15,18 +63,32 @@ spec:
       labels:
         app.kubernetes.io/name: openbao
     spec:
+      securityContext:
+        fsGroup: 1000
       containers:
         - name: openbao
-          image: quay.io/openbao/openbao:2.1.1
+          image: quay.io/openbao/openbao:2.7.1
           # The image entrypoint uses su-exec, which needs setgroups(2) while
           # transitioning from root.  Start the Bao binary directly as its
           # packaged unprivileged account instead, retaining the restricted
           # capability and no-privilege-escalation posture.
           command: ["/bin/bao"]
-          args: ["server", "-dev", "-dev-root-token-id=signalloom-demo-root-token", "-dev-listen-address=0.0.0.0:8200"]
+          args: ["server", "-config=/openbao/config/config.hcl"]
           env:
-            - name: BAO_DEV_ROOT_TOKEN_ID
-              value: signalloom-demo-root-token
+            - name: BAO_PG_CONNECTION_URL
+              valueFrom:
+                secretKeyRef:
+                  name: openbao-storage
+                  key: connection_url
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: config
+              mountPath: /openbao/config
+              readOnly: true
+            - name: seal-key
+              mountPath: /openbao/seal
+              readOnly: true
           ports:
             - name: http
               containerPort: 8200
@@ -36,6 +98,14 @@ spec:
             runAsGroup: 1000
             allowPrivilegeEscalation: false
             capabilities: {drop: ["ALL"]}
+      volumes:
+        - name: config
+          configMap:
+            name: openbao-server-config
+        - name: seal-key
+          secret:
+            secretName: openbao-seal-key
+            defaultMode: 0440
 ---
 apiVersion: v1
 kind: Service

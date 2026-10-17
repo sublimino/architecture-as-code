@@ -48,7 +48,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: configure
-          image: quay.io/openbao/openbao:2.1.1
+          image: quay.io/openbao/openbao:2.7.1
           env:
             - name: BAO_ADDR
               value: http://openbao.inf-bao.svc.cluster.local:8200

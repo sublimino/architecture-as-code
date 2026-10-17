@@ -18,6 +18,16 @@ import {
 import AdminNavTabs from '../../components/admin/AdminNavTabs'
 import LoadingState from '../../components/LoadingState'
 import ErrorState from '../../components/ErrorState'
+import ConfirmDialog from '../../components/ConfirmDialog'
+import { ACCOUNT_TYPES } from '../../types/accountTypes'
+
+/** Every page the registry can gate, in Feature Flags page order. */
+const GATED_PAGES = FEATURE_CATEGORIES.flatMap((c) => c.flags)
+
+/** Labels of the pages a flag set enables. */
+function enabledPages(flags: Record<string, boolean>): string[] {
+  return GATED_PAGES.filter((p) => flags[p.key]).map((p) => p.label)
+}
 
 export interface FeaturesPageProps {
   testId?: string
@@ -206,25 +216,40 @@ export default function FeaturesPage({
     },
   })
 
-  // Apply preset handler
-  const handleApplyPreset = useCallback(
-    async (presetId: string, presetName: string) => {
-      setActionError(null)
-      setApplyingPreset(presetId)
-      try {
-        await updateTenantMutation.mutateAsync({
-          tenant_id: selectedTenant,
-          preset: presetId,
-        })
-        setSuccessToast(`Preset "${presetName}" applied successfully to account "${selectedTenant}".`)
-      } catch (err: any) {
-        setActionError(err?.message || 'Failed to apply preset bundle')
-      } finally {
-        setApplyingPreset(null)
-      }
-    },
-    [selectedTenant, updateTenantMutation],
-  )
+  // Account type selection. The selected card defaults to the tenant's recorded
+  // type, but only while its flags still match it: a customised tenant has no
+  // card checked, so the page never claims a type the flags no longer match.
+  const [selectedType, setSelectedType] = useState<string | null>(null)
+  const [pendingPreset, setPendingPreset] = useState<FeaturePreset | null>(null)
+  const accountTypeState = featuresData?.account_type
+  const currentTypeId = accountTypeState && !accountTypeState.customised ? accountTypeState.id : null
+  const checkedTypeId = selectedType ?? currentTypeId
+
+  useEffect(() => {
+    setSelectedType(null)
+  }, [selectedTenant])
+
+  // Applies after the confirm step: it replaces every flag the preset sets,
+  // which changes what the tenant's users can see.
+  const handleConfirmPreset = useCallback(async () => {
+    const preset = pendingPreset
+    if (!preset) return
+    setActionError(null)
+    setApplyingPreset(preset.id)
+    try {
+      await updateTenantMutation.mutateAsync({
+        tenant_id: selectedTenant,
+        preset: preset.id,
+      })
+      setSuccessToast(`Account type "${preset.name}" applied to "${selectedTenant}".`)
+      setSelectedType(null)
+    } catch (err: any) {
+      setActionError(err?.message || 'Failed to apply account type')
+    } finally {
+      setApplyingPreset(null)
+      setPendingPreset(null)
+    }
+  }, [pendingPreset, selectedTenant, updateTenantMutation])
 
   // Single toggle handler
   const handleToggleFlag = useCallback(
@@ -256,57 +281,19 @@ export default function FeaturesPage({
     return { total, enabled, disabled }
   }, [activeFlags])
 
-  // Presets catalogue (fallback to system default presets if API loading or offline)
-  const presets = useMemo<FeaturePreset[]>(() => {
-    if (presetsData?.presets && presetsData.presets.length > 0) {
-      return presetsData.presets
+  // Preset catalogue from the server, falling back to the built-in account types
+  // when it is unavailable. Account types get the selector; anything else is a
+  // bundle offered below it.
+  const { accountTypes, bundles } = useMemo(() => {
+    const catalogue: FeaturePreset[] = presetsData?.presets?.length ? presetsData.presets : ACCOUNT_TYPES
+    const types = catalogue.filter((p) => p.kind === 'account_type')
+    return {
+      accountTypes: types.length > 0 ? types : ACCOUNT_TYPES,
+      bundles: catalogue.filter((p) => p.kind === 'bundle'),
     }
-    return [
-      {
-        id: 'eap_pilot',
-        name: 'EAP Pilot',
-        description:
-          'Enterprise pilot preset: all core governance, audit, and compliance views active; experimental demo labs, federated services, and topology views suppressed.',
-        flags: {
-          core_governance: true,
-          audit: true,
-          compliance: true,
-          demos_fleet: false,
-          supercred: false,
-          rbac_analysis: false,
-          collusion_access: false,
-          page_discovery: true,
-          page_agents: true,
-          page_topology: false,
-          page_weave: true,
-          page_signals: true,
-          page_risk: true,
-          page_policies: true,
-          page_compliance: true,
-          page_audit: true,
-          page_federated_services: false,
-          page_cryptography: true,
-          page_credential_inventory: true,
-          page_signal_store: false,
-          page_feeds: false,
-          page_network_tests: false,
-          page_agentmaxxing: false,
-        },
-      },
-      {
-        id: 'full_demo',
-        name: 'Full Platform Demo',
-        description: 'All 23 platform capabilities, demo surfaces, and telemetry feeds enabled.',
-        flags: {},
-      },
-      {
-        id: 'minimal_governance',
-        name: 'Minimal Governance',
-        description: 'Minimal boundary view: agents registry, policy compliance, and audit trail only.',
-        flags: {},
-      },
-    ]
   }, [presetsData])
+
+  const selectedPreset = accountTypes.find((t) => t.id === checkedTypeId) ?? null
 
   // Filtered categories and flags
   const filteredCategories = useMemo(() => {
@@ -497,116 +484,135 @@ export default function FeaturesPage({
         </div>
       ) : (
         <>
-          {/* Preset Bundles Section */}
-          <div
-            className="card"
-            data-testid="preset-bundles-card"
-        style={{
-          padding: '18px 20px',
-          background: 'linear-gradient(180deg, rgba(20, 184, 166, 0.06) 0%, var(--surface) 100%)',
-          border: '1px solid rgba(20, 184, 166, 0.25)',
-          borderRadius: 'var(--radius)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
-                Enterprise Preset Bundles
-              </h2>
-              <span
-                className="tag"
-                style={{
-                  background: 'rgba(20, 184, 166, 0.15)',
-                  color: 'var(--teal)',
-                  borderColor: 'rgba(20, 184, 166, 0.3)',
-                  fontSize: 10,
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                }}
-              >
-                Target: {selectedTenant}
-              </span>
-            </div>
-            <p style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>
-              One-click preset composition for rapid onboarding, enterprise pilots, and compliance assessments.
-            </p>
-          </div>
-        </div>
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-            gap: 12,
-          }}
-        >
-          {presets.map((preset) => {
-            const isEap = preset.id === 'eap_pilot'
-            const isApplying = applyingPreset === preset.id
-
-            return (
-              <div
-                key={preset.id}
-                data-testid={`preset-card-${preset.id}`}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  padding: '14px 16px',
-                  background: isEap ? 'color-mix(in srgb, var(--teal) 8%, transparent)' : 'var(--surface2)',
-                  border: `1px solid ${isEap ? 'color-mix(in srgb, var(--teal) 40%, transparent)' : 'var(--border)'}`,
-                  borderRadius: 'var(--radius)',
-                }}
-              >
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: isEap ? 'var(--teal)' : 'var(--text)' }}>
-                      {preset.name}
-                    </span>
-                    {isEap && (
-                      <span
-                        style={{
-                          fontSize: 9.5,
-                          fontWeight: 700,
-                          padding: '2px 6px',
-                          borderRadius: 4,
-                          background: 'var(--teal)',
-                          color: 'var(--on-accent)',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.04em',
-                        }}
-                      >
-                        Recommended for EAP
-                      </span>
-                    )}
-                  </div>
-                  <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.45, marginBottom: 12 }}>
-                    {preset.description}
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  className={isEap ? 'btn btn-primary' : 'btn btn-secondary'}
-                  data-testid={`apply-preset-${preset.id}`}
-                  disabled={Boolean(applyingPreset) || isPresetsLoading}
-                  onClick={() => handleApplyPreset(preset.id, preset.name)}
+          {/* Account Type Section */}
+          <div className="card" data-testid="account-type-card" style={{ padding: '18px 20px', background: 'var(--surface)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+              <div>
+                <h2 id="account-type-heading" style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
+                  Account type
+                </h2>
+                <p style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>
+                  An account type is a fixed set of feature flags. Applying one replaces every flag for this tenant.
+                </p>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>Current for {selectedTenant}:</span>
+                <span
+                  className="tag"
+                  data-testid="account-type-current"
                   style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: applyingPreset ? 'not-allowed' : 'pointer',
+                    fontWeight: 700,
+                    color: accountTypeState?.customised ? 'var(--amber)' : 'var(--teal)',
+                    borderColor: accountTypeState?.customised ? 'var(--amber)' : 'var(--teal)',
                   }}
                 >
-                  {isApplying ? 'Applying Preset...' : `Apply ${preset.name}`}
-                </button>
+                  {accountTypeState?.label ?? 'Unknown'}
+                </span>
               </div>
-            )
-          })}
-        </div>
-      </div>
+            </div>
+
+            <div
+              role="radiogroup"
+              aria-labelledby="account-type-heading"
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}
+            >
+              {accountTypes.map((type) => {
+                const checked = checkedTypeId === type.id
+                const pages = enabledPages(type.flags)
+                return (
+                  <button
+                    key={type.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={checked}
+                    data-testid={`account-type-option-${type.id}`}
+                    onClick={() => setSelectedType(type.id)}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                      textAlign: 'left',
+                      padding: '14px 16px',
+                      cursor: 'pointer',
+                      color: 'var(--text)',
+                      background: checked ? 'var(--surface2)' : 'var(--surface)',
+                      border: `${checked ? 2 : 1}px solid ${checked ? 'var(--teal)' : 'var(--border)'}`,
+                      borderRadius: 'var(--radius)',
+                    }}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontSize: 14, fontWeight: 700 }}>{type.name}</span>
+                      {type.status === 'draft' && (
+                        <span className="tag" data-testid={`account-type-draft-${type.id}`} title="Exact contents pending confirmation">
+                          Draft
+                        </span>
+                      )}
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.45 }}>{type.description}</span>
+                    <span data-testid={`account-type-pages-${type.id}`} style={{ fontSize: 11.5, color: 'var(--text)', lineHeight: 1.45 }}>
+                      <strong>{pages.length} of {GATED_PAGES.length} pages:</strong>{' '}
+                      <span style={{ color: 'var(--muted)' }}>{pages.join(', ') || 'none'}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12, marginTop: 14 }}>
+              {!isSuperadmin && (
+                <span data-testid="account-type-superadmin-note" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  Only a superadmin can change a tenant's account type.
+                </span>
+              )}
+              <button
+                type="button"
+                className="btn btn-primary"
+                data-testid="account-type-apply"
+                disabled={!isSuperadmin || !selectedPreset || selectedPreset.id === currentTypeId || Boolean(applyingPreset) || isPresetsLoading}
+                onClick={() => selectedPreset && setPendingPreset(selectedPreset)}
+              >
+                {applyingPreset ? 'Applying…' : 'Apply account type'}
+              </button>
+            </div>
+
+            {bundles.length > 0 && (
+              <div style={{ marginTop: 18, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+                <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>Other preset bundles</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+                  {bundles.map((bundle) => (
+                    <div
+                      key={bundle.id}
+                      data-testid={`preset-card-${bundle.id}`}
+                      style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '12px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{bundle.name}</span>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.45 }}>{bundle.description}</span>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        data-testid={`apply-preset-${bundle.id}`}
+                        disabled={!isSuperadmin || Boolean(applyingPreset) || isPresetsLoading}
+                        onClick={() => setPendingPreset(bundle)}
+                      >
+                        Apply {bundle.name}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {pendingPreset && (
+            <ConfirmDialog
+              title={`Apply ${pendingPreset.name} to ${selectedTenant}?`}
+              body={`This replaces every feature flag for ${selectedTenant} and changes what its users can see. It enables ${enabledPages(pendingPreset.flags).length} of ${GATED_PAGES.length} pages: ${enabledPages(pendingPreset.flags).join(', ') || 'none'}.`}
+              confirmLabel="Apply account type"
+              loading={Boolean(applyingPreset)}
+              onConfirm={handleConfirmPreset}
+              onCancel={() => setPendingPreset(null)}
+            />
+          )}
 
       {/* Summary KPI Cards */}
       <div

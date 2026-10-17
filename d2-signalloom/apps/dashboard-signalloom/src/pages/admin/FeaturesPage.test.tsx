@@ -1,12 +1,13 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import FeaturesPage from './FeaturesPage'
 import * as featuresApiModule from '../../api/featuresApi'
 import { api } from '../../api/client'
 import { AppContext } from '../../App'
 import { DEFAULT_SYSTEM_FLAGS } from '../../types/features'
+import { ACCOUNT_TYPES, EAP_VIEW_FLAGS } from '../../types/accountTypes'
 
 const mockGetAccessTokenSilently = vi.fn().mockResolvedValue('test-bearer-token')
 const mockAuthUser = {
@@ -38,64 +39,22 @@ vi.mock('../../auth/superadmin', () => ({
   useServerSuperadmin: () => mockServerSuperadmin,
 }))
 
+// The catalogue as GET /api/v1/admin/features/presets serves it: the three
+// account types, then other bundles.
 const MOCK_PRESETS = [
-  {
-    id: 'eap_pilot',
-    name: 'EAP Pilot',
-    description: 'Enterprise pilot preset: all core governance, audit, and compliance views active; experimental demo labs, federated services, and topology views suppressed.',
-    flags: {
-      core_governance: true,
-      audit: true,
-      compliance: true,
-      page_discovery: true,
-      page_agents: true,
-      page_topology: false,
-      page_weave: true,
-      page_signals: true,
-      page_risk: true,
-      page_policies: true,
-      page_compliance: true,
-      page_audit: true,
-      page_federated_services: false,
-      page_cryptography: true,
-      page_credential_inventory: true,
-      page_signal_store: false,
-      page_feeds: false,
-      page_network_tests: false,
-      page_agentmaxxing: false,
-      demos_fleet: false,
-      supercred: false,
-      rbac_analysis: false,
-      collusion_access: false,
-    },
-  },
-  {
-    id: 'full_demo',
-    name: 'Full Platform Demo',
-    description: 'All 23 platform capabilities, demo surfaces, and telemetry feeds enabled.',
-    flags: {
-      ...DEFAULT_SYSTEM_FLAGS,
-      demos_fleet: true,
-      supercred: true,
-      rbac_analysis: true,
-      collusion_access: true,
-      page_agentmaxxing: true,
-      page_network_tests: true,
-      page_signal_store: true,
-      page_feeds: true,
-    },
-  },
+  ...ACCOUNT_TYPES,
   {
     id: 'minimal_governance',
     name: 'Minimal Governance',
+    kind: 'bundle' as const,
+    status: 'confirmed' as const,
+    aliases: [],
     description: 'Minimal boundary view: agents registry, policy compliance, and audit trail only.',
     flags: {
+      ...Object.fromEntries(Object.keys(DEFAULT_SYSTEM_FLAGS).map((k) => [k, false])),
       core_governance: true,
       audit: true,
-      compliance: true,
       page_agents: true,
-      page_policies: true,
-      page_compliance: true,
       page_audit: true,
     },
   },
@@ -303,74 +262,122 @@ describe('FeaturesPage Component', () => {
     expect(screen.getByTestId('kpi-account-scope')).toHaveTextContent('tenant-enterprise-x')
   })
 
-  it('renders Preset Bundles card with EAP Pilot, Full Demo, and Minimal Governance', async () => {
+  it('offers the three account types as radio cards, EAP Full marked draft', async () => {
     await renderFeaturesPage()
 
-    expect(screen.getByTestId('preset-bundles-card')).toBeInTheDocument()
-    expect(screen.getByTestId('preset-card-eap_pilot')).toBeInTheDocument()
-    expect(screen.getByTestId('preset-card-full_demo')).toBeInTheDocument()
-    expect(screen.getByTestId('preset-card-minimal_governance')).toBeInTheDocument()
-
-    expect(screen.getByText('Recommended for EAP')).toBeInTheDocument()
-    expect(screen.getByTestId('apply-preset-eap_pilot')).toBeInTheDocument()
+    const group = screen.getByRole('radiogroup', { name: 'Account type' })
+    const radios = within(group).getAllByRole('radio')
+    expect(radios.map((r) => r.getAttribute('data-testid'))).toEqual([
+      'account-type-option-eap_view',
+      'account-type-option-eap_full',
+      'account-type-option-full',
+    ])
+    expect(within(radios[0]!).getByText('EAP View (read-only)')).toBeInTheDocument()
+    expect(within(radios[1]!).getByTestId('account-type-draft-eap_full')).toHaveTextContent('Draft')
+    expect(within(radios[0]!).queryByText('Draft')).toBeNull()
   })
 
-  it('handles clicking Apply EAP Pilot button and displays success toast', async () => {
-    await renderFeaturesPage({ defaultTenant: 'kusari' })
-
-    const applyBtn = screen.getByTestId('apply-preset-eap_pilot')
-    await act(async () => {
-      fireEvent.click(applyBtn)
-    })
-
-    expect(mutateTenantAsyncMock).toHaveBeenCalledWith({
-      tenant_id: 'kusari',
-      preset: 'eap_pilot',
-    })
-
-    await waitFor(() => {
-      const toast = screen.getByTestId('success-toast')
-      expect(toast).toHaveTextContent(/Preset "EAP Pilot" applied successfully to account "kusari"/i)
-    })
-  })
-
-  it('applying the eap_pilot preset configures page_federated_services: false and page_topology: false', async () => {
-    await renderFeaturesPage({ defaultTenant: 'kusari' })
-
-    const applyBtn = screen.getByTestId('apply-preset-eap_pilot')
-    await act(async () => {
-      fireEvent.click(applyBtn)
-    })
-
-    expect(mutateTenantAsyncMock).toHaveBeenCalledWith({
-      tenant_id: 'kusari',
-      preset: 'eap_pilot',
-    })
-
-    const mutationResult = await mutateTenantAsyncMock.mock.results[0].value
-    expect(mutationResult.flags.page_federated_services).toBe(false)
-    expect(mutationResult.flags.page_topology).toBe(false)
-
-    // Ensure preset definition explicitly suppresses federated services and page topology
-    const eapPreset = MOCK_PRESETS.find((p) => p.id === 'eap_pilot')
-    expect(eapPreset).toBeDefined()
-    expect(eapPreset?.flags.page_federated_services).toBe(false)
-    expect(eapPreset?.flags.page_topology).toBe(false)
-  })
-
-  it('fallback preset definition accurately suppresses federated services and topology', async () => {
-    mockUseFeaturePresets.mockReturnValue({
-      data: null,
-      isLoading: false,
-      isError: false,
-      error: null,
-    })
-
+  it('summarises which pages each account type enables', async () => {
     await renderFeaturesPage()
 
-    const eapCard = screen.getByTestId('preset-card-eap_pilot')
-    expect(eapCard).toBeInTheDocument()
-    expect(eapCard).toHaveTextContent(/federated services, and topology views suppressed/i)
+    const view = screen.getByTestId('account-type-pages-eap_view')
+    expect(view).toHaveTextContent('3 of 20 pages')
+    expect(view).toHaveTextContent('Agents Registry')
+    expect(view).toHaveTextContent('Discovery & Accounts')
+    expect(view).toHaveTextContent('Governance Policies')
+    expect(view).not.toHaveTextContent('Signal Stream')
+    expect(screen.getByTestId('account-type-pages-full')).toHaveTextContent('20 of 20 pages')
+  })
+
+  it('shows the recorded account type, and the current card as checked', async () => {
+    mockUseAdminFeatures.mockReturnValue({
+      data: {
+        ...MOCK_FEATURES_DATA,
+        flags: EAP_VIEW_FLAGS,
+        account_type: { id: 'eap_view', customised: false, matches: 'eap_view', label: 'EAP View (read-only)' },
+      },
+      isLoading: false, isFetching: false, isError: false, error: null, refetch: refetchMock,
+    })
+    await renderFeaturesPage()
+
+    expect(screen.getByTestId('account-type-current')).toHaveTextContent('EAP View (read-only)')
+    expect(screen.getByTestId('account-type-option-eap_view')).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByTestId('account-type-option-full')).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('says "Custom, based on" once flags drift from the recorded type', async () => {
+    mockUseAdminFeatures.mockReturnValue({
+      data: {
+        ...MOCK_FEATURES_DATA,
+        flags: { ...EAP_VIEW_FLAGS, page_signals: true },
+        account_type: { id: 'eap_view', customised: true, matches: null, label: 'Custom, based on EAP View (read-only)' },
+      },
+      isLoading: false, isFetching: false, isError: false, error: null, refetch: refetchMock,
+    })
+    await renderFeaturesPage()
+
+    expect(screen.getByTestId('account-type-current')).toHaveTextContent('Custom, based on EAP View (read-only)')
+    // No card claims to be the tenant's type when the flags no longer match it.
+    for (const id of ['eap_view', 'eap_full', 'full']) {
+      expect(screen.getByTestId(`account-type-option-${id}`)).toHaveAttribute('aria-checked', 'false')
+    }
+  })
+
+  it('applies an account type only after confirmation', async () => {
+    mockServerSuperadmin.superadmin = true
+    await renderFeaturesPage({ defaultTenant: 'kusari' })
+
+    fireEvent.click(screen.getByTestId('account-type-option-eap_view'))
+    fireEvent.click(screen.getByTestId('account-type-apply'))
+
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveTextContent('Apply EAP View (read-only) to kusari?')
+    expect(dialog).toHaveTextContent('3 of 20 pages')
+    expect(mutateTenantAsyncMock).not.toHaveBeenCalled()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(mutateTenantAsyncMock).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId('account-type-apply'))
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Apply account type' }))
+    })
+    expect(mutateTenantAsyncMock).toHaveBeenCalledWith({ tenant_id: 'kusari', preset: 'eap_view' })
+    await waitFor(() =>
+      expect(screen.getByTestId('success-toast')).toHaveTextContent(
+        'Account type "EAP View (read-only)" applied to "kusari".',
+      ),
+    )
+  })
+
+  it('does not let a non-superadmin apply an account type', async () => {
+    mockServerSuperadmin.superadmin = false
+    await renderFeaturesPage()
+
+    fireEvent.click(screen.getByTestId('account-type-option-full'))
+    expect(screen.getByTestId('account-type-apply')).toBeDisabled()
+    expect(screen.getByTestId('account-type-superadmin-note')).toHaveTextContent('Only a superadmin can change')
+  })
+
+  it('falls back to the built-in account types when the catalogue is unavailable', async () => {
+    mockUseFeaturePresets.mockReturnValue({ data: null, isLoading: false, isError: false, error: null })
+    await renderFeaturesPage()
+
+    expect(screen.getByTestId('account-type-option-eap_view')).toBeInTheDocument()
+    expect(screen.getByTestId('account-type-pages-eap_view')).toHaveTextContent('3 of 20 pages')
+  })
+
+  it('keeps other preset bundles applicable, behind the same confirmation', async () => {
+    mockServerSuperadmin.superadmin = true
+    await renderFeaturesPage({ defaultTenant: 'kusari' })
+
+    expect(screen.queryByTestId('preset-card-eap_view')).toBeNull()
+    fireEvent.click(screen.getByTestId('apply-preset-minimal_governance'))
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Apply account type' }))
+    })
+    expect(mutateTenantAsyncMock).toHaveBeenCalledWith({ tenant_id: 'kusari', preset: 'minimal_governance' })
   })
 
   it('renders KPI summary cards with computed metrics', async () => {

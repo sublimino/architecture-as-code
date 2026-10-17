@@ -387,25 +387,25 @@ export default function DiscoveredWorkloadDrawer({
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>User / Creator</div>
                   <div data-testid="drawer-claude-user-owner" style={{ color: 'var(--text)', fontWeight: 500 }}>
-                    {workload.owner || workload.metadata?.user_metadata?.owner || 'Andrew Martin (User)'}
+                    {workload.owner || workload.metadata?.user_metadata?.owner || 'Not reported'}
                   </div>
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>Organization ID</div>
                   <code data-testid="drawer-claude-org-id" style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text)' }}>
-                    {workload.metadata?.user_metadata?.org_id || '1f9b3065-9e10-42e5-b2ac-e8f37a186b88'}
+                    {workload.metadata?.user_metadata?.org_id || 'Not reported'}
                   </code>
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>Workspace ID</div>
                   <code data-testid="drawer-claude-workspace-id" style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text)' }}>
-                    {workload.metadata?.user_metadata?.workspace_id || 'wrkspc_01PFJfZsJrq5bUVWA2wWnyvm'}
+                    {workload.metadata?.user_metadata?.workspace_id || 'Not reported'}
                   </code>
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>Execution Identity</div>
                   <div data-testid="drawer-claude-exec-identity" style={{ color: 'var(--text)', fontWeight: 500 }}>
-                    {workload.metadata?.user_metadata?.key_type || 'service_account'}
+                    {workload.metadata?.user_metadata?.key_type || 'Not reported'}
                   </div>
                 </div>
               </div>
@@ -435,7 +435,7 @@ export default function DiscoveredWorkloadDrawer({
                 >
                   {workload.metadata?.raw_hash
                     ? `SHA-256: ${workload.metadata.raw_hash.slice(0, 12)}...`
-                    : 'SHA-256: 7a8f9b... (Content-Addressed)'}
+                    : 'SHA-256: Not reported'}
                 </span>
                 <span
                   data-testid="drawer-claude-dedup-badge"
@@ -469,20 +469,20 @@ export default function DiscoveredWorkloadDrawer({
                   <div style={{ color: 'var(--muted)', marginBottom: 2 }}>Environment</div>
                   <div data-testid="drawer-claude-environment" style={{ color: 'var(--text)', fontWeight: 500 }}>
                     {workload.metadata?.environment_config?.env_name
-                      ? `${workload.metadata.environment_config.env_name} (${workload.metadata.environment_config.env_id || 'env_01CyCigBbDRSLTzSCyyHQ7eT'})`
-                      : 'cloud-dev (env_01CyCigBbDRSLTzSCyyHQ7eT)'}
+                      ? `${workload.metadata.environment_config.env_name} (${workload.metadata.environment_config.env_id || 'Not reported'})`
+                      : 'Not reported'}
                   </div>
                 </div>
                 <div>
                   <div style={{ color: 'var(--muted)', marginBottom: 2 }}>Network Egress</div>
                   <div data-testid="drawer-claude-network-egress" style={{ color: 'var(--text)', fontWeight: 500 }}>
-                    {workload.metadata?.environment_config?.network_egress || 'Unrestricted (0.0.0.0/0)'}
+                    {workload.metadata?.environment_config?.network_egress || 'Not reported'}
                   </div>
                 </div>
                 <div>
                   <div style={{ color: 'var(--muted)', marginBottom: 2 }}>Package Registries</div>
                   <div data-testid="drawer-claude-package-registries" style={{ color: 'var(--text)', fontWeight: 500 }}>
-                    {workload.metadata?.environment_config?.package_registries || 'PyPI, npm, apt allowed'}
+                    {workload.metadata?.environment_config?.package_registries || 'Not reported'}
                   </div>
                 </div>
               </div>
@@ -519,7 +519,7 @@ export default function DiscoveredWorkloadDrawer({
                   >
                     {workload.metadata?.system_prompt ||
                       workload.metadata?.fallback_prompt ||
-                      'You are a Claude remote agent operating under Signal Loom policy supervision.'}
+                      'Not reported'}
                   </pre>
                 </details>
               )}
@@ -540,7 +540,7 @@ export default function DiscoveredWorkloadDrawer({
                 >
                   {workload.metadata?.metrics?.input_tokens != null && workload.metadata?.metrics?.output_tokens != null
                     ? `${workload.metadata.metrics.input_tokens} input / ${workload.metadata.metrics.output_tokens} output`
-                    : '12.4k input / 1.8k output'}
+                    : 'Not reported'}
                 </span>
                 <span
                   data-testid="drawer-claude-cost-metric"
@@ -556,8 +556,10 @@ export default function DiscoveredWorkloadDrawer({
                 >
                   {workload.metadata?.metrics?.cost_text ||
                     (workload.metadata?.metrics?.cost != null
-                      ? `$${workload.metadata.metrics.cost.toFixed(2)} / $${(workload.metadata.metrics.limit ?? 5).toFixed(2)} limit`
-                      : '$0.11 / $5.00 limit')}
+                      ? `$${workload.metadata.metrics.cost.toFixed(2)} / $${
+                          workload.metadata.metrics.limit != null ? workload.metadata.metrics.limit.toFixed(2) : 'Not reported'
+                        } limit`
+                      : 'Not reported')}
                 </span>
               </div>
             </div>

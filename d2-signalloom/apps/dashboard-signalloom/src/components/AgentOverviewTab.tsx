@@ -233,15 +233,15 @@ export default function AgentOverviewTab({
   }
 
   // 2. Runtime metadata
-  const namespace = agent.runtime?.namespace || agent.namespace || 'default'
-  const clusterId = agent.runtime?.cluster_id || 'cluster-local'
+  const namespace = agent.runtime?.namespace || agent.namespace || 'Not reported'
+  const clusterId = agent.runtime?.cluster_id || 'Not reported'
   const framework = agent.runtime?.framework || agent.framework || agent.type || 'Custom'
   const executionMode = agent.runtime?.execution_mode || agent.type || '-'
   const model = agent.runtime?.model || agent.model_name || 'Not specified'
   const node = agent.runtime?.node || agent.node || 'Not assigned'
   const podUid = agent.runtime?.pod_uid || agent.pod_uid || '-'
   const serviceAccount = agent.runtime?.service_account || agent.service_account || '-'
-  const phase = agent.runtime?.phase || agent.state || 'Running'
+  const phase = agent.runtime?.phase || agent.state || 'Not reported'
 
   // 3. Responsibility metadata (Truthful language dictionary)
   const ownerName = agent.responsibility?.owner_name || agent.owner

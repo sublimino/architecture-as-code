@@ -143,26 +143,6 @@ test.describe("Surfaces 7 & 8: Policy-as-Code Editor & Compliance Posture (Deskt
     await expect(page.getByText(/NIS2/i).first()).toBeVisible();
   });
 
-  // AJM 2026-10-14: the sentinel toggle hides the sentinel's own housekeeping
-  // streams (per-connection socket trace, telemetry-gap detector), never its
-  // detections. Prove both halves against the live feed: housekeeping rows that
-  // are present without the toggle disappear with it.
-  test("excludeSentinel hides sentinel housekeeping streams on /signals", async ({ page }) => {
-    const housekeeping = /socket_trace|gap_detector/;
-    const feedText = async (query: string) => {
-      await page.goto(`${BASE}/signals${query}`, { waitUntil: "domcontentloaded" });
-      const feed = page.getByTestId("observation-feed");
-      await expect(feed).toBeVisible({ timeout: 15_000 });
-      return feed.innerText();
-    };
-
-    const unfiltered = await feedText("");
-    expect(unfiltered, "no sentinel housekeeping rows in the live feed, so the toggle cannot be tested").toMatch(housekeeping);
-
-    const filtered = await feedText("?excludeSentinel=true");
-    expect(filtered).not.toMatch(housekeeping);
-  });
-
   test("policy and compliance pages contain zero em-dashes across rendered DOM", async ({ page }) => {
     await page.goto(`${BASE}/policies`, { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15_000 });
@@ -479,4 +459,39 @@ test.describe("Governance Settings to PolicyEditor Deep-Linking & CIS Benchmark 
   });
 });
 
+test.describe("Signals sentinel toggle against the live feed", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
 
+  test.beforeEach(async ({ page }) => {
+    await login(page, { demoMode: false });
+  });
+
+  // AJM 2026-10-14: the sentinel toggle hides the sentinel's own housekeeping
+  // streams (per-connection socket trace, telemetry-gap detector), never its
+  // detections. Prove both halves against the live feed (its own describe, logged
+  // in live: it sat in the demo-mode describe above from 71a7d428c, so it read the
+  // ten-row fixture feed, which has no housekeeping rows): housekeeping rows that
+  // are present without the toggle disappear with it.
+  test("excludeSentinel hides sentinel housekeeping streams on /signals", async ({ page }) => {
+    const housekeeping = /socket_trace|gap_detector/;
+    const feedText = async (query: string) => {
+      await page.goto(`${BASE}/signals${query}`, { waitUntil: "domcontentloaded" });
+      const feed = page.getByTestId("observation-feed");
+      await expect(feed).toBeVisible({ timeout: 15_000 });
+      // Read only once live rows are in, so an empty, still-loading feed cannot
+      // pass the "hidden" half; rows other than housekeeping must survive it.
+      await expect(feed).toContainText(/[1-9]\d* of \d+ observations shown/, { timeout: 15_000 });
+      return feed.innerText();
+    };
+
+    // Scoped to network_egress, where both housekeeping streams live. Unscoped,
+    // the 60-row feed (SignalsPage FEED_CAP) is filled by the sentinel's
+    // endpoint_host detections at ~30 ev/s and the low-rate socket_trace rows
+    // never reach it, so the precondition below failed on a busy cluster.
+    const unfiltered = await feedText("?layer=network_egress");
+    expect(unfiltered, "no sentinel housekeeping rows in the live feed, so the toggle cannot be tested").toMatch(housekeeping);
+
+    const filtered = await feedText("?layer=network_egress&excludeSentinel=true");
+    expect(filtered).not.toMatch(housekeeping);
+  });
+});

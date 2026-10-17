@@ -60,7 +60,7 @@
     {
       "id": "eap_full",
       "name": "EAP Full",
-      "status": "draft",
+      "status": "confirmed",
       "aliases": ["eap_pilot"],
       "flags": {
         "core_governance": true,

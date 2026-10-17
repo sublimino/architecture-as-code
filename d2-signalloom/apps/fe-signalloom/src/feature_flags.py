@@ -104,9 +104,9 @@ FEATURE_PRESETS: dict[str, dict[str, Any]] = {
     "eap_full": {
         "name": "EAP Full",
         "kind": "account_type",
-        "status": "draft",
+        "status": "confirmed",
         "aliases": ["eap_pilot"],
-        "description": "Early access, full system. Adds signals, the Weave, risk, compliance, audit, cryptography and credential inventory to EAP View; demos, labs, topology and federated services stay off. Draft: exact contents pending confirmation.",
+        "description": "Early access, full system. Adds signals, the Weave, risk, compliance, audit, cryptography and credential inventory to EAP View; demos, labs, topology and federated services stay off.",
         "flags": {
             "core_governance": True,
             "audit": True,
@@ -141,39 +141,14 @@ FEATURE_PRESETS: dict[str, dict[str, Any]] = {
         "description": "Every page, demo scenario and experimental lab enabled.",
         "flags": {key: True for key in DEFAULT_SYSTEM_FLAGS},
     },
-    "minimal_governance": {
-        "name": "Minimal Governance",
-        "kind": "bundle",
-        "status": "confirmed",
-        "aliases": [],
-        "description": "Focused minimal posture exposing only the agent registry and authoritative immutable audit log.",
-        "flags": {
-            "core_governance": True,
-            "audit": True,
-            "compliance": False,
-            "demos_fleet": False,
-            "supercred": False,
-            "rbac_analysis": False,
-            "collusion_access": False,
-            "page_discovery": False,
-            "page_agents": True,
-            "page_topology": False,
-            "page_weave": False,
-            "page_signals": False,
-            "page_risk": False,
-            "page_policies": False,
-            "page_compliance": False,
-            "page_audit": True,
-            "page_federated_services": False,
-            "page_cryptography": False,
-            "page_credential_inventory": False,
-            "page_signal_store": False,
-            "page_feeds": False,
-            "page_network_tests": False,
-            "page_agentmaxxing": False,
-        },
-    },
 }
+# "minimal_governance" (a non-account-type "bundle" preset) was retired here.
+# Any tenant with that account type recorded was remapped to "eap_view" (the
+# nearest supported type by flag-set Hamming distance: 4 of 23 flags differ,
+# vs 9 for eap_full and 19 for full) by migration
+# 075_retire_minimal_governance_account_type.sql, which also marks the row
+# customised since the tenant's actual flags are untouched and no longer equal
+# eap_view's set exactly. See docs/signalloom/feature-flag-account-types.md.
 
 #: The account types, in the order the Feature Flags page offers them.
 ACCOUNT_TYPE_IDS: tuple[str, ...] = tuple(

@@ -42,7 +42,7 @@ export const EAP_VIEW_FLAGS: FlagSet = {
   page_agentmaxxing: false,
 }
 
-/** EAP Full: the former eap_pilot set. Draft pending the principal's confirmation. */
+/** EAP Full: the former eap_pilot set. Confirmed by the principal 2026-10-17. */
 export const EAP_FULL_FLAGS: FlagSet = {
   core_governance: true,
   audit: true,
@@ -89,10 +89,10 @@ export const ACCOUNT_TYPES: (FeaturePreset & { id: AccountTypeId })[] = [
     id: 'eap_full',
     name: 'EAP Full',
     kind: 'account_type',
-    status: 'draft',
+    status: 'confirmed',
     aliases: ['eap_pilot'],
     description:
-      'Early access, full system. Adds signals, the Weave, risk, compliance, audit, cryptography and credential inventory to EAP View; demos, labs, topology and federated services stay off. Draft: exact contents pending confirmation.',
+      'Early access, full system. Adds signals, the Weave, risk, compliance, audit, cryptography and credential inventory to EAP View; demos, labs, topology and federated services stay off.',
     flags: EAP_FULL_FLAGS,
   },
   {

@@ -33,7 +33,14 @@ test.describe("RBAC analysis importer", () => {
     const importer = page.getByTestId("rbac-importer");
     const clusterSelect = importer.getByTestId("importer-cluster-select");
     await expect(clusterSelect).toBeEnabled({ timeout: 15_000 });
-    await clusterSelect.selectOption("local");
+    // With one known cluster the panel renders it as static text, not a
+    // <select> (RbacImporterPanel, since f4b74cebd); which one appears depends
+    // on how many clusters AFM has imported, so assert "local" either way.
+    if ((await clusterSelect.evaluate(el => el.tagName)) === "SELECT") {
+      await clusterSelect.selectOption("local");
+    } else {
+      await expect(clusterSelect).toHaveText(/\(local\)$/);
+    }
 
     const namespaceSelect = importer.getByTestId("importer-namespace-select");
     await expect(namespaceSelect.locator('option[value="fe-signalloom-agents"]')).toHaveCount(1);

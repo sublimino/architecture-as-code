@@ -359,3 +359,39 @@ async def test_a_gating_read_racing_a_toggle_does_not_cache_the_old_value() -> N
     assert raced is False  # the read began before the toggle: old value is fine
     # ...but it must not outlive the toggle in the cache.
     assert await is_feature_enabled(pool, TENANT, "page_signals") is True
+
+
+# ===========================================================================
+# 4. Every mutation reply is stamped with the version it committed
+# ===========================================================================
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("path", "schedule"), TOGGLE_PATHS[:3], ids=[p for p, _ in TOGGLE_PATHS[:3]])
+async def test_each_toggle_reply_is_the_state_its_own_version_committed(
+    path: str, schedule: Schedule | None
+) -> None:
+    """The page drops replies older than the one it shows; that needs each
+    reply to carry a version that orders it, and to be the state at it."""
+    db = MockDatabase()
+    await _seed(db, "eap_view", {RESTORED: not EAP_VIEW[RESTORED]})
+    intended = {RESTORED: EAP_VIEW[RESTORED], **{k: not EAP_VIEW[k] for k in FLIPPED}}
+
+    main_app.state.pool = FakePool(db) if schedule is None else LatencyPool(db, schedule)
+    async with _client() as client:
+        before = (await client.get("/api/v1/admin/features", params={"tenant_id": TENANT})).json()["version"]
+        responses = await asyncio.gather(*(_toggle(client, k, v) for k, v in intended.items()))
+        final = (await client.get("/api/v1/admin/features", params={"tenant_id": TENANT})).json()
+
+    bodies = [r.json() for r in responses]
+    versions = sorted(b["version"] for b in bodies)
+    assert versions == list(range(before + 1, before + 1 + len(intended))), path
+    assert final["version"] == before + len(intended)
+    for (key, value), body in zip(intended.items(), bodies, strict=True):
+        assert body["flags"][key] is value, (path, key)
+    # A reply at version v holds exactly one more of the changes than v - 1.
+    by_version = {b["version"]: b for b in bodies}
+    seen: set[str] = set()
+    for v in versions:
+        applied = {k for k in intended if by_version[v]["flags"][k] == intended[k]}
+        assert seen < applied and len(applied - seen) == 1, (path, v)
+        seen = applied

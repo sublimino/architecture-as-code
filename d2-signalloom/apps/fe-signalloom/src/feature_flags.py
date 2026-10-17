@@ -251,11 +251,16 @@ def describe_account_type(
 #: In-memory evaluation cache: (tenant_id, flag_key) -> (enabled, config, timestamp)
 _FLAG_CACHE_TTL_SECONDS = 10.0
 _flag_cache: dict[tuple[str, str], tuple[bool, dict[str, Any], float]] = {}
+#: Bumped by every invalidation. A read that began before an invalidation must
+#: not fill the cache after it: it may have read the pre-change row, and caching
+#: it would serve that old value for the whole TTL (``is_feature_enabled``).
+_flag_cache_epoch = 0
 
 
 def invalidate_flag_cache(tenant_id: str | None = None, flag_key: str | None = None) -> None:
     """Invalidate in-memory flag evaluation cache."""
-    global _flag_cache
+    global _flag_cache, _flag_cache_epoch
+    _flag_cache_epoch += 1
     if tenant_id is None and flag_key is None:
         _flag_cache.clear()
     elif tenant_id is not None and flag_key is not None:
@@ -350,6 +355,52 @@ async def _acquire_connection(pool_or_conn: Any) -> AsyncIterator[Any]:
             yield conn
     else:
         yield pool_or_conn
+
+
+#: Migration 077. Upserting a tenant's row takes that row's lock until commit
+#: (serialising the tenant's flag mutations) and returns the new version.
+SQL_BUMP_FLAG_VERSION = """
+    INSERT INTO public.tenant_feature_flag_versions (tenant_id, version, updated_at)
+    VALUES ($1, 1, NOW())
+    ON CONFLICT (tenant_id) DO UPDATE
+        SET version = public.tenant_feature_flag_versions.version + 1,
+            updated_at = NOW()
+    RETURNING version
+"""
+
+SQL_GET_FLAG_VERSION = """
+    SELECT version FROM public.tenant_feature_flag_versions WHERE tenant_id = $1
+"""
+
+
+@asynccontextmanager
+async def flag_write_transaction(pool_or_conn: Any, tenant_id: str) -> AsyncIterator[tuple[Any, int]]:
+    """One unit of work for a mutation of ``tenant_id``'s flags: yields
+    ``(conn, version)``.
+
+    The first statement bumps the tenant's flag version (migration 077), which
+    holds that row's lock until the transaction ends, so concurrent mutations
+    of one tenant's flags run one after another while other tenants proceed.
+    Everything a mutation does -- the flag row writes, the account type
+    re-derivation and its audit event -- must use the yielded ``conn``: it then
+    reads only committed state plus its own writes, and commits or rolls back
+    as one. ``version`` is the tenant's flag version this mutation produces.
+
+    Invalidate the flag cache after the block exits (after commit), not inside.
+    """
+    if not tenant_id or not isinstance(tenant_id, str):
+        raise ValueError("tenant_id must be a non-empty string")
+    async with _acquire_connection(pool_or_conn) as conn:
+        async with conn.transaction():
+            version = await conn.fetchval(SQL_BUMP_FLAG_VERSION, tenant_id)
+            yield conn, int(version)
+
+
+async def get_flag_version(pool_or_conn: Any, tenant_id: str) -> int:
+    """The tenant's current flag version; 0 if its flags were never mutated."""
+    async with _acquire_connection(pool_or_conn) as conn:
+        version = await conn.fetchval(SQL_GET_FLAG_VERSION, tenant_id)
+        return int(version) if version is not None else 0
 
 
 def _parse_row(row: Any) -> TenantFeatureFlag:
@@ -983,8 +1034,10 @@ async def is_feature_enabled(
             if now - cached_at < _FLAG_CACHE_TTL_SECONDS:
                 return enabled
 
+    epoch = _flag_cache_epoch
     eval_result = await FeatureFlagRepository.evaluate_flag(pool_or_conn, tenant_id, flag_key)
-    _flag_cache[(tenant_id, flag_key)] = (eval_result.enabled, eval_result.config, time.time())
+    if epoch == _flag_cache_epoch:
+        _flag_cache[(tenant_id, flag_key)] = (eval_result.enabled, eval_result.config, time.time())
     return eval_result.enabled
 
 

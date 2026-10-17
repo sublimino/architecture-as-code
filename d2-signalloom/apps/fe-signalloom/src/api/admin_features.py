@@ -24,8 +24,11 @@ from feature_flags import (
     FeatureFlagDetail,
     FeatureFlagRepository,
     FeaturesResponse,
+    _acquire_connection,
     _merged_presets,
     describe_account_type,
+    flag_write_transaction,
+    get_flag_version,
     invalidate_flag_cache,
     list_all_presets,
     list_presets,
@@ -80,9 +83,16 @@ async def _require_db_pool(request: Request, operation: str) -> Any:
 
 
 async def _admin_features(
-    pool: Any, tenant_id: str, account_type: AccountTypeState | None = None
+    pool: Any,
+    tenant_id: str,
+    account_type: AccountTypeState | None = None,
+    version: int | None = None,
 ) -> AdminFeaturesResponse:
-    """Effective flags, per-flag details and account type state for a tenant."""
+    """Effective flags, per-flag details, account type state and flag version
+    for a tenant. Pass one connection inside a transaction (a mutation's, or a
+    repeatable-read snapshot) so the version and the state belong together."""
+    if version is None:
+        version = await get_flag_version(pool, tenant_id)
     all_flags = await FeatureFlagRepository.evaluate_all_flags(pool, tenant_id)
     flag_records = await FeatureFlagRepository.list_flags(pool, tenant_id)
     details: dict[str, FeatureFlagDetail] = {
@@ -95,7 +105,7 @@ async def _admin_features(
         presets = await _merged_presets(pool)
         account_type = describe_account_type(record["account_type"] if record else None, all_flags, presets)
     return AdminFeaturesResponse(
-        tenant_id=tenant_id, flags=all_flags, details=details, account_type=account_type
+        tenant_id=tenant_id, flags=all_flags, details=details, account_type=account_type, version=version
     )
 
 
@@ -116,6 +126,15 @@ class AdminFeaturesResponse(FeaturesResponse):
     """Admin view of a tenant's flags, with its account type."""
 
     account_type: AccountTypeState = Field(..., description="Recorded account type and whether the flags still match it")
+    version: int = Field(
+        ...,
+        ge=0,
+        description=(
+            "The tenant's flag version this state is at (migration 077): strictly increasing per tenant in "
+            "commit order, 0 before any admin mutation. A client holding a higher version already has a "
+            "newer state and should drop this one."
+        ),
+    )
 
 
 class PresetsResponse(BaseModel):
@@ -191,7 +210,10 @@ async def get_admin_features(
                 "Superadmin privilege required to view features of other tenants",
             )
     pool = await _require_db_pool(request, "fetching admin feature flags")
-    response = await _admin_features(pool, target_tenant)
+    # One snapshot, so the version and the flags it reports belong together.
+    async with _acquire_connection(pool) as conn:
+        async with conn.transaction(isolation="repeatable_read", readonly=True):
+            response = await _admin_features(conn, target_tenant)
 
     if target_tenant != principal.tenant and is_superadmin(principal):
         await audit_cross_tenant_read(
@@ -234,45 +256,48 @@ async def update_tenant_features(
 
     pool = await _require_db_pool(request, "updating tenant feature flags")
 
+    # One unit of work, serialised per tenant (migration 077): the flag writes,
+    # the account type derived from the committed flags, and the audit event.
     applied_preset: str | None = None
-    if body.preset:
-        applied_preset = resolve_preset_id(body.preset)
-        if applied_preset is None:
-            custom = await CustomAccountTypeRepository.get(pool, body.preset)
-            if custom is None:
-                raise APIError(400, "unknown_preset", f"Preset '{body.preset}' is not recognized")
-            applied_preset = custom["id"]
-        await FeatureFlagRepository.apply_preset(
-            pool, target_tenant, applied_preset, updated_by=principal.actor
+    async with flag_write_transaction(pool, target_tenant) as (conn, version):
+        if body.preset:
+            applied_preset = resolve_preset_id(body.preset)
+            if applied_preset is None:
+                custom = await CustomAccountTypeRepository.get(conn, body.preset)
+                if custom is None:
+                    raise APIError(400, "unknown_preset", f"Preset '{body.preset}' is not recognized")
+                applied_preset = custom["id"]
+            await FeatureFlagRepository.apply_preset(
+                conn, target_tenant, applied_preset, updated_by=principal.actor
+            )
+
+        if body.flags:
+            await FeatureFlagRepository.update_tenant_flags(conn, target_tenant, body.flags)
+
+        # A flag set that no longer equals the recorded type marks the tenant custom.
+        account_type = await AccountTypeRepository.refresh(conn, target_tenant, principal.actor)
+        response = await _admin_features(conn, target_tenant, account_type, version)
+        all_flags = response.flags
+
+        await _audit_log(
+            conn,
+            target_tenant,
+            "feature_flags.updated",
+            None,
+            None,
+            principal.actor,
+            {
+                "target_tenant": target_tenant,
+                "applied_preset": applied_preset,
+                "explicit_flags_count": len(body.flags) if body.flags else 0,
+                "total_active_flags": len(all_flags),
+                "account_type": account_type.id,
+                "account_type_customised": account_type.customised,
+                "flags_version": version,
+            },
         )
-
-    if body.flags:
-        await FeatureFlagRepository.update_tenant_flags(pool, target_tenant, body.flags)
-
+    # After commit: a gating read that started before it cannot re-cache the old value.
     invalidate_flag_cache(target_tenant)
-
-    # A flag set that no longer equals the recorded type marks the tenant custom.
-    account_type = await AccountTypeRepository.refresh(pool, target_tenant, principal.actor)
-    response = await _admin_features(pool, target_tenant, account_type)
-    all_flags = response.flags
-
-    # Emit audit event
-    await _audit_log(
-        pool,
-        target_tenant,
-        "feature_flags.updated",
-        None,
-        None,
-        principal.actor,
-        {
-            "target_tenant": target_tenant,
-            "applied_preset": applied_preset,
-            "explicit_flags_count": len(body.flags) if body.flags else 0,
-            "total_active_flags": len(all_flags),
-            "account_type": account_type.id,
-            "account_type_customised": account_type.customised,
-        },
-    )
 
     logger.info(
         "Tenant feature flags updated: actor=%s, tenant=%s, preset=%s, flags=%d",
@@ -311,34 +336,39 @@ async def update_single_tenant_feature(
         raise APIError(400, "invalid_flag_key", "flag_key cannot be blank")
 
     pool = await _require_db_pool(request, f"updating feature flag '{key}'")
-    await FeatureFlagRepository.set_feature_flag(
-        pool,
-        tenant_id=target_tenant,
-        flag_key=key,
-        enabled=body.enabled,
-        config_json=body.config_json or {},
-    )
+    # One unit of work, serialised per tenant (migration 077): this flag's row
+    # (and only this flag's row), the account type re-derived from the committed
+    # flag set, and exactly one audit event. The response is the state this
+    # mutation committed, stamped with its version.
+    async with flag_write_transaction(pool, target_tenant) as (conn, version):
+        await FeatureFlagRepository.set_feature_flag(
+            conn,
+            tenant_id=target_tenant,
+            flag_key=key,
+            enabled=body.enabled,
+            config_json=body.config_json or {},
+        )
+        account_type = await AccountTypeRepository.refresh(conn, target_tenant, principal.actor)
+        response = await _admin_features(conn, target_tenant, account_type, version)
+
+        await _audit_log(
+            conn,
+            target_tenant,
+            "feature_flags.updated",
+            None,
+            None,
+            principal.actor,
+            {
+                "target_tenant": target_tenant,
+                "flag_key": key,
+                "enabled": body.enabled,
+                "account_type": account_type.id,
+                "account_type_customised": account_type.customised,
+                "flags_version": version,
+            },
+        )
+    # After commit: a gating read that started before it cannot re-cache the old value.
     invalidate_flag_cache(target_tenant, key)
-
-    account_type = await AccountTypeRepository.refresh(pool, target_tenant, principal.actor)
-    response = await _admin_features(pool, target_tenant, account_type)
-
-    # Emit audit event
-    await _audit_log(
-        pool,
-        target_tenant,
-        "feature_flags.updated",
-        None,
-        None,
-        principal.actor,
-        {
-            "target_tenant": target_tenant,
-            "flag_key": key,
-            "enabled": body.enabled,
-            "account_type": account_type.id,
-            "account_type_customised": account_type.customised,
-        },
-    )
 
     return response
 

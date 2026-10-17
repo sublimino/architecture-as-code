@@ -85,13 +85,14 @@ class FakeRemoteAgentPool(FakeConnectorPool):
     def agent(self, tenant_id: str, external_id: str) -> dict[str, Any] | None:
         return next((r for (t, _, e), r in self.remote_agents.items() if t == tenant_id and e == external_id), None)
 
-    def seed_connector(self, tenant_id: str, connector_id: str, provider_id: str, ciphertext: str | None,
-                       status: str = "connected") -> None:
+    def seed_connector(self, tenant_id: str, connector_id: str, provider_id: str, ref: str | None,
+                       version: int | None = None, status: str = "connected") -> None:
         self.connectors[(tenant_id, connector_id)] = {
             "tenant_id": tenant_id, "connector_id": connector_id, "provider_id": provider_id,
             "display_name": provider_id, "status": status, "credential_expires_at": None,
             "last_tested_at": None, "last_scan_at": None, "last_scan_status": None, "last_scan_error": None,
-            "metadata": "{}", "created_at": datetime(2026, 1, 1), "credentials_ciphertext": ciphertext,
+            "metadata": "{}", "created_at": datetime(2026, 1, 1), "credentials_ref": ref,
+            "credentials_version": version, "credentials_ciphertext": None,
             "last_scan_result": None,
         }
 
@@ -113,7 +114,7 @@ class FakeRemoteAgentPool(FakeConnectorPool):
                 raise AssertionError("remote_agent_store:due may only enumerate tenant_connectors identifiers")
             providers = set(args[0])
             rows = [r for r in self.connectors.values()
-                    if r["status"] == "connected" and r.get("credentials_ciphertext") and r["provider_id"] in providers]
+                    if r["status"] == "connected" and r.get("credentials_ref") and r["provider_id"] in providers]
             return [{"tenant_id": r["tenant_id"], "connector_id": r["connector_id"], "provider_id": r["provider_id"]}
                     for r in sorted(rows, key=lambda r: (r["tenant_id"], r["connector_id"]))]
 
@@ -132,7 +133,8 @@ class FakeRemoteAgentPool(FakeConnectorPool):
             rows = [r for (t, _), r in self.connectors.items() if t == tenant]
             hit = next((r for r in rows if r["connector_id"] == args[1]), None) or next(
                 (r for r in rows if r["provider_id"] == args[1]), None)
-            return [{k: hit[k] for k in ("connector_id", "provider_id", "status", "credentials_ciphertext", "metadata")}] if hit else []
+            return [{k: hit.get(k) for k in ("connector_id", "provider_id", "status", "credentials_ref",
+                                             "credentials_version", "credentials_ciphertext", "metadata")}] if hit else []
 
         if op in ("existing", "list"):
             rows = [dict(r) for (t, c, _), r in self.remote_agents.items() if t == tenant and c == args[1]]

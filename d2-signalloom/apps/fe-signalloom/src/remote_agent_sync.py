@@ -48,7 +48,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Iterable
 
 import httpx
 
-import connector_credentials
+import connector_secret_store
 
 logger = logging.getLogger("signalloom.remote_agent_sync")
 
@@ -808,7 +808,7 @@ RA_COLUMNS = _RA_COLS  # the wire columns, for statements issued outside this mo
 # identifiers; every statement for an individual connector is tenant-scoped.
 SQL_DUE = (
     "/* remote_agent_store:due */ SELECT tenant_id, connector_id, provider_id FROM public.tenant_connectors "
-    "WHERE status = 'connected' AND credentials_ciphertext IS NOT NULL AND provider_id = ANY($1::text[]) "
+    "WHERE status = 'connected' AND credentials_ref IS NOT NULL AND provider_id = ANY($1::text[]) "
     "ORDER BY tenant_id, connector_id"
 )
 def with_connector_workspace(creds: dict[str, str], connector: Any) -> dict[str, str]:
@@ -824,7 +824,8 @@ def with_connector_workspace(creds: dict[str, str], connector: Any) -> dict[str,
 
 
 SQL_CONNECTOR = (
-    "/* remote_agent_store:connector */ SELECT connector_id, provider_id, status, credentials_ciphertext, metadata "
+    "/* remote_agent_store:connector */ SELECT connector_id, provider_id, status, credentials_ref, "
+    "credentials_version, credentials_ciphertext, metadata "
     "FROM public.tenant_connectors WHERE tenant_id = $1 AND (connector_id = $2 OR provider_id = $2) "
     "ORDER BY (connector_id = $2) DESC LIMIT 1"
 )
@@ -1160,12 +1161,9 @@ class RemoteAgentSync:
 
     @staticmethod
     def _open(tenant_id: str, connector: Any) -> dict[str, str]:
-        ciphertext = connector["credentials_ciphertext"]
-        if not ciphertext:
-            return with_connector_workspace({}, connector)
         try:
-            creds = connector_credentials.open_credentials(tenant_id, connector["connector_id"], ciphertext)
-        except (connector_credentials.CredentialStoreUnavailable, connector_credentials.CredentialDecryptError) as exc:
+            creds = connector_secret_store.open_row(tenant_id, connector)
+        except connector_secret_store.CredentialStoreUnavailable as exc:
             logger.warning("remote agent sync: credentials for %s/%s cannot be opened: %s",
                            tenant_id, connector["connector_id"], exc)
             return {}

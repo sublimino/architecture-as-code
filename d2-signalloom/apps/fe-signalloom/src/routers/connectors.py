@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 import api_compat
-import connector_credentials
+import connector_secret_store
 import remote_agent_sync
 import superadmin
 from api_compat import (
@@ -486,12 +486,14 @@ def reset_connectors_for_testing(tenant_id: str | None = None) -> None:
 # ---------------------------------------------------------------------------
 # Live store: public.tenant_connectors (migration 070)
 # ---------------------------------------------------------------------------
-# With a database, a tenant's connectors, their sealed credentials and the last
-# scan result live in Postgres, never in the dicts above: a restart forgets
-# nothing, and no tenant is handed connectors it never configured. Every
-# statement is scoped by ``tenant_id = $1`` and tagged
-# ``/* connector_store:<op> */`` (tests/connector_store_fake.py keys on the tag).
-# Credentials are stored only as connector_credentials.seal_credentials output.
+# With a database, a tenant's connectors and the last scan result live in
+# Postgres, never in the dicts above: a restart forgets nothing, and no tenant
+# is handed connectors it never configured. Every statement is scoped by
+# ``tenant_id = $1`` and tagged ``/* connector_store:<op> */``
+# (tests/connector_store_fake.py keys on the tag).
+# Credentials live in OpenBao KV v2 (connector_secret_store, SA-TODO-003); a row
+# keeps only credentials_ref and credentials_version. credentials_ciphertext is
+# never written; it is selected only to refuse an unmigrated row.
 
 _TABLE = "public.tenant_connectors"
 _COLS = (
@@ -504,25 +506,29 @@ _SQL_LIST = (
 )
 # A key matches a connector id or a provider id; the connector id wins.
 _SQL_GET = (
-    f"/* connector_store:get */ SELECT {_COLS}, credentials_ciphertext, last_scan_result FROM {_TABLE} "
+    f"/* connector_store:get */ SELECT {_COLS}, credentials_ref, credentials_version, credentials_ciphertext, "
+    f"last_scan_result FROM {_TABLE} "
     "WHERE tenant_id = $1 AND (connector_id = $2 OR provider_id = $2) "
     "ORDER BY (connector_id = $2) DESC LIMIT 1"
 )
 _SQL_GET_LOCKED = _SQL_GET + " FOR UPDATE"
 _SQL_GET_PROVIDER = (
-    f"/* connector_store:get_provider */ SELECT {_COLS}, credentials_ciphertext, last_scan_result FROM {_TABLE} "
+    f"/* connector_store:get_provider */ SELECT {_COLS}, credentials_ref, credentials_version, "
+    f"credentials_ciphertext, last_scan_result FROM {_TABLE} "
     "WHERE tenant_id = $1 AND provider_id = $2 FOR UPDATE"
 )
 _SQL_COUNT = f"/* connector_store:count */ SELECT count(*) FROM {_TABLE} WHERE tenant_id = $1"
 _SQL_INSERT = (
     f"/* connector_store:insert */ INSERT INTO {_TABLE} (tenant_id, connector_id, provider_id, display_name, "
-    "status, credential_expires_at, metadata, credentials_ciphertext, created_at, updated_at) "
-    "VALUES ($1, $2, $3, $4, 'connected', $5, $6::jsonb, $7, $8, $8)"
+    "status, credential_expires_at, metadata, credentials_ref, credentials_version, created_at, updated_at) "
+    "VALUES ($1, $2, $3, $4, 'connected', $5, $6::jsonb, $7, $8, $9, $9)"
 )
 _SQL_RECONNECT = (
     f"/* connector_store:reconnect */ UPDATE {_TABLE} SET status = 'connected', display_name = $3, "
     "metadata = $4::jsonb, credential_expires_at = $5, "
-    "credentials_ciphertext = COALESCE($6, credentials_ciphertext), updated_at = NOW() "
+    "credentials_ref = COALESCE($6, credentials_ref), credentials_version = COALESCE($7, credentials_version), "
+    "credentials_ciphertext = CASE WHEN $6::text IS NULL THEN credentials_ciphertext ELSE NULL END, "
+    "updated_at = NOW() "
     "WHERE tenant_id = $1 AND connector_id = $2"
 )
 _SQL_SET_STATUS = (
@@ -531,7 +537,8 @@ _SQL_SET_STATUS = (
 )
 _SQL_DISCONNECT = (
     f"/* connector_store:disconnect */ UPDATE {_TABLE} SET status = 'disconnected', "
-    "credentials_ciphertext = NULL, last_scan_result = NULL, updated_at = NOW() "
+    "credentials_ref = NULL, credentials_version = NULL, credentials_ciphertext = NULL, "
+    "last_scan_result = NULL, updated_at = NOW() "
     "WHERE tenant_id = $1 AND connector_id = $2"
 )
 _SQL_STAMP_TESTED = (
@@ -595,12 +602,9 @@ def _credential_store_unavailable(exc: Exception) -> APIError:
 
 
 def _open_stored(tenant_id: str, row: Any) -> dict[str, str]:
-    ciphertext = row["credentials_ciphertext"]
-    if not ciphertext:
-        return {}
     try:
-        return connector_credentials.open_credentials(tenant_id, row["connector_id"], ciphertext)
-    except (connector_credentials.CredentialStoreUnavailable, connector_credentials.CredentialDecryptError) as exc:
+        return connector_secret_store.open_row(tenant_id, row)
+    except connector_secret_store.CredentialStoreUnavailable as exc:
         raise _credential_store_unavailable(exc) from None
 
 
@@ -622,10 +626,11 @@ async def refresh_live_connector_states(pool: Any, tenant_id: str) -> None:
 async def _live_create(pool: Any, tenant_id: str, body: ConnectorCreateRequest) -> tuple[str, str]:
     """Insert or reconnect the tenant's connector for ``body.provider_id``. Returns (id, created_at)."""
     credentials = dict(body.credentials)
+    store = connector_secret_store.get_store()
     if credentials:
         try:
-            connector_credentials.require_key()
-        except connector_credentials.CredentialStoreUnavailable as exc:
+            store.require()
+        except connector_secret_store.CredentialStoreUnavailable as exc:
             raise _credential_store_unavailable(exc) from None
     expires = _ts_in(body.credential_expires_at, "credential_expires_at")
     now = datetime.now(timezone.utc).replace(microsecond=0)
@@ -636,11 +641,14 @@ async def _live_create(pool: Any, tenant_id: str, body: ConnectorCreateRequest) 
             conn_id = existing["connector_id"]
         else:
             conn_id = f"conn-{body.provider_id}-{(await conn.fetchval(_SQL_COUNT, tenant_id)) + 1:02d}"
-        ciphertext = None
+        # OpenBao first, inside the row lock: if the write fails nothing is
+        # saved; if the row write fails after it, the secret is overwritten by
+        # the next save of the same connector.
+        ref = version = None
         if credentials:
             try:
-                ciphertext = connector_credentials.seal_credentials(tenant_id, conn_id, credentials)
-            except connector_credentials.CredentialStoreUnavailable as exc:
+                ref, version = store.put(tenant_id, conn_id, credentials)
+            except connector_secret_store.CredentialStoreUnavailable as exc:
                 raise _credential_store_unavailable(exc) from None
         # Saving a connector is not testing or scanning it: no test, scan or
         # expiry timestamp is written unless the caller supplied the expiry.
@@ -649,12 +657,12 @@ async def _live_create(pool: Any, tenant_id: str, body: ConnectorCreateRequest) 
             await conn.execute(
                 _SQL_RECONNECT, tenant_id, conn_id,
                 body.display_name or existing["display_name"], json.dumps(metadata),
-                expires if expires is not None else existing["credential_expires_at"], ciphertext,
+                expires if expires is not None else existing["credential_expires_at"], ref, version,
             )
         else:
             await conn.execute(
                 _SQL_INSERT, tenant_id, conn_id, body.provider_id, body.display_name or body.provider_id,
-                expires, json.dumps(body.metadata), ciphertext, now,
+                expires, json.dumps(body.metadata), ref, version, now,
             )
     return conn_id, _ts_out(now) or _now_iso()
 
@@ -899,6 +907,13 @@ async def delete_connector(
             if row is None:
                 raise HTTPException(status_code=404, detail=f"Connector '{connector_id}' not found")
             cid, provider = row["connector_id"], row["provider_id"]
+            # Forget the credentials in OpenBao (every version) before the row
+            # says disconnected; if OpenBao cannot confirm, answer 503 and keep
+            # the row as it was.
+            try:
+                connector_secret_store.get_store().delete(tenant_id, cid)
+            except connector_secret_store.CredentialStoreUnavailable as exc:
+                raise _credential_store_unavailable(exc) from None
             await conn.execute(_SQL_DISCONNECT, tenant_id, cid)
         await _live_connectors(pool, tenant_id)
 

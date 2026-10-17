@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act, cleanup, within } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { AxiosError, AxiosHeaders } from 'axios'
 import { connectorsApi, type RemoteAgent, type RemoteAgentsSnapshot, type SyncResult } from '../api/connectorsClient'
@@ -488,6 +488,127 @@ describe('RemoteEnvironmentPage (design-system A6 fixes)', () => {
       renderPage()
       const el = await screen.findByText(/Connector ID:/)
       expect(el).toHaveClass('mono')
+    })
+  })
+})
+
+// ── Design-system audit A3: every hand-rolled pill goes through the shared
+// SyncStatusPill (.tag geometry, tokenised tones), and amber/red text never
+// sits directly on its own tint (rule 11). ──────────────────────────────────
+
+describe('RemoteEnvironmentPage (design-system A3: shared status pills)', () => {
+  describe('demo mode', () => {
+    beforeEach(() => setDemoMode(true))
+
+    it('renders the sync-status and credit-balance pills through the shared .tag geometry', () => {
+      renderPage()
+      const statusPill = screen.getByTestId('env-title').closest('div')!.querySelector('[role="status"]')!
+      expect(statusPill).toHaveClass('tag')
+      expect(screen.getByTestId('env-credit-balance')).toHaveClass('tag')
+    })
+
+    it('renders the POLICIES PASS summary through the shared pill, text unchanged', () => {
+      renderPage()
+      const summary = screen.getByText('3 / 3 POLICIES PASS')
+      expect(summary).toHaveClass('tag')
+    })
+
+    it('renders each per-policy PASS/FAIL badge through the shared pill', () => {
+      renderPage()
+      const badges = screen.getAllByText('PASS', { selector: 'span' })
+      expect(badges.length).toBeGreaterThan(0)
+      for (const badge of badges) expect(badge).toHaveClass('tag')
+    })
+
+    it('renders the connected-agent status badge through the shared pill', () => {
+      renderPage('/settings/connectors/claude?tab=agents')
+      const badge = screen.getByText('active', { selector: 'span' })
+      expect(badge).toHaveClass('tag')
+    })
+  })
+
+  describe('live mode', () => {
+    beforeEach(() => {
+      setDemoMode(false)
+      vi.spyOn(connectorsApi, 'listProviders').mockResolvedValue([provider])
+      vi.spyOn(connectorsApi, 'listConnectors').mockResolvedValue([connector])
+      vi.spyOn(connectorsApi, 'getSyncLogs').mockResolvedValue(lastScan)
+    })
+
+    it('renders the connector-status and scan-status pills through the shared .tag geometry', async () => {
+      renderPage()
+      await screen.findByRole('heading', { level: 1, name: 'Claude (tenant prod)' })
+      expect(screen.getByText('connected')).toHaveClass('tag')
+      expect(screen.getByTestId('live-scan-status')).toHaveClass('tag')
+    })
+
+    it('keeps the warning scan-status pill\'s label on --text, not --warning, per rule 11', async () => {
+      renderPage()
+      const pill = await screen.findByTestId('live-scan-status')
+      // lastScan.status is 'warning': --warning on --amber-bg measures 3.20:1
+      // in dark, below the 4.5:1 AA floor for this text size.
+      expect(pill.getAttribute('style')).toContain('color: var(--text)')
+      expect(pill.getAttribute('style')).not.toContain('color: var(--warning)')
+    })
+
+    it('puts the ErrorBanner message on --text, with the red tint carried by the border', async () => {
+      vi.mocked(connectorsApi.listConnectors).mockRejectedValue(httpError(500, 'internal_error'))
+      renderPage()
+      const banner = await screen.findByRole('alert')
+      expect(banner.getAttribute('style')).toContain('color: var(--text)')
+      expect(banner.getAttribute('style')).not.toContain('color: var(--error)')
+    })
+  })
+
+  describe('live remote agents', () => {
+    let server: SseTestServer
+    beforeEach(() => {
+      setDemoMode(false)
+      vi.spyOn(connectorsApi, 'listProviders').mockResolvedValue([provider])
+      vi.spyOn(connectorsApi, 'listConnectors').mockResolvedValue([connector])
+      vi.spyOn(connectorsApi, 'getSyncLogs').mockResolvedValue(lastScan)
+      vi.spyOn(connectorsApi, 'listRemoteAgents').mockResolvedValue({
+        provider_id: 'claude',
+        connector_id: 'conn-live-7',
+        sync_state: { mode: 'stream', last_poll_at: null, last_success_at: null, last_error: 'HTTP 401 from provider', next_poll_at: null },
+        agents: [
+          {
+            external_id: 's1',
+            kind: 'session',
+            name: 'Session s1',
+            model: 'claude-sonnet-4-5',
+            status: 'error',
+            version: 3,
+            external_updated_at: null,
+            first_seen_at: '2026-10-16T09:00:00Z',
+            last_seen_at: '2026-10-16T10:00:00Z',
+            last_changed_at: '2026-10-16T09:30:00Z',
+            gone_at: null,
+          },
+        ],
+      })
+      server = createSseTestServer()
+      vi.stubGlobal('fetch', server.fetch)
+    })
+
+    afterEach(() => {
+      cleanup()
+      connectorStreamStore.reset()
+      vi.unstubAllGlobals()
+    })
+
+    it('puts the sync-error banner message on --text, with red carried by the border', async () => {
+      renderPage()
+      const err = await screen.findByTestId('remote-sync-error')
+      expect(err.getAttribute('style')).toContain('color: var(--text)')
+      expect(err.getAttribute('style')).not.toContain('color: var(--error)')
+    })
+
+    it('renders the agent kind and status badges through the shared .tag geometry', async () => {
+      renderPage()
+      const row = await screen.findByTestId('remote-agent-s1')
+      expect(within(row).getByText('session')).toHaveClass('tag')
+      expect(within(row).getByText('error')).toHaveClass('tag')
     })
   })
 })

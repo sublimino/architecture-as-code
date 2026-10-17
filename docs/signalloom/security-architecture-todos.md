@@ -12,6 +12,7 @@ dated line that names the commit that met the criterion. Do not delete it.
 | :--- | :--- | :--- | :--- |
 | [SA-TODO-001](#sa-todo-001-public-https-egress-for-the-portal-pod) | Public HTTPS egress for the portal pod | Open, exemption in force | 2026-10-16 |
 | [SA-TODO-002](#sa-todo-002-unbounded-api-transport-egress-on-two-runner-pods) | Unbounded API transport egress on two runner pods | Open, finding | 2026-10-16 |
+| [SA-TODO-003](#sa-todo-003-connector-credentials-are-not-in-openbao) | Connector credentials are not in OpenBao | Open, finding | 2026-10-17 |
 
 ## SA-TODO-001: public HTTPS egress for the portal pod
 
@@ -128,3 +129,34 @@ three SA-TODO-001 replacements also cover this case.
 without a `to` field. The test "the set of policies with an unbounded egress
 rule does not grow" in `d2-signalloom/test/portal-public-egress.bats` pins the
 two current names. Update it in the same commit.
+
+## SA-TODO-003: connector credentials are not in OpenBao
+
+**Status.** This is a finding against the platform secrets standard: every
+platform secret is stored in OpenBao. The principal set the standard on
+2026-10-17, after this store shipped.
+
+**What it is.** Connector credentials (provider API keys, admin keys and
+workspace identifiers held with them) are sealed with AES-256-GCM in
+`public.tenant_connectors.credentials_ciphertext`. The sealing key is read
+from the `fe-signalloom/fe-signalloom-connector-credential-key` Kubernetes
+Secret, minted by `make connector-credential-key`. The code is
+`d2-signalloom/apps/fe-signalloom/src/connector_credentials.py`.
+
+**Blast radius.** Anyone who can read both the database and that Secret can
+decrypt every tenant's provider credentials. OpenBao's per-path policy,
+leases and audit log do not cover these reads.
+
+**Compensating controls.** The ciphertext is bound to tenant and connector as
+associated data, so a row moved to another tenant does not decrypt. Without
+the key, credential writes fail with 503. The portal pod is the only reader.
+
+**Candidate fix.** Store each credential in OpenBao KV v2 under a per-tenant
+path, for example `signalloom/tenants/<tenant>/connectors/<connector_id>`.
+Keep only that path in Postgres. The portal authenticates to OpenBao with its
+workload identity, under a policy that grants each tenant path read and write.
+The portal already has egress to `inf-bao:8200`. Migrate existing rows, then
+delete the sealing key Secret.
+
+**Exit criterion.** Close this entry when no connector secret is stored
+outside OpenBao and the sealing key Secret no longer exists.

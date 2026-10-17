@@ -371,6 +371,14 @@ Put a `# FLUX ENVSUBST:` header in each `kustomization.yaml` that contains
   In the `nono` worktree sandbox, commit with [`bin/agent-git`](bin/agent-git).
   It adds `--no-gpg-sign`. The sandbox denies `~/.gnupg`.
 - **Supply chain:** Include SBOMs (SPDX), SLSA provenance, and digest checks.
+- **Secrets:** Store every platform secret in OpenBao (`d2-signalloom/infra/inf-bao`):
+  tenant credentials, provider and admin API keys, webhook signing secrets and
+  encryption keys. Use KV v2 for secret values and Transit for encryption,
+  with a tenant-scoped policy and the OpenBao audit log. A database row or a
+  Kubernetes Secret may hold an OpenBao reference, never the secret itself.
+  Record any exception in
+  [`docs/signalloom/security-architecture-todos.md`](docs/signalloom/security-architecture-todos.md)
+  before it ships.
 - **Tests:** Write unit, integration, and acceptance tests for each new feature.
 - **Documentation:** Follow
   [`docs/documentation-style.md`](docs/documentation-style.md). Run

@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 from adapters import load_adapter_selections
 from afm_import import install_afm_import_api
+from api.admin_account_types import install_admin_account_types_api
 from api.admin_features import install_admin_features_api
 from api.admin_users import install_admin_users_api
 from api.features import install_features_api
@@ -129,6 +130,7 @@ from request_lifecycle import HeadBodySuppressingMiddleware, RequestLifecycleMid
 
 install_admin_users_api(app)
 install_admin_features_api(app)
+install_admin_account_types_api(app)
 
 # Added last so it is the OUTERMOST middleware (Starlette wraps later additions
 # around earlier ones): identity headers are gone before any other middleware,

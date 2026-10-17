@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
+  FeaturePreset,
   FeaturesResponse,
   PresetsResponse,
   UpdateSingleFeaturePayload,
@@ -138,6 +139,51 @@ export async function updateSingleFeature(
   return response.data
 }
 
+export interface CreateAccountTypePayload {
+  id: string
+  name: string
+  flags: Record<string, boolean>
+}
+
+/**
+ * Superadmin creation of a custom account type (/api/v1/admin/account-types).
+ */
+export async function createAccountType(
+  payload: CreateAccountTypePayload,
+  token?: string | null,
+): Promise<FeaturePreset> {
+  const url = `${BASE}/api/v1/admin/account-types`
+  const headers: Record<string, string> = {}
+  if (token) headers.Authorization = `Bearer ${token}`
+  const response = await axios.post<FeaturePreset>(url, payload, { headers })
+  return response.data
+}
+
+/**
+ * Superadmin rename of a custom account type. 403 if `id` names a built-in type.
+ */
+export async function renameAccountType(
+  id: string,
+  name: string,
+  token?: string | null,
+): Promise<FeaturePreset> {
+  const url = `${BASE}/api/v1/admin/account-types/${encodeURIComponent(id)}`
+  const headers: Record<string, string> = {}
+  if (token) headers.Authorization = `Bearer ${token}`
+  const response = await axios.patch<FeaturePreset>(url, { name }, { headers })
+  return response.data
+}
+
+/**
+ * Superadmin deletion of a custom account type. 403 if `id` names a built-in type.
+ */
+export async function deleteAccountType(id: string, token?: string | null): Promise<void> {
+  const url = `${BASE}/api/v1/admin/account-types/${encodeURIComponent(id)}`
+  const headers: Record<string, string> = {}
+  if (token) headers.Authorization = `Bearer ${token}`
+  await axios.delete(url, { headers })
+}
+
 // ─── React Query Hooks ─────────────────────────────────────────────────────────
 
 export function useAdminFeatures(
@@ -207,6 +253,63 @@ export function useUpdateSingleFeature(options?: {
       queryClient.invalidateQueries({ queryKey: ['adminFeatures'] })
       queryClient.invalidateQueries({ queryKey: ['featureFlags'] })
       options?.onSuccess?.(data)
+    },
+    onError: (err) => {
+      options?.onError?.(err)
+    },
+  })
+}
+
+export function useCreateAccountType(options?: {
+  token?: string | null
+  onSuccess?: (data: FeaturePreset) => void
+  onError?: (error: Error) => void
+}) {
+  const queryClient = useQueryClient()
+
+  return useMutation<FeaturePreset, Error, CreateAccountTypePayload>({
+    mutationFn: (payload) => createAccountType(payload, options?.token),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: FEATURE_PRESETS_QUERY_KEY() })
+      options?.onSuccess?.(data)
+    },
+    onError: (err) => {
+      options?.onError?.(err)
+    },
+  })
+}
+
+export function useRenameAccountType(options?: {
+  token?: string | null
+  onSuccess?: (data: FeaturePreset) => void
+  onError?: (error: Error) => void
+}) {
+  const queryClient = useQueryClient()
+
+  return useMutation<FeaturePreset, Error, { id: string; name: string }>({
+    mutationFn: ({ id, name }) => renameAccountType(id, name, options?.token),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: FEATURE_PRESETS_QUERY_KEY() })
+      options?.onSuccess?.(data)
+    },
+    onError: (err) => {
+      options?.onError?.(err)
+    },
+  })
+}
+
+export function useDeleteAccountType(options?: {
+  token?: string | null
+  onSuccess?: () => void
+  onError?: (error: Error) => void
+}) {
+  const queryClient = useQueryClient()
+
+  return useMutation<void, Error, { id: string }>({
+    mutationFn: ({ id }) => deleteAccountType(id, options?.token),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: FEATURE_PRESETS_QUERY_KEY() })
+      options?.onSuccess?.()
     },
     onError: (err) => {
       options?.onError?.(err)

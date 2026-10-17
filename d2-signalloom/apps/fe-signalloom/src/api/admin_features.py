@@ -20,11 +20,14 @@ from fastapi import APIRouter, Depends, Query, Request, status
 from feature_flags import (
     AccountTypeRepository,
     AccountTypeState,
+    CustomAccountTypeRepository,
     FeatureFlagDetail,
     FeatureFlagRepository,
     FeaturesResponse,
+    _merged_presets,
     describe_account_type,
     invalidate_flag_cache,
+    list_all_presets,
     list_presets,
     resolve_preset_id,
 )
@@ -89,7 +92,8 @@ async def _admin_features(
         details[r.flag_key] = FeatureFlagDetail(enabled=r.enabled, config=r.config_json)
     if account_type is None:
         record = await AccountTypeRepository.get(pool, tenant_id)
-        account_type = describe_account_type(record["account_type"] if record else None, all_flags)
+        presets = await _merged_presets(pool)
+        account_type = describe_account_type(record["account_type"] if record else None, all_flags, presets)
     return AdminFeaturesResponse(
         tenant_id=tenant_id, flags=all_flags, details=details, account_type=account_type
     )
@@ -101,7 +105,7 @@ class PresetSummary(BaseModel):
 
     id: str = Field(..., description="Preset machine identifier")
     name: str = Field(..., description="Human-readable preset name")
-    kind: str = Field(..., description="'account_type' (assignable account type) or 'bundle'")
+    kind: str = Field(..., description="'account_type' (built-in), 'custom' (superadmin-defined), or 'bundle'")
     status: str = Field(..., description="'confirmed', or 'draft' while its contents await sign-off")
     aliases: list[str] = Field(default_factory=list, description="Deprecated ids that still apply this preset")
     description: str = Field(..., description="Detailed description of target profile")
@@ -143,10 +147,17 @@ class UpdateSingleFeatureRequest(BaseModel):
     summary="List available feature flag presets",
 )
 async def get_presets(
+    request: Request,
     _principal: Annotated[Principal, Depends(require_admin_or_superadmin)],
 ) -> PresetsResponse:
-    """Return all catalogued feature presets (e.g. EAP Pilot, Full Demo, Minimal Governance)."""
-    presets = [PresetSummary(**p) for p in list_presets()]
+    """Return the built-in account types (EAP View, EAP Full, Full) plus every
+    persisted custom account type. Degrades to the built-ins alone when no
+    database pool is available, rather than fabricating custom entries."""
+    pool = await _resolve_db_pool(request)
+    if pool is None:
+        presets = [PresetSummary(**p) for p in list_presets()]
+    else:
+        presets = [PresetSummary(**p) for p in await list_all_presets(pool)]
     return PresetsResponse(presets=presets)
 
 
@@ -227,7 +238,10 @@ async def update_tenant_features(
     if body.preset:
         applied_preset = resolve_preset_id(body.preset)
         if applied_preset is None:
-            raise APIError(400, "unknown_preset", f"Preset '{body.preset}' is not recognized")
+            custom = await CustomAccountTypeRepository.get(pool, body.preset)
+            if custom is None:
+                raise APIError(400, "unknown_preset", f"Preset '{body.preset}' is not recognized")
+            applied_preset = custom["id"]
         await FeatureFlagRepository.apply_preset(
             pool, target_tenant, applied_preset, updated_by=principal.actor
         )

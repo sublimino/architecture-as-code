@@ -28,6 +28,8 @@ class MockDatabase:
         self.rows: dict[tuple[str, str], dict[str, Any]] = {}
         # tenant_account_types (migration 074): tenant_id -> row
         self.account_types: dict[str, dict[str, Any]] = {}
+        # custom_account_types (migration 076): id -> row
+        self.custom_account_types: dict[str, dict[str, Any]] = {}
         # audit_events inserts, as the positional args the handler passed
         self.audit: list[tuple[Any, ...]] = []
 
@@ -79,6 +81,8 @@ class FakeConnection:
         if "WHERE tenant_id = $1" in query and "ORDER BY flag_key" in query:
             tenant_id = args[0]
             return self.db.select_all_for_tenant(tenant_id)
+        if "FROM public.custom_account_types" in query and "ORDER BY id" in query:
+            return [dict(self.db.custom_account_types[k]) for k in sorted(self.db.custom_account_types)]
         raise NotImplementedError(f"Unhandled fetch query: {query}")
 
     async def fetchrow(self, query: str, *args: Any) -> dict[str, Any] | None:
@@ -96,6 +100,35 @@ class FakeConnection:
         if "FROM public.tenant_account_types" in query:
             row = self.db.account_types.get(args[0])
             return dict(row) if row is not None else None
+        if "INSERT INTO public.custom_account_types" in query:
+            type_id, name, flags_json, created_by = args[0], args[1], args[2], args[3]
+            now = datetime.now(timezone.utc)
+            flags = json.loads(flags_json) if isinstance(flags_json, str) else flags_json
+            row = {
+                "id": type_id,
+                "name": name,
+                "flags": flags,
+                "created_by": created_by,
+                "created_at": now,
+                "updated_by": created_by,
+                "updated_at": now,
+            }
+            self.db.custom_account_types[type_id] = row
+            return dict(row)
+        if "UPDATE public.custom_account_types" in query:
+            type_id, name, updated_by = args[0], args[1], args[2]
+            existing = self.db.custom_account_types.get(type_id)
+            if existing is None:
+                return None
+            existing = dict(existing)
+            existing["name"] = name
+            existing["updated_by"] = updated_by
+            existing["updated_at"] = datetime.now(timezone.utc)
+            self.db.custom_account_types[type_id] = existing
+            return dict(existing)
+        if "FROM public.custom_account_types" in query:
+            row = self.db.custom_account_types.get(args[0])
+            return dict(row) if row is not None else None
         if "INSERT INTO public.tenant_feature_flags" in query:
             tenant_id, flag_key, enabled, config_json_str = args[0], args[1], args[2], args[3]
             return self.db.insert_or_update(tenant_id, flag_key, enabled, config_json_str)
@@ -109,6 +142,11 @@ class FakeConnection:
             tenant_id, flag_key = args[0], args[1]
             deleted = self.db.delete(tenant_id, flag_key)
             return "DELETE 1" if deleted else "DELETE 0"
+        if "DELETE FROM public.custom_account_types" in query:
+            type_id = args[0]
+            existed = type_id in self.db.custom_account_types
+            self.db.custom_account_types.pop(type_id, None)
+            return "DELETE 1" if existed else "DELETE 0"
         if "audit_events" in query:
             self.db.audit.append(args)
             return "INSERT 0 1"

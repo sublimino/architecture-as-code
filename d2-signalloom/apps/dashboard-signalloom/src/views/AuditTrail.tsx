@@ -74,6 +74,8 @@ const EVENT_TYPES = [
   'nhi.enrolled', 'nhi.dismissed',
   'tenant.frameworks_updated', 'tenant.preferences_updated',
   'tenant.risk_profile_updated', 'feature_flags.updated',
+  // Custom account type administration (migration 076).
+  'account_type.created', 'account_type.renamed', 'account_type.deleted',
   'user.currency_updated', 'consent.accepted', 'cookie.preferences_updated',
   'support.requested',
   'onboarding_completed', 'onboarding_skipped',
@@ -144,6 +146,10 @@ const EVENT_COLORS: Record<string, string> = {
   'tenant.preferences_updated': 'var(--violet)',
   'tenant.risk_profile_updated': 'var(--violet)',
   'feature_flags.updated': 'var(--violet)',
+  // Platform-level account type definitions, like feature_flags.updated.
+  'account_type.created': 'var(--teal)',
+  'account_type.renamed': 'var(--violet)',
+  'account_type.deleted': 'var(--amber)',
   'user.currency_updated': 'var(--violet)',
   'consent.accepted': 'var(--teal)',
   'cookie.preferences_updated': 'var(--violet)',

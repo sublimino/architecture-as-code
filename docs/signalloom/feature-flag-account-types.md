@@ -1,16 +1,18 @@
 # Feature flag account types
 
-Status: implemented on `feat/account-types-w16`, 2026-10-17. EAP Full contents are a **draft** pending the principal's confirmation.
+Status: implemented on `feat/account-types-w16`, extended on `feat/account-types-w20`, 2026-10-17. EAP Full is confirmed. The "Minimal Governance" bundle preset is retired. Superadmins can now define custom account types.
 
 A tenant's **account type** is a named, exact set of the 23 registered feature flags. Choosing one for a tenant sets every flag and records the type. The Feature Flags page can then say which type a tenant is on, or that it has been customised away from one.
 
-The three types:
+The three built-in types:
 
 | Id | Name | Status | Deprecated alias | Purpose |
 | :--- | :--- | :--- | :--- | :--- |
 | `eap_view` | EAP View (read-only) | confirmed | none | Early access, read-only. The configuration tenant-demo was running on 2026-10-17, captured live. |
-| `eap_full` | EAP Full | **draft** | `eap_pilot` | Early access, full system. Today it is the former `eap_pilot` set. The principal said EAP Full "may or may not have all the feature flags": its exact contents are not yet decided. |
+| `eap_full` | EAP Full | confirmed | `eap_pilot` | Early access, full system. The former `eap_pilot` set, confirmed as-is by the principal 2026-10-17. |
 | `full` | Full | confirmed | `full_demo` | Every page, demo and lab. |
+
+A superadmin can also define **custom account types** -- see [Custom account types](#custom-account-types) below.
 
 Superadmin mode will gain more toggles later. They are out of scope here and will be added as flags, which the matrix below and the tests then cover automatically.
 
@@ -18,7 +20,7 @@ Superadmin mode will gain more toggles later. They are out of scope here and wil
 
 The source of truth is [`contracts/feature-account-types.json`](../../d2-signalloom/contracts/feature-account-types.json). The server presets, the dashboard constants and the Playwright helper are each tested against that file. This table can only drift from the code if the file does.
 
-| Flag | What it gates | EAP View | EAP Full (draft) | Full |
+| Flag | What it gates | EAP View | EAP Full | Full |
 | :--- | :--- | :---: | :---: | :---: |
 | `core_governance` | Core governance APIs | on | on | on |
 | `audit` | Audit APIs | on | on | on |
@@ -69,18 +71,18 @@ A tenant that never had a type applied shows **Unassigned**. If its flags happen
 
 ## API contract
 
-`GET /api/v1/admin/features/presets` lists canonical presets only. Aliases appear on their entry, not as separate entries.
+`GET /api/v1/admin/features/presets` lists canonical presets only (built-in account types, then any custom ones). Aliases appear on their entry, not as separate entries.
 
 ```json
 {"presets": [
   {"id": "eap_view", "name": "EAP View (read-only)", "kind": "account_type", "status": "confirmed", "aliases": [], "description": "...", "flags": {"...": true}},
-  {"id": "eap_full", "name": "EAP Full", "kind": "account_type", "status": "draft", "aliases": ["eap_pilot"], "...": "..."},
+  {"id": "eap_full", "name": "EAP Full", "kind": "account_type", "status": "confirmed", "aliases": ["eap_pilot"], "...": "..."},
   {"id": "full", "name": "Full", "kind": "account_type", "status": "confirmed", "aliases": ["full_demo"], "...": "..."},
-  {"id": "minimal_governance", "name": "Minimal Governance", "kind": "bundle", "...": "..."}
+  {"id": "eu_regulated", "name": "EU Regulated", "kind": "custom", "status": "confirmed", "aliases": [], "...": "..."}
 ]}
 ```
 
-`PUT /api/v1/admin/features` takes `{"tenant_id": "...", "preset": "eap_view"}`. `eap_pilot` and `full_demo` are still accepted and are recorded under their canonical ids. Adding `flags` to the same request is allowed. If those flags deviate from the preset, the tenant is recorded as customised.
+`PUT /api/v1/admin/features` takes `{"tenant_id": "...", "preset": "eap_view"}`. `eap_pilot` and `full_demo` are still accepted and are recorded under their canonical ids. A custom account type's id is accepted the same way. Adding `flags` to the same request is allowed. If those flags deviate from the preset, the tenant is recorded as customised.
 
 `GET`/`PUT /api/v1/admin/features` responses add `account_type`:
 
@@ -91,9 +93,31 @@ A tenant that never had a type applied shows **Unassigned**. If its flags happen
 
 The tenant-facing `GET /api/v1/features` is unchanged.
 
+## Custom account types
+
+A superadmin can create, rename and delete a custom account type: a named, explicit flag set that behaves exactly like a built-in one for assignment. It is tenant-assignable via `PUT /api/v1/admin/features` and listed by `GET /api/v1/admin/features/presets` (`kind: "custom"`).
+
+Built-in types (`eap_view`, `eap_full`, `full`, their deprecated aliases, and the retired `minimal_governance`) can never be created, renamed or deleted. There is no row for them to mutate: they live in the `feature_flags.FEATURE_PRESETS` Python constant, not in the database.
+
+| Route | Effect |
+| :--- | :--- |
+| `POST /api/v1/admin/account-types` | Create. Body: `{"id", "name", "flags"}`. `flags` must set exactly the 23 registered keys. `id` must be lowercase letters/digits/underscores, starting with a letter, and must not collide with a built-in id or deprecated alias. |
+| `PATCH /api/v1/admin/account-types/{id}` | Rename. Body: `{"name"}`. Flags are unchanged. |
+| `DELETE /api/v1/admin/account-types/{id}` | Delete. Tenants previously assigned this type keep their flags; the type simply stops existing to apply again. |
+
+All three are `require_superadmin` (403 for anyone else) and audited (`account_type.created`, `account_type.renamed`, `account_type.deleted`). A built-in id on `PATCH`/`DELETE` is 403 `builtin_account_type_immutable`, not 404 -- the id names something real, it is just not a row here.
+
+Custom account types are platform-level definitions, like the built-in presets they ride alongside, not tenant-owned data. There is nothing to tenant-scope on these three routes (`test_tenant_isolation.py`'s `NOT_DATABASE_BACKED` list, same category as `admin_features.py`'s routes).
+
 ## Storage
 
-Migration [`074_tenant_account_types.sql`](../../d2-signalloom/apps/fe-signalloom/src/db/migrations/074_tenant_account_types.sql) adds `public.tenant_account_types (tenant_id PK, account_type, customised, updated_by, updated_at)`. The flags themselves stay in `tenant_feature_flags` (057). Both bootstrap copies are regenerated.
+Migration [`074_tenant_account_types.sql`](../../d2-signalloom/apps/fe-signalloom/src/db/migrations/074_tenant_account_types.sql) adds `public.tenant_account_types (tenant_id PK, account_type, customised, updated_by, updated_at)`. The flags themselves stay in `tenant_feature_flags` (057).
+
+Migration [`075_retire_minimal_governance_account_type.sql`](../../d2-signalloom/apps/fe-signalloom/src/db/migrations/075_retire_minimal_governance_account_type.sql) remaps any tenant recorded against the retired `minimal_governance` preset to `eap_view` (nearest by flag-set Hamming distance). It is marked customised since the tenant's actual flags are untouched.
+
+Migration [`076_custom_account_types.sql`](../../d2-signalloom/apps/fe-signalloom/src/db/migrations/076_custom_account_types.sql) adds `public.custom_account_types (id PK, name, flags JSONB, created_by, created_at, updated_by, updated_at)` and widens the `audit_events` event-type vocabulary for the three new audit events.
+
+Both bootstrap copies are regenerated after every migration.
 
 ## How we test flag configurations
 
@@ -137,6 +161,6 @@ Some checks need the server's own gating, for example `require_feature` returnin
 
 ## Open questions for the principal
 
-1. **EAP Full contents.** The draft is the former `eap_pilot` set. Should EAP Full also turn on Topology, Federated Services, or any lab?
-2. **tenant-demo.** It runs the EAP View flags but has no recorded type. Should EAP View be applied to it, so the page reads "EAP View (read-only)" rather than "Unassigned (flags match ...)"?
-3. **Minimal Governance.** It stays as a non-account-type bundle. Keep it, or retire it?
+Resolved 2026-10-17. EAP Full is confirmed as-is (the former `eap_pilot` set). "Minimal Governance" is retired. Superadmins can now define custom account types.
+
+1. **tenant-demo.** It runs the EAP View flags but has no recorded type. Should EAP View be applied to it, so the page reads "EAP View (read-only)" rather than "Unassigned (flags match ...)"? Still open.

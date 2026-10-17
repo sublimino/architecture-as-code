@@ -40,25 +40,9 @@ vi.mock('../../auth/superadmin', () => ({
 }))
 
 // The catalogue as GET /api/v1/admin/features/presets serves it: the three
-// account types, then other bundles.
-const MOCK_PRESETS = [
-  ...ACCOUNT_TYPES,
-  {
-    id: 'minimal_governance',
-    name: 'Minimal Governance',
-    kind: 'bundle' as const,
-    status: 'confirmed' as const,
-    aliases: [],
-    description: 'Minimal boundary view: agents registry, policy compliance, and audit trail only.',
-    flags: {
-      ...Object.fromEntries(Object.keys(DEFAULT_SYSTEM_FLAGS).map((k) => [k, false])),
-      core_governance: true,
-      audit: true,
-      page_agents: true,
-      page_audit: true,
-    },
-  },
-]
+// built-in account types, then any superadmin-defined custom ones. There are
+// no more "bundle" presets -- minimal_governance (the only one) was retired.
+const MOCK_PRESETS = [...ACCOUNT_TYPES]
 
 const MOCK_FEATURES_DATA = {
   tenant_id: 'kusari',
@@ -125,8 +109,14 @@ describe('FeaturesPage Component', () => {
   let mockUseFeaturePresets: ReturnType<typeof vi.fn>
   let mockUseUpdateTenantFeatures: ReturnType<typeof vi.fn>
   let mockUseUpdateSingleFeature: ReturnType<typeof vi.fn>
+  let mockUseCreateAccountType: ReturnType<typeof vi.fn>
+  let mockUseRenameAccountType: ReturnType<typeof vi.fn>
+  let mockUseDeleteAccountType: ReturnType<typeof vi.fn>
   let mutateTenantAsyncMock: ReturnType<typeof vi.fn>
   let mutateSingleAsyncMock: ReturnType<typeof vi.fn>
+  let createAccountTypeMock: ReturnType<typeof vi.fn>
+  let renameAccountTypeMock: ReturnType<typeof vi.fn>
+  let deleteAccountTypeMock: ReturnType<typeof vi.fn>
   let refetchMock: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
@@ -198,10 +188,32 @@ describe('FeaturesPage Component', () => {
       isLoading: false,
     }))
 
+    createAccountTypeMock = vi.fn().mockImplementation(async (payload) => ({
+      id: payload.id, name: payload.name, kind: 'custom', flags: payload.flags,
+    }))
+    renameAccountTypeMock = vi.fn().mockImplementation(async ({ id, name }) => ({ id, name, kind: 'custom' }))
+    deleteAccountTypeMock = vi.fn().mockImplementation(async () => undefined)
+
+    const asPendingMutation = (fn: ReturnType<typeof vi.fn>) => (opts: any) => ({
+      mutate: (vars: any) => {
+        fn(vars)
+          .then((res: any) => opts?.onSuccess?.(res))
+          .catch((err: Error) => opts?.onError?.(err))
+      },
+      isPending: false,
+    })
+
+    mockUseCreateAccountType = vi.fn().mockImplementation(asPendingMutation(createAccountTypeMock))
+    mockUseRenameAccountType = vi.fn().mockImplementation(asPendingMutation(renameAccountTypeMock))
+    mockUseDeleteAccountType = vi.fn().mockImplementation(asPendingMutation(deleteAccountTypeMock))
+
     vi.spyOn(featuresApiModule, 'useAdminFeatures').mockImplementation(mockUseAdminFeatures)
     vi.spyOn(featuresApiModule, 'useFeaturePresets').mockImplementation(mockUseFeaturePresets)
     vi.spyOn(featuresApiModule, 'useUpdateTenantFeatures').mockImplementation(mockUseUpdateTenantFeatures)
     vi.spyOn(featuresApiModule, 'useUpdateSingleFeature').mockImplementation(mockUseUpdateSingleFeature)
+    vi.spyOn(featuresApiModule, 'useCreateAccountType').mockImplementation(mockUseCreateAccountType)
+    vi.spyOn(featuresApiModule, 'useRenameAccountType').mockImplementation(mockUseRenameAccountType)
+    vi.spyOn(featuresApiModule, 'useDeleteAccountType').mockImplementation(mockUseDeleteAccountType)
   })
 
   it('renders page header, breadcrumbs, title, and descriptive summary', async () => {
@@ -262,7 +274,7 @@ describe('FeaturesPage Component', () => {
     expect(screen.getByTestId('kpi-account-scope')).toHaveTextContent('tenant-enterprise-x')
   })
 
-  it('offers the three account types as radio cards, EAP Full marked draft', async () => {
+  it('offers the three account types as radio cards, none marked draft', async () => {
     await renderFeaturesPage()
 
     const group = screen.getByRole('radiogroup', { name: 'Account type' })
@@ -273,8 +285,9 @@ describe('FeaturesPage Component', () => {
       'account-type-option-full',
     ])
     expect(within(radios[0]!).getByText('EAP View (read-only)')).toBeInTheDocument()
-    expect(within(radios[1]!).getByTestId('account-type-draft-eap_full')).toHaveTextContent('Draft')
-    expect(within(radios[0]!).queryByText('Draft')).toBeNull()
+    // EAP Full was confirmed 2026-10-17: no built-in type is draft any more.
+    expect(within(radios[1]!).queryByTestId('account-type-draft-eap_full')).toBeNull()
+    expect(screen.queryByText('Draft')).toBeNull()
   })
 
   it('summarises which pages each account type enables', async () => {
@@ -368,16 +381,10 @@ describe('FeaturesPage Component', () => {
     expect(screen.getByTestId('account-type-pages-eap_view')).toHaveTextContent('3 of 20 pages')
   })
 
-  it('keeps other preset bundles applicable, behind the same confirmation', async () => {
-    mockServerSuperadmin.superadmin = true
+  it('shows no "Other preset bundles" section once minimal_governance is retired', async () => {
     await renderFeaturesPage({ defaultTenant: 'kusari' })
-
-    expect(screen.queryByTestId('preset-card-eap_view')).toBeNull()
-    fireEvent.click(screen.getByTestId('apply-preset-minimal_governance'))
-    await act(async () => {
-      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Apply account type' }))
-    })
-    expect(mutateTenantAsyncMock).toHaveBeenCalledWith({ tenant_id: 'kusari', preset: 'minimal_governance' })
+    expect(screen.queryByText('Other preset bundles')).toBeNull()
+    expect(screen.queryByTestId('apply-preset-minimal_governance')).toBeNull()
   })
 
   it('renders KPI summary cards with computed metrics', async () => {
@@ -535,6 +542,133 @@ describe('FeaturesPage Component', () => {
       expect(screen.getByText('Primary Enterprise Corp (tenant-primary)')).toBeInTheDocument()
       expect(screen.getByTestId('kpi-account-scope')).toHaveTextContent('tenant-primary')
       expect(screen.getByTestId('kpi-account-scope')).toHaveTextContent('Primary Enterprise Corp')
+    })
+  })
+
+  // =========================================================================
+  // Custom account types: create, rename, delete (decision 3)
+  // =========================================================================
+
+  describe('custom account types', () => {
+    it('disables create when not a superadmin, and explains why', async () => {
+      mockServerSuperadmin.superadmin = false
+      await renderFeaturesPage()
+
+      expect(screen.getByTestId('new-account-type-id')).toBeDisabled()
+      expect(screen.getByTestId('new-account-type-name')).toBeDisabled()
+      expect(screen.getByTestId('create-account-type-submit')).toBeDisabled()
+      expect(screen.getByText('Only a superadmin can create a custom account type.')).toBeInTheDocument()
+    })
+
+    it('creates a custom account type from the form', async () => {
+      mockServerSuperadmin.superadmin = true
+      await renderFeaturesPage()
+
+      fireEvent.change(screen.getByTestId('new-account-type-id'), { target: { value: 'eu_regulated' } })
+      fireEvent.change(screen.getByTestId('new-account-type-name'), { target: { value: 'EU Regulated' } })
+      fireEvent.click(screen.getByTestId('new-account-type-flag-core_governance'))
+      fireEvent.click(screen.getByTestId('new-account-type-flag-audit'))
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('create-account-type-submit'))
+      })
+
+      expect(createAccountTypeMock).toHaveBeenCalledWith({
+        id: 'eu_regulated',
+        name: 'EU Regulated',
+        flags: expect.objectContaining({ core_governance: true, audit: true, demos_fleet: false }),
+      })
+      await waitFor(() =>
+        expect(screen.getByTestId('success-toast')).toHaveTextContent('Custom account type created.'),
+      )
+    })
+
+    it('surfaces a create failure inline, not as the generic action-error banner', async () => {
+      mockServerSuperadmin.superadmin = true
+      createAccountTypeMock.mockRejectedValueOnce(new Error("'eap_view' is a built-in account type id"))
+      await renderFeaturesPage()
+
+      fireEvent.change(screen.getByTestId('new-account-type-id'), { target: { value: 'eap_view' } })
+      fireEvent.change(screen.getByTestId('new-account-type-name'), { target: { value: 'Shadow' } })
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('create-account-type-submit'))
+      })
+
+      expect(screen.getByTestId('create-account-type-error')).toHaveTextContent('built-in account type id')
+    })
+
+    it('lists existing custom types, rename and delete gated to superadmin', async () => {
+      mockUseFeaturePresets.mockReturnValue({
+        data: {
+          presets: [
+            ...MOCK_PRESETS,
+            { id: 'eu_regulated', name: 'EU Regulated', kind: 'custom', status: 'confirmed', aliases: [], description: '', flags: DEFAULT_SYSTEM_FLAGS },
+          ],
+        },
+        isLoading: false, isError: false, error: null,
+      })
+      mockServerSuperadmin.superadmin = false
+      await renderFeaturesPage()
+
+      expect(screen.getByTestId('custom-account-type-row-eu_regulated')).toHaveTextContent('EU Regulated')
+      expect(screen.getByTestId('rename-account-type-eu_regulated')).toBeDisabled()
+      expect(screen.getByTestId('delete-account-type-eu_regulated')).toBeDisabled()
+      // Assignable exactly like a built-in: it appears in the account-type selector too.
+      expect(screen.getByTestId('account-type-option-eu_regulated')).toBeInTheDocument()
+    })
+
+    it('renames a custom type inline', async () => {
+      mockUseFeaturePresets.mockReturnValue({
+        data: {
+          presets: [
+            ...MOCK_PRESETS,
+            { id: 'eu_regulated', name: 'EU Regulated', kind: 'custom', status: 'confirmed', aliases: [], description: '', flags: DEFAULT_SYSTEM_FLAGS },
+          ],
+        },
+        isLoading: false, isError: false, error: null,
+      })
+      mockServerSuperadmin.superadmin = true
+      await renderFeaturesPage()
+
+      fireEvent.click(screen.getByTestId('rename-account-type-eu_regulated'))
+      const input = screen.getByTestId('rename-account-type-input-eu_regulated')
+      fireEvent.change(input, { target: { value: 'EU Regulated v2' } })
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rename-account-type-save-eu_regulated'))
+      })
+
+      expect(renameAccountTypeMock).toHaveBeenCalledWith({ id: 'eu_regulated', name: 'EU Regulated v2' })
+      await waitFor(() =>
+        expect(screen.getByTestId('success-toast')).toHaveTextContent('Custom account type renamed.'),
+      )
+    })
+
+    it('deletes a custom type behind a confirm dialog', async () => {
+      mockUseFeaturePresets.mockReturnValue({
+        data: {
+          presets: [
+            ...MOCK_PRESETS,
+            { id: 'eu_regulated', name: 'EU Regulated', kind: 'custom', status: 'confirmed', aliases: [], description: '', flags: DEFAULT_SYSTEM_FLAGS },
+          ],
+        },
+        isLoading: false, isError: false, error: null,
+      })
+      mockServerSuperadmin.superadmin = true
+      await renderFeaturesPage()
+
+      fireEvent.click(screen.getByTestId('delete-account-type-eu_regulated'))
+      const dialog = screen.getByRole('dialog')
+      expect(dialog).toHaveTextContent('Delete custom account type "eu_regulated"?')
+      expect(deleteAccountTypeMock).not.toHaveBeenCalled()
+
+      await act(async () => {
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
+      })
+
+      expect(deleteAccountTypeMock).toHaveBeenCalledWith({ id: 'eu_regulated' })
+      await waitFor(() =>
+        expect(screen.getByTestId('success-toast')).toHaveTextContent('Custom account type deleted.'),
+      )
     })
   })
 })

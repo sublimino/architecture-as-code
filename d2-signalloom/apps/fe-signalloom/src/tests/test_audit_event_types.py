@@ -76,7 +76,12 @@ LIVE_UNDOTTED_EVENT_TYPES = {"onboarding_completed", "onboarding_skipped"}
 # 066 deduplicates governance frameworks — none of the three touches this constraint).
 # 069 adds connector.scan_requested on top of 067 and re-enumerates the whole
 # vocabulary (068 seeds governance frameworks and touches no constraint).
-CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "069_connector_scan_audit_event_type.sql"
+# 076 adds account_type.created, account_type.renamed and account_type.deleted
+# on top of 069 and re-enumerates the whole vocabulary (070 adds tenant
+# connectors, 071-073 add remote agents/claims/snapshots, 074 adds
+# tenant_account_types, 075 is a data-only remap of a retired preset -- none of
+# the five touches this constraint).
+CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "076_custom_account_types.sql"
 
 
 EVENT_TYPE_POSITION = 2

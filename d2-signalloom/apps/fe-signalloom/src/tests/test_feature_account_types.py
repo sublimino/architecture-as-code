@@ -64,8 +64,8 @@ EAP_VIEW_SNAPSHOT: dict[str, bool] = {
     "supercred": False,
 }
 
-# The former eap_pilot contents. Draft pending the principal's confirmation.
-EAP_FULL_DRAFT: dict[str, bool] = {
+# The former eap_pilot contents. Confirmed by the principal 2026-10-17.
+EAP_FULL_CONFIRMED: dict[str, bool] = {
     "core_governance": True,
     "audit": True,
     "compliance": True,
@@ -120,7 +120,7 @@ def test_eap_view_is_exactly_the_captured_snapshot() -> None:
 
 
 def test_eap_full_is_exactly_the_former_eap_pilot_set() -> None:
-    assert FEATURE_PRESETS["eap_full"]["flags"] == EAP_FULL_DRAFT
+    assert FEATURE_PRESETS["eap_full"]["flags"] == EAP_FULL_CONFIRMED
 
 
 def test_full_enables_every_flag() -> None:
@@ -137,7 +137,7 @@ def test_account_type_names_and_status() -> None:
     assert FEATURE_PRESETS["eap_full"]["name"] == "EAP Full"
     assert FEATURE_PRESETS["full"]["name"] == "Full"
     assert FEATURE_PRESETS["eap_view"]["status"] == "confirmed"
-    assert FEATURE_PRESETS["eap_full"]["status"] == "draft"
+    assert FEATURE_PRESETS["eap_full"]["status"] == "confirmed"
     assert FEATURE_PRESETS["full"]["status"] == "confirmed"
 
 
@@ -167,12 +167,23 @@ def test_aliases_resolve_to_canonical_ids() -> None:
     assert resolve_preset_id("eap_pilot") == "eap_full"
     assert resolve_preset_id("full_demo") == "full"
     assert resolve_preset_id("eap_view") == "eap_view"
-    assert resolve_preset_id("minimal_governance") == "minimal_governance"
     assert resolve_preset_id("nope") is None
 
 
+def test_minimal_governance_is_retired() -> None:
+    """Retired: removed from FEATURE_PRESETS entirely, not merely renamed.
+
+    A tenant that had it recorded is remapped to eap_view by migration 075
+    (tests/test_migrations_minimal_governance_retirement.py); a *new* request
+    naming it is simply an unknown preset.
+    """
+    assert "minimal_governance" not in FEATURE_PRESETS
+    assert resolve_preset_id("minimal_governance") is None
+    assert get_preset("minimal_governance") is None
+
+
 def test_get_preset_accepts_an_alias() -> None:
-    assert get_preset("eap_pilot")["flags"] == EAP_FULL_DRAFT
+    assert get_preset("eap_pilot")["flags"] == EAP_FULL_CONFIRMED
     assert get_preset("full_demo")["flags"] == FEATURE_PRESETS["full"]["flags"]
 
 
@@ -183,13 +194,13 @@ def test_presets_listing_carries_account_type_metadata(pool: FakePool) -> None:
     presets = {p["id"]: p for p in resp.json()["presets"]}
     # Aliases are not listed twice; they ride on their canonical entry.
     assert "eap_pilot" not in presets and "full_demo" not in presets
+    assert "minimal_governance" not in presets  # retired
     assert presets["eap_view"]["kind"] == "account_type"
     assert presets["eap_full"]["kind"] == "account_type"
     assert presets["full"]["kind"] == "account_type"
-    assert presets["minimal_governance"]["kind"] == "bundle"
     assert presets["eap_full"]["aliases"] == ["eap_pilot"]
     assert presets["full"]["aliases"] == ["full_demo"]
-    assert presets["eap_full"]["status"] == "draft"
+    assert presets["eap_full"]["status"] == "confirmed"
     assert presets["eap_view"]["flags"] == EAP_VIEW_SNAPSHOT
 
 
@@ -305,11 +316,25 @@ def test_never_configured_tenant_is_unassigned(pool: FakePool) -> None:
     assert got["account_type"] == {"id": None, "customised": False, "matches": None, "label": "Unassigned"}
 
 
-def test_applying_a_bundle_records_it_like_a_type(pool: FakePool) -> None:
+def test_applying_a_custom_type_records_it_like_a_built_in_type(pool: FakePool) -> None:
+    """A custom account type (decision 3) is assignable exactly like a
+    built-in -- apply_preset resolves it via CustomAccountTypeRepository once
+    resolve_preset_id finds no built-in match."""
+    pool.db.custom_account_types["eu_regulated"] = {
+        "id": "eu_regulated",
+        "name": "EU Regulated",
+        "flags": {**{k: False for k in DEFAULT_SYSTEM_FLAGS}, "core_governance": True, "audit": True, "compliance": True},
+        "created_by": "root",
+        "created_at": None,
+        "updated_by": "root",
+        "updated_at": None,
+    }
     client = EAPClient(main_app, subject=EAP_OPERATOR)
-    data = _apply(client, EAP_TENANT_B, "minimal_governance")
-    assert pool.db.account_types[EAP_TENANT_B]["account_type"] == "minimal_governance"
-    assert data["account_type"]["label"] == "Minimal Governance"
+    data = _apply(client, EAP_TENANT_B, "eu_regulated")
+    assert pool.db.account_types[EAP_TENANT_B]["account_type"] == "eu_regulated"
+    assert data["account_type"]["label"] == "EU Regulated"
+    assert data["flags"]["core_governance"] is True
+    assert data["flags"]["demos_fleet"] is False
 
 
 # ===========================================================================

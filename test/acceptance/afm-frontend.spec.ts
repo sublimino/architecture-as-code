@@ -88,14 +88,25 @@ test.describe(`AFM Frontend (${MODE} mode)`, () => {
       if (trig.ok()) {
         const trigData = await trig.json();
         const jobId = trigData.job_id;
-        for (let i = 0; i < 30; i++) {
-          await page.waitForTimeout(1000);
-          const st = await page.request.get(`${AFM_BASE}/clusters/local/analysis/status`);
-          if (st.ok()) {
-            const stData = await st.json();
-            if (stData.last_completed_job_id === jobId) break;
-          }
-        }
+        // A cold analysis of the live cluster's RBAC (98 non-admin subjects on
+        // kind-osramp, 2026-10-17) runs well past 30 s, which used to be both
+        // this loop's budget and the whole test's. Poll the job to an end
+        // state instead: a job that vanishes without completing (the pod was
+        // OOMKilled and restarted) fails here by name rather than as a timeout.
+        test.setTimeout(240_000);
+        await expect
+          .poll(
+            async () => {
+              const st = await page.request.get(`${AFM_BASE}/clusters/local/analysis/status`);
+              if (!st.ok()) return `status ${st.status()}`;
+              const s = await st.json();
+              if (s.last_completed_job_id === jobId) return "completed";
+              if (s.running_job_id === jobId) return "running";
+              return `job ${jobId} neither running nor completed: ${JSON.stringify(s)}`;
+            },
+            { timeout: 200_000, intervals: [2_000] },
+          )
+          .toBe("completed");
         resp = await page.request.get(`${AFM_BASE}/clusters/local/analysis/latest`);
         result = await resp.json();
       }

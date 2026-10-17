@@ -501,6 +501,43 @@ export default defineConfig({
         video: "off",
       },
     }] : []),
+    // The live Anthropic Claude connector proof (connectors-live-provider.spec.ts).
+    //
+    // Opt-in on LIVE_PROVIDER, for the same reason `docs` is opt-in on
+    // DOCS_BASE_URL and `agentmaxxing-demo-console` is opt-in on
+    // AMXD_DEMO_CONSOLE: `scripts/acceptance-test.sh` runs `bunx playwright
+    // test` with no --project, so an unconditional project here would be
+    // claimed by `make acceptance-test` and fail against whatever tenant
+    // happens to be live, for a reason unrelated to any assertion in the
+    // spec. This spec's precondition is a tenant with a configured,
+    // connected Anthropic Claude connector whose credentials still work from
+    // the deployed pod - not something the default cluster lane provides.
+    //
+    // Same self-description the other two gated projects rely on: the
+    // spec-coverage guard parses this file as TEXT, so the testMatch below
+    // reads as wired whether or not the ternary includes the project.
+    ...(process.env.LIVE_PROVIDER ? [{
+      name: "live-provider",
+      testMatch: /connectors-live-provider\.spec\.ts/,
+      // retries: 0, matching network-security-superadmin: a failure here
+      // names a real credential or sync defect, and a retry would only hide
+      // a flake in the live Anthropic Claude round trip, not fix it.
+      retries: 0,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: CHANNEL,
+        // No storageState and no `dependencies: ["setup"]`, matching `smoke`
+        // and the live block of `agentmaxxing-demo-console`: the spec
+        // authenticates itself via helpers.ts `login(page, { demoMode:
+        // false })`, which a pre-seeded demo-mode auth state would defeat.
+        //
+        // No `launchOptions` either - Playwright merges `use` shallowly per
+        // key, so re-declaring it would REPLACE the top-level
+        // --host-resolver-rules and kill every navigation with
+        // net::ERR_NAME_NOT_RESOLVED.
+        video: "off",
+      },
+    }] : []),
   ],
   // The junit reporter is added only when CI asks for it by setting
   // PLAYWRIGHT_JUNIT_OUTPUT_FILE, so local runs keep the list + html output

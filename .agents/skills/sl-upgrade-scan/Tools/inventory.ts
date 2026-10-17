@@ -27,7 +27,19 @@ export interface Item {
   locations: Location[];
   notes: string[];
   digest?: string;
+  /** Built from this repo (or an org registry): there is no upstream to bump to. */
+  firstParty?: boolean;
 }
+
+// Org registries and local-build tags. A docker.io/library/<x> image whose
+// <x> is a directory holding a Dockerfile in this repo is a local build too.
+export const FIRST_PARTY: RegExp[] = [
+  /^zot\.registry\.svc/,
+  /^ghcr\.io\/controlplaneio-in-toto\//,
+  /^localhost[:/]/,
+  /^kind-registry[:/]/,
+];
+export const LOCAL_TAGS = new Set(["local", "dev"]);
 
 export interface InventoryOptions {
   includeIndirect?: boolean;
@@ -125,19 +137,23 @@ function yamlFile(lines: string[], emit: Emit) {
   let ociRepo = false;
   let ociUrl: string | null = null;
   let helmRepo: { name: string; indent: number; line: number } | null = null;
+  let watchOnly = false; // Flux ImageRepository: names an image to watch, pins nothing
   lines.forEach((raw, i) => {
     const n = i + 1;
     const line = raw.replace(/\s+#.*$/, "");
     if (/^\s*#/.test(raw)) return;
-    if (/^kind:\s*OCIRepository\b/.test(line)) ociRepo = true;
-    else if (/^kind:/.test(line)) ociRepo = false;
+    if (/^kind:/.test(line)) {
+      ociRepo = /^kind:\s*OCIRepository\b/.test(line);
+      watchOnly = /^kind:\s*ImageRepository\b/.test(line);
+    }
     if (/^---/.test(line)) {
       ociRepo = false;
+      watchOnly = false;
       ociUrl = null;
     }
     // image: ref
     const im = /^\s*-?\s*image:\s*(["']?[^\s"']+["']?)\s*$/.exec(line);
-    if (im) emitImage(emit, im[1], n);
+    if (im && !watchOnly) emitImage(emit, im[1], n);
     // Helm values: repository: x / tag: y at the same indent
     const rp = /^(\s*)repository:\s*["']?([^\s"']+)["']?\s*$/.exec(line);
     if (rp && /[./]/.test(rp[2]) && !/^https?:/.test(rp[2])) helmRepo = { name: rp[2], indent: rp[1].length, line: n };
@@ -300,7 +316,11 @@ function toolPins(lines: string[], emit: Emit) {
 export function inventory(root: string, opts: InventoryOptions = {}): Item[] {
   const excludes = [...(opts.noDefaultExcludes ? [] : DEFAULT_EXCLUDES), ...(opts.exclude ?? [])];
   const byKey = new Map<string, Item>();
-  for (const rel of listFiles(root)) {
+  const files = listFiles(root);
+  const localBuilds = new Set(
+    files.filter((f) => /(^|\/)Dockerfile[^/]*$/.test(f) && f.includes("/")).map((f) => basename(dirname(f)).toLowerCase()),
+  );
+  for (const rel of files) {
     if (excludes.some((re) => re.test(rel))) continue;
     const base = basename(rel);
     const isYaml = /\.ya?ml$/.test(base);
@@ -321,10 +341,21 @@ export function inventory(root: string, opts: InventoryOptions = {}): Item[] {
     }
     const lines = text.split("\n");
     const emit: Emit = (it, line) => {
-      const key = `${it.ecosystem}|${it.name}|${it.current}`;
+      const key = `${it.ecosystem}|${it.name}|${it.current.replace(/^v(?=\d)/, "")}`;
       let e = byKey.get(key);
       if (!e) {
         e = { ...it, notes: [...(it.notes ?? [])], locations: [] };
+        if (it.ecosystem === "oci-image" || it.ecosystem === "oci-artifact") {
+          const lib = /^docker\.io\/library\/(.+)$/.exec(it.name)?.[1];
+          if (
+            FIRST_PARTY.some((re) => re.test(it.name)) ||
+            LOCAL_TAGS.has(it.current) ||
+            (lib && [...localBuilds].some((b) => lib === b || lib.startsWith(`${b}-`)))
+          ) {
+            e.firstParty = true;
+            e.notes.push("first-party build: no upstream");
+          }
+        }
         byKey.set(key, e);
       } else {
         for (const n of it.notes ?? []) if (!e.notes.includes(n)) e.notes.push(n);

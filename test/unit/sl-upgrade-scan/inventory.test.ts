@@ -118,6 +118,18 @@ beforeAll(() => {
     ].join("\n"),
   );
   put("infra/values.yaml", "image:\n  repository: ghcr.io/spiffe/spire-server\n  tag: 1.11.1\n");
+  // First-party builds: a local Dockerfile dir, a local tag, an org registry.
+  put("apps/cardvault/Dockerfile", "FROM scratch\n");
+  put(
+    "apps/cardvault/deploy.yaml",
+    "containers:\n  - image: cardvault:local\n  - image: ghcr.io/controlplaneio-in-toto/signalloom-warden:src-d303e20f5867\n  - image: other-tool:dev\n",
+  );
+  // A Flux ImageRepository names an image to watch; it is not a pin.
+  put(
+    "infra/update-policies/eg.yaml",
+    "apiVersion: image.toolkit.fluxcd.io/v1\nkind: ImageRepository\nspec:\n  image: docker.io/envoyproxy/gateway-helm\n",
+  );
+  put("Makefile.tools.mk", "KIND_VERSION ?= 0.29.0\n");
   // Excluded by default: fixtures and docs never deploy.
   put("test/fixtures/x/go.mod", "module x\n\ngo 1.20\n\nrequire github.com/evil/thing v0.0.1\n");
   put("docs/evidence/pod.yaml", "image: docker.io/malicious/untrusted:latest\n");
@@ -218,10 +230,30 @@ describe("inventory: actions and tool pins", () => {
     expect(find("github-action", "controlplaneio-fluxcd/distribution").current).toBe("main");
   });
   test("CLI tool pins in scripts and Makefiles, defaults read through ${X:-y}", () => {
-    expect(find("tool-pin", "kind").locations[0]).toEqual({ file: "scripts/setup.sh", line: 2 });
+    expect(find("tool-pin", "kind").locations).toContainEqual({ file: "scripts/setup.sh", line: 2 });
     expect(find("tool-pin", "chart").current).toBe("0.9.9");
     expect(find("tool-pin", "knative").current).toBe("v1.18.0");
     expect(items.some((i) => i.name === "zsh" || i.name === "go" && i.ecosystem === "tool-pin")).toBe(false);
+  });
+});
+
+describe("inventory: first-party and non-pins", () => {
+  test("a local build, a local tag and an org registry are first-party", () => {
+    expect(find("oci-image", "docker.io/library/cardvault").firstParty).toBe(true);
+    expect(find("oci-image", "ghcr.io/controlplaneio-in-toto/signalloom-warden").firstParty).toBe(true);
+    expect(find("oci-image", "docker.io/library/other-tool").firstParty).toBe(true);
+    expect(find("oci-image", "quay.io/openbao/openbao").firstParty).toBeFalsy();
+  });
+  test("a Flux ImageRepository is not inventoried as a latest pin", () => {
+    expect(items.some((i) => i.name === "docker.io/envoyproxy/gateway-helm" && i.ecosystem === "oci-image")).toBe(false);
+  });
+  test("v0.29.0 and 0.29.0 are one item with both locations", () => {
+    const kinds = items.filter((i) => i.ecosystem === "tool-pin" && i.name === "kind");
+    expect(kinds.length).toBe(1);
+    expect(kinds[0].locations).toEqual([
+      { file: "Makefile.tools.mk", line: 1 },
+      { file: "scripts/setup.sh", line: 2 },
+    ]);
   });
 });
 

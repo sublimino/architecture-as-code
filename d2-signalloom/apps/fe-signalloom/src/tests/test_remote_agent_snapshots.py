@@ -180,3 +180,22 @@ def test_environment_kind_sync(monkeypatch):
         assert len(snap_resp.json()) == 1
         assert snap_resp.json()[0]["kind"] == "environment"
 
+
+
+def test_snapshot_history_is_scoped_to_the_callers_tenant(monkeypatch):
+    """Bob's tenant has no claude connector, so alice's history is a 404 for him;
+    once bob configures his own, he still sees none of alice's snapshots."""
+    with _client(monkeypatch) as client, respx.mock(assert_all_called=False) as mock:
+        _mock_claude(mock, [_agent("agent_1", "Triage")], [])
+        _create(client, _token("alice"), "claude", {"api_key": "sk-ant-alice"})
+        client.post("/api/v1/connectors/claude/scan", headers=_token("alice"))
+        assert client.get("/api/v1/connectors/claude/remote-agents/agent_1/history", headers=_token("alice")).json()
+
+        for path in ("history", "snapshots"):
+            resp = client.get(f"/api/v1/connectors/claude/remote-agents/agent_1/{path}", headers=_token("bob"))
+            assert resp.status_code == 404, resp.text
+
+        _create(client, _token("bob"), "claude", {"api_key": "sk-ant-bob"})
+        for path in ("history", "snapshots"):
+            resp = client.get(f"/api/v1/connectors/claude/remote-agents/agent_1/{path}", headers=_token("bob"))
+            assert resp.status_code == 200 and resp.json() == [], resp.text

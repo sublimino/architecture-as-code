@@ -1027,6 +1027,14 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     # id get two distinct registry agents.
     ("POST", "/api/connectors/{provider_id}/remote-agents/{external_id}/claim"),
     ("POST", "/api/v1/connectors/{provider_id}/remote-agents/{external_id}/claim"),
+    # Remote agent snapshot history: SQL_SNAPSHOTS_LIST is scoped by
+    # tenant_id = $1 after the connector lookup by tenant;
+    # test_snapshot_history_is_scoped_to_the_callers_tenant proves another
+    # tenant gets 404 without a connector and [] with its own.
+    ("GET", "/api/connectors/{provider_id}/remote-agents/{external_id}/history"),
+    ("GET", "/api/v1/connectors/{provider_id}/remote-agents/{external_id}/history"),
+    ("GET", "/api/connectors/{provider_id}/remote-agents/{external_id}/snapshots"),
+    ("GET", "/api/v1/connectors/{provider_id}/remote-agents/{external_id}/snapshots"),
     ("GET", "/api/connectors/stream"),
     ("GET", "/api/v1/connectors/stream"),
     ("POST", "/api/connectors/claude/webhook"),

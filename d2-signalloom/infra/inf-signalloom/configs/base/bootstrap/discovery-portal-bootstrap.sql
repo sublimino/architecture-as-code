@@ -6174,3 +6174,79 @@ ALTER TABLE public.remote_agents
 
 COMMIT;
 -- END 072_remote_agent_claims.sql
+
+-- BEGIN 073_remote_agent_snapshots.sql
+-- 073 — remote_agent_snapshots: content-addressed versioned snapshots for remote agents
+--
+-- Stores versioned immutable snapshots of remote agents, sessions, and environments.
+-- Deduplication is enforced by PRIMARY KEY (tenant_id, connector_id, external_id, raw_hash).
+BEGIN;
+
+ALTER TABLE public.remote_agents
+    DROP CONSTRAINT IF EXISTS remote_agents_kind_check;
+
+ALTER TABLE public.remote_agents
+    ADD CONSTRAINT remote_agents_kind_check
+    CHECK (kind IN ('agent', 'session', 'assistant', 'workflow', 'environment'));
+
+ALTER TABLE public.remote_agents
+    ADD COLUMN IF NOT EXISTS raw_hash TEXT,
+    ADD COLUMN IF NOT EXISTS system_prompt TEXT,
+    ADD COLUMN IF NOT EXISTS environment_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS user_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS metrics JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+CREATE TABLE IF NOT EXISTS public.remote_agent_snapshots (
+    tenant_id            TEXT         NOT NULL,
+    connector_id         TEXT         NOT NULL,
+    external_id          TEXT         NOT NULL,
+    raw_hash             TEXT         NOT NULL,
+    kind                 TEXT         NOT NULL
+                                      CHECK (kind IN ('agent', 'session', 'assistant', 'workflow', 'environment')),
+    name                 TEXT,
+    model                TEXT,
+    status               TEXT,
+    version              TEXT,
+    system_prompt        TEXT,
+    tools                JSONB        NOT NULL DEFAULT '[]'::jsonb,
+    environment_config   JSONB        NOT NULL DEFAULT '{}'::jsonb,
+    user_metadata        JSONB        NOT NULL DEFAULT '{}'::jsonb,
+    metrics              JSONB        NOT NULL DEFAULT '{}'::jsonb,
+    raw                  JSONB        NOT NULL DEFAULT '{}'::jsonb,
+    observed_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, connector_id, external_id, raw_hash),
+    FOREIGN KEY (tenant_id, connector_id)
+        REFERENCES public.tenant_connectors (tenant_id, connector_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS remote_agent_snapshots_lookup_idx
+    ON public.remote_agent_snapshots (tenant_id, connector_id, external_id, observed_at DESC);
+
+COMMIT;
+-- END 073_remote_agent_snapshots.sql
+
+-- BEGIN 074_tenant_account_types.sql
+-- 074 — tenant_account_types: the account type applied to each tenant
+--
+-- An account type (EAP View, EAP Full, Full) is a named, exact feature-flag set
+-- (feature_flags.FEATURE_PRESETS). PUT /api/v1/admin/features with a preset
+-- writes the flags into tenant_feature_flags (057) AND records the type here.
+--
+-- `customised` is TRUE when a later manual toggle left the tenant's effective
+-- flags different from the recorded type's set; the Feature Flags page then
+-- shows "Custom, based on <type>" instead of claiming the type. It is
+-- re-derived after every flag mutation, so toggling back clears it.
+--
+-- Design: docs/signalloom/feature-flag-account-types.md
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS public.tenant_account_types (
+    tenant_id    VARCHAR(128) PRIMARY KEY,
+    account_type VARCHAR(64)  NOT NULL,
+    customised   BOOLEAN      NOT NULL DEFAULT FALSE,
+    updated_by   VARCHAR(256),
+    updated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+COMMIT;
+-- END 074_tenant_account_types.sql

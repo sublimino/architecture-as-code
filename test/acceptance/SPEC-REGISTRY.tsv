@@ -58,6 +58,9 @@
 # Tab-separated. Comments start with #. Order is alphabetical by spec.
 #
 #spec	runner	reason
+account-type-eap-full.spec.ts	suite-only	Serves the EAP Full flag set from contracts/feature-account-types.json via page.route on /api/v1/features and asserts the sidebar and a gated 404. Needs a logged-in dashboard (demo-signalloom-up); never mutates a tenant, so it is safe to wire into a CI lane once that lane deploys the dashboard.
+account-type-eap-view.spec.ts	suite-only	Serves the EAP View (read-only) flag set via page.route on /api/v1/features and asserts the sidebar and a gated 404. Needs a logged-in dashboard (demo-signalloom-up); never mutates a tenant.
+account-type-full.spec.ts	suite-only	Serves the Full flag set via page.route on /api/v1/features and asserts every tenant page is in the sidebar. Needs a logged-in dashboard (demo-signalloom-up); never mutates a tenant.
 afm-frontend.spec.ts	suite-only	Every test is behind guards.afmDeployed(); the CI lane never runs `make demo-k8s-afm-up`, so all 11 would SKIP. A stage of 11 skips is a green light that proves nothing, which is worse than an absent stage because it reads as coverage.
 afm-integration.spec.ts	suite-only	Same guards.afmDeployed() precondition as afm-frontend: 9 tests, all SKIP without the k8s-afm slice. Wire in only alongside deploying that slice in the lane.
 agent-activity-timeline.spec.ts	suite-only	Drives agent detail pages to assert activity events are rendered. Requires running demo cluster with kagent or signal-ingest.

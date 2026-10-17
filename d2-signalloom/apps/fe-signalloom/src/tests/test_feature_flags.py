@@ -26,6 +26,10 @@ class MockDatabase:
     def __init__(self) -> None:
         # Key: (tenant_id, flag_key) -> dict
         self.rows: dict[tuple[str, str], dict[str, Any]] = {}
+        # tenant_account_types (migration 074): tenant_id -> row
+        self.account_types: dict[str, dict[str, Any]] = {}
+        # audit_events inserts, as the positional args the handler passed
+        self.audit: list[tuple[Any, ...]] = []
 
     def insert_or_update(
         self, tenant_id: str, flag_key: str, enabled: bool, config_json_str: str
@@ -78,6 +82,20 @@ class FakeConnection:
         raise NotImplementedError(f"Unhandled fetch query: {query}")
 
     async def fetchrow(self, query: str, *args: Any) -> dict[str, Any] | None:
+        if "INSERT INTO public.tenant_account_types" in query:
+            tenant_id, account_type, customised, updated_by = args[0], args[1], args[2], args[3]
+            row = {
+                "tenant_id": tenant_id,
+                "account_type": account_type,
+                "customised": bool(customised),
+                "updated_by": updated_by,
+                "updated_at": datetime.now(timezone.utc),
+            }
+            self.db.account_types[tenant_id] = row
+            return dict(row)
+        if "FROM public.tenant_account_types" in query:
+            row = self.db.account_types.get(args[0])
+            return dict(row) if row is not None else None
         if "INSERT INTO public.tenant_feature_flags" in query:
             tenant_id, flag_key, enabled, config_json_str = args[0], args[1], args[2], args[3]
             return self.db.insert_or_update(tenant_id, flag_key, enabled, config_json_str)
@@ -91,7 +109,10 @@ class FakeConnection:
             tenant_id, flag_key = args[0], args[1]
             deleted = self.db.delete(tenant_id, flag_key)
             return "DELETE 1" if deleted else "DELETE 0"
-        if "audit_events" in query or "INSERT INTO" in query:
+        if "audit_events" in query:
+            self.db.audit.append(args)
+            return "INSERT 0 1"
+        if "INSERT INTO" in query:
             return "INSERT 0 1"
         raise NotImplementedError(f"Unhandled execute query: {query}")
 

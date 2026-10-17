@@ -58,8 +58,8 @@ On the connector setup screen in your Signal Loom dashboard:
 
 - **Anthropic API Key**: from Step 1. This is the only credential a scan uses.
 - **Workspace ID**: **required if the key is organisation-scoped** (not tied
-  to one workspace). Anthropic refuses every request from such a key unless
-  the request names the workspace, so Signal Loom sends it as the
+  to one workspace). Anthropic refuses requests from such a key unless
+  the request names the workspace. Signal Loom sends it as the
   `anthropic-workspace-id` header on every call. Find it in **Console →
   Settings → Workspaces** (it starts with `wrkspc_`). A key created inside a
   workspace does not need it. Without it, **Test** and **Scan** report

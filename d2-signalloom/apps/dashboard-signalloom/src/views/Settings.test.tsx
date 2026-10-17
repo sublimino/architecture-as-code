@@ -13,6 +13,8 @@ import {
   setLoadTimes,
 } from '../api/loadTimes'
 import { AppContext } from '../App'
+import { FeatureFlagProvider } from '../providers/FeatureFlagProvider'
+import { DEFAULT_SYSTEM_FLAGS } from '../types/features'
 import type { TenantSettingsResponse } from '../types/api'
 
 const mockNavigate = vi.fn()
@@ -397,6 +399,29 @@ describe('Settings: Service Connectors', () => {
     await screen.findByTestId('scan-connector-okta')
     expect(screen.queryByTestId('view-environment-okta')).not.toBeInTheDocument()
     expect(screen.getByTestId('view-environment-openai')).toBeInTheDocument()
+  })
+
+  // The environment page's route is gated on page_federated_services
+  // (App.tsx GatedRoute), so with the flag off the button led to a 404.
+  it.each([
+    [false, 'hides'],
+    [true, 'shows'],
+  ] as const)('with page_federated_services=%s it %s View Environment, and keeps Scan Now', async (flag, _verb) => {
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
+      { connector_id: 'conn-2', provider_id: 'openai', display_name: 'OpenAI', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
+    ])
+    render(
+      <FeatureFlagProvider initialFlags={{ ...DEFAULT_SYSTEM_FLAGS, page_federated_services: flag }} disableAutoFetch>
+        <MemoryRouter initialEntries={['/settings?tab=connectors']}>
+          <AppContext.Provider value={appCtxValue}>
+            <Settings />
+          </AppContext.Provider>
+        </MemoryRouter>
+      </FeatureFlagProvider>,
+    )
+    await screen.findByTestId('scan-connector-openai')
+    if (flag) expect(screen.getByTestId('view-environment-openai')).toBeInTheDocument()
+    else expect(screen.queryByTestId('view-environment-openai')).not.toBeInTheDocument()
   })
 
   it('shows a visible per-row error when Scan Now fails', async () => {

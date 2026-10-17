@@ -15,6 +15,7 @@ import ConnectorConfigureModal from '../components/ConnectorConfigureModal'
 import ProviderLogo from '../components/onboarding/ProviderLogo'
 import CurrencySetting from '../components/CurrencySetting'
 import { useAppContext } from '../App'
+import { useFeatureFlag } from '../hooks/useFeatureFlag'
 import { getBundleForFramework, normalizeFrameworkId } from '../data/regulatoryFrameworks'
 import type { PolicyRule } from '../types/policies'
 import GovernancePolicyTable from '../components/GovernancePolicyTable'
@@ -132,6 +133,9 @@ export default function Settings() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { apiKeyReveal, setApiKeyReveal, refreshOnboardingState } = useAppContext()
+  // /settings/connectors/:providerId is gated on this flag (App.tsx GatedRoute):
+  // with it off the View Environment button would lead to a 404.
+  const { enabled: environmentPageEnabled } = useFeatureFlag('page_federated_services')
   const [settings, setSettings] = useState<TenantSettingsResponse | null>(null)
   const [frameworks, setFrameworks] = useState<FrameworkResponse[]>([])
   const [lastScan, setLastScan] = useState<NHIScan | null>(null)
@@ -1045,7 +1049,7 @@ export default function Settings() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         {isConnected && connector && (
                           <>
-                            {isRemoteEnvironmentProvider(p.provider_id) && (
+                            {environmentPageEnabled && isRemoteEnvironmentProvider(p.provider_id) && (
                               <button
                                 type="button"
                                 className="btn btn-secondary btn-sm"

@@ -81,9 +81,9 @@ describe("osvRisk", () => {
     });
     const f = new Fetcher({
       http: async (req) => {
-        if (req.method === "POST") return { status: 200, headers: {}, body: JSON.stringify({ results: [{ vulns: [{ id: "GHSA-a" }, { id: "PYSEC-a" }, { id: "GHSA-b" }] }] }) };
+        if (req.method === "POST") return { status: 200, headers: {}, body: JSON.stringify({ results: [{ vulns: [{ id: "GHSA-a" }, { id: "PYSEC-a" }, { id: "GHSA-b" }, { id: "PYSEC-b" }] }] }) };
         const id = req.url.split("/").pop() as string;
-        const body = id === "GHSA-a" ? rec(id, ["CVE-1", "PYSEC-a"]) : id === "PYSEC-a" ? rec(id, ["CVE-1", "GHSA-a"]) : rec(id, ["CVE-2"]);
+        const body = id === "GHSA-a" ? rec(id, ["CVE-1", "PYSEC-a"]) : id === "PYSEC-a" ? rec(id, ["CVE-1", "GHSA-a"]) : rec(id, ["CVE-2"]); // GHSA-b and PYSEC-b share only CVE-2
         return { status: 200, headers: {}, body: JSON.stringify(body) };
       },
       cacheDir: null,

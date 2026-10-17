@@ -3,10 +3,9 @@
  * disclosure typography spacing, and EAP preset defaults in the live dashboard.
  */
 import { test, expect } from "./fixtures";
-import { login, config } from "./helpers";
+import { login, config, liveWorkloadAgentId } from "./helpers";
 
 const BASE = config.base;
-const KUSARI_AGENT_ID = "agent-kusari-847cc7d984-mwg8c";
 
 test.describe("GitOps Detection, Workload Quick Filters & EAP Preset Defaults", () => {
   test.beforeEach(async ({ page }) => {
@@ -46,7 +45,9 @@ test.describe("GitOps Detection, Workload Quick Filters & EAP Preset Defaults", 
   });
 
   test("Agent Onboarding displays GitOps reconciliation notice and copyable remediation patch", async ({ page }) => {
-    await page.goto(`${BASE}/agents/${KUSARI_AGENT_ID}?tab=onboarding`, { waitUntil: "domcontentloaded" });
+    // The Kusari agent's id is its current pod name, not a pinned one.
+    const kusariAgentId = await liveWorkloadAgentId(page, "agent-kusari");
+    await page.goto(`${BASE}/agents/${kusariAgentId}?tab=onboarding`, { waitUntil: "domcontentloaded" });
 
     // Verify Onboarding Tab loads
     const onboardingTab = page.getByTestId("agent-onboarding-tab");

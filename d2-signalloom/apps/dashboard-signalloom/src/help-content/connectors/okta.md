@@ -47,7 +47,8 @@ dashboard:
   `*.oktapreview.com` / `*.okta-emea.com` domain).
 - **API Token**: from Step 1.
 
-Signal Loom stores the token encrypted; it is never displayed again after
+Signal Loom stores the token in its OpenBao secrets store, under your tenant;
+it is never displayed again after
 initial entry.
 
 ## What gets scanned

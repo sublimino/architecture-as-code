@@ -278,8 +278,7 @@ kubectl --context $CTX -n inf-bao rollout status deploy/openbao --timeout=5m
 kubectl --context $CTX -n inf-bao exec deploy/openbao-admin -c bao -- bao-admin status
 scripts/openbao-migrate.sh verify --context $CTX --file "$DIR/export.json"
 
-# 6. Keep the export until phase 2 is complete, then destroy it.
-shred -u "$DIR/export.json"
+# 6. Keep the export: phase 2 step 10 destroys it.
 ```
 
 **Rollback, phase 1.** Before step 3, resume both Kustomizations and stop.
@@ -297,36 +296,83 @@ cannot log in, scale the `openbao` Deployment to zero and drop database `openbao
 Then let the init Job run again, and import the export. This loses anything
 written after the export.
 
-**Plan, phase 2: connector credentials in OpenBao.** Start only after the
-phase 1 runbook step 5 passes.
+**Phase 2, built on the same branch.**
 
-1. KV layout: `kv/data/signalloom/tenants/<tenant_id>/connectors/<connector_id>`.
-   Postgres keeps the path and the KV version in new columns of
-   `public.tenant_connectors`. The portal stops writing
-   `credentials_ciphertext`.
-2. Policy: add
-   `path "kv/data/signalloom/tenants/+/connectors/+" { capabilities = ["create", "read", "update"] }`
-   and
-   `path "kv/metadata/signalloom/tenants/+/connectors/+" { capabilities = ["delete"] }`
-   to `signalloom-fe-signalloom`. The portal is one identity for all tenants.
-   Per-tenant OpenBao policies would need one SPIFFE identity for each tenant,
-   which the portal does not have. Thus the tenant-scoped code paths in the
-   portal enforce isolation, and the KV path includes the tenant id from the
-   checked principal.
-3. Login: add the `jwt-svid` and bao agent sidecars to the portal, as in
-   `fleet-manager`. The portal reads `BAO_TOKEN_FILE` for each request.
-4. Code: a KV client behind an injectable seam, with a fake for tests. If
-   OpenBao cannot be reached, a credential read or write answers 503
-   `credential_store_unavailable`. It never uses plain text or the old sealed
-   copy. Disconnect deletes the KV metadata, which removes all versions.
-   Fixture mode keeps the in-memory store.
-5. Migration: a one-shot script, dry run by default. It reads each sealed row
-   with the old key and writes the value to OpenBao. Then it reads it back,
-   sets the reference and sets the ciphertext to null. A second run makes no
-   change. It reports the counts.
-6. After the migration is correct on the live cluster, delete the
-   `fe-signalloom-connector-credential-key` Secret and the
-   `make connector-credential-key` target.
+- [`connector_secret_store.py`](../../d2-signalloom/apps/fe-signalloom/src/connector_secret_store.py)
+  writes each credential to
+  `kv/data/signalloom/tenants/<tenant_id>/connectors/<connector_id>`.
+  Postgres keeps only `credentials_ref` and `credentials_version` (migration
+  074). A CHECK stops a row from holding a reference and a ciphertext
+  together.
+- The portal logs in as `signalloom-fe-signalloom` through a `jwt-svid`
+  sidecar and an `openbao-agent` sidecar, the `fleet-manager` pattern. It
+  reads `BAO_TOKEN_FILE` again for each request.
+- The policy grants `create`, `read` and `update` on
+  `kv/data/signalloom/tenants/+/connectors/+` and `delete` on the matching
+  metadata path. It grants nothing broader.
+- Per-tenant OpenBao policies are not used. The portal is one identity for all
+  tenants, and a per-tenant policy needs one identity for each tenant. The
+  portal builds every path from the tenant of the checked principal. It
+  refuses an id that is not a safe path segment. It refuses a stored
+  reference that is not the path of the row's own tenant and connector.
+- If OpenBao cannot be reached, a credential read or write answers 503
+  `credential_store_unavailable`. A row that still has only the old
+  ciphertext also answers 503. The portal never decrypts it.
+- Disconnect deletes the KV metadata, which removes all versions, before it
+  marks the row. If OpenBao does not confirm, the answer is 503 and the row
+  stays as it was.
+- [`migrate_connector_credentials.py`](../../d2-signalloom/apps/fe-signalloom/src/migrate_connector_credentials.py)
+  moves the old rows. It is a dry run by default. With `--apply` it opens
+  each row with the old key, writes the value to OpenBao, and reads it back.
+  Then it changes the row only if the ciphertext did not change. A second run
+  changes nothing. `--verify` reads every reference and requires zero sealed
+  rows. Its output is counts, never values.
+
+**Cutover runbook, phase 2.** Run this after phase 1 step 5, and after Flux
+rolls out the new portal image and manifests. Keep the export from phase 1
+until step 10.
+
+```bash
+# 7. The portal has a token, and migration 074 ran at start-up.
+kubectl --context $CTX -n fe-signalloom rollout status deploy/fe-signalloom --timeout=5m
+kubectl --context $CTX -n fe-signalloom exec deploy/fe-signalloom -c discovery-portal -- \
+  test -s /var/run/secrets/openbao/token && echo token-present
+
+# 8. Dry run, apply, verify. Each prints one JSON line of counts.
+P="kubectl --context $CTX -n fe-signalloom exec deploy/fe-signalloom -c discovery-portal -- python -m migrate_connector_credentials"
+$P                 # expect "failed": 0, "would_migrate": N
+$P --apply         # expect "failed": 0, "migrated": N
+$P --apply         # expect "sealed": 0, "migrated": 0 (idempotent)
+$P --verify        # expect "ok": true, "sealed": 0, "unreadable": 0
+
+# 9. Restart survival for the credentials. Expect the same --verify line.
+kubectl --context $CTX -n inf-bao rollout restart deploy/openbao
+kubectl --context $CTX -n inf-bao rollout status deploy/openbao --timeout=5m
+$P --verify
+
+# 10. Destroy the phase 1 export.
+shred -u "$DIR/export.json"
+```
+
+**Exit steps.** Do these in one commit, only after step 8 `--verify` passes on
+the live cluster. Until then keep the sealing key, because a rollback needs
+it.
+
+1. Remove `CONNECTOR_CREDENTIAL_KEY_FILE`, the `connector-credential-key`
+   volume and its mount from the portal Deployment.
+2. Remove `make connector-credential-key`, `scripts/connector-credential-key.sh`
+   and its test, and the call in `make demo-signalloom-up`.
+3. Remove `connector_credentials.py` and the migration module once no
+   environment has a sealed row.
+4. Delete the Secret:
+   `kubectl --context $CTX -n fe-signalloom delete secret fe-signalloom-connector-credential-key`.
+5. Close this entry with the date and that commit.
+
+**Rollback, phase 2.** Before step 8 `--apply`, revert the portal change. The
+old code still reads the sealed rows. After `--apply`, the old code cannot
+read the moved rows, because their ciphertext is null. Then the rollback is
+forward: fix the new code, or ask the tenants to enter their credentials
+again.
 
 **Exit criterion.** Close this entry when no connector secret is stored
 outside OpenBao and the sealing key Secret no longer exists.

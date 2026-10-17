@@ -162,7 +162,9 @@ test.describe("live API endpoints backing the main pages", () => {
   // Asserted independently of React so a UI failure and an API failure are
   // distinguishable. A page that renders nothing because its endpoint 500s is a
   // different bug from a page that renders nothing with good data behind it.
-  const ENDPOINTS = ["/api/v1/agents", "/api/v1/compliance", "/api/v1/audit"];
+  // /audit reads /api/audit (api/client.ts `audit`); fe-signalloom has never
+  // served /api/v1/audit, so that entry was a 404 from the day it was listed.
+  const ENDPOINTS = ["/api/v1/agents", "/api/v1/compliance", "/api/audit"];
 
   for (const path of ENDPOINTS) {
     test(`${path} responds`, async ({ request }) => {

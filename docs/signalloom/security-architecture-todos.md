@@ -12,7 +12,7 @@ dated line that names the commit that met the criterion. Do not delete it.
 | :--- | :--- | :--- | :--- |
 | [SA-TODO-001](#sa-todo-001-public-https-egress-for-the-portal-pod) | Public HTTPS egress for the portal pod | Open, exemption in force | 2026-10-16 |
 | [SA-TODO-002](#sa-todo-002-unbounded-api-transport-egress-on-two-runner-pods) | Unbounded API transport egress on two runner pods | Open, finding | 2026-10-16 |
-| [SA-TODO-003](#sa-todo-003-connector-credentials-are-not-in-openbao) | Connector credentials are not in OpenBao | Open, finding | 2026-10-17 |
+| [SA-TODO-003](#sa-todo-003-connector-credentials-are-not-in-openbao) | Connector credentials are not in OpenBao | Open, finding, blocked on persistent OpenBao | 2026-10-17 |
 
 ## SA-TODO-001: public HTTPS egress for the portal pod
 
@@ -157,6 +157,133 @@ Keep only that path in Postgres. The portal authenticates to OpenBao with its
 workload identity, under a policy that grants each tenant path read and write.
 The portal already has egress to `inf-bao:8200`. Migrate existing rows, then
 delete the sealing key Secret.
+
+**Blocker (found 2026-10-17).** The OpenBao server in `inf-bao` cannot hold
+these credentials yet. It runs `bao server -dev` from image
+`quay.io/openbao/openbao:2.1.1`. In dev mode, storage is `inmem` and HA
+is off. There is one Shamir key share, and the root token is the static value
+`signalloom-demo-root-token`. A pod restart loses every secret. The manifest is
+[`openbao-spire.yaml`](../../d2-signalloom/infra/inf-bao/controllers/base/openbao-spire.yaml).
+If connector credentials moved there now, a restart would erase them, and the
+old sealed copies would be gone after migration. The credential move waits
+for phase 1 below.
+
+**Facts that the plan depends on (checked on `kind-osramp`, 2026-10-17).**
+
+- The portal has a SPIFFE identity and an OpenBao role today. The role
+  `signalloom-fe-signalloom` on mount `auth/jwt` binds
+  `spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom`, audience
+  `openbao`. It gives batch tokens with a 5-minute TTL. It can read only
+  `kv/data/signalloom/fe-signalloom`. The portal Deployment does not log in
+  yet.
+- `fleet-manager` already uses the login pattern that the portal needs. A
+  `jwt-svid` sidecar writes the JWT-SVID to a file. A bao agent sidecar logs in
+  and writes the token to `/var/run/secrets/openbao/token`. The client reads
+  the file again for each request. The config is
+  [`openbao-agent-config.yaml`](../../d2-signalloom/apps/fleet-manager/base/openbao-agent-config.yaml).
+- A KV v2 mount `kv/` exists. The new paths can use it. No new mount is
+  necessary.
+- The `inf-signalloom` Postgres is a single `postgres:16-alpine` Deployment. Its
+  data is on the node hostPath `/var/local/signalloom-postgres-data`, not on a
+  PVC. Its superuser password is plain text in
+  [`dependencies.yaml`](../../d2-signalloom/infra/inf-signalloom/controllers/base/dependencies.yaml).
+  The SQL in `docker-entrypoint-initdb.d` runs only on an empty data
+  directory. Thus a new role and database for OpenBao need a separate
+  idempotent Job.
+- 30 tracked files contain the static root token. They are the four
+  setup Jobs in `inf-bao/configs`, the `openbao-agent-generic-role-setup`
+  Job, the `spire-openbao-sync` CronJob (each run), and host scripts and tests.
+  The host scripts include `scripts/demo-lifecycle.sh`,
+  `scripts/swarm-seed-secrets.sh`, `scripts/kagent-credentials.sh` and
+  `scripts/supercred-demo.sh`.
+
+**Decisions for the principal.** Phase 1 cannot start until these have
+answers. Each item gives a recommendation.
+
+1. Unseal model on kind. The options are manual Shamir unseal by an operator,
+   auto-unseal from a second OpenBao Transit server, or a static unseal key in
+   a Kubernetes Secret. Manual unseal stops the unattended cold-start standup.
+   A second server must also unseal. A key in a Secret conflicts with the
+   Secrets rule in `AGENTS.md`. Recommendation: a static unseal key in a
+   Secret on kind only, recorded as a new SA-TODO exception. Use cloud KMS
+   auto-unseal on the GCP lane. Check that OpenBao 2.7.1 supports a static
+   seal before you build on it.
+2. Administration without a root token. Recommendation: an init Job runs
+   `bao operator init` once. It writes the unseal key to the Secret from
+   decision 1, and it keeps the root token in memory only. It creates a JWT
+   role `inf-bao-admin` bound to one SPIFFE ID, with a policy for `sys/mounts`,
+   `sys/policies`, `sys/auth` and the `auth/jwt` roles. Then it revokes the
+   root token. All setup Jobs and the sync CronJob log in with that role.
+   Host scripts get a short-lived token from
+   `bao operator generate-root` or from that role through `kubectl exec`.
+3. Credential for the OpenBao storage. OpenBao needs its Postgres password
+   before it can start, so that password cannot be in OpenBao.
+   Recommendation: keep it in a Kubernetes Secret and record it as an SA-TODO
+   exception. The Postgres superuser password is already in plain text.
+4. HA and TLS. Recommendation: one replica and plain HTTP on kind for now.
+   Postgres storage permits HA later. Record TLS on port 8200 as an SA-TODO
+   entry.
+5. Data on the change of server. The `inmem` data is lost when the server
+   changes. Recommendation: accept this. The setup Jobs and seed scripts write
+   all of it again, and live agent tokens and leases expire. Plan one
+   maintenance window, then restart the agents.
+
+**Plan, phase 1: persistent OpenBao.** Work in `d2-signalloom/infra/inf-bao`
+through GitOps. Each step is one commit with a test.
+
+1. Add a Job in `inf-signalloom` that creates the role `openbao` and the
+   database `openbao`. It must be idempotent. It must run on a live cluster.
+   Add the `kv_store` table and the `ha_enabled` setting from the OpenBao
+   PostgreSQL storage documentation.
+2. Add a NetworkPolicy rule from `inf-bao` to `inf-signalloom:5432` for the
+   OpenBao pod only. Add the NetAssert cases for the rule.
+3. Replace the dev server with a `server` config: `storage "postgresql"`,
+   `listener "tcp"` on 8200, the seal from decision 1, and image
+   `quay.io/openbao/openbao:2.7.1`. Read the release notes from 2.1.1 to
+   2.7.1 for changes to the JWT auth method, KV v2 and the agent first.
+4. Add the init Job from decision 2. If the server is already initialised, the
+   Job does nothing.
+5. Change the four setup Jobs, the generic role Job and the sync CronJob to log
+   in with `inf-bao-admin`. Their `bao` commands stay the same and stay
+   idempotent. Add `kustomize.toolkit.fluxcd.io/force: Enabled` where a pod
+   template changes.
+6. Change the host scripts to get a token as in decision 2. Remove
+   `signalloom-demo-root-token` from every tracked file. Add a test that fails
+   if the string comes back.
+7. Proof: restart the OpenBao pod. Check that `kv/signalloom/fe-signalloom`
+   is still there, that every role still logs in, and that the
+   `bao-spire-positive-proof` Job passes.
+
+**Plan, phase 2: connector credentials in OpenBao.** Start only after phase 1
+step 7 passes.
+
+1. KV layout: `kv/data/signalloom/tenants/<tenant_id>/connectors/<connector_id>`.
+   Postgres keeps the path and the KV version in new columns of
+   `public.tenant_connectors`. The portal stops writing
+   `credentials_ciphertext`.
+2. Policy: add
+   `path "kv/data/signalloom/tenants/+/connectors/+" { capabilities = ["create", "read", "update"] }`
+   and
+   `path "kv/metadata/signalloom/tenants/+/connectors/+" { capabilities = ["delete"] }`
+   to `signalloom-fe-signalloom`. The portal is one identity for all tenants.
+   Per-tenant OpenBao policies would need one SPIFFE identity for each tenant,
+   which the portal does not have. Thus the tenant-scoped code paths in the
+   portal enforce isolation, and the KV path includes the tenant id from the
+   checked principal.
+3. Login: add the `jwt-svid` and bao agent sidecars to the portal, as in
+   `fleet-manager`. The portal reads `BAO_TOKEN_FILE` for each request.
+4. Code: a KV client behind an injectable seam, with a fake for tests. If
+   OpenBao cannot be reached, a credential read or write answers 503
+   `credential_store_unavailable`. It never uses plain text or the old sealed
+   copy. Disconnect deletes the KV metadata, which removes all versions.
+   Fixture mode keeps the in-memory store.
+5. Migration: a one-shot script, dry run by default. It reads each sealed row
+   with the old key and writes the value to OpenBao. Then it reads it back,
+   sets the reference and sets the ciphertext to null. A second run makes no
+   change. It reports the counts.
+6. After the migration is correct on the live cluster, delete the
+   `fe-signalloom-connector-credential-key` Secret and the
+   `make connector-credential-key` target.
 
 **Exit criterion.** Close this entry when no connector secret is stored
 outside OpenBao and the sealing key Secret no longer exists.

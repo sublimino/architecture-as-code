@@ -5,7 +5,13 @@ RUN npm ci
 ARG SOURCE_ID
 RUN test -n "$SOURCE_ID"
 COPY . .
-RUN npx vite build
+# The environment tier baked into the bundle (src/api/demoMode.ts). Unset, it
+# falls back to 'demo', which starts every fresh browser on fixture data: the
+# live estate then showed fakeData.ts rows as if the backend had sent them
+# (W22). 'dev' keeps the demo toggle but defaults it OFF, so the cluster image
+# is live until someone opts in. `vite dev` is unaffected and still demos.
+ARG VITE_SL_ENV=dev
+RUN VITE_SL_ENV="$VITE_SL_ENV" npx vite build
 
 # The build identity, written where scripts/check-deployed-staleness.sh reads it
 # back out of the RUNNING container. Produced in this stage and COPYd into the

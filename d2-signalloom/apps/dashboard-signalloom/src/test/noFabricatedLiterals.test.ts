@@ -21,6 +21,10 @@ const FORBIDDEN_LITERALS = [
   'wrkspc_01PFJfZsJrq5bUVWA2wWnyvm',
   'Andrew Martin (User)',
   'osramp.acme.local',
+  // W22: demo discovery fixtures seen on the live estate. They belong only in
+  // fakeData.ts; anything else that needs them references the fixture.
+  'Customer Support Triage Assistant',
+  '12450',
 ]
 
 const SRC_ROOT = join(__dirname, '..')
@@ -55,5 +59,18 @@ describe('no fabricated agent-metadata literals in dashboard source', () => {
       }
     }
     expect(offenders, `fabricated literal(s) found in dashboard source:\n  ${offenders.join('\n  ')}`).toEqual([])
+  })
+
+  // The literal scan above cannot see the path W22 took: fakeData.ts itself was
+  // served on the live estate, because the cluster image was built without
+  // VITE_SL_ENV and demoMode.ts falls back to 'demo', so a browser with no
+  // stored preference started in demo mode. Pin the build to a tier whose
+  // default is live.
+  it('builds the cluster image with an environment tier that defaults to live data', () => {
+    const dockerfile = readFileSync(join(SRC_ROOT, '..', 'Dockerfile'), 'utf-8')
+    const tier = dockerfile.match(/^ARG VITE_SL_ENV=(\S+)\s*$/m)?.[1]
+    expect(tier, 'Dockerfile must declare ARG VITE_SL_ENV=<tier>').toBeDefined()
+    expect(tier, 'the demo tier defaults every fresh browser to fixtures').not.toBe('demo')
+    expect(dockerfile, 'the ARG must reach vite build').toMatch(/^RUN VITE_SL_ENV="\$VITE_SL_ENV" npx vite build$/m)
   })
 })

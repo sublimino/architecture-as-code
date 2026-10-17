@@ -1,6 +1,12 @@
 import axios from 'axios'
 import { isDemoMode, isProductionEnv } from './demoMode'
-import { demoRemoteAgentsSnapshot, remoteEnvironmentFixtures, type RemoteEnvironmentFixture } from './fakeData'
+import {
+  dailyNewsJokesterAgentFixture,
+  demoRemoteAgentsSnapshot,
+  openaiAgentFixture,
+  remoteEnvironmentFixtures,
+  type RemoteEnvironmentFixture,
+} from './fakeData'
 import type {
   ConnectorCreateRequest,
   ConnectorCreateResponse,
@@ -546,9 +552,9 @@ const mockConnectorsApi: ConnectorsApi = {
       message: invalid
         ? '✗ Authentication failed: Invalid credentials'
         : id === 'claude'
-        ? '✓ Verified connection to Anthropic Claude API. Discovered live agent: Daily News Jokester'
+        ? `✓ Verified connection to Anthropic Claude API. Discovered live agent: ${dailyNewsJokesterAgentFixture.name}`
         : id === 'openai'
-        ? '✓ Verified connection to OpenAI Platform API. Discovered live agent: Customer Support Triage Assistant'
+        ? `✓ Verified connection to OpenAI Platform API. Discovered live agent: ${openaiAgentFixture.name}`
         : `✓ Connection verified for ${id}.`,
     }
     return delay(result, 100)

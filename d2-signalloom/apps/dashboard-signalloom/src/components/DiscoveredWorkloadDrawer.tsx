@@ -120,6 +120,14 @@ const RECOMMENDATION_STYLES: Record<string, { bg: string; border: string; color:
     color: 'var(--muted)',
     label: 'N/A',
   },
+  // Nothing evaluated this pillar. Also the fallback for a missing or unknown
+  // value: an absent verdict must never read as Pass or Review.
+  not_assessed: {
+    bg: 'rgba(100, 116, 139, 0.12)',
+    border: 'rgba(100, 116, 139, 0.25)',
+    color: 'var(--muted)',
+    label: 'Not assessed',
+  },
 }
 
 export default function DiscoveredWorkloadDrawer({
@@ -188,7 +196,7 @@ export default function DiscoveredWorkloadDrawer({
   const isInReview = workload.status === 'in_review'
 
   const meta = workload.metadata || {}
-  const privilege = (meta.privilege_level as string) || 'standard'
+  const privilege = (meta.privilege_level as string) || 'Not reported'
   const findings: string[] = Array.isArray(meta.findings) ? (meta.findings as string[]) : []
 
   const isClaude = Boolean(
@@ -410,7 +418,10 @@ export default function DiscoveredWorkloadDrawer({
                 </div>
               </div>
 
-              {/* Content-Addressed Versioning & Deduplication Banner */}
+              {/* Content hash of the CURRENT provider record (public.remote_agents),
+                  not a historic snapshot. Version history is a separate read
+                  (/connectors/:provider/remote-agents/:id/history) and nothing
+                  on this surface verified storage deduplication, so no badge. */}
               <div
                 style={{
                   display: 'flex',
@@ -434,21 +445,8 @@ export default function DiscoveredWorkloadDrawer({
                   }}
                 >
                   {workload.metadata?.raw_hash
-                    ? `SHA-256: ${workload.metadata.raw_hash.slice(0, 12)}...`
-                    : 'SHA-256: Not reported'}
-                </span>
-                <span
-                  data-testid="drawer-claude-dedup-badge"
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: colors.tealLoom,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 4,
-                  }}
-                >
-                  ✓ Storage Deduplicated · Versioned Snapshot
+                    ? `Current record SHA-256: ${workload.metadata.raw_hash.slice(0, 12)}...`
+                    : 'Current record SHA-256: Not reported'}
                 </span>
               </div>
 
@@ -607,14 +605,14 @@ export default function DiscoveredWorkloadDrawer({
               <div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>Namespace</div>
                 <div data-testid="drawer-workload-namespace" style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>
-                  {workload.namespace || '-'}
+                  {workload.namespace || 'Not reported'}
                 </div>
               </div>
 
               <div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>Owner / Contact</div>
                 <div data-testid="drawer-workload-owner" style={{ fontSize: 13, color: workload.owner ? 'var(--text)' : 'var(--muted)' }}>
-                  {workload.owner || 'Unassigned (Shadow AI)'}
+                  {workload.owner || 'Not reported'}
                 </div>
               </div>
 
@@ -718,8 +716,8 @@ export default function DiscoveredWorkloadDrawer({
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {PILLARS.map((p) => {
-                const recStatus = (workload.recommendations?.[p.key] || 'recommended') as string
-                const style = RECOMMENDATION_STYLES[recStatus] || RECOMMENDATION_STYLES.recommended
+                const recStatus = (workload.recommendations?.[p.key] || 'not_assessed') as string
+                const style = RECOMMENDATION_STYLES[recStatus] || RECOMMENDATION_STYLES.not_assessed
                 return (
                   <div
                     key={p.key}
@@ -784,7 +782,7 @@ export default function DiscoveredWorkloadDrawer({
 
             {findings.length === 0 ? (
               <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                No active security findings or unrotated credentials flagged for this identity.
+                No findings reported.
               </div>
             ) : (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>

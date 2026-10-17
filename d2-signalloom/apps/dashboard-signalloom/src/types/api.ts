@@ -1031,11 +1031,14 @@ export type DiscoverySource = 'idp' | 'local_k8s' | 'external_k8s' | 'external_s
 
 export type DiscoveryLifecycleState = 'discovered' | 'in_review' | 'ignored' | 'revoked' | 'governed'
 
+/** `not_assessed`: nothing evaluated the pillar (fe-signalloom's default on discovery). */
+export type PillarVerdict = 'pass' | 'recommended' | 'warning' | 'not_applicable' | 'not_assessed'
+
 export interface ControlRecommendations {
-  config?: 'pass' | 'recommended' | 'warning' | 'not_applicable'
-  content?: 'pass' | 'recommended' | 'warning' | 'not_applicable'
-  supply_chain?: 'pass' | 'recommended' | 'warning' | 'not_applicable'
-  eu_ai_act?: 'pass' | 'recommended' | 'warning' | 'not_applicable'
+  config?: PillarVerdict
+  content?: PillarVerdict
+  supply_chain?: PillarVerdict
+  eu_ai_act?: PillarVerdict
 }
 
 export interface DiscoveryWorkload {

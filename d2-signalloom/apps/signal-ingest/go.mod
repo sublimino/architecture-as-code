@@ -1,6 +1,6 @@
 module github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest
 
-go 1.27.0
+go 1.27.2
 
 require (
 	github.com/apache/arrow-go/v18 v18.2.0

@@ -1,6 +1,6 @@
 module github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/fleet-manager
 
-go 1.27.0
+go 1.27.2
 
 require (
 	github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/stun-sentinel v0.0.0-unpublished
@@ -60,7 +60,7 @@ require (
 	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.3.0 // indirect

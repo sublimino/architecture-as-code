@@ -140,7 +140,10 @@ test.describe("SuperCred demo page", () => {
       timeout: 30_000,
     });
 
-    await page.getByRole("button", { name: /compliance scan/i }).first().click();
+    // The agent row's own button, by exact name: the Instructor Controls added
+    // "3 · Compliance scan" (8fc47aa63) above it, which /compliance scan/i
+    // .first() picked, running demo phase 3 instead of scanning the agent.
+    await page.getByRole("button", { name: "Compliance Scan", exact: true }).first().click();
 
     const results = page.getByTestId("supercred-compliance");
     await expect(results).toBeVisible({ timeout: 30_000 });

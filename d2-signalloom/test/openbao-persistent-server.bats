@@ -117,7 +117,6 @@ EOS
   [ "$status" -eq 0 ]
   calls="$(cut -d'|' -f1 "$FAKE_LOG" | rg -v '^status')"
   expected="operator init -format=json -recovery-shares=1 -recovery-threshold=1
-audit enable file file_path=stdout
 secrets enable -path=kv kv-v2
 secrets enable -path=secret kv-v2
 auth enable jwt
@@ -127,7 +126,7 @@ write auth/jwt/role/inf-bao-admin -
 token revoke -self"
   [ "$calls" = "$expected" ]
   # every call after init ran as the root token, in the environment only
-  [ "$(rg -v '^status' "$FAKE_LOG" | rg -c 'token=s.ROOT-TOKEN-XYZ$')" = "8" ]
+  [ "$(rg -v '^status' "$FAKE_LOG" | rg -c 'token=s.ROOT-TOKEN-XYZ$')" = "7" ]
 }
 
 @test "init behaviour: the root token and recovery key never reach stdout, stderr or argv" {
@@ -170,4 +169,22 @@ token revoke -self"
 @test "no inf-bao or proof manifest still pins openbao 2.1.1" {
   run rg -n 'openbao/openbao:2\.1\.1' "${ROOT}/d2-signalloom/infra" "${ROOT}/d2-signalloom/apps/fe-signalloom/base"
   [ "$status" -eq 1 ]
+}
+
+@test "server: the audit log is declared in config.hcl, never enabled through the API" {
+  # OpenBao 2.7 answers 400 to PUT sys/audit/*; an init that calls it dies
+  # after operator init and leaves a server with no admin role.
+  run rg -c '^    audit "file" "stdout"' "$BATS_TEST_DIRNAME/../infra/inf-bao/controllers/base/openbao-spire.yaml"
+  [ "$output" = "1" ]
+  run rg -c 'audit enable' "$BATS_TEST_DIRNAME/../infra/inf-bao/controllers/base/openbao-init.yaml"
+  [ "$status" -eq 1 ]
+}
+
+@test "admin: the jwt-svid writer and the bao agent run as the same uid and gid" {
+  # The SVID file is written mode 0600; a writer running as root leaves the
+  # uid-100 bao agent with "permission denied" and no token.
+  f="$BATS_TEST_DIRNAME/../infra/inf-bao/controllers/base/openbao-admin.yaml"
+  uids="$(yq -r 'select(.kind=="Deployment") | .spec.template.spec.containers[] | select(.name=="jwt-svid" or .name=="bao") | "\(.securityContext.runAsUser):\(.securityContext.runAsGroup)"' "$f" | rg -v "^:$" | sort -u)"
+  [ "$(printf '%s\n' "$uids" | wc -l)" -eq 1 ]
+  [ "$uids" = "100:1000" ]
 }

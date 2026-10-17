@@ -13,9 +13,11 @@
 #      persists anywhere (see the SA-TODO-003 break-glass note);
 #   2. exports the root token into this process's environment only (never
 #      argv, never a file, never a log line);
-#   3. enables the audit log (stdout of the server), the kv/ and secret/ KV v2
-#      mounts that dev mode used to create implicitly, and auth/jwt pointed at
-#      the SPIRE OIDC JWKS;
+#   3. enables the kv/ and secret/ KV v2 mounts that dev mode used to create
+#      implicitly, and auth/jwt pointed at the SPIRE OIDC JWKS. The audit log
+#      is declared in config.hcl: OpenBao 2.7 refuses to enable an audit
+#      device through the API ("use declarative, config-based audit device
+#      management instead");
 #   4. writes policy and JWT role inf-bao-admin, bound to exactly one SPIFFE ID
 #      (spiffe://signalloom.demo/ns/inf-bao/sa/openbao-admin), 15m tokens;
 #   5. revokes the root token. An EXIT trap revokes it on any failure too, so
@@ -71,7 +73,6 @@ data:
       sleep 1
     done
 
-    bao audit enable file file_path=stdout
     bao secrets enable -path=kv kv-v2
     bao secrets enable -path=secret kv-v2
     bao auth enable jwt

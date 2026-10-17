@@ -41,6 +41,14 @@ data:
       current_key_id = "kind-1"
       current_key    = "file:///openbao/seal/key"
     }
+
+    # Audit log to the server's stdout. Declared here because OpenBao 2.7
+    # refuses to enable an audit device through the API.
+    audit "file" "stdout" {
+      options {
+        file_path = "stdout"
+      }
+    }
 ---
 apiVersion: apps/v1
 kind: Deployment

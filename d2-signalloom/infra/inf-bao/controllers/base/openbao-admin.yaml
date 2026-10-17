@@ -114,7 +114,12 @@ spec:
                 fi
                 sleep 60
               done
+          # Same uid and gid as the bao container: the SVID is written 0600,
+          # and the bao agent (uid 100 since OpenBao 2.6) must read it.
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 1000
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:

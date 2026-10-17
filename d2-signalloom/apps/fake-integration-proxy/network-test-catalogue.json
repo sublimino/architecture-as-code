@@ -418,6 +418,38 @@
         "name": "coredns",
         "namespace": "kube-system"
       }
+    },
+    {
+      "id": "openbao-to-postgresql-allowed",
+      "protocol": "tcp",
+      "port": 5432,
+      "expectedExitCode": 0,
+      "source": {
+        "kind": "deployment",
+        "name": "openbao",
+        "namespace": "inf-bao"
+      },
+      "destination": {
+        "kind": "deployment",
+        "name": "postgresql",
+        "namespace": "inf-signalloom"
+      }
+    },
+    {
+      "id": "spire-server-to-postgresql-denied",
+      "protocol": "tcp",
+      "port": 5432,
+      "expectedExitCode": 1,
+      "source": {
+        "kind": "deployment",
+        "name": "spire-server",
+        "namespace": "inf-bao"
+      },
+      "destination": {
+        "kind": "deployment",
+        "name": "postgresql",
+        "namespace": "inf-signalloom"
+      }
     }
   ],
   "runtimePrerequisites": [

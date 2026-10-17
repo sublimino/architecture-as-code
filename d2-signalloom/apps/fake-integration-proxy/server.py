@@ -174,8 +174,8 @@ def _load_network_test_catalogue() -> tuple[dict[str, object], ...]:
     if not isinstance(payload, dict) or not isinstance(payload.get("assertions"), list):
         raise ValueError("network test catalogue must use the generated schema")
     assertions = payload["assertions"]
-    if len(assertions) != 26:
-        raise ValueError("network test catalogue must contain exactly 26 assertions")
+    if len(assertions) != 28:
+        raise ValueError("network test catalogue must contain exactly 28 assertions")
     names = [item.get("id") for item in assertions if isinstance(item, dict)]
     if len(names) != len(assertions) or len(set(names)) != len(names):
         raise ValueError("network test catalogue names must be unique objects")

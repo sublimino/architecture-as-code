@@ -121,7 +121,7 @@ setup() {
   catalogue="$BATS_TEST_TMPDIR/catalogue.json"
   run bash -c '"$1" --catalogue-json >"$2"' _ "$checker" "$catalogue"
   [ "$status" -eq 0 ]
-  run yq -p=json -e '.schemaVersion == "signalloom.netassert.catalogue/v1" and .suiteId == "signalloom-network-policy" and (.assertions | length) == 26 and (.runtimePrerequisites | length) == 3' "$catalogue"
+  run yq -p=json -e '.schemaVersion == "signalloom.netassert.catalogue/v1" and .suiteId == "signalloom-network-policy" and (.assertions | length) == 28 and (.runtimePrerequisites | length) == 3' "$catalogue"
   [ "$status" -eq 0 ]
 }
 

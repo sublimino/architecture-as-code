@@ -50,7 +50,7 @@ test.describe("Network security SUPER ADMIN boundary", () => {
           dst: { name: string; namespace: string };
         }>;
       };
-      expect(payload.tests).toHaveLength(26);
+      expect(payload.tests).toHaveLength(28);
       expect(
         payload.tests.map(({ name, targetPort, expectedExit, src, dst }) => ({
           name,

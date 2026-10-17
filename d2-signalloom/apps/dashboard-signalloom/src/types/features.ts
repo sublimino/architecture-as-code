@@ -7,10 +7,25 @@ export interface FeatureFlagDetail {
   config: Record<string, unknown>
 }
 
+/**
+ * A tenant's account type as the admin API reports it (fe-signalloom
+ * feature_flags.AccountTypeState). `customised` is true when the tenant's flags
+ * no longer equal the recorded type's set; `matches` names the preset the flags
+ * equal exactly, if any. Design: docs/signalloom/feature-flag-account-types.md
+ */
+export interface AccountTypeState {
+  id: string | null
+  customised: boolean
+  matches: string | null
+  label: string
+}
+
 export interface FeaturesResponse {
   tenant_id: string
   flags: Record<string, boolean>
   details?: Record<string, FeatureFlagDetail>
+  /** Present on the admin endpoint only. */
+  account_type?: AccountTypeState
 }
 
 export interface FeaturePreset {
@@ -18,6 +33,12 @@ export interface FeaturePreset {
   name: string
   description: string
   flags: Record<string, boolean>
+  /** 'account_type' for EAP View / EAP Full / Full; 'bundle' for other presets. */
+  kind?: 'account_type' | 'bundle'
+  /** 'draft' while the type's exact contents await sign-off. */
+  status?: 'confirmed' | 'draft'
+  /** Deprecated ids that still apply this preset (e.g. eap_pilot). */
+  aliases?: string[]
 }
 
 export interface PresetsResponse {

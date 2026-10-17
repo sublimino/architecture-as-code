@@ -31,9 +31,11 @@ test.describe("Feeds & FrostDB Explorer Console", () => {
     await expect(page.locator("text=L5 Output / Protocol").first()).toBeVisible();
     await expect(page.locator("text=L6 Cloud / Infra").first()).toBeVisible();
 
-    // Slicing and dicing controls
-    await expect(page.locator("text=Layer:").first()).toBeVisible();
-    await expect(page.locator("text=Fidelity:").first()).toBeVisible();
+    // Slicing and dicing controls. Layer and fidelity moved from "Layer:" /
+    // "Fidelity:" labels into the observation-stream toolbar in 2488007e6/b2eb2c161
+    // (filter unification); window and actor stay on the workbench.
+    await expect(page.getByRole("group", { name: "Filter observations by layer" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Filter the observation stream by fidelity" })).toBeVisible();
     await expect(page.locator("text=Window:").first()).toBeVisible();
     await expect(page.locator("text=Actor:").first()).toBeVisible();
 

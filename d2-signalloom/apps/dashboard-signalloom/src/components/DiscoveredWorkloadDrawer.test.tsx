@@ -228,9 +228,9 @@ describe('DiscoveredWorkloadDrawer', () => {
         raw_hash: '9a8f7e6d5c4b3a210fedcba987654321',
         system_prompt: 'You are an autonomous Claude coding agent with secure bash execution.',
         user_metadata: {
-          owner: 'Andrew Martin (User)',
-          org_id: '1f9b3065-9e10-42e5-b2ac-e8f37a186b88',
-          workspace_id: 'wrkspc_01PFJfZsJrq5bUVWA2wWnyvm',
+          owner: 'dev@signalloom.local',
+          org_id: 'org_test_9e10-42e5-b2ac-e8f37a186b88',
+          workspace_id: 'wrkspc_test_bUVWA2wWnyvm',
           key_type: 'service_account',
         },
         environment_config: {
@@ -268,8 +268,8 @@ describe('DiscoveredWorkloadDrawer', () => {
 
       // Identity & Organization Grid
       expect(screen.getByTestId('drawer-claude-user-owner')).toHaveTextContent('dev@signalloom.local')
-      expect(screen.getByTestId('drawer-claude-org-id')).toHaveTextContent('1f9b3065-9e10-42e5-b2ac-e8f37a186b88')
-      expect(screen.getByTestId('drawer-claude-workspace-id')).toHaveTextContent('wrkspc_01PFJfZsJrq5bUVWA2wWnyvm')
+      expect(screen.getByTestId('drawer-claude-org-id')).toHaveTextContent('org_test_9e10-42e5-b2ac-e8f37a186b88')
+      expect(screen.getByTestId('drawer-claude-workspace-id')).toHaveTextContent('wrkspc_test_bUVWA2wWnyvm')
       expect(screen.getByTestId('drawer-claude-exec-identity')).toHaveTextContent('service_account')
 
       // Content-Addressed Versioning & Deduplication Banner
@@ -292,7 +292,7 @@ describe('DiscoveredWorkloadDrawer', () => {
       expect(screen.getByTestId('drawer-claude-cost-metric')).toHaveTextContent('$0.11 / $5.00 limit')
     })
 
-    it('falls back to default values when user_metadata or raw_hash are omitted on a Claude workload', () => {
+    it('shows "Not reported" rather than inventing values when user_metadata or raw_hash are omitted on a Claude workload', () => {
       const minimalClaude: DiscoveryWorkload = {
         ...mockClaudeWorkload,
         owner: null,
@@ -313,12 +313,22 @@ describe('DiscoveredWorkloadDrawer', () => {
       )
 
       expect(screen.getByTestId('drawer-claude-user-card')).toBeInTheDocument()
-      expect(screen.getByTestId('drawer-claude-user-owner')).toHaveTextContent('Andrew Martin (User)')
-      expect(screen.getByTestId('drawer-claude-org-id')).toHaveTextContent('1f9b3065-9e10-42e5-b2ac-e8f37a186b88')
-      expect(screen.getByTestId('drawer-claude-workspace-id')).toHaveTextContent('wrkspc_01PFJfZsJrq5bUVWA2wWnyvm')
-      expect(screen.getByTestId('drawer-claude-exec-identity')).toHaveTextContent('service_account')
-      expect(screen.getByTestId('drawer-claude-snapshot-hash')).toHaveTextContent('SHA-256: 7a8f9b... (Content-Addressed)')
+      expect(screen.getByTestId('drawer-claude-user-owner')).toHaveTextContent('Not reported')
+      expect(screen.getByTestId('drawer-claude-org-id')).toHaveTextContent('Not reported')
+      expect(screen.getByTestId('drawer-claude-workspace-id')).toHaveTextContent('Not reported')
+      expect(screen.getByTestId('drawer-claude-exec-identity')).toHaveTextContent('Not reported')
+      expect(screen.getByTestId('drawer-claude-environment')).toHaveTextContent('Not reported')
+      expect(screen.getByTestId('drawer-claude-network-egress')).toHaveTextContent('Not reported')
+      expect(screen.getByTestId('drawer-claude-package-registries')).toHaveTextContent('Not reported')
+      expect(screen.getByTestId('drawer-claude-tokens-metric')).toHaveTextContent('Not reported')
+      expect(screen.getByTestId('drawer-claude-cost-metric')).toHaveTextContent('Not reported')
+      expect(screen.getByTestId('drawer-claude-snapshot-hash')).toHaveTextContent('SHA-256: Not reported')
       expect(screen.getByTestId('drawer-claude-dedup-badge')).toHaveTextContent('✓ Storage Deduplicated · Versioned Snapshot')
+
+      // None of the previously-hardcoded fabrications may ever render again.
+      expect(screen.queryByText(/Andrew Martin \(User\)/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/1f9b3065-9e10-42e5-b2ac-e8f37a186b88/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/wrkspc_01PFJfZsJrq5bUVWA2wWnyvm/)).not.toBeInTheDocument()
     })
 
     it('does NOT render Claude card for non-Claude workloads', () => {

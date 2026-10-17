@@ -43,8 +43,10 @@ def _environment(i: str = "env_01CyCigBbDRSLTzSCyyHQ7eT", name: str = "cloud-dev
         "id": i,
         "type": "environment",
         "name": name,
-        "network": "unrestricted",
-        "packages": ["python3-dev", "gcc"],
+        "config": {
+            "networking": {"type": "unrestricted"},
+            "packages": {"apt": ["python3-dev", "gcc"]},
+        },
         "updated_at": "2026-10-01T00:00:00Z",
     }
 
@@ -134,15 +136,15 @@ def test_discovery_workloads_response_enriches_metadata(monkeypatch):
         assert len(claude_workloads) >= 1
         agent_wl = next(w for w in claude_workloads if w["id"] == "agent_1")
 
-        # Exposes owner
-        assert agent_wl["owner"] == "Andrew Martin (User)"
+        # Anthropic reported no owner for this agent, and none was fabricated.
+        assert agent_wl.get("owner") is None
 
-        # Exposes user_metadata, raw_hash, system_prompt, environment_config, metrics in metadata
+        # Exposes user_metadata, raw_hash, system_prompt, environment_config, metrics in metadata,
+        # but every one of the previously-hardcoded fields is absent because the payload (and the
+        # stored credentials, which carry no workspace_id in this test) never supplied them.
         meta = agent_wl["metadata"]
         assert "user_metadata" in meta
-        assert meta["user_metadata"]["owner"] == "Andrew Martin (User)"
-        assert meta["user_metadata"]["org_id"] == "1f9b3065-9e10-42e5-b2ac-e8f37a186b88"
-        assert meta["user_metadata"]["key_type"] == "service_account"
+        assert meta["user_metadata"] == {}
 
         assert "raw_hash" in meta
         assert isinstance(meta["raw_hash"], str) and len(meta["raw_hash"]) == 64
@@ -150,6 +152,7 @@ def test_discovery_workloads_response_enriches_metadata(monkeypatch):
         assert meta["system_prompt"] == "Act as a secure agent"
         assert "environment_config" in meta
         assert "metrics" in meta
+        assert meta["metrics"] == {}
 
 
 def test_environment_kind_sync(monkeypatch):

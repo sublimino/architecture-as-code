@@ -36,6 +36,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from config import settings
 from agent_claim import clamp_claim_delegation_in_spine, sync_claim_delegation_to_spine
+from eap_contract import get_spiffe_trust_domain
 import claim_tenancy
 import fleet_workloads
 import policy_scan
@@ -3240,12 +3241,12 @@ def _agent_response_from_row(
             service_account=sa,
             framework=framework,
             model=model,
-            execution_mode="autonomous",
+            execution_mode=disc.get("execution_mode"),
             node=node,
-            phase=phase or ("Running" if canonical_state == "Governed" else None),
+            phase=phase,
         )
 
-    spiffe_id = f"spiffe://osramp.acme.local/ns/{disc_ns}/sa/{sa}" if (disc_ns and sa) else (row.get("spiffe_id") if isinstance(row, dict) else (row["spiffe_id"] if "spiffe_id" in row else None))
+    spiffe_id = f"spiffe://{get_spiffe_trust_domain()}/ns/{disc_ns}/sa/{sa}" if (disc_ns and sa) else (row.get("spiffe_id") if isinstance(row, dict) else (row["spiffe_id"] if "spiffe_id" in row else None))
     trust_domain = None
     if spiffe_id and spiffe_id.startswith("spiffe://"):
         raw_tail = spiffe_id[len("spiffe://"):]
@@ -3270,7 +3271,7 @@ def _agent_response_from_row(
         spiffe_id=spiffe_id,
         spiffe_status="linked" if spiffe_id else "unlinked",
         aliases=[a for a in [name, row_id] if a],
-        trust_domain=trust_domain or ("osramp.acme.local" if spiffe_id else None),
+        trust_domain=trust_domain or (get_spiffe_trust_domain() if spiffe_id else None),
         svid_type="x509" if spiffe_id else None,
         cert_valid_from=created_iso,
         cert_valid_until=None,
@@ -3493,7 +3494,7 @@ def _agent_response_from_discovered(
         phase=phase or "Running",
     )
 
-    spiffe_id = f"spiffe://osramp.acme.local/ns/{disc_ns}/sa/{sa}" if (disc_ns and sa) else None
+    spiffe_id = f"spiffe://{get_spiffe_trust_domain()}/ns/{disc_ns}/sa/{sa}" if (disc_ns and sa) else None
     trust_domain = None
     if spiffe_id and spiffe_id.startswith("spiffe://"):
         raw_tail = spiffe_id[len("spiffe://"):]
@@ -3517,7 +3518,7 @@ def _agent_response_from_discovered(
         spiffe_id=spiffe_id,
         spiffe_status="linked" if spiffe_id else "unlinked",
         aliases=[a for a in [name, discovered_id] if a],
-        trust_domain=trust_domain or ("osramp.acme.local" if spiffe_id else None),
+        trust_domain=trust_domain or (get_spiffe_trust_domain() if spiffe_id else None),
         svid_type="x509" if spiffe_id else None,
         cert_valid_from=None,
         cert_valid_until=None,
@@ -10524,11 +10525,7 @@ async def list_discovery_workloads(
                         user_meta = json.loads(user_meta)
                     except Exception:
                         user_meta = {}
-                owner = None
-                if r["provider_id"] == "claude":
-                    owner = user_meta.get("owner", "Andrew Martin (User)")
-                elif user_meta.get("owner"):
-                    owner = user_meta.get("owner")
+                owner = user_meta.get("owner") or None
 
                 env_config = r.get("environment_config") or {}
                 if isinstance(env_config, str):

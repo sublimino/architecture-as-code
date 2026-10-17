@@ -57,6 +57,11 @@ def test_get_presets_unauthenticated_returns_401() -> None:
 
 
 def test_get_presets_returns_account_types_and_catalogue() -> None:
+    # No pool: get_presets must degrade to the built-ins alone rather than
+    # picking up a FakePool (with its own custom_account_types) left on
+    # main_app.state by a test that ran earlier in this process -- state.pool
+    # is a module-level singleton, not reset between tests automatically.
+    main_app.state.pool = None
     client = EAPClient(main_app, subject=EAP_OPERATOR)
     resp = client.get("/api/v1/admin/features/presets")
     assert resp.status_code == 200
@@ -65,8 +70,9 @@ def test_get_presets_returns_account_types_and_catalogue() -> None:
     assert "presets" in data
     preset_ids = [p["id"] for p in data["presets"]]
     # eap_pilot and full_demo are deprecated aliases of eap_full and full: still
-    # applicable, listed once under their canonical entry.
-    assert preset_ids == ["eap_view", "eap_full", "full", "minimal_governance"]
+    # applicable, listed once under their canonical entry. minimal_governance
+    # was retired (docs/signalloom/feature-flag-account-types.md).
+    assert preset_ids == ["eap_view", "eap_full", "full"]
 
     eap_preset = next(p for p in data["presets"] if p["id"] == "eap_full")
     assert eap_preset["aliases"] == ["eap_pilot"]

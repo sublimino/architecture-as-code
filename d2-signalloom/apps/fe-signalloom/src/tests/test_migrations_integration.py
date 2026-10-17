@@ -110,6 +110,17 @@ def _pre_005_dir(tmp_path: Path) -> Path:
     return directory
 
 
+def _up_to_dir(tmp_path: Path, name: str, last_filename: str) -> Path:
+    """Every migration up to and including ``last_filename``, filename order."""
+    directory = tmp_path / name
+    directory.mkdir()
+    for filename in ALL_MIGRATIONS:
+        shutil.copy(MIGRATIONS_DIR / filename, directory / filename)
+        if filename == last_filename:
+            break
+    return directory
+
+
 @pytest.mark.asyncio
 async def test_runner_adds_the_scan_preference_columns_to_an_existing_database(
     scratch_pool: asyncpg.Pool, tmp_path: Path,
@@ -457,3 +468,90 @@ async def test_the_handlers_own_update_statement_runs_against_the_real_schema(
         "tenant-handler-sql",
     )
     assert all(cleared[column] is None for column in RISK_PROFILE_COLUMNS)
+
+
+# ---------------------------------------------------------------------------
+# 075: retiring the "Minimal Governance" preset remaps persisted tenants
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_tenant_recorded_as_minimal_governance_is_remapped_to_eap_view(
+    scratch_pool: asyncpg.Pool, tmp_path: Path,
+) -> None:
+    """A tenant whose account type was 'minimal_governance' before the preset
+    was retired must not silently lose the fact that a type was ever applied.
+
+    Pre-condition: a database at 074 (tenant_account_types exists, no remap
+    yet) with a row naming the about-to-be-retired preset -- exactly the state
+    a cluster that had applied it would be in. Migration 075 then runs as part
+    of the normal upgrade and must remap it to eap_view, marked customised
+    because the tenant's actual flags (untouched) do not equal eap_view's set.
+    """
+    await apply_migrations(scratch_pool, _up_to_dir(tmp_path, "upto-074", "074_tenant_account_types.sql"))
+    await scratch_pool.execute(
+        """INSERT INTO public.tenant_account_types (tenant_id, account_type, customised, updated_by)
+           VALUES ($1, $2, $3, $4)""",
+        "tenant-minimal", "minimal_governance", False, "superadmin@test",
+    )
+
+    await apply_migrations(scratch_pool)
+
+    row = await scratch_pool.fetchrow(
+        "SELECT account_type, customised FROM public.tenant_account_types WHERE tenant_id = $1",
+        "tenant-minimal",
+    )
+    assert row["account_type"] == "eap_view"
+    assert row["customised"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_tenant_never_on_minimal_governance_is_left_alone_by_075(
+    scratch_pool: asyncpg.Pool,
+) -> None:
+    await apply_migrations(scratch_pool)
+    await scratch_pool.execute(
+        """INSERT INTO public.tenant_account_types (tenant_id, account_type, customised, updated_by)
+           VALUES ($1, $2, $3, $4)""",
+        "tenant-already-full", "full", False, "superadmin@test",
+    )
+    # Re-running every migration (075 included) must be a no-op for an
+    # unrelated row: the UPDATE is scoped to account_type = 'minimal_governance'.
+    row = await scratch_pool.fetchrow(
+        "SELECT account_type, customised FROM public.tenant_account_types WHERE tenant_id = $1",
+        "tenant-already-full",
+    )
+    assert row["account_type"] == "full"
+    assert row["customised"] is False
+
+
+# ---------------------------------------------------------------------------
+# 076: custom account types
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_076_creates_the_custom_account_types_table(scratch_pool: asyncpg.Pool) -> None:
+    await apply_migrations(scratch_pool)
+    columns = await _columns(scratch_pool, "custom_account_types")
+    assert {"id", "name", "flags", "created_by", "created_at", "updated_by", "updated_at"} <= columns
+
+
+@pytest.mark.asyncio
+async def test_076_admits_the_new_account_type_audit_event_types(scratch_pool: asyncpg.Pool) -> None:
+    await apply_migrations(scratch_pool)
+    await scratch_pool.execute(
+        """INSERT INTO audit_events (tenant_id, event_type, actor, detail)
+           VALUES ($1, $2, $3, $4::jsonb)""",
+        "tenant-demo", "account_type.created", "superadmin@test", "{}",
+    )
+    for bad in ("account_type.renamed", "account_type.deleted"):
+        await scratch_pool.execute(
+            """INSERT INTO audit_events (tenant_id, event_type, actor, detail)
+               VALUES ($1, $2, $3, $4::jsonb)""",
+            "tenant-demo", bad, "superadmin@test", "{}",
+        )
+    count = await scratch_pool.fetchval(
+        "SELECT count(*) FROM audit_events WHERE tenant_id = $1", "tenant-demo",
+    )
+    assert count == 3

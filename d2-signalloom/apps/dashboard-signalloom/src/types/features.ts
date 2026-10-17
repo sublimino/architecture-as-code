@@ -33,8 +33,9 @@ export interface FeaturePreset {
   name: string
   description: string
   flags: Record<string, boolean>
-  /** 'account_type' for EAP View / EAP Full / Full; 'bundle' for other presets. */
-  kind?: 'account_type' | 'bundle'
+  /** 'account_type' for EAP View / EAP Full / Full; 'custom' for a superadmin-defined
+   * account type (migration 076); 'bundle' for any other (now-retired) preset. */
+  kind?: 'account_type' | 'custom' | 'bundle'
   /** 'draft' while the type's exact contents await sign-off. */
   status?: 'confirmed' | 'draft'
   /** Deprecated ids that still apply this preset (e.g. eap_pilot). */

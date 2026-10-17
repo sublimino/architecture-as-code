@@ -826,6 +826,15 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("GET", "/api/v1/admin/features/presets"),
     ("PUT", "/api/v1/admin/features"),
     ("PUT", "/api/v1/admin/features/{flag_key}"),
+    # Custom account type administration (admin_account_types.py, migration 076).
+    # Guarded by require_superadmin; a custom account type is a platform-level
+    # definition (like the built-in FEATURE_PRESETS constants it rides
+    # alongside), not a tenant-owned row, so there is nothing to tenant-scope
+    # here. Covered by test_admin_account_types_api.py and
+    # test_custom_account_types.py.
+    ("POST", "/api/v1/admin/account-types"),
+    ("PATCH", "/api/v1/admin/account-types/{type_id}"),
+    ("DELETE", "/api/v1/admin/account-types/{type_id}"),
     ("GET", "/api/health/crypto"),                       # reads a keys directory
     ("GET", "/api/network-tests"),                       # in-process probe results
     ("POST", "/api/network-tests/scan"),                 # in-process probe results

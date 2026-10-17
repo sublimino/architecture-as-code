@@ -104,9 +104,9 @@ FEATURE_PRESETS: dict[str, dict[str, Any]] = {
     "eap_full": {
         "name": "EAP Full",
         "kind": "account_type",
-        "status": "draft",
+        "status": "confirmed",
         "aliases": ["eap_pilot"],
-        "description": "Early access, full system. Adds signals, the Weave, risk, compliance, audit, cryptography and credential inventory to EAP View; demos, labs, topology and federated services stay off. Draft: exact contents pending confirmation.",
+        "description": "Early access, full system. Adds signals, the Weave, risk, compliance, audit, cryptography and credential inventory to EAP View; demos, labs, topology and federated services stay off.",
         "flags": {
             "core_governance": True,
             "audit": True,
@@ -141,39 +141,14 @@ FEATURE_PRESETS: dict[str, dict[str, Any]] = {
         "description": "Every page, demo scenario and experimental lab enabled.",
         "flags": {key: True for key in DEFAULT_SYSTEM_FLAGS},
     },
-    "minimal_governance": {
-        "name": "Minimal Governance",
-        "kind": "bundle",
-        "status": "confirmed",
-        "aliases": [],
-        "description": "Focused minimal posture exposing only the agent registry and authoritative immutable audit log.",
-        "flags": {
-            "core_governance": True,
-            "audit": True,
-            "compliance": False,
-            "demos_fleet": False,
-            "supercred": False,
-            "rbac_analysis": False,
-            "collusion_access": False,
-            "page_discovery": False,
-            "page_agents": True,
-            "page_topology": False,
-            "page_weave": False,
-            "page_signals": False,
-            "page_risk": False,
-            "page_policies": False,
-            "page_compliance": False,
-            "page_audit": True,
-            "page_federated_services": False,
-            "page_cryptography": False,
-            "page_credential_inventory": False,
-            "page_signal_store": False,
-            "page_feeds": False,
-            "page_network_tests": False,
-            "page_agentmaxxing": False,
-        },
-    },
 }
+# "minimal_governance" (a non-account-type "bundle" preset) was retired here.
+# Any tenant with that account type recorded was remapped to "eap_view" (the
+# nearest supported type by flag-set Hamming distance: 4 of 23 flags differ,
+# vs 9 for eap_full and 19 for full) by migration
+# 075_retire_minimal_governance_account_type.sql, which also marks the row
+# customised since the tenant's actual flags are untouched and no longer equal
+# eap_view's set exactly. See docs/signalloom/feature-flag-account-types.md.
 
 #: The account types, in the order the Feature Flags page offers them.
 ACCOUNT_TYPE_IDS: tuple[str, ...] = tuple(
@@ -186,6 +161,14 @@ PRESET_ALIASES: dict[str, str] = {
     for canonical, preset in FEATURE_PRESETS.items()
     for alias in preset["aliases"]
 }
+
+#: Ids a custom account type (CustomAccountTypeRepository) may never take: the
+#: built-in account types, their deprecated aliases, and "minimal_governance"
+#: (retired, never reassignable to avoid colliding with the migration 075
+#: remap target's meaning).
+RESERVED_ACCOUNT_TYPE_IDS: frozenset[str] = frozenset(
+    set(FEATURE_PRESETS) | set(PRESET_ALIASES) | {"minimal_governance"}
+)
 
 
 def resolve_preset_id(preset_name: str) -> str | None:
@@ -232,19 +215,33 @@ class AccountTypeState(BaseModel):
     label: str = Field(..., description="Human-readable account type, as the page shows it")
 
 
-def _matching_preset(effective: dict[str, bool]) -> str | None:
-    for preset_id, preset in FEATURE_PRESETS.items():
+def _matching_preset(
+    effective: dict[str, bool], presets: dict[str, dict[str, Any]] | None = None
+) -> str | None:
+    for preset_id, preset in (presets if presets is not None else FEATURE_PRESETS).items():
         if all(effective.get(k) == v for k, v in preset["flags"].items()):
             return preset_id
     return None
 
 
-def describe_account_type(recorded: str | None, effective: dict[str, bool]) -> AccountTypeState:
-    """Derive the account type state from the recorded type and the effective flags."""
-    matches = _matching_preset(effective)
-    preset = FEATURE_PRESETS.get(recorded) if recorded else None
+def describe_account_type(
+    recorded: str | None,
+    effective: dict[str, bool],
+    presets: dict[str, dict[str, Any]] | None = None,
+) -> AccountTypeState:
+    """Derive the account type state from the recorded type and the effective flags.
+
+    ``presets`` defaults to the built-in ``FEATURE_PRESETS`` but callers with a
+    database handle should pass the merged built-in + custom catalogue
+    (``_merged_presets``), so a tenant recorded against a custom account type
+    is described correctly rather than reported "Unassigned".
+    """
+    catalogue = presets if presets is not None else FEATURE_PRESETS
+    matches = _matching_preset(effective, catalogue)
+    preset = catalogue.get(recorded) if recorded else None
     if preset is None:
-        label = f"Unassigned (flags match {FEATURE_PRESETS[matches]['name']})" if matches else "Unassigned"
+        matched_name = catalogue[matches]["name"] if matches else None
+        label = f"Unassigned (flags match {matched_name})" if matched_name else "Unassigned"
         return AccountTypeState(id=None, customised=False, matches=matches, label=label)
     customised = any(effective.get(k) != v for k, v in preset["flags"].items())
     label = f"Custom, based on {preset['name']}" if customised else preset["name"]
@@ -717,13 +714,18 @@ class FeatureFlagRepository:
         preset_name: str,
         updated_by: str | None = None,
     ) -> dict[str, bool]:
-        """Apply a preset (or deprecated alias) and record it as the tenant's account type."""
+        """Apply a preset -- built-in, deprecated alias, or custom -- and record
+        it as the tenant's account type."""
         canonical = resolve_preset_id(preset_name)
-        if canonical is None:
-            raise ValueError(f"Unknown preset: {preset_name}")
-        applied = await cls.update_tenant_flags(
-            pool_or_conn, tenant_id, FEATURE_PRESETS[canonical]["flags"]
-        )
+        if canonical is not None:
+            flags = FEATURE_PRESETS[canonical]["flags"]
+        else:
+            custom = await CustomAccountTypeRepository.get(pool_or_conn, preset_name)
+            if custom is None:
+                raise ValueError(f"Unknown preset: {preset_name}")
+            canonical = custom["id"]
+            flags = custom["flags"]
+        applied = await cls.update_tenant_flags(pool_or_conn, tenant_id, flags)
         await AccountTypeRepository.record(pool_or_conn, tenant_id, canonical, False, updated_by)
         return applied
 
@@ -783,11 +785,184 @@ class AccountTypeRepository:
         """Re-derive the tenant's state after a flag change and persist ``customised``."""
         record = await cls.get(pool_or_conn, tenant_id)
         effective = await FeatureFlagRepository.evaluate_all_flags(pool_or_conn, tenant_id)
-        state = describe_account_type(record["account_type"] if record else None, effective)
+        presets = await _merged_presets(pool_or_conn)
+        state = describe_account_type(record["account_type"] if record else None, effective, presets)
         if record is not None and bool(record["customised"]) != state.customised:
             await cls.record(pool_or_conn, tenant_id, record["account_type"], state.customised, updated_by)
         return state
 
+
+def _parse_custom_account_type_row(row: Any) -> dict[str, Any]:
+    """Parse a ``public.custom_account_types`` row into a plain dict with
+    boolean flags (``flags`` is stored as JSONB and may come back as a str)."""
+    parsed = dict(row)
+    flags = parsed.get("flags")
+    if isinstance(flags, str):
+        try:
+            flags = json.loads(flags)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            flags = {}
+    parsed["flags"] = {k: bool(v) for k, v in (flags or {}).items()}
+    return parsed
+
+
+class CustomAccountTypeRepository:
+    """Superadmin-defined account types (migration 076, public.custom_account_types).
+
+    A custom account type is a named, explicit flag set a superadmin can
+    create, rename and delete (api/admin_account_types.py). It is persisted
+    and tenant-assignable exactly like a built-in account type --
+    ``FeatureFlagRepository.apply_preset`` accepts its id -- and is listed
+    alongside the built-ins by ``list_all_presets``. Built-in ids
+    (``RESERVED_ACCOUNT_TYPE_IDS``) can never be used for one, and a custom
+    type's flags must set exactly the registered flag keys, same as a
+    built-in's.
+    """
+
+    @classmethod
+    async def list(cls, pool_or_conn: Any) -> list[dict[str, Any]]:
+        """Every custom account type, ordered by id for deterministic output."""
+        async with _acquire_connection(pool_or_conn) as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, name, flags, created_by, created_at, updated_by, updated_at
+                FROM public.custom_account_types
+                ORDER BY id
+                """
+            )
+            return [_parse_custom_account_type_row(r) for r in rows]
+
+    @classmethod
+    async def get(cls, pool_or_conn: Any, type_id: str) -> dict[str, Any] | None:
+        async with _acquire_connection(pool_or_conn) as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, name, flags, created_by, created_at, updated_by, updated_at
+                FROM public.custom_account_types
+                WHERE id = $1
+                """,
+                type_id,
+            )
+            return _parse_custom_account_type_row(row) if row is not None else None
+
+    @classmethod
+    async def create(
+        cls,
+        pool_or_conn: Any,
+        type_id: str,
+        name: str,
+        flags: dict[str, bool],
+        created_by: str | None,
+    ) -> dict[str, Any]:
+        """Create a custom account type. Raises ``ValueError`` on any invariant
+        violation (reserved id, incomplete flag set, duplicate id) rather than
+        leaving the caller to translate a database error into an API response."""
+        if not type_id or not isinstance(type_id, str):
+            raise ValueError("id must be a non-empty string")
+        if type_id in RESERVED_ACCOUNT_TYPE_IDS:
+            raise ValueError(f"'{type_id}' is a built-in account type id and cannot be reused")
+        if not name or not isinstance(name, str):
+            raise ValueError("name must be a non-empty string")
+        if set(flags) != set(DEFAULT_SYSTEM_FLAGS):
+            missing = set(DEFAULT_SYSTEM_FLAGS) - set(flags)
+            extra = set(flags) - set(DEFAULT_SYSTEM_FLAGS)
+            raise ValueError(
+                f"flags must set exactly the {len(DEFAULT_SYSTEM_FLAGS)} registered flag keys"
+                f" (missing={sorted(missing)}, unknown={sorted(extra)})"
+            )
+        if await cls.get(pool_or_conn, type_id) is not None:
+            raise ValueError(f"custom account type '{type_id}' already exists")
+
+        async with _acquire_connection(pool_or_conn) as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO public.custom_account_types (
+                    id, name, flags, created_by, updated_by, updated_at
+                )
+                VALUES ($1, $2, $3::jsonb, $4, $4, NOW())
+                RETURNING id, name, flags, created_by, created_at, updated_by, updated_at
+                """,
+                type_id,
+                name,
+                json.dumps({k: bool(v) for k, v in flags.items()}),
+                created_by,
+            )
+            return _parse_custom_account_type_row(row)
+
+    @classmethod
+    async def rename(
+        cls, pool_or_conn: Any, type_id: str, name: str, updated_by: str | None
+    ) -> dict[str, Any] | None:
+        """Rename a custom account type. Returns ``None`` if ``type_id`` is not
+        a known custom type (the caller decides 403 vs 404)."""
+        if not name or not isinstance(name, str):
+            raise ValueError("name must be a non-empty string")
+        async with _acquire_connection(pool_or_conn) as conn:
+            row = await conn.fetchrow(
+                """
+                UPDATE public.custom_account_types
+                SET name = $2, updated_by = $3, updated_at = NOW()
+                WHERE id = $1
+                RETURNING id, name, flags, created_by, created_at, updated_by, updated_at
+                """,
+                type_id,
+                name,
+                updated_by,
+            )
+            return _parse_custom_account_type_row(row) if row is not None else None
+
+    @classmethod
+    async def delete(cls, pool_or_conn: Any, type_id: str) -> bool:
+        """Delete a custom account type. Returns True if a row was removed."""
+        async with _acquire_connection(pool_or_conn) as conn:
+            result = await conn.execute(
+                "DELETE FROM public.custom_account_types WHERE id = $1",
+                type_id,
+            )
+            if isinstance(result, str) and result.startswith("DELETE "):
+                try:
+                    return int(result.split(" ")[1]) > 0
+                except (ValueError, IndexError):
+                    return False
+            return bool(result)
+
+
+async def _merged_presets(pool_or_conn: Any) -> dict[str, dict[str, Any]]:
+    """Built-in presets plus every persisted custom account type, keyed by id.
+
+    The single place that assembles "every account type this tenant could be
+    recorded against" for ``describe_account_type``/``list_all_presets``, so a
+    tenant recorded against a custom type is never mis-reported "Unassigned".
+    """
+    merged: dict[str, dict[str, Any]] = dict(FEATURE_PRESETS)
+    for row in await CustomAccountTypeRepository.list(pool_or_conn):
+        merged[row["id"]] = {
+            "name": row["name"],
+            "kind": "custom",
+            "status": "confirmed",
+            "aliases": [],
+            "description": f"Custom account type, defined by {row['created_by'] or 'a superadmin'}.",
+            "flags": dict(row["flags"]),
+        }
+    return merged
+
+
+async def list_all_presets(pool_or_conn: Any) -> list[dict[str, Any]]:
+    """Built-in presets plus persisted custom account types, in the shape
+    ``list_presets`` returns, for GET /api/v1/admin/features/presets."""
+    merged = await _merged_presets(pool_or_conn)
+    return [
+        {
+            "id": k,
+            "name": v["name"],
+            "kind": v["kind"],
+            "status": v["status"],
+            "aliases": list(v["aliases"]),
+            "description": v["description"],
+            "flags": dict(v["flags"]),
+        }
+        for k, v in merged.items()
+    ]
 
 
 async def is_feature_enabled(

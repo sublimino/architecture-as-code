@@ -8,6 +8,9 @@ import {
   useFeaturePresets,
   useUpdateTenantFeatures,
   useUpdateSingleFeature,
+  useCreateAccountType,
+  useRenameAccountType,
+  useDeleteAccountType,
 } from '../../api/featuresApi'
 import { api } from '../../api/client'
 import {
@@ -216,6 +219,58 @@ export default function FeaturesPage({
     },
   })
 
+  // Custom account types: create, rename, delete. Superadmin-only (the
+  // server enforces it; the controls below are disabled rather than hidden,
+  // matching the account-type Apply control's pattern).
+  const [newTypeId, setNewTypeId] = useState('')
+  const [newTypeName, setNewTypeName] = useState('')
+  const [newTypeFlags, setNewTypeFlags] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(Object.keys(DEFAULT_SYSTEM_FLAGS).map((k) => [k, false])),
+  )
+  const [renamingTypeId, setRenamingTypeId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [deletingTypeId, setDeletingTypeId] = useState<string | null>(null)
+  const [createTypeError, setCreateTypeError] = useState<string | null>(null)
+
+  const createAccountTypeMutation = useCreateAccountType({
+    token,
+    onSuccess: () => {
+      setNewTypeId('')
+      setNewTypeName('')
+      setNewTypeFlags(Object.fromEntries(Object.keys(DEFAULT_SYSTEM_FLAGS).map((k) => [k, false])))
+      setCreateTypeError(null)
+      setSuccessToast('Custom account type created.')
+    },
+    onError: (err) => setCreateTypeError(err.message || 'Failed to create custom account type'),
+  })
+
+  const renameAccountTypeMutation = useRenameAccountType({
+    token,
+    onSuccess: () => {
+      setRenamingTypeId(null)
+      setSuccessToast('Custom account type renamed.')
+    },
+    onError: (err) => setActionError(err.message || 'Failed to rename custom account type'),
+  })
+
+  const deleteAccountTypeMutation = useDeleteAccountType({
+    token,
+    onSuccess: () => {
+      setDeletingTypeId(null)
+      setSuccessToast('Custom account type deleted.')
+    },
+    onError: (err) => setActionError(err.message || 'Failed to delete custom account type'),
+  })
+
+  const handleCreateAccountType = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault()
+      setCreateTypeError(null)
+      createAccountTypeMutation.mutate({ id: newTypeId.trim(), name: newTypeName.trim(), flags: newTypeFlags })
+    },
+    [createAccountTypeMutation, newTypeId, newTypeName, newTypeFlags],
+  )
+
   // Account type selection. The selected card defaults to the tenant's recorded
   // type, but only while its flags still match it: a customised tenant has no
   // card checked, so the page never claims a type the flags no longer match.
@@ -284,16 +339,21 @@ export default function FeaturesPage({
   // Preset catalogue from the server, falling back to the built-in account types
   // when it is unavailable. Account types get the selector; anything else is a
   // bundle offered below it.
-  const { accountTypes, bundles } = useMemo(() => {
+  const { accountTypes, bundles, customTypes } = useMemo(() => {
     const catalogue: FeaturePreset[] = presetsData?.presets?.length ? presetsData.presets : ACCOUNT_TYPES
     const types = catalogue.filter((p) => p.kind === 'account_type')
     return {
       accountTypes: types.length > 0 ? types : ACCOUNT_TYPES,
       bundles: catalogue.filter((p) => p.kind === 'bundle'),
+      customTypes: catalogue.filter((p) => p.kind === 'custom'),
     }
   }, [presetsData])
 
-  const selectedPreset = accountTypes.find((t) => t.id === checkedTypeId) ?? null
+  // Assignable types: built-ins plus every superadmin-defined custom type,
+  // in the one selector -- a custom type is tenant-assignable exactly like a
+  // built-in one.
+  const assignableTypes = useMemo(() => [...accountTypes, ...customTypes], [accountTypes, customTypes])
+  const selectedPreset = assignableTypes.find((t) => t.id === checkedTypeId) ?? null
 
   // Filtered categories and flags
   const filteredCategories = useMemo(() => {
@@ -516,7 +576,7 @@ export default function FeaturesPage({
               aria-labelledby="account-type-heading"
               style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}
             >
-              {accountTypes.map((type) => {
+              {assignableTypes.map((type) => {
                 const checked = checkedTypeId === type.id
                 const pages = enabledPages(type.flags)
                 return (
@@ -602,6 +662,159 @@ export default function FeaturesPage({
               </div>
             )}
           </div>
+
+          {/* Custom account types: create, rename, delete. Superadmin-only. */}
+          <div className="card" data-testid="custom-account-types-card" style={{ padding: '18px 20px', background: 'var(--surface)' }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 2 }}>
+              Custom account types
+            </h2>
+            <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>
+              Define a named, exact flag set a superadmin can assign to any tenant, just like EAP View, EAP Full or
+              Full. Built-in types cannot be renamed or deleted.
+            </p>
+
+            {customTypes.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                {customTypes.map((type) => (
+                  <div
+                    key={type.id}
+                    data-testid={`custom-account-type-row-${type.id}`}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                      padding: '10px 12px', background: 'var(--surface2)', border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius)',
+                    }}
+                  >
+                    {renamingTypeId === type.id ? (
+                      <form
+                        style={{ display: 'flex', gap: 8, flex: 1 }}
+                        onSubmit={(e) => {
+                          e.preventDefault()
+                          renameAccountTypeMutation.mutate({ id: type.id, name: renameValue.trim() })
+                        }}
+                      >
+                        <input
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          data-testid={`rename-account-type-input-${type.id}`}
+                          aria-label={`New name for ${type.name}`}
+                          style={{ flex: 1, padding: '6px 10px', fontSize: 13, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text)' }}
+                        />
+                        <button type="submit" className="btn btn-primary" data-testid={`rename-account-type-save-${type.id}`} style={{ padding: '6px 12px', fontSize: 12 }}>
+                          Save
+                        </button>
+                        <button type="button" className="btn btn-secondary" onClick={() => setRenamingTypeId(null)} style={{ padding: '6px 12px', fontSize: 12 }}>
+                          Cancel
+                        </button>
+                      </form>
+                    ) : (
+                      <>
+                        <div>
+                          <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text)' }}>{type.name}</span>
+                          <code style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)' }}>{type.id}</code>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            data-testid={`rename-account-type-${type.id}`}
+                            disabled={!isSuperadmin}
+                            onClick={() => {
+                              setRenamingTypeId(type.id)
+                              setRenameValue(type.name)
+                            }}
+                            style={{ padding: '6px 12px', fontSize: 12 }}
+                          >
+                            Rename
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            data-testid={`delete-account-type-${type.id}`}
+                            disabled={!isSuperadmin}
+                            onClick={() => setDeletingTypeId(type.id)}
+                            style={{ padding: '6px 12px', fontSize: 12, color: 'var(--error)' }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateAccountType} style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+              <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 10 }}>Create a custom account type</h3>
+              <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                <input
+                  value={newTypeId}
+                  onChange={(e) => setNewTypeId(e.target.value)}
+                  placeholder="id (e.g. eu_regulated)"
+                  data-testid="new-account-type-id"
+                  aria-label="New account type id"
+                  disabled={!isSuperadmin}
+                  style={{ flex: '1 1 200px', padding: '8px 12px', fontSize: 13, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text)' }}
+                />
+                <input
+                  value={newTypeName}
+                  onChange={(e) => setNewTypeName(e.target.value)}
+                  placeholder="Display name"
+                  data-testid="new-account-type-name"
+                  aria-label="New account type name"
+                  disabled={!isSuperadmin}
+                  style={{ flex: '1 1 200px', padding: '8px 12px', fontSize: 13, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text)' }}
+                />
+              </div>
+              <div
+                data-testid="new-account-type-flags"
+                style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 6, marginBottom: 12 }}
+              >
+                {Object.keys(DEFAULT_SYSTEM_FLAGS).map((flagKey) => (
+                  <label key={flagKey} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text)' }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(newTypeFlags[flagKey])}
+                      disabled={!isSuperadmin}
+                      data-testid={`new-account-type-flag-${flagKey}`}
+                      onChange={(e) => setNewTypeFlags((prev) => ({ ...prev, [flagKey]: e.target.checked }))}
+                    />
+                    {flagKey}
+                  </label>
+                ))}
+              </div>
+              {createTypeError && (
+                <div role="alert" data-testid="create-account-type-error" style={{ marginBottom: 10, fontSize: 12.5, color: 'var(--error)' }}>
+                  {createTypeError}
+                </div>
+              )}
+              {!isSuperadmin && (
+                <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+                  Only a superadmin can create a custom account type.
+                </p>
+              )}
+              <button
+                type="submit"
+                className="btn btn-primary"
+                data-testid="create-account-type-submit"
+                disabled={!isSuperadmin || !newTypeId.trim() || !newTypeName.trim() || createAccountTypeMutation.isPending}
+              >
+                {createAccountTypeMutation.isPending ? 'Creating…' : 'Create account type'}
+              </button>
+            </form>
+          </div>
+
+          {deletingTypeId && (
+            <ConfirmDialog
+              title={`Delete custom account type "${deletingTypeId}"?`}
+              body="Tenants currently assigned this type keep their flags; the type simply stops existing to apply again."
+              confirmLabel="Delete"
+              loading={deleteAccountTypeMutation.isPending}
+              onConfirm={() => deleteAccountTypeMutation.mutate({ id: deletingTypeId })}
+              onCancel={() => setDeletingTypeId(null)}
+            />
+          )}
 
           {pendingPreset && (
             <ConfirmDialog

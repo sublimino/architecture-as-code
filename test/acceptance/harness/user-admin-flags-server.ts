@@ -155,36 +155,8 @@ const FEATURE_PRESETS: FeaturePreset[] = [
       page_agentmaxxing: true,
     },
   },
-  {
-    id: 'minimal_governance',
-    name: 'Minimal Governance',
-    description: 'Minimal boundary view: agents registry, policy compliance, and audit trail only.',
-    flags: {
-      core_governance: true,
-      audit: true,
-      compliance: false,
-      demos_fleet: false,
-      supercred: false,
-      rbac_analysis: false,
-      collusion_access: false,
-      page_discovery: false,
-      page_agents: true,
-      page_topology: false,
-      page_weave: false,
-      page_signals: false,
-      page_risk: false,
-      page_policies: false,
-      page_compliance: false,
-      page_audit: true,
-      page_federated_services: false,
-      page_cryptography: false,
-      page_credential_inventory: false,
-      page_signal_store: false,
-      page_feeds: false,
-      page_network_tests: false,
-      page_agentmaxxing: false,
-    },
-  },
+  // "minimal_governance" (retired, docs/signalloom/feature-flag-account-types.md)
+  // was removed here. No acceptance spec exercised it.
 ]
 
 const TENANT_FLAGS: Record<string, Record<string, boolean>> = {

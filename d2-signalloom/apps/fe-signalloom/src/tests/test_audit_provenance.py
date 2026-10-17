@@ -547,6 +547,22 @@ ACCEPTED_CLIENT_SUPPLIED_FIELDS: dict[tuple[str, str, str, str], str] = {
     ("admin_features.py", "update_single_tenant_feature", "detail", "enabled"): (
         "Boolean flag toggle state persisted to tenant_feature_flags."
     ),
+    # ---- Custom account type administration (SLAAT) ---------------------
+    ("admin_account_types.py", "create_custom_account_type", "detail", "id"): (
+        "Custom account type id persisted to custom_account_types via CustomAccountTypeRepository.create."
+    ),
+    ("admin_account_types.py", "create_custom_account_type", "detail", "name"): (
+        "Custom account type name persisted to custom_account_types via CustomAccountTypeRepository.create."
+    ),
+    ("admin_account_types.py", "create_custom_account_type", "detail", "flags"): (
+        "Not reproduced in the audit row (only id and name are) -- this entry exists "
+        "because the taint tracker follows body.flags into CustomAccountTypeRepository.create's "
+        "argument list and the field name alone trips the field-not-handler key. "
+        "The flag set itself is persisted to custom_account_types.flags."
+    ),
+    ("admin_account_types.py", "rename_custom_account_type", "detail", "name"): (
+        "New name persisted to custom_account_types via CustomAccountTypeRepository.rename."
+    ),
     ("environment_lifecycle.py", "api_heartbeat", "detail", "extend_minutes"): (
         "EAP heartbeat extension parameter recorded in audit detail."
     ),
@@ -1400,6 +1416,18 @@ RECORDS_A_NON_DATABASE_ACTION: dict[tuple[str, str], str] = {
     ("admin_users.py", "delete_user"): (
         "LEGITIMATE. User deletion is persisted to platform_users via PlatformUserRepository; "
         "audit event is recorded durably."
+    ),
+    ("admin_account_types.py", "create_custom_account_type"): (
+        "LEGITIMATE. Database write is performed via CustomAccountTypeRepository.create "
+        "against custom_account_types using the provided connection pool before the audit event is emitted."
+    ),
+    ("admin_account_types.py", "rename_custom_account_type"): (
+        "LEGITIMATE. Database write is performed via CustomAccountTypeRepository.rename "
+        "against custom_account_types using the provided connection pool before the audit event is emitted."
+    ),
+    ("admin_account_types.py", "delete_custom_account_type"): (
+        "LEGITIMATE. Database write is performed via CustomAccountTypeRepository.delete "
+        "against custom_account_types using the provided connection pool before the audit event is emitted."
     ),
 }
 
